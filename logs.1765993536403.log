@@ -1,0 +1,432 @@
+2025-12-17T17:44:46.000000000Z [inf]  Starting Container
+2025-12-17T17:44:47.096856295Z [err]  }
+2025-12-17T17:44:47.096874464Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:47.096877653Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:47.096883443Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:47.096886076Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:47.096893589Z [inf]  [17:44:46] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:44:47.096896107Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:47.096897152Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:47.096906726Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:47.096908642Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:47.096910144Z [err]    errorCode: undefined
+2025-12-17T17:44:47.096910380Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:47.096919078Z [err]  
+2025-12-17T17:44:47.096928010Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:47.096932089Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:47.096941835Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:47.096949670Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:47.102592641Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:44:47.102601810Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:47.102609127Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:47.102609474Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:47.102616562Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:47.102622196Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:47.102629961Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:47.102633189Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:47.102636332Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:47.102639147Z [err]    errorCode: undefined
+2025-12-17T17:44:47.102642001Z [err]  
+2025-12-17T17:44:47.102645178Z [err]  }
+2025-12-17T17:44:47.102651488Z [inf]  [17:44:46] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:44:47.102652249Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:47.102657349Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:47.102675138Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:44:47.102681610Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:44:47.105190225Z [inf]  [17:44:46] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:44:47.105194633Z [inf]      error: {
+2025-12-17T17:44:47.105198527Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:44:47.105204636Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:44:47.105208656Z [inf]      }
+2025-12-17T17:44:49.412485751Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:49.412492290Z [inf]  [17:44:48] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:44:49.412498960Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:49.412506122Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:49.412511637Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:49.412519173Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:49.412525482Z [err]  
+2025-12-17T17:44:49.412533146Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:49.412539476Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:49.412545792Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:49.412551980Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:49.412558531Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:49.412564704Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:49.412571947Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:49.412580278Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:49.412588288Z [err]    errorCode: undefined
+2025-12-17T17:44:49.412595432Z [err]  }
+2025-12-17T17:44:50.403335211Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:50.403339530Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:50.403347697Z [err]  
+2025-12-17T17:44:50.403353696Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:50.403359648Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:50.403367360Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:50.403377003Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:50.403384361Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:50.403390066Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:50.403396826Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:50.403403551Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:50.403410243Z [err]    errorCode: undefined
+2025-12-17T17:44:50.403416795Z [err]  }
+2025-12-17T17:44:50.403424624Z [inf]  [17:44:48] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:44:50.403430897Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:44:50.403436410Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:44:50.403441040Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:44:50.403883614Z [inf]  [17:44:48] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:44:50.403888678Z [inf]      error: {
+2025-12-17T17:44:50.403896773Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:44:50.403903591Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:44:50.403908631Z [inf]      }
+2025-12-17T17:44:51.256032339Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:51.256038217Z [inf]  [17:44:51] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:44:51.256043157Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:51.256048146Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:51.256053512Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:51.256058949Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:51.256064515Z [err]  
+2025-12-17T17:44:51.256070031Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:51.256075204Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:51.256080341Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:51.256085600Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:51.256093412Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:51.256103477Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:51.256109621Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:51.256115356Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:51.256121149Z [err]    errorCode: undefined
+2025-12-17T17:44:51.256127312Z [err]  }
+2025-12-17T17:44:51.256844039Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:51.256851577Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:51.256858808Z [err]  
+2025-12-17T17:44:51.256865981Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:51.256955057Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:51.256963583Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:51.256972048Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:51.256979807Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:51.256985925Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:51.257908172Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:51.257914895Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:51.257929887Z [err]    errorCode: undefined
+2025-12-17T17:44:51.257937013Z [err]  }
+2025-12-17T17:44:51.258347414Z [inf]  [17:44:51] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:44:51.258356220Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:44:51.258361876Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:44:51.258367080Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:44:51.259440460Z [inf]  [17:44:51] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:44:51.259447539Z [inf]      error: {
+2025-12-17T17:44:51.259452952Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:44:51.259458670Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:44:51.259463614Z [inf]      }
+2025-12-17T17:44:54.423978294Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:54.423982185Z [inf]  [17:44:53] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:44:54.423986604Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:54.423991054Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:54.423995796Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:54.423999923Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:54.424004142Z [err]  
+2025-12-17T17:44:54.424008661Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:54.424013354Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:54.424017072Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:54.424020728Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:54.424024689Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:54.424028540Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:54.424033400Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:54.424037975Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:54.424041832Z [err]    errorCode: undefined
+2025-12-17T17:44:54.424045917Z [err]  }
+2025-12-17T17:44:54.426381949Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:54.426394655Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:54.426401969Z [err]  
+2025-12-17T17:44:54.426408901Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:54.426416165Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:54.426424834Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:54.426432332Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:54.426438098Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:54.426443094Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:54.426450312Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:54.426456186Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:54.426460782Z [err]    errorCode: undefined
+2025-12-17T17:44:54.426465652Z [err]  }
+2025-12-17T17:44:54.426470472Z [inf]  [17:44:53] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:44:54.426476692Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:44:54.426484086Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:44:54.427387434Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:44:54.428886103Z [inf]  [17:44:53] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:44:54.428894323Z [inf]      error: {
+2025-12-17T17:44:54.428905037Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:44:54.428912781Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:44:54.428962050Z [inf]      }
+2025-12-17T17:44:56.293898871Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:56.293916598Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:56.293922842Z [err]  
+2025-12-17T17:44:56.293934319Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:56.293949047Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:56.293957333Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:56.293967078Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:56.293973249Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:44:56.293976368Z [err]  }
+2025-12-17T17:44:56.293977939Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:56.293985956Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:56.293986733Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:44:56.293987246Z [inf]  [17:44:55] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:44:56.293990245Z [err]    errorCode: undefined
+2025-12-17T17:44:56.294001908Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:56.294013876Z [inf]  [17:44:56] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:44:56.294030491Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:44:56.294162415Z [inf]  [17:44:56] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:44:56.294170411Z [inf]      error: {
+2025-12-17T17:44:56.294176867Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:44:56.294456864Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:44:56.294467928Z [inf]      }
+2025-12-17T17:44:56.294812566Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:56.294818039Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:56.294824995Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:56.294831928Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:56.294842826Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:56.294853729Z [err]  
+2025-12-17T17:44:56.294861319Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:56.294869943Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:56.294879534Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:56.294886836Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:56.294893365Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:56.294899162Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:56.294906272Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:56.294913125Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:56.294924599Z [err]    errorCode: undefined
+2025-12-17T17:44:56.294930752Z [err]  }
+2025-12-17T17:44:56.294937474Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:58.567148930Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:58.567155055Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:58.567162823Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:58.567170267Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:58.567177085Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:58.567184397Z [err]  
+2025-12-17T17:44:58.567192302Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:58.567200000Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:58.567209024Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:58.567216167Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:58.567222937Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:58.567230322Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:58.567237208Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:58.567242824Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:58.567251873Z [err]    errorCode: undefined
+2025-12-17T17:44:58.567259663Z [err]  }
+2025-12-17T17:44:58.567266428Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:58.568538397Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:44:58.568579335Z [err]  
+2025-12-17T17:44:58.568594812Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:58.568603263Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:58.568611651Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:58.568623940Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:58.568632977Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:58.568641844Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:58.568649749Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:58.568658471Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:58.568667912Z [err]    errorCode: undefined
+2025-12-17T17:44:58.568676873Z [err]  }
+2025-12-17T17:44:58.568688526Z [inf]  [17:44:57] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:44:58.568695924Z [inf]  [17:44:57] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:44:58.568704068Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:44:58.568712948Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:44:58.568773909Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:58.572464793Z [inf]  [17:44:57] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:44:58.572470168Z [inf]      error: {
+2025-12-17T17:44:58.572475607Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:44:58.572482740Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:44:58.572489660Z [inf]      }
+2025-12-17T17:44:59.622722465Z [inf]  🔌 Testing database connection...
+2025-12-17T17:44:59.651354796Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:44:59.651362999Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:44:59.656135625Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:59.656139815Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:59.656143981Z [err]  
+2025-12-17T17:44:59.656148750Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:59.656152783Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:59.656156794Z [err]      at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-12-17T17:44:59.656161808Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:59.656165818Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:59.656169773Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:59.656173674Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:59.656177758Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:59.656181924Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:59.656186978Z [err]    errorCode: undefined
+2025-12-17T17:44:59.656191985Z [err]  }
+2025-12-17T17:44:59.656197546Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:44:59.656203374Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:44:59.658231599Z [err]  
+2025-12-17T17:44:59.658238194Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:44:59.658244381Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:44:59.658252701Z [err]      at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-12-17T17:44:59.658258479Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:44:59.658285362Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:44:59.658292218Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:44:59.658298545Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:44:59.658327182Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:44:59.658335162Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:44:59.658341050Z [err]    errorCode: undefined
+2025-12-17T17:44:59.658345744Z [err]  }
+2025-12-17T17:45:00.440802987Z [inf]  [17:44:59] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:45:00.440809394Z [inf]  [17:44:59] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:45:00.440814588Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:45:00.440819779Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:45:00.440824207Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:45:00.440828920Z [inf]  [17:44:59] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:45:00.440834185Z [inf]      error: {
+2025-12-17T17:45:00.440839131Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:45:00.440843587Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:45:00.440848528Z [inf]      }
+2025-12-17T17:45:02.415582531Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:02.415598200Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:02.415607698Z [err]    errorCode: undefined
+2025-12-17T17:45:02.415615969Z [err]  }
+2025-12-17T17:45:02.415623124Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:02.416445202Z [inf]  🔌 Testing database connection...
+2025-12-17T17:45:02.416454030Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:45:02.416461064Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:45:02.416468022Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:02.416474986Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:02.416482012Z [err]  
+2025-12-17T17:45:02.416490314Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:02.416496927Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:02.416504583Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:02.416509590Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:02.416514370Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:02.416519517Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:02.417418144Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:45:02.417430155Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:45:02.417438236Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:45:02.417468443Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:02.417476842Z [err]  
+2025-12-17T17:45:02.417483876Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:02.417490976Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:02.417498338Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:02.417504324Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:02.417512496Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:02.417520078Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:02.417526971Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:02.417533949Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:02.417540492Z [err]    errorCode: undefined
+2025-12-17T17:45:02.417547402Z [err]  }
+2025-12-17T17:45:02.417554763Z [inf]  [17:45:01] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:45:02.417561171Z [inf]  [17:45:01] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:45:02.419951105Z [inf]  [17:45:01] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:45:02.419962825Z [inf]      error: {
+2025-12-17T17:45:02.419971240Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:45:02.419980352Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:45:02.419989067Z [inf]      }
+2025-12-17T17:45:03.512683859Z [inf]  🔌 Testing database connection...
+2025-12-17T17:45:03.516063265Z [inf]  [17:45:03] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:45:03.530512216Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:45:03.530516980Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:45:03.541795642Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:03.541811188Z [err]  
+2025-12-17T17:45:03.541847770Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:03.541855273Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:03.541862191Z [err]  
+2025-12-17T17:45:03.541868400Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:03.541875840Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:03.541882722Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:03.541889051Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:03.541895150Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:03.541900874Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:03.541907230Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:03.541912369Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:03.541917759Z [err]    errorCode: undefined
+2025-12-17T17:45:03.541922993Z [err]  }
+2025-12-17T17:45:03.541927658Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:03.545454718Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:03.545466411Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:03.545474375Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:03.545482033Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:03.545488110Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:03.545495284Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:03.545506024Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:03.545513229Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:03.545520512Z [err]    errorCode: undefined
+2025-12-17T17:45:03.545527551Z [err]  }
+2025-12-17T17:45:03.555971515Z [inf]  [17:45:03] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:45:03.555980767Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:45:03.555987733Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:45:03.555994977Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:45:03.556000687Z [inf]  [17:45:03] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:45:03.556007262Z [inf]      error: {
+2025-12-17T17:45:03.556012860Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:45:03.556017037Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:45:03.556022041Z [inf]      }
+2025-12-17T17:45:05.464328403Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:05.464340379Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:05.464462675Z [inf]  🔌 Testing database connection...
+2025-12-17T17:45:05.464471591Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:45:05.464522078Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:05.464530893Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:05.464537494Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:05.464543842Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:05.464549478Z [err]    errorCode: undefined
+2025-12-17T17:45:05.464559105Z [err]  }
+2025-12-17T17:45:05.464561747Z [err]  
+2025-12-17T17:45:05.464567992Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:05.464574335Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:05.464582911Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:05.464593733Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:05.464598611Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:45:05.464604651Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:05.472921500Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:05.472928690Z [err]  
+2025-12-17T17:45:05.472935428Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:05.472942097Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:05.472948282Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:05.472954913Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:05.472960706Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:05.472966707Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:05.472974124Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:05.472981385Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:05.472987777Z [err]    errorCode: undefined
+2025-12-17T17:45:05.472994328Z [err]  }
+2025-12-17T17:45:05.473000855Z [inf]  [17:45:05] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:45:05.473007537Z [inf]  [17:45:05] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:45:05.473036658Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:45:05.473043798Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:45:05.473050013Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:45:05.473289705Z [inf]  [17:45:05] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:45:05.473295815Z [inf]      error: {
+2025-12-17T17:45:05.473301395Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:45:05.473307147Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:45:05.473313088Z [inf]      }
+2025-12-17T17:45:07.445438042Z [inf]  🔌 Testing database connection...
+2025-12-17T17:45:07.445443071Z [inf]  [17:45:07] [32mINFO[39m: [36m🚀 Starting Cotransmeq Backend...[39m
+2025-12-17T17:45:07.445447817Z [err]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+2025-12-17T17:45:07.445452987Z [err]  Please manually install OpenSSL and try installing Prisma again.
+2025-12-17T17:45:07.445458500Z [err]  ❌ Failed to connect to database: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:07.445463483Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:07.445469787Z [err]  
+2025-12-17T17:45:07.445474769Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:07.445478940Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:07.445483849Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:07.445488592Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:07.445494545Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:07.445499713Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:07.445504734Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:07.445813410Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:07.445822863Z [err]    errorCode: undefined
+2025-12-17T17:45:07.445828005Z [err]  }
+2025-12-17T17:45:07.446052205Z [err]  Error starting server: PrismaClientInitializationError: Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).
+2025-12-17T17:45:07.446056912Z [err]  The Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements
+2025-12-17T17:45:07.446061966Z [err]  
+2025-12-17T17:45:07.446066859Z [err]  Details: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)
+2025-12-17T17:45:07.446071200Z [err]      at Object.loadLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:10243)
+2025-12-17T17:45:07.446076266Z [err]      at async _r.loadEngine (/app/node_modules/@prisma/client/runtime/library.js:112:448)
+2025-12-17T17:45:07.446081676Z [err]      at async _r.instantiateLibrary (/app/node_modules/@prisma/client/runtime/library.js:111:12599)
+2025-12-17T17:45:07.446087507Z [err]      at async _r.start (/app/node_modules/@prisma/client/runtime/library.js:112:1976)
+2025-12-17T17:45:07.446091846Z [err]      at async testDatabaseConnection (/app/dist/config/prisma.js:45:9)
+2025-12-17T17:45:07.446096082Z [err]      at async start (/app/dist/server.js:45:9) {
+2025-12-17T17:45:07.446100277Z [err]    clientVersion: '5.22.0',
+2025-12-17T17:45:07.446104663Z [err]    errorCode: undefined
+2025-12-17T17:45:07.446109583Z [err]  }
+2025-12-17T17:45:07.446114917Z [inf]  [17:45:07] [31mERROR[39m: [36m❌ Failed to connect to database[39m
+2025-12-17T17:45:07.446119932Z [inf]      [35mtype[39m: "database-connection"
+2025-12-17T17:45:07.446125984Z [inf]      [35mstatus[39m: "failed"
+2025-12-17T17:45:07.446134408Z [inf]      error: "Unable to require(`/app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node`).\nThe Prisma engines do not seem to be compatible with your system. Please refer to the documentation about Prisma's system requirements: https://pris.ly/d/system-requirements\n\nDetails: Error loading shared library libssl.so.1.1: No such file or directory (needed by /app/node_modules/.prisma/client/libquery_engine-linux-musl.so.node)"
+2025-12-17T17:45:07.446266044Z [inf]  [17:45:07] [31mERROR[39m: [36m❌ Failed to start server[39m
+2025-12-17T17:45:07.446322989Z [inf]      error: {
+2025-12-17T17:45:07.446329889Z [inf]        "name": "PrismaClientInitializationError",
+2025-12-17T17:45:07.446339276Z [inf]        "clientVersion": "5.22.0"
+2025-12-17T17:45:07.446344982Z [inf]      }

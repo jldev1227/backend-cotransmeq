@@ -1,0 +1,337 @@
+import { prisma } from '../../config/prisma'
+import { CreateClienteInput, UpdateClienteInput, BuscarClientesInput } from './cliente.schema'
+
+export const ClientesService = {
+  async create(data: CreateClienteInput) {
+    // Verificar si ya existe un cliente con el mismo NIT o correo
+    if (data.nit) {
+      const existingByNit = await prisma.clientes.findUnique({
+        where: { nit: data.nit, deletedAt: null }
+      });
+      if (existingByNit) {
+        throw new Error('Ya existe un cliente con este NIT');
+      }
+    }
+
+    if (data.correo) {
+      const existingByEmail = await prisma.clientes.findUnique({
+        where: { correo: data.correo, deletedAt: null }
+      });
+      if (existingByEmail) {
+        throw new Error('Ya existe un cliente con este correo');
+      }
+    }
+
+    // @ts-ignore - Prisma type issue with enum
+    return prisma.clientes.create({
+      data: {
+        tipo: (data.tipo as any) || 'EMPRESA',
+        nit: data.nit,
+        nombre: data.nombre,
+        representante: data.representante,
+        cedula: data.cedula,
+        telefono: data.telefono,
+        direccion: data.direccion,
+        correo: data.correo,
+        requiere_osi: data.requiere_osi || false,
+        paga_recargos: data.paga_recargos || false,
+      },
+      include: {
+        _count: {
+          select: {
+            recargos: true,
+            pernotes: true,
+          }
+        }
+      }
+    });
+  },
+
+  async list(page: number = 1, limit: number = 10, tipo?: string) {
+    const skip = (page - 1) * limit;
+    
+    const where: any = { 
+      deletedAt: null 
+    };
+
+    // Filtrar por tipo si se proporciona
+    if (tipo && tipo !== 'TODOS') {
+      where.tipo = tipo;
+    }
+    
+    const [clientes, total] = await Promise.all([
+      prisma.clientes.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { created_at: 'desc' },
+        include: {
+          _count: {
+            select: {
+              recargos: true,
+              pernotes: true,
+            }
+          }
+        }
+      }),
+      prisma.clientes.count({ where })
+    ]);
+
+    return {
+      data: clientes,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+    };
+  },
+
+  async findById(id: string) {
+    const cliente = await prisma.clientes.findFirst({
+      where: { 
+        id, 
+        deletedAt: null 
+      },
+      include: {
+        recargos: {
+          orderBy: { created_at: 'desc' },
+          take: 5, // Últimos 5 recargos
+        },
+        pernotes: {
+          orderBy: { created_at: 'desc' },
+          take: 5, // Últimos 5 pernotes
+        },
+        _count: {
+          select: {
+            recargos: true,
+            pernotes: true,
+          }
+        }
+      },
+    });
+
+    if (!cliente) {
+      throw new Error('Cliente no encontrado');
+    }
+
+    return cliente;
+  },
+
+  async update(id: string, data: UpdateClienteInput) {
+    // Verificar que el cliente existe y no está eliminado
+    const existingCliente = await prisma.clientes.findFirst({
+      where: { id, deletedAt: null }
+    });
+
+    if (!existingCliente) {
+      throw new Error('Cliente no encontrado');
+    }
+
+    // Verificar unicidad de NIT y correo si se están actualizando
+    if (data.nit && data.nit !== existingCliente.nit) {
+      const existingByNit = await prisma.clientes.findUnique({
+        where: { nit: data.nit, deletedAt: null }
+      });
+      if (existingByNit && existingByNit.id !== id) {
+        throw new Error('Ya existe un cliente con este NIT');
+      }
+    }
+
+    if (data.correo && data.correo !== existingCliente.correo) {
+      const existingByEmail = await prisma.clientes.findUnique({
+        where: { correo: data.correo, deletedAt: null }
+      });
+      if (existingByEmail && existingByEmail.id !== id) {
+        throw new Error('Ya existe un cliente con este correo');
+      }
+    }
+
+    return prisma.clientes.update({
+      where: { id },
+      data: {
+        ...(data as any),
+        updatedAt: new Date(),
+      },
+      include: {
+        _count: {
+          select: {
+            recargos: true,
+            pernotes: true,
+          }
+        }
+      }
+    });
+  },
+
+  async delete(id: string) {
+    const cliente = await prisma.clientes.findFirst({
+      where: { id, deletedAt: null }
+    });
+
+    if (!cliente) {
+      throw new Error('Cliente no encontrado');
+    }
+
+    return prisma.clientes.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
+  },
+
+  async restore(id: string) {
+    const cliente = await prisma.clientes.findUnique({
+      where: { id }
+    });
+
+    if (!cliente) {
+      throw new Error('Cliente no encontrado');
+    }
+
+    if (!cliente.deletedAt) {
+      throw new Error('El cliente no está eliminado');
+    }
+
+    return prisma.clientes.update({
+      where: { id },
+      data: {
+        deletedAt: null,
+      },
+    });
+  },
+
+  async search(params: BuscarClientesInput) {
+    const { 
+      tipo, 
+      requiere_osi, 
+      paga_recargos, 
+      search, 
+      page = 1, 
+      limit = 20 
+    } = params;
+
+    const skip = (page - 1) * limit;
+    
+    const where: any = {
+      deletedAt: null,
+    };
+
+    if (tipo) {
+      where.tipo = tipo;
+    }
+
+    if (requiere_osi !== undefined) {
+      where.requiere_osi = requiere_osi;
+    }
+
+    if (paga_recargos !== undefined) {
+      where.paga_recargos = paga_recargos;
+    }
+
+    if (search) {
+      where.OR = [
+        { nombre: { contains: search, mode: 'insensitive' } },
+        { nit: { contains: search, mode: 'insensitive' } },
+        { representante: { contains: search, mode: 'insensitive' } },
+        { cedula: { contains: search, mode: 'insensitive' } },
+        { correo: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [clientes, total] = await Promise.all([
+      prisma.clientes.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { created_at: 'desc' },
+        include: {
+          _count: {
+            select: {
+              recargos: true,
+              pernotes: true,
+            }
+          }
+        }
+      }),
+      prisma.clientes.count({ where })
+    ]);
+
+    return {
+      data: clientes,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+    };
+  },
+
+  async getStats(id: string) {
+    const cliente = await prisma.clientes.findFirst({
+      where: { id, deletedAt: null }
+    });
+
+    if (!cliente) {
+      throw new Error('Cliente no encontrado');
+    }
+
+    const [recargosCount, pernotesCount, recargosTotal, pernotesTotal] = await Promise.all([
+      prisma.recargos.count({
+        where: { cliente_id: id }
+      }),
+      prisma.pernotes.count({
+        where: { cliente_id: id }
+      }),
+      prisma.recargos.aggregate({
+        where: { cliente_id: id },
+        _sum: { valor: true }
+      }),
+      prisma.pernotes.aggregate({
+        where: { cliente_id: id },
+        _sum: { valor: true }
+      })
+    ]);
+
+    return {
+      cliente,
+      stats: {
+        recargos: {
+          count: recargosCount,
+          total: recargosTotal._sum.valor || 0
+        },
+        pernotes: {
+          count: pernotesCount,
+          total: pernotesTotal._sum.valor || 0
+        }
+      }
+    };
+  },
+
+  async listBasicos() {
+    return prisma.clientes.findMany({
+      where: {
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        nit: true,
+        nombre: true,
+        tipo: true,
+        telefono: true,
+        correo: true,
+        requiere_osi: true
+      },
+      orderBy: {
+        nombre: 'asc'
+      }
+    });
+  }
+};

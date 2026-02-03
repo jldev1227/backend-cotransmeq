@@ -1,0 +1,52 @@
+2025-12-17T17:49:34.673995146Z [inf]  scheduling build on Metal builder "builder-twncec"
+2025-12-17T17:49:35.260513676Z [inf]  [snapshot] received sha256:c04dcffa7ce23309f8ad9d1c0a3292c737ece43e91ccce51a111561d9ea8b856 md5:79413e76ee6578d365bcc929f37e90db
+2025-12-17T17:49:35.260623792Z [inf]  receiving snapshot
+2025-12-17T17:49:35.276435445Z [dbg]  found 'Dockerfile' at 'Dockerfile'
+2025-12-17T17:49:35.276440012Z [dbg]  found 'railway.json' at 'railway.json'
+2025-12-17T17:49:35.276614073Z [inf]  analyzing snapshot
+2025-12-17T17:49:35.276965591Z [inf]  uploading snapshot
+2025-12-17T17:49:42.950795067Z [inf]  scheduling build on Metal builder "builder-twncec"
+2025-12-17T17:49:44.023489107Z [inf]  fetched snapshot sha256:c04dcffa7ce23309f8ad9d1c0a3292c737ece43e91ccce51a111561d9ea8b856 (96 kB bytes)
+2025-12-17T17:49:44.023646343Z [inf]  fetching snapshot
+2025-12-17T17:49:44.854979410Z [inf]  unpacking archive
+2025-12-17T17:49:46.542707676Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:49:46.542727075Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:49:46.542893325Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:49:46.872909509Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:49:46.934408802Z [inf]  [internal] load metadata for docker.io/library/node:20-alpine
+2025-12-17T17:49:47.106045334Z [inf]  [internal] load metadata for docker.io/library/node:20-alpine
+2025-12-17T17:49:47.106471213Z [inf]  [internal] load .dockerignore
+2025-12-17T17:49:47.106704033Z [inf]  [internal] load .dockerignore
+2025-12-17T17:49:47.106717153Z [inf]  [internal] load .dockerignore
+2025-12-17T17:49:47.369235093Z [inf]  [internal] load .dockerignore
+2025-12-17T17:49:47.431021767Z [inf]  [runner  4/10] COPY --from=builder /app/package.json ./
+2025-12-17T17:49:47.431027035Z [inf]  [builder 9/9] RUN npm run build
+2025-12-17T17:49:47.431030470Z [inf]  [builder 8/9] COPY . .
+2025-12-17T17:49:47.431030851Z [inf]  [builder 7/9] RUN npx prisma generate
+2025-12-17T17:49:47.431031241Z [inf]  [builder 6/9] COPY prisma ./prisma
+2025-12-17T17:49:47.431031572Z [inf]  [builder 5/9] RUN npm ci || npm install
+2025-12-17T17:49:47.431031852Z [inf]  [builder 4/9] COPY package.json package-lock.json* ./
+2025-12-17T17:49:47.431032673Z [inf]  [internal] load build context
+2025-12-17T17:49:47.431033154Z [inf]  [builder 3/9] RUN apk add --no-cache openssl1.1-compat libc6-compat
+2025-12-17T17:49:47.431033424Z [inf]  [builder 2/9] WORKDIR /app
+2025-12-17T17:49:47.431033755Z [inf]  [builder 1/9] FROM docker.io/library/node:20-alpine@sha256:643e7036aa985317ebfee460005e322aa550c6b6883000d01daefb58689a58e2
+2025-12-17T17:49:47.431047536Z [inf]  [runner 10/10] RUN npm ci --only=production || npm install --production
+2025-12-17T17:49:47.431047946Z [inf]  [runner  9/10] COPY --from=builder /app/dist ./dist
+2025-12-17T17:49:47.431048437Z [inf]  [runner  8/10] COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+2025-12-17T17:49:47.431049398Z [inf]  [runner  7/10] COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+2025-12-17T17:49:47.431049719Z [inf]  [runner  6/10] COPY --from=builder /app/prisma ./prisma
+2025-12-17T17:49:47.431050100Z [inf]  [runner  5/10] COPY --from=builder /app/package-lock.json* ./
+2025-12-17T17:49:47.431373735Z [inf]  [builder 1/9] FROM docker.io/library/node:20-alpine@sha256:643e7036aa985317ebfee460005e322aa550c6b6883000d01daefb58689a58e2
+2025-12-17T17:49:47.432065042Z [inf]  [internal] load build context
+2025-12-17T17:49:47.448265559Z [inf]  [builder 1/9] FROM docker.io/library/node:20-alpine@sha256:643e7036aa985317ebfee460005e322aa550c6b6883000d01daefb58689a58e2
+2025-12-17T17:49:47.449179441Z [inf]  [internal] load build context
+2025-12-17T17:49:47.449425089Z [inf]  [builder 2/9] WORKDIR /app
+2025-12-17T17:49:47.521429404Z [inf]  [builder 2/9] WORKDIR /app
+2025-12-17T17:49:47.521468613Z [inf]  [builder 3/9] RUN apk add --no-cache openssl1.1-compat libc6-compat
+2025-12-17T17:49:47.829426281Z [inf]  [internal] load build context
+2025-12-17T17:49:48.230403594Z [inf]  ERROR: unable to select packages:
+  openssl1.1-compat (no such package):
+    required by: world[openssl1.1-compat]
+
+2025-12-17T17:49:48.440457878Z [err]  [builder 3/9] RUN apk add --no-cache openssl1.1-compat libc6-compat
+2025-12-17T17:49:48.475085183Z [err]  Build Failed: build daemon returned an error < failed to solve: process "/bin/sh -c apk add --no-cache openssl1.1-compat libc6-compat" did not complete successfully: exit code: 1 >

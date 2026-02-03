@@ -1,0 +1,782 @@
+2025-12-17T17:40:10.000000000Z [inf]  Starting Container
+2025-12-17T17:40:13.075180768Z [err]          throw result.error;
+2025-12-17T17:40:13.075188276Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:13.075191323Z [err]      "code": "invalid_type",
+2025-12-17T17:40:13.075191383Z [err]          ^
+2025-12-17T17:40:13.075200853Z [err]  
+2025-12-17T17:40:13.075203100Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:13.075205606Z [err]      "expected": "string",
+2025-12-17T17:40:13.075211426Z [err]  ZodError: [
+2025-12-17T17:40:13.075217568Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:13.075217644Z [err]      "received": "undefined",
+2025-12-17T17:40:13.075224195Z [err]    {
+2025-12-17T17:40:13.075229496Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:13.075230469Z [err]      "path": [
+2025-12-17T17:40:13.075231663Z [err]      ],
+2025-12-17T17:40:13.075243418Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:13.075243430Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:13.075246147Z [err]    }
+2025-12-17T17:40:13.075252750Z [err]      "message": "Required"
+2025-12-17T17:40:13.075254809Z [err]      ],
+2025-12-17T17:40:13.075265834Z [err]  ]
+2025-12-17T17:40:13.075268900Z [err]      "message": "Required"
+2025-12-17T17:40:13.075275151Z [err]      "expected": "string",
+2025-12-17T17:40:13.075280702Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:13.075282023Z [err]    },
+2025-12-17T17:40:13.075288275Z [err]      "received": "undefined",
+2025-12-17T17:40:13.075289438Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:13.075296436Z [err]      "path": [
+2025-12-17T17:40:13.075304782Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:13.075313278Z [err]    {
+2025-12-17T17:40:13.075319530Z [err]      "code": "invalid_type",
+2025-12-17T17:40:13.076216533Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:13.076236126Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:13.076244336Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:13.076677475Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:13.076693361Z [err]    issues: [
+2025-12-17T17:40:13.076698476Z [err]      {
+2025-12-17T17:40:13.076704433Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.076712653Z [err]        expected: 'string',
+2025-12-17T17:40:13.076720706Z [err]        received: 'undefined',
+2025-12-17T17:40:13.076727750Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:13.076736211Z [err]        message: 'Required'
+2025-12-17T17:40:13.076743038Z [err]      },
+2025-12-17T17:40:13.076751098Z [err]      {
+2025-12-17T17:40:13.076757768Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.077171391Z [err]        expected: 'string',
+2025-12-17T17:40:13.077180312Z [err]        received: 'undefined',
+2025-12-17T17:40:13.077186943Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:13.077193220Z [err]        message: 'Required'
+2025-12-17T17:40:13.077200863Z [err]      }
+2025-12-17T17:40:13.077207654Z [err]    ],
+2025-12-17T17:40:13.077213562Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:13.077219956Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:13.077225848Z [err]    errors: [
+2025-12-17T17:40:13.077232949Z [err]      {
+2025-12-17T17:40:13.077239731Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.077246652Z [err]        expected: 'string',
+2025-12-17T17:40:13.077255341Z [err]        received: 'undefined',
+2025-12-17T17:40:13.077261736Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:13.077268147Z [err]        message: 'Required'
+2025-12-17T17:40:13.077636890Z [err]  }
+2025-12-17T17:40:13.077648121Z [err]  
+2025-12-17T17:40:13.077658165Z [err]  Node.js v20.19.6
+2025-12-17T17:40:13.077921728Z [err]      },
+2025-12-17T17:40:13.077927349Z [err]      {
+2025-12-17T17:40:13.077934500Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.077939691Z [err]        expected: 'string',
+2025-12-17T17:40:13.077946580Z [err]        received: 'undefined',
+2025-12-17T17:40:13.077952892Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:13.077958781Z [err]        message: 'Required'
+2025-12-17T17:40:13.077964602Z [err]      }
+2025-12-17T17:40:13.077970651Z [err]    ]
+2025-12-17T17:40:13.579169825Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:13.579178884Z [err]          throw result.error;
+2025-12-17T17:40:13.579186274Z [err]          ^
+2025-12-17T17:40:13.579193388Z [err]  
+2025-12-17T17:40:13.579200250Z [err]  ZodError: [
+2025-12-17T17:40:13.579209361Z [err]    {
+2025-12-17T17:40:13.579215314Z [err]      "code": "invalid_type",
+2025-12-17T17:40:13.579221027Z [err]      "expected": "string",
+2025-12-17T17:40:13.579226625Z [err]      "received": "undefined",
+2025-12-17T17:40:13.579234374Z [err]      "path": [
+2025-12-17T17:40:13.579241762Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:13.579248439Z [err]      ],
+2025-12-17T17:40:13.579255786Z [err]      "message": "Required"
+2025-12-17T17:40:13.579262509Z [err]    },
+2025-12-17T17:40:13.579269246Z [err]    {
+2025-12-17T17:40:13.579275464Z [err]      "code": "invalid_type",
+2025-12-17T17:40:13.579283854Z [err]      "expected": "string",
+2025-12-17T17:40:13.579290396Z [err]      "received": "undefined",
+2025-12-17T17:40:13.579296175Z [err]      "path": [
+2025-12-17T17:40:13.579302724Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:13.579309363Z [err]      ],
+2025-12-17T17:40:13.579316228Z [err]      "message": "Required"
+2025-12-17T17:40:13.579322389Z [err]    }
+2025-12-17T17:40:13.579331434Z [err]  ]
+2025-12-17T17:40:13.579338392Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:13.579345320Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:13.579352061Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:13.579359071Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:13.579366511Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:13.579373768Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:13.580758634Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:13.580766972Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:13.580775484Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:13.580776697Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.580783211Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:13.580789300Z [err]        expected: 'string',
+2025-12-17T17:40:13.580793299Z [err]    issues: [
+2025-12-17T17:40:13.580798211Z [err]      {
+2025-12-17T17:40:13.580798924Z [err]        received: 'undefined',
+2025-12-17T17:40:13.580802259Z [err]      {
+2025-12-17T17:40:13.580808762Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:13.580811064Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.580811391Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.580819680Z [err]        message: 'Required'
+2025-12-17T17:40:13.580821403Z [err]        expected: 'string',
+2025-12-17T17:40:13.580821612Z [err]        expected: 'string',
+2025-12-17T17:40:13.580830981Z [err]        received: 'undefined',
+2025-12-17T17:40:13.580831451Z [err]        received: 'undefined',
+2025-12-17T17:40:13.580839723Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:13.580840232Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:13.580849325Z [err]        message: 'Required'
+2025-12-17T17:40:13.580849408Z [err]        message: 'Required'
+2025-12-17T17:40:13.580858584Z [err]      }
+2025-12-17T17:40:13.580858946Z [err]      },
+2025-12-17T17:40:13.580866349Z [err]    ],
+2025-12-17T17:40:13.580873624Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:13.580880899Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:13.580888301Z [err]    errors: [
+2025-12-17T17:40:13.580895376Z [err]      {
+2025-12-17T17:40:13.582967666Z [err]      },
+2025-12-17T17:40:13.582974240Z [err]      {
+2025-12-17T17:40:13.582979522Z [err]        code: 'invalid_type',
+2025-12-17T17:40:13.582986122Z [err]        expected: 'string',
+2025-12-17T17:40:13.582992556Z [err]        received: 'undefined',
+2025-12-17T17:40:13.582999298Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:13.583004964Z [err]        message: 'Required'
+2025-12-17T17:40:13.583011483Z [err]      }
+2025-12-17T17:40:13.583017777Z [err]    ]
+2025-12-17T17:40:13.583023706Z [err]  }
+2025-12-17T17:40:13.583029773Z [err]  
+2025-12-17T17:40:13.583035645Z [err]  Node.js v20.19.6
+2025-12-17T17:40:14.815303887Z [err]      "message": "Required"
+2025-12-17T17:40:14.815307356Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:14.815313337Z [err]    }
+2025-12-17T17:40:14.815318013Z [err]      "message": "Required"
+2025-12-17T17:40:14.815319638Z [err]          throw result.error;
+2025-12-17T17:40:14.815323322Z [err]  ]
+2025-12-17T17:40:14.815331699Z [err]          ^
+2025-12-17T17:40:14.815332539Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:14.815332668Z [err]    },
+2025-12-17T17:40:14.815340185Z [err]    {
+2025-12-17T17:40:14.815341552Z [err]  
+2025-12-17T17:40:14.815342275Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:14.815345927Z [err]      "code": "invalid_type",
+2025-12-17T17:40:14.815349169Z [err]  ZodError: [
+2025-12-17T17:40:14.815352111Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:14.815352588Z [err]      "expected": "string",
+2025-12-17T17:40:14.815356510Z [err]    {
+2025-12-17T17:40:14.815359445Z [err]      "received": "undefined",
+2025-12-17T17:40:14.815362307Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:14.815363140Z [err]      "code": "invalid_type",
+2025-12-17T17:40:14.815367086Z [err]      "path": [
+2025-12-17T17:40:14.815370205Z [err]      "expected": "string",
+2025-12-17T17:40:14.815372527Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:14.815374369Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:14.815377587Z [err]      "received": "undefined",
+2025-12-17T17:40:14.815380448Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:14.815381534Z [err]      ],
+2025-12-17T17:40:14.815383732Z [err]      "path": [
+2025-12-17T17:40:14.815387941Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:14.815392399Z [err]      ],
+2025-12-17T17:40:14.816777134Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:14.816784969Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:14.816786060Z [err]      {
+2025-12-17T17:40:14.816794252Z [err]        code: 'invalid_type',
+2025-12-17T17:40:14.816798230Z [err]        code: 'invalid_type',
+2025-12-17T17:40:14.816799442Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:14.816804144Z [err]        expected: 'string',
+2025-12-17T17:40:14.816806366Z [err]      {
+2025-12-17T17:40:14.816808525Z [err]        expected: 'string',
+2025-12-17T17:40:14.816808558Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:14.816813116Z [err]        received: 'undefined',
+2025-12-17T17:40:14.816815739Z [err]        code: 'invalid_type',
+2025-12-17T17:40:14.816818477Z [err]    issues: [
+2025-12-17T17:40:14.816818818Z [err]        received: 'undefined',
+2025-12-17T17:40:14.816822107Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:14.816824262Z [err]        expected: 'string',
+2025-12-17T17:40:14.816827759Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:14.816831352Z [err]        message: 'Required'
+2025-12-17T17:40:14.816835144Z [err]      }
+2025-12-17T17:40:14.816838044Z [err]        message: 'Required'
+2025-12-17T17:40:14.816839483Z [err]        received: 'undefined',
+2025-12-17T17:40:14.816847822Z [err]      },
+2025-12-17T17:40:14.816848680Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:14.816849042Z [err]    ],
+2025-12-17T17:40:14.816856800Z [err]      {
+2025-12-17T17:40:14.816859479Z [err]        message: 'Required'
+2025-12-17T17:40:14.816860668Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:14.816872054Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:14.816880248Z [err]    errors: [
+2025-12-17T17:40:14.818080223Z [err]      },
+2025-12-17T17:40:14.818084467Z [err]      {
+2025-12-17T17:40:14.818088671Z [err]        code: 'invalid_type',
+2025-12-17T17:40:14.818092965Z [err]        expected: 'string',
+2025-12-17T17:40:14.818096983Z [err]        received: 'undefined',
+2025-12-17T17:40:14.818101469Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:14.818106008Z [err]        message: 'Required'
+2025-12-17T17:40:14.818110692Z [err]      }
+2025-12-17T17:40:14.818114756Z [err]    ]
+2025-12-17T17:40:14.818123689Z [err]  }
+2025-12-17T17:40:14.818128966Z [err]  
+2025-12-17T17:40:14.818133154Z [err]  Node.js v20.19.6
+2025-12-17T17:40:16.270319101Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:16.270333603Z [err]        expected: 'string',
+2025-12-17T17:40:16.270345893Z [err]        received: 'undefined',
+2025-12-17T17:40:16.270353035Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:16.270360486Z [err]        message: 'Required'
+2025-12-17T17:40:16.270361378Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:16.270375786Z [err]    errors: [
+2025-12-17T17:40:16.270385525Z [err]      {
+2025-12-17T17:40:16.270393563Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:16.270396922Z [err]        code: 'invalid_type',
+2025-12-17T17:40:16.270399729Z [err]          throw result.error;
+2025-12-17T17:40:16.270403842Z [err]          ^
+2025-12-17T17:40:16.270408658Z [err]  
+2025-12-17T17:40:16.270413140Z [err]  ZodError: [
+2025-12-17T17:40:16.270424375Z [err]    {
+2025-12-17T17:40:16.270430197Z [err]      "code": "invalid_type",
+2025-12-17T17:40:16.270434632Z [err]      "expected": "string",
+2025-12-17T17:40:16.270439628Z [err]      "received": "undefined",
+2025-12-17T17:40:16.270444714Z [err]      "path": [
+2025-12-17T17:40:16.270444751Z [err]      }
+2025-12-17T17:40:16.270449362Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:16.270454988Z [err]      ],
+2025-12-17T17:40:16.270456212Z [err]    ]
+2025-12-17T17:40:16.270461433Z [err]      "message": "Required"
+2025-12-17T17:40:16.270465269Z [err]  }
+2025-12-17T17:40:16.270467179Z [err]    },
+2025-12-17T17:40:16.270472692Z [err]    {
+2025-12-17T17:40:16.270474448Z [err]  
+2025-12-17T17:40:16.270477635Z [err]      "code": "invalid_type",
+2025-12-17T17:40:16.270483249Z [err]  Node.js v20.19.6
+2025-12-17T17:40:16.270483488Z [err]      "expected": "string",
+2025-12-17T17:40:16.270489299Z [err]      "received": "undefined",
+2025-12-17T17:40:16.270494551Z [err]      "path": [
+2025-12-17T17:40:16.270498905Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:16.270503288Z [err]      ],
+2025-12-17T17:40:16.270509435Z [err]      "message": "Required"
+2025-12-17T17:40:16.270514940Z [err]      },
+2025-12-17T17:40:16.270516921Z [err]    }
+2025-12-17T17:40:16.270524842Z [err]  ]
+2025-12-17T17:40:16.270529298Z [err]      {
+2025-12-17T17:40:16.270532949Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:16.270540645Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:16.270544221Z [err]        code: 'invalid_type',
+2025-12-17T17:40:16.270547928Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:16.270554396Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:16.270557459Z [err]        expected: 'string',
+2025-12-17T17:40:16.270562095Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:16.270570894Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:16.270571919Z [err]        received: 'undefined',
+2025-12-17T17:40:16.270580803Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:16.270589716Z [err]        message: 'Required'
+2025-12-17T17:40:16.270789525Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:16.270796229Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:16.270803349Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:16.270810439Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:16.270817404Z [err]    issues: [
+2025-12-17T17:40:16.270824547Z [err]      {
+2025-12-17T17:40:16.270831171Z [err]        code: 'invalid_type',
+2025-12-17T17:40:16.270838186Z [err]        expected: 'string',
+2025-12-17T17:40:16.270845363Z [err]        received: 'undefined',
+2025-12-17T17:40:16.270851431Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:16.270857631Z [err]        message: 'Required'
+2025-12-17T17:40:16.270863893Z [err]      },
+2025-12-17T17:40:16.270873544Z [err]      {
+2025-12-17T17:40:16.270880958Z [err]        code: 'invalid_type',
+2025-12-17T17:40:16.270887189Z [err]        expected: 'string',
+2025-12-17T17:40:16.270893886Z [err]        received: 'undefined',
+2025-12-17T17:40:16.270900697Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:16.270907455Z [err]        message: 'Required'
+2025-12-17T17:40:16.270915061Z [err]      }
+2025-12-17T17:40:16.270921553Z [err]    ],
+2025-12-17T17:40:18.881172032Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:18.881182182Z [err]          throw result.error;
+2025-12-17T17:40:18.881190504Z [err]          ^
+2025-12-17T17:40:18.881197623Z [err]  
+2025-12-17T17:40:18.881205690Z [err]  ZodError: [
+2025-12-17T17:40:18.881213287Z [err]    {
+2025-12-17T17:40:18.881220212Z [err]      "code": "invalid_type",
+2025-12-17T17:40:18.881227052Z [err]      "expected": "string",
+2025-12-17T17:40:18.881235451Z [err]      "received": "undefined",
+2025-12-17T17:40:18.881243299Z [err]      "path": [
+2025-12-17T17:40:18.881250261Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:18.881257051Z [err]      ],
+2025-12-17T17:40:18.881264593Z [err]      "message": "Required"
+2025-12-17T17:40:18.881270353Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:18.881273035Z [err]    },
+2025-12-17T17:40:18.881281322Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:18.881281812Z [err]    {
+2025-12-17T17:40:18.881290126Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:18.881290901Z [err]      "code": "invalid_type",
+2025-12-17T17:40:18.881298112Z [err]      "expected": "string",
+2025-12-17T17:40:18.881305576Z [err]      "received": "undefined",
+2025-12-17T17:40:18.881317586Z [err]      "path": [
+2025-12-17T17:40:18.881323851Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:18.881330173Z [err]      ],
+2025-12-17T17:40:18.881337339Z [err]      "message": "Required"
+2025-12-17T17:40:18.881344118Z [err]    }
+2025-12-17T17:40:18.881351017Z [err]  ]
+2025-12-17T17:40:18.881358751Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:18.881365264Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:18.881371534Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:18.882136552Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:18.882148442Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:18.882151302Z [err]        message: 'Required'
+2025-12-17T17:40:18.882158176Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:18.882160160Z [err]        code: 'invalid_type',
+2025-12-17T17:40:18.882167960Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:18.882170040Z [err]        expected: 'string',
+2025-12-17T17:40:18.882173660Z [err]        received: 'undefined',
+2025-12-17T17:40:18.882178823Z [err]    issues: [
+2025-12-17T17:40:18.882180168Z [err]        received: 'undefined',
+2025-12-17T17:40:18.882188928Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:18.882189528Z [err]      {
+2025-12-17T17:40:18.882189821Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:18.882195172Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:18.882200493Z [err]        code: 'invalid_type',
+2025-12-17T17:40:18.882201172Z [err]        message: 'Required'
+2025-12-17T17:40:18.882208943Z [err]        expected: 'string',
+2025-12-17T17:40:18.882210923Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:18.882213260Z [err]      }
+2025-12-17T17:40:18.882216402Z [err]        received: 'undefined',
+2025-12-17T17:40:18.882222860Z [err]    ],
+2025-12-17T17:40:18.882223273Z [err]    errors: [
+2025-12-17T17:40:18.882232630Z [err]      {
+2025-12-17T17:40:18.882247548Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:18.882256287Z [err]        message: 'Required'
+2025-12-17T17:40:18.882261918Z [err]      },
+2025-12-17T17:40:18.882268062Z [err]      {
+2025-12-17T17:40:18.882271961Z [err]        code: 'invalid_type',
+2025-12-17T17:40:18.882276133Z [err]        expected: 'string',
+2025-12-17T17:40:18.883160143Z [err]      {
+2025-12-17T17:40:18.883168240Z [err]        code: 'invalid_type',
+2025-12-17T17:40:18.883174882Z [err]        expected: 'string',
+2025-12-17T17:40:18.883181208Z [err]        received: 'undefined',
+2025-12-17T17:40:18.883187709Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:18.883194617Z [err]        message: 'Required'
+2025-12-17T17:40:18.883201094Z [err]      }
+2025-12-17T17:40:18.883205198Z [err]      },
+2025-12-17T17:40:18.883208757Z [err]    ]
+2025-12-17T17:40:18.883215429Z [err]  }
+2025-12-17T17:40:18.883222485Z [err]  
+2025-12-17T17:40:18.883229080Z [err]  Node.js v20.19.6
+2025-12-17T17:40:21.664679963Z [err]  
+2025-12-17T17:40:21.664687601Z [err]  ZodError: [
+2025-12-17T17:40:21.664696446Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:21.664698360Z [err]    {
+2025-12-17T17:40:21.664705467Z [err]      "code": "invalid_type",
+2025-12-17T17:40:21.664710217Z [err]          throw result.error;
+2025-12-17T17:40:21.664713326Z [err]      "expected": "string",
+2025-12-17T17:40:21.664721309Z [err]      "received": "undefined",
+2025-12-17T17:40:21.664722411Z [err]          ^
+2025-12-17T17:40:21.664729292Z [err]      "path": [
+2025-12-17T17:40:21.664735356Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:21.664741501Z [err]      ],
+2025-12-17T17:40:21.664746271Z [err]      "message": "Required"
+2025-12-17T17:40:21.664750207Z [err]    },
+2025-12-17T17:40:21.664754029Z [err]    {
+2025-12-17T17:40:21.664758991Z [err]      "code": "invalid_type",
+2025-12-17T17:40:21.664763505Z [err]      "expected": "string",
+2025-12-17T17:40:21.664767922Z [err]      "received": "undefined",
+2025-12-17T17:40:21.664784621Z [err]      "path": [
+2025-12-17T17:40:21.664795221Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:21.664803385Z [err]      ],
+2025-12-17T17:40:21.664811945Z [err]      "message": "Required"
+2025-12-17T17:40:21.664821074Z [err]    }
+2025-12-17T17:40:21.664830383Z [err]  ]
+2025-12-17T17:40:21.664840937Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:21.664849691Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:21.664859497Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:21.664868379Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:21.664875564Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:21.664882404Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:21.665813111Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:21.665819117Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:21.665825175Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:21.665831446Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:21.665836564Z [err]    issues: [
+2025-12-17T17:40:21.665840607Z [err]      {
+2025-12-17T17:40:21.665844064Z [err]        code: 'invalid_type',
+2025-12-17T17:40:21.665847988Z [err]        expected: 'string',
+2025-12-17T17:40:21.665851920Z [err]        received: 'undefined',
+2025-12-17T17:40:21.665855508Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:21.665859367Z [err]        message: 'Required'
+2025-12-17T17:40:21.665863300Z [err]      },
+2025-12-17T17:40:21.665866877Z [err]      {
+2025-12-17T17:40:21.665870591Z [err]        code: 'invalid_type',
+2025-12-17T17:40:21.665874301Z [err]        expected: 'string',
+2025-12-17T17:40:21.665878005Z [err]        received: 'undefined',
+2025-12-17T17:40:21.665882002Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:21.665886315Z [err]        message: 'Required'
+2025-12-17T17:40:21.665891954Z [err]      }
+2025-12-17T17:40:21.665896466Z [err]    ],
+2025-12-17T17:40:21.665900460Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:21.665904598Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:21.665908688Z [err]    errors: [
+2025-12-17T17:40:21.665912243Z [err]      {
+2025-12-17T17:40:21.665915956Z [err]        code: 'invalid_type',
+2025-12-17T17:40:21.665919888Z [err]        expected: 'string',
+2025-12-17T17:40:21.665923406Z [err]        received: 'undefined',
+2025-12-17T17:40:21.665927368Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:21.665931209Z [err]        message: 'Required'
+2025-12-17T17:40:21.666140008Z [err]      },
+2025-12-17T17:40:21.666144789Z [err]      {
+2025-12-17T17:40:21.666148741Z [err]        code: 'invalid_type',
+2025-12-17T17:40:21.666152269Z [err]        expected: 'string',
+2025-12-17T17:40:21.666155971Z [err]        received: 'undefined',
+2025-12-17T17:40:21.666159797Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:21.666164769Z [err]        message: 'Required'
+2025-12-17T17:40:21.666168494Z [err]      }
+2025-12-17T17:40:21.666172223Z [err]    ]
+2025-12-17T17:40:21.666176054Z [err]  }
+2025-12-17T17:40:21.666179848Z [err]  
+2025-12-17T17:40:21.666183634Z [err]  Node.js v20.19.6
+2025-12-17T17:40:24.493458301Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:24.493465917Z [err]          throw result.error;
+2025-12-17T17:40:24.493471680Z [err]          ^
+2025-12-17T17:40:24.493477086Z [err]  
+2025-12-17T17:40:24.493482857Z [err]  ZodError: [
+2025-12-17T17:40:24.493488354Z [err]    {
+2025-12-17T17:40:24.493495266Z [err]      "code": "invalid_type",
+2025-12-17T17:40:24.493501125Z [err]      "expected": "string",
+2025-12-17T17:40:24.493506256Z [err]      "received": "undefined",
+2025-12-17T17:40:24.493511991Z [err]      "path": [
+2025-12-17T17:40:24.493518265Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:24.493523561Z [err]      ],
+2025-12-17T17:40:24.493528838Z [err]      "message": "Required"
+2025-12-17T17:40:24.493535154Z [err]    },
+2025-12-17T17:40:24.493540316Z [err]    {
+2025-12-17T17:40:24.493545847Z [err]      "code": "invalid_type",
+2025-12-17T17:40:24.493552148Z [err]      "expected": "string",
+2025-12-17T17:40:24.493557652Z [err]      "received": "undefined",
+2025-12-17T17:40:24.493563069Z [err]      "path": [
+2025-12-17T17:40:24.493570686Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:24.493578035Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:24.493580878Z [err]      ],
+2025-12-17T17:40:24.493588938Z [err]      "message": "Required"
+2025-12-17T17:40:24.493593429Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:24.493597519Z [err]    }
+2025-12-17T17:40:24.493605310Z [err]  ]
+2025-12-17T17:40:24.493607674Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:24.493612797Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:24.493621201Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:24.493621334Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:24.493628460Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:24.493636382Z [err]    issues: [
+2025-12-17T17:40:24.493638337Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:24.493645786Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:24.493651201Z [err]      {
+2025-12-17T17:40:24.493653273Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:24.493662506Z [err]        code: 'invalid_type',
+2025-12-17T17:40:24.493671229Z [err]        expected: 'string',
+2025-12-17T17:40:24.493678342Z [err]        received: 'undefined',
+2025-12-17T17:40:24.493685510Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:24.493693271Z [err]        message: 'Required'
+2025-12-17T17:40:24.493699949Z [err]      },
+2025-12-17T17:40:24.493709309Z [err]      {
+2025-12-17T17:40:24.493717464Z [err]        code: 'invalid_type',
+2025-12-17T17:40:24.493725548Z [err]        expected: 'string',
+2025-12-17T17:40:24.493732670Z [err]        received: 'undefined',
+2025-12-17T17:40:24.493739849Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:24.493748175Z [err]        message: 'Required'
+2025-12-17T17:40:24.493758251Z [err]      }
+2025-12-17T17:40:24.494062318Z [err]      },
+2025-12-17T17:40:24.494063075Z [err]  Node.js v20.19.6
+2025-12-17T17:40:24.494068811Z [err]      {
+2025-12-17T17:40:24.494073539Z [err]        code: 'invalid_type',
+2025-12-17T17:40:24.494075746Z [err]        received: 'undefined',
+2025-12-17T17:40:24.494079221Z [err]        expected: 'string',
+2025-12-17T17:40:24.494082444Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:24.494089173Z [err]    ],
+2025-12-17T17:40:24.494089906Z [err]        message: 'Required'
+2025-12-17T17:40:24.494091456Z [err]      }
+2025-12-17T17:40:24.494100284Z [err]    ]
+2025-12-17T17:40:24.494105248Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:24.494108408Z [err]  }
+2025-12-17T17:40:24.494113425Z [err]  
+2025-12-17T17:40:24.494118139Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:24.494127519Z [err]    errors: [
+2025-12-17T17:40:24.494136432Z [err]      {
+2025-12-17T17:40:24.494143384Z [err]        code: 'invalid_type',
+2025-12-17T17:40:24.494151865Z [err]        expected: 'string',
+2025-12-17T17:40:24.494157061Z [err]        received: 'undefined',
+2025-12-17T17:40:24.494162006Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:24.494167330Z [err]        message: 'Required'
+2025-12-17T17:40:27.448523150Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:27.448524934Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:27.448527668Z [err]      "received": "undefined",
+2025-12-17T17:40:27.448533370Z [err]          throw result.error;
+2025-12-17T17:40:27.448536050Z [err]      ],
+2025-12-17T17:40:27.448536444Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:27.448542655Z [err]          ^
+2025-12-17T17:40:27.448545498Z [err]      "path": [
+2025-12-17T17:40:27.448548862Z [err]      "message": "Required"
+2025-12-17T17:40:27.448552002Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:27.448552590Z [err]  
+2025-12-17T17:40:27.448560778Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:27.448560908Z [err]    }
+2025-12-17T17:40:27.448561612Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:27.448566165Z [err]  ZodError: [
+2025-12-17T17:40:27.448569238Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:27.448570643Z [err]      "code": "invalid_type",
+2025-12-17T17:40:27.448576649Z [err]      ],
+2025-12-17T17:40:27.448578177Z [err]  ]
+2025-12-17T17:40:27.448581539Z [err]    {
+2025-12-17T17:40:27.448587468Z [err]      "expected": "string",
+2025-12-17T17:40:27.448593673Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:27.448594472Z [err]      "message": "Required"
+2025-12-17T17:40:27.448594960Z [err]      "code": "invalid_type",
+2025-12-17T17:40:27.448598765Z [err]      "received": "undefined",
+2025-12-17T17:40:27.448606302Z [err]      "expected": "string",
+2025-12-17T17:40:27.448609282Z [err]    },
+2025-12-17T17:40:27.448610635Z [err]      "path": [
+2025-12-17T17:40:27.448621074Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:27.448623610Z [err]    {
+2025-12-17T17:40:27.449484012Z [err]        received: 'undefined',
+2025-12-17T17:40:27.449484215Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:27.449488346Z [err]      {
+2025-12-17T17:40:27.449494244Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:27.449495961Z [err]        message: 'Required'
+2025-12-17T17:40:27.449499847Z [err]        code: 'invalid_type',
+2025-12-17T17:40:27.449501207Z [err]        message: 'Required'
+2025-12-17T17:40:27.449506993Z [err]      }
+2025-12-17T17:40:27.449508851Z [err]        expected: 'string',
+2025-12-17T17:40:27.449512609Z [err]    ],
+2025-12-17T17:40:27.449516628Z [err]        received: 'undefined',
+2025-12-17T17:40:27.449521416Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:27.449521993Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:27.449528795Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:27.449533866Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:27.449537981Z [err]    errors: [
+2025-12-17T17:40:27.449543169Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:27.449549800Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:27.449555022Z [err]    issues: [
+2025-12-17T17:40:27.449559799Z [err]      {
+2025-12-17T17:40:27.449564357Z [err]        code: 'invalid_type',
+2025-12-17T17:40:27.449568635Z [err]        expected: 'string',
+2025-12-17T17:40:27.449573161Z [err]        received: 'undefined',
+2025-12-17T17:40:27.449578374Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:27.449583037Z [err]        message: 'Required'
+2025-12-17T17:40:27.449588057Z [err]      },
+2025-12-17T17:40:27.449592990Z [err]      {
+2025-12-17T17:40:27.449597957Z [err]        code: 'invalid_type',
+2025-12-17T17:40:27.449602284Z [err]        expected: 'string',
+2025-12-17T17:40:27.449969557Z [err]  Node.js v20.19.6
+2025-12-17T17:40:27.449983409Z [err]      },
+2025-12-17T17:40:27.449994300Z [err]      {
+2025-12-17T17:40:27.450000715Z [err]        code: 'invalid_type',
+2025-12-17T17:40:27.450007454Z [err]        expected: 'string',
+2025-12-17T17:40:27.450013847Z [err]        received: 'undefined',
+2025-12-17T17:40:27.450020932Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:27.450029052Z [err]        message: 'Required'
+2025-12-17T17:40:27.450035068Z [err]      }
+2025-12-17T17:40:27.450040571Z [err]    ]
+2025-12-17T17:40:27.450044851Z [err]  }
+2025-12-17T17:40:27.450048702Z [err]  
+2025-12-17T17:40:31.390827577Z [err]          ^
+2025-12-17T17:40:31.390838818Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:31.390839462Z [err]  
+2025-12-17T17:40:31.390845977Z [err]  ZodError: [
+2025-12-17T17:40:31.390851335Z [err]    {
+2025-12-17T17:40:31.390855662Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:31.390856705Z [err]      "code": "invalid_type",
+2025-12-17T17:40:31.390863183Z [err]      "expected": "string",
+2025-12-17T17:40:31.390866888Z [err]      "message": "Required"
+2025-12-17T17:40:31.390868731Z [err]      "received": "undefined",
+2025-12-17T17:40:31.390873134Z [err]      ],
+2025-12-17T17:40:31.390874858Z [err]      "path": [
+2025-12-17T17:40:31.390876360Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:31.390878161Z [err]    }
+2025-12-17T17:40:31.390882302Z [err]          throw result.error;
+2025-12-17T17:40:31.390886592Z [err]      "message": "Required"
+2025-12-17T17:40:31.390899708Z [err]    },
+2025-12-17T17:40:31.390900525Z [err]  ]
+2025-12-17T17:40:31.390912998Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:31.390918310Z [err]    {
+2025-12-17T17:40:31.390922207Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:31.390932689Z [err]      "code": "invalid_type",
+2025-12-17T17:40:31.390932870Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:31.390942613Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:31.390946505Z [err]      "expected": "string",
+2025-12-17T17:40:31.390950400Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:31.390960604Z [err]      "received": "undefined",
+2025-12-17T17:40:31.390971225Z [err]      "path": [
+2025-12-17T17:40:31.390981400Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:31.390990629Z [err]      ],
+2025-12-17T17:40:31.391824990Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:31.391830990Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:31.391836367Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:31.391837996Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:31.391841653Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:31.391846608Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:31.391847007Z [err]    errors: [
+2025-12-17T17:40:31.391850875Z [err]    issues: [
+2025-12-17T17:40:31.391854646Z [err]      {
+2025-12-17T17:40:31.391856251Z [err]      {
+2025-12-17T17:40:31.391861018Z [err]        code: 'invalid_type',
+2025-12-17T17:40:31.391863874Z [err]        code: 'invalid_type',
+2025-12-17T17:40:31.391866120Z [err]        expected: 'string',
+2025-12-17T17:40:31.391870918Z [err]        received: 'undefined',
+2025-12-17T17:40:31.391872502Z [err]        expected: 'string',
+2025-12-17T17:40:31.391877554Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:31.391879425Z [err]        received: 'undefined',
+2025-12-17T17:40:31.391882480Z [err]        message: 'Required'
+2025-12-17T17:40:31.391887025Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:31.391887942Z [err]      },
+2025-12-17T17:40:31.391893338Z [err]      {
+2025-12-17T17:40:31.391894787Z [err]        message: 'Required'
+2025-12-17T17:40:31.391898081Z [err]        code: 'invalid_type',
+2025-12-17T17:40:31.391901685Z [err]        expected: 'string',
+2025-12-17T17:40:31.391905556Z [err]        received: 'undefined',
+2025-12-17T17:40:31.391909013Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:31.391912568Z [err]        message: 'Required'
+2025-12-17T17:40:31.391916116Z [err]      }
+2025-12-17T17:40:31.391919585Z [err]    ],
+2025-12-17T17:40:31.392786211Z [err]      },
+2025-12-17T17:40:31.392794112Z [err]      {
+2025-12-17T17:40:31.392800887Z [err]        code: 'invalid_type',
+2025-12-17T17:40:31.392807060Z [err]        expected: 'string',
+2025-12-17T17:40:31.392813103Z [err]        received: 'undefined',
+2025-12-17T17:40:31.392819259Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:31.392828505Z [err]        message: 'Required'
+2025-12-17T17:40:31.392835895Z [err]      }
+2025-12-17T17:40:31.392842168Z [err]    ]
+2025-12-17T17:40:31.392848582Z [err]  }
+2025-12-17T17:40:31.392854678Z [err]  
+2025-12-17T17:40:31.392861810Z [err]  Node.js v20.19.6
+2025-12-17T17:40:32.597096083Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:32.597103382Z [err]      "code": "invalid_type",
+2025-12-17T17:40:32.597106772Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:32.597108991Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:32.597111345Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:32.597115280Z [err]      "expected": "string",
+2025-12-17T17:40:32.597122378Z [err]    },
+2025-12-17T17:40:32.597123185Z [err]          throw result.error;
+2025-12-17T17:40:32.597123602Z [err]      ],
+2025-12-17T17:40:32.597125318Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:32.597126533Z [err]      "received": "undefined",
+2025-12-17T17:40:32.597131404Z [err]    {
+2025-12-17T17:40:32.597134278Z [err]          ^
+2025-12-17T17:40:32.597135931Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:32.597137109Z [err]      "message": "Required"
+2025-12-17T17:40:32.597137529Z [err]      "path": [
+2025-12-17T17:40:32.597140614Z [err]      "code": "invalid_type",
+2025-12-17T17:40:32.597144593Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:32.597144801Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:32.597145347Z [err]  
+2025-12-17T17:40:32.597151131Z [err]      "expected": "string",
+2025-12-17T17:40:32.597152011Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:32.597153552Z [err]      ],
+2025-12-17T17:40:32.597155971Z [err]  ZodError: [
+2025-12-17T17:40:32.597159575Z [err]      "received": "undefined",
+2025-12-17T17:40:32.597164397Z [err]      "message": "Required"
+2025-12-17T17:40:32.597165555Z [err]    }
+2025-12-17T17:40:32.597166016Z [err]    {
+2025-12-17T17:40:32.597168348Z [err]      "path": [
+2025-12-17T17:40:32.597172889Z [err]  ]
+2025-12-17T17:40:32.598665708Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:32.598681018Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:32.598686495Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:32.598692791Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:32.598698273Z [err]    issues: [
+2025-12-17T17:40:32.598704588Z [err]      {
+2025-12-17T17:40:32.598709804Z [err]        code: 'invalid_type',
+2025-12-17T17:40:32.598714724Z [err]        expected: 'string',
+2025-12-17T17:40:32.598719912Z [err]        received: 'undefined',
+2025-12-17T17:40:32.598725261Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:32.598730409Z [err]        message: 'Required'
+2025-12-17T17:40:32.598736231Z [err]      },
+2025-12-17T17:40:32.598742157Z [err]      {
+2025-12-17T17:40:32.598747401Z [err]        code: 'invalid_type',
+2025-12-17T17:40:32.598752991Z [err]        expected: 'string',
+2025-12-17T17:40:32.598758421Z [err]        received: 'undefined',
+2025-12-17T17:40:32.598763695Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:32.598769361Z [err]        message: 'Required'
+2025-12-17T17:40:32.598774625Z [err]      }
+2025-12-17T17:40:32.598779999Z [err]    ],
+2025-12-17T17:40:32.598785119Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:32.598791446Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:32.598795311Z [err]    errors: [
+2025-12-17T17:40:32.598798798Z [err]      {
+2025-12-17T17:40:32.598802338Z [err]        code: 'invalid_type',
+2025-12-17T17:40:32.598805966Z [err]        expected: 'string',
+2025-12-17T17:40:32.598810182Z [err]        received: 'undefined',
+2025-12-17T17:40:32.598813775Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:32.598817464Z [err]        message: 'Required'
+2025-12-17T17:40:32.599082708Z [err]      },
+2025-12-17T17:40:32.599089822Z [err]      {
+2025-12-17T17:40:32.599129231Z [err]        code: 'invalid_type',
+2025-12-17T17:40:32.599137332Z [err]        expected: 'string',
+2025-12-17T17:40:32.599145851Z [err]        received: 'undefined',
+2025-12-17T17:40:32.599153741Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:32.599161605Z [err]        message: 'Required'
+2025-12-17T17:40:32.599167948Z [err]      }
+2025-12-17T17:40:32.599172013Z [err]    ]
+2025-12-17T17:40:32.599176678Z [err]  }
+2025-12-17T17:40:32.599181804Z [err]  
+2025-12-17T17:40:32.599186190Z [err]  Node.js v20.19.6
+2025-12-17T17:40:33.927604340Z [err]      at Module.load (node:internal/modules/cjs/loader:1266:32)
+2025-12-17T17:40:33.927604513Z [err]      "message": "Required"
+2025-12-17T17:40:33.927611104Z [err]  /app/node_modules/zod/v3/types.cjs:120
+2025-12-17T17:40:33.927615606Z [err]    }
+2025-12-17T17:40:33.927618797Z [err]    {
+2025-12-17T17:40:33.927624905Z [err]  ]
+2025-12-17T17:40:33.927626437Z [err]          throw result.error;
+2025-12-17T17:40:33.927628981Z [err]      "code": "invalid_type",
+2025-12-17T17:40:33.927634545Z [err]      at get error [as error] (/app/node_modules/zod/v3/types.cjs:45:31)
+2025-12-17T17:40:33.927636525Z [err]      "expected": "string",
+2025-12-17T17:40:33.927638112Z [err]          ^
+2025-12-17T17:40:33.927643589Z [err]      at ZodObject.parse (/app/node_modules/zod/v3/types.cjs:120:22)
+2025-12-17T17:40:33.927645868Z [err]      "received": "undefined",
+2025-12-17T17:40:33.927649064Z [err]  
+2025-12-17T17:40:33.927652004Z [err]      "path": [
+2025-12-17T17:40:33.927653008Z [err]      at Object.<anonymous> (/app/dist/config/env.js:15:25)
+2025-12-17T17:40:33.927658604Z [err]  ZodError: [
+2025-12-17T17:40:33.927659554Z [inf]        "JWT_SECRET"
+2025-12-17T17:40:33.927662300Z [err]      at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2025-12-17T17:40:33.927666785Z [err]    {
+2025-12-17T17:40:33.927667561Z [err]      ],
+2025-12-17T17:40:33.927671551Z [err]      at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2025-12-17T17:40:33.927675531Z [err]      "code": "invalid_type",
+2025-12-17T17:40:33.927682482Z [err]      "expected": "string",
+2025-12-17T17:40:33.927688460Z [err]      "received": "undefined",
+2025-12-17T17:40:33.927696047Z [err]      "path": [
+2025-12-17T17:40:33.927702038Z [inf]        "DATABASE_URL"
+2025-12-17T17:40:33.927707629Z [err]      ],
+2025-12-17T17:40:33.927713737Z [err]      "message": "Required"
+2025-12-17T17:40:33.927719103Z [err]    },
+2025-12-17T17:40:33.929360948Z [err]      at Module._load (node:internal/modules/cjs/loader:1091:12)
+2025-12-17T17:40:33.929367012Z [err]      at Module.require (node:internal/modules/cjs/loader:1289:19)
+2025-12-17T17:40:33.929371106Z [err]      at require (node:internal/modules/helpers:182:18)
+2025-12-17T17:40:33.929375064Z [err]      at Object.<anonymous> (/app/dist/modules/auth/auth.service.js:10:15) {
+2025-12-17T17:40:33.929378877Z [err]    issues: [
+2025-12-17T17:40:33.929382885Z [err]      {
+2025-12-17T17:40:33.929387117Z [err]        code: 'invalid_type',
+2025-12-17T17:40:33.929390947Z [err]        expected: 'string',
+2025-12-17T17:40:33.929395835Z [err]        received: 'undefined',
+2025-12-17T17:40:33.929400406Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:33.929405486Z [err]        message: 'Required'
+2025-12-17T17:40:33.929409607Z [err]      },
+2025-12-17T17:40:33.929413814Z [err]      {
+2025-12-17T17:40:33.929417696Z [err]        code: 'invalid_type',
+2025-12-17T17:40:33.929422272Z [err]        expected: 'string',
+2025-12-17T17:40:33.929428095Z [err]        received: 'undefined',
+2025-12-17T17:40:33.929432298Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:33.929436555Z [err]        message: 'Required'
+2025-12-17T17:40:33.929441441Z [err]      }
+2025-12-17T17:40:33.929445992Z [err]    ],
+2025-12-17T17:40:33.929450281Z [err]    addIssue: [Function (anonymous)],
+2025-12-17T17:40:33.929454536Z [err]    addIssues: [Function (anonymous)],
+2025-12-17T17:40:33.929458900Z [err]    errors: [
+2025-12-17T17:40:33.929462756Z [err]      {
+2025-12-17T17:40:33.929467273Z [err]        code: 'invalid_type',
+2025-12-17T17:40:33.929472575Z [err]        expected: 'string',
+2025-12-17T17:40:33.929476855Z [err]        received: 'undefined',
+2025-12-17T17:40:33.929480954Z [err]        path: [ 'DATABASE_URL' ],
+2025-12-17T17:40:33.929484997Z [err]        message: 'Required'
+2025-12-17T17:40:33.929869775Z [err]  
+2025-12-17T17:40:33.929877200Z [err]  Node.js v20.19.6
+2025-12-17T17:40:33.929885106Z [err]      },
+2025-12-17T17:40:33.929892147Z [err]      {
+2025-12-17T17:40:33.929898010Z [err]        code: 'invalid_type',
+2025-12-17T17:40:33.929902266Z [err]        expected: 'string',
+2025-12-17T17:40:33.929906617Z [err]        received: 'undefined',
+2025-12-17T17:40:33.929912684Z [err]        path: [ 'JWT_SECRET' ],
+2025-12-17T17:40:33.929916798Z [err]        message: 'Required'
+2025-12-17T17:40:33.929921237Z [err]      }
+2025-12-17T17:40:33.929925723Z [err]    ]
+2025-12-17T17:40:33.929931646Z [err]  }

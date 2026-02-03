@@ -1,0 +1,921 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SequelizeMeta {
+  name String @id @db.VarChar(255)
+}
+
+model anticipos {
+  id             String         @id @db.Uuid
+  valor          Decimal        @db.Decimal(10, 2)
+  fecha          DateTime       @db.Date
+  concepto       String?        @db.VarChar(255)
+  created_at     DateTime       @db.Timestamptz(6)
+  updated_at     DateTime       @db.Timestamptz(6)
+  liquidacion_id String?        @db.Uuid
+  conductor_id   String?        @db.Uuid
+  creado_por_id  String?        @db.Uuid
+  conductores    conductores?   @relation(fields: [conductor_id], references: [id])
+  users          users?         @relation(fields: [creado_por_id], references: [id])
+  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+}
+
+model bonificaciones {
+  id             String         @id @db.Uuid
+  name           String         @db.VarChar(255)
+  values         String         @default("[]")
+  value          Decimal        @db.Decimal(10, 2)
+  created_at     DateTime       @db.Timestamptz(6)
+  updated_at     DateTime       @db.Timestamptz(6)
+  liquidacion_id String?        @db.Uuid
+  vehiculo_id    String?        @db.Uuid
+  creado_por_id  String?        @db.Uuid
+  old_id         Int?
+  users          users?         @relation(fields: [creado_por_id], references: [id])
+  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+  vehiculos      vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model conductores {
+  id                    String                         @id @db.Uuid
+  nombre                String                         @db.VarChar(255)
+  apellido              String                         @db.VarChar(255)
+  tipo_identificacion   String                         @db.VarChar(255)
+  numero_identificacion String                         @unique @db.VarChar(255)
+  email                 String?                        @unique @db.VarChar(255)
+  telefono              String?                        @db.VarChar(255)
+  password              String?                        @db.VarChar(255)
+  foto_url              String?                        @db.VarChar(255)
+  fecha_nacimiento      DateTime?                      @db.Date
+  genero                String?                        @db.VarChar(255)
+  direccion             String?                        @db.VarChar(255)
+  cargo                 String                         @default("CONDUCTOR") @db.VarChar(255)
+  fecha_ingreso         DateTime                       @db.Date
+  salario_base          Decimal                        @db.Decimal(10, 2)
+  estado                enum_conductores_estado        @default(ACTIVO)
+  eps                   String?                        @db.VarChar(255)
+  fondo_pension         String?                        @db.VarChar(255)
+  arl                   String?                        @db.VarChar(255)
+  tipo_contrato         String?                        @db.VarChar(255)
+  categoria_licencia    String?                        @db.VarChar(255)
+  vencimiento_licencia  DateTime?                      @db.Date
+  ultimo_acceso         DateTime?                      @db.Timestamptz(6)
+  permisos              Json?                          @default("{\"verViajes\": true, \"verDocumentos\": true, \"actualizarPerfil\": true, \"verMantenimientos\": true}")
+  created_at            DateTime                       @db.Timestamptz(6)
+  updated_at            DateTime                       @db.Timestamptz(6)
+  creado_por_id         String?                        @db.Uuid
+  sede_trabajo          enum_conductores_sede_trabajo?
+  actualizado_por_id    String?                        @db.Uuid
+  termino_contrato      String?
+  fecha_terminacion     String?
+  tipo_sangre           tipo_sangre_enum?
+  licencia_conduccion   Json?
+  anticipos             anticipos[]
+  users                 users?                         @relation(fields: [creado_por_id], references: [id])
+  firmas_desprendibles  firmas_desprendibles[]
+  liquidaciones         liquidaciones[]
+  recargos_planillas    recargos_planillas[]
+  servicios             servicios[]
+  vehiculos             vehiculos[]
+}
+
+model configuracion_liquidador {
+  id                                                       String   @id @db.Uuid
+  nombre                                                   String   @db.VarChar(255)
+  valor                                                    Int
+  descripcion                                              String?  @db.VarChar(255)
+  activo                                                   Boolean? @default(true)
+  created_at                                               DateTime @db.Timestamptz(6)
+  updated_at                                               DateTime @db.Timestamptz(6)
+  creado_por_id                                            String?  @db.Uuid
+  actualizado_por_id                                       String?  @db.Uuid
+  users_configuracion_liquidador_actualizado_por_idTousers users?   @relation("configuracion_liquidador_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id])
+  users_configuracion_liquidador_creado_por_idTousers      users?   @relation("configuracion_liquidador_creado_por_idTousers", fields: [creado_por_id], references: [id])
+}
+
+model configuraciones_liquidacion {
+  id         String                                @id @db.Uuid
+  nombre     String                                @db.VarChar(255)
+  valor      Decimal                               @db.Decimal(10, 2)
+  tipo       enum_configuraciones_liquidacion_tipo @default(VALOR_NUMERICO)
+  activo     Boolean                               @default(true)
+  created_at DateTime                              @db.Timestamptz(6)
+  updated_at DateTime                              @db.Timestamptz(6)
+  deleted_at DateTime?                             @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model configuraciones_salarios {
+  id                    String                              @id @db.Uuid
+  empresa_id            String?                             @db.Uuid
+  salario_basico        Decimal                             @db.Decimal(12, 2)
+  valor_hora_trabajador Decimal                             @db.Decimal(12, 4)
+  horas_mensuales_base  Int                                 @default(240)
+  vigencia_desde        DateTime                            @db.Timestamptz(6)
+  vigencia_hasta        DateTime?                           @db.Timestamptz(6)
+  activo                Boolean                             @default(true)
+  observaciones         String?
+  creado_por_id         String?                             @db.Uuid
+  created_at            DateTime                            @db.Timestamptz(6)
+  updated_at            DateTime                            @db.Timestamptz(6)
+  deleted_at            DateTime?                           @db.Timestamptz(6)
+  paga_dias_festivos    Boolean                             @default(false)
+  porcentaje_festivos   Decimal                             @default(75.0000) @db.Decimal(8, 2)
+  seguridad_social      Decimal                             @default(0.00) @db.Decimal(5, 2)
+  administracion        Decimal                             @default(0.00) @db.Decimal(5, 2)
+  prueba_antigeno_covid Decimal                             @default(0.00) @db.Decimal(10, 2)
+  prestaciones_sociales Decimal                             @default(0.00) @db.Decimal(5, 2)
+  sede                  enum_configuraciones_salarios_sede?
+  users                 users?                              @relation(fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  empresas              empresas?                           @relation(fields: [empresa_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([activo, vigencia_desde], map: "idx_config_salario_activo_vigencia")
+  @@index([empresa_id, vigencia_desde], map: "idx_config_salario_empresa_vigencia")
+  @@index([paga_dias_festivos], map: "idx_config_salario_paga_festivos")
+  @@index([porcentaje_festivos], map: "idx_config_salario_porcentaje_festivos")
+  @@index([activo, vigencia_desde, vigencia_hasta], map: "idx_config_salarios_activo_vigencia")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model detalles_recargos_dias {
+  id                                                     String                   @id @db.Uuid
+  dia_laboral_id                                         String                   @db.Uuid
+  tipo_recargo_id                                        String                   @db.Uuid
+  horas                                                  Decimal                  @default(0) @db.Decimal(3, 1)
+  valor_hora_base                                        Decimal?                 @db.Decimal(12, 4)
+  valor_calculado                                        Decimal?                 @db.Decimal(12, 2)
+  observaciones                                          String?
+  calculado_automaticamente                              Boolean                  @default(true)
+  activo                                                 Boolean                  @default(true)
+  version                                                Int                      @default(1)
+  creado_por_id                                          String?                  @db.Uuid
+  actualizado_por_id                                     String?                  @db.Uuid
+  created_at                                             DateTime                 @db.Timestamptz(6)
+  updated_at                                             DateTime                 @db.Timestamptz(6)
+  deleted_at                                             DateTime?                @db.Timestamptz(6)
+  users_detalles_recargos_dias_actualizado_por_idTousers users?                   @relation("detalles_recargos_dias_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id])
+  users_detalles_recargos_dias_creado_por_idTousers      users?                   @relation("detalles_recargos_dias_creado_por_idTousers", fields: [creado_por_id], references: [id])
+  dias_laborales_planillas                               dias_laborales_planillas @relation(fields: [dia_laboral_id], references: [id], onDelete: Cascade)
+  tipos_recargos                                         tipos_recargos           @relation(fields: [tipo_recargo_id], references: [id])
+
+  @@index([activo], map: "idx_detalle_recargo_activo")
+  @@index([calculado_automaticamente], map: "idx_detalle_recargo_automatico")
+  @@index([created_at], map: "idx_detalle_recargo_created")
+  @@index([dia_laboral_id], map: "idx_detalle_recargo_dia")
+  @@index([horas], map: "idx_detalle_recargo_horas")
+  @@index([tipo_recargo_id], map: "idx_detalle_recargo_tipo")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model dias_laborales_planillas {
+  id                                                       String                   @id @db.Uuid
+  recargo_planilla_id                                      String                   @db.Uuid
+  dia                                                      Int
+  hora_inicio                                              Decimal?                 @db.Decimal(3, 1)
+  hora_fin                                                 Decimal?                 @db.Decimal(3, 1)
+  total_horas                                              Decimal                  @default(0) @db.Decimal(3, 1)
+  horas_ordinarias                                         Decimal?                 @default(0) @db.Decimal(3, 1)
+  es_festivo                                               Boolean                  @default(false)
+  es_domingo                                               Boolean                  @default(false)
+  observaciones                                            String?
+  creado_por_id                                            String?                  @db.Uuid
+  actualizado_por_id                                       String?                  @db.Uuid
+  created_at                                               DateTime                 @db.Timestamptz(6)
+  updated_at                                               DateTime                 @db.Timestamptz(6)
+  deleted_at                                               DateTime?                @db.Timestamptz(6)
+  disponibilidad                                           Boolean                  @default(false)
+  kilometraje_inicial                                      Decimal?                 @db.Decimal(10, 2)
+  kilometraje_final                                        Decimal?                 @db.Decimal(10, 2)
+  detalles_recargos_dias                                   detalles_recargos_dias[]
+  users_dias_laborales_planillas_actualizado_por_idTousers users?                   @relation("dias_laborales_planillas_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_dias_laborales_planillas_creado_por_idTousers      users?                   @relation("dias_laborales_planillas_creado_por_idTousers", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recargos_planillas                                       recargos_planillas       @relation(fields: [recargo_planilla_id], references: [id], onDelete: Cascade)
+
+  @@unique([recargo_planilla_id, dia], map: "idx_dia_laboral_planilla_dia")
+}
+
+model documento {
+  id              String     @id @db.Uuid
+  vehiculo_id     String?    @db.Uuid
+  categoria       String     @db.VarChar(255)
+  nombre_original String     @db.VarChar(255)
+  nombre_archivo  String     @db.VarChar(255)
+  ruta_archivo    String     @db.VarChar(255)
+  s3_key          String?    @db.VarChar(255)
+  filename        String?    @db.VarChar(255)
+  mimetype        String     @db.VarChar(255)
+  size            Int
+  fecha_vigencia  DateTime?  @db.Timestamptz(6)
+  estado          String     @default("ACTIVO") @db.VarChar(255)
+  upload_date     DateTime   @db.Timestamptz(6)
+  metadata        Json?      @default("{}")
+  created_at      DateTime   @db.Timestamptz(6)
+  updated_at      DateTime   @db.Timestamptz(6)
+  conductor_id    String?    @db.Uuid
+  vehiculos       vehiculos? @relation(fields: [vehiculo_id], references: [id], onDelete: NoAction)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model documentos_requeridos_conductor {
+  id                  Int      @id @default(autoincrement())
+  documento           String   @db.VarChar(500)
+  es_obligatorio      Boolean  @default(true)
+  activo              Boolean  @default(true)
+  fecha_creacion      DateTime @db.Timestamptz(6)
+  fecha_actualizacion DateTime @db.Timestamptz(6)
+
+  @@index([activo], map: "documentos_requeridos_conductor_activo")
+  @@index([es_obligatorio], map: "documentos_requeridos_conductor_es_obligatorio")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model empresas {
+  id                       String                     @id @db.Uuid
+  old_id                   Int?
+  nit                      String?                    @unique(map: "empresas__n_i_t") @db.VarChar(50)
+  nombre                   String?                    @db.VarChar(255)
+  representante            String?                    @db.VarChar(255)
+  cedula                   String?                    @db.VarChar(50)
+  telefono                 String?                    @db.VarChar(50)
+  direccion                String?                    @db.VarChar(255)
+  createdAt                DateTime?                  @db.Timestamp(6)
+  updatedAt                DateTime?                  @db.Timestamp(6)
+  deletedAt                DateTime?                  @db.Timestamp(6)
+  requiere_osi             Boolean?                   @default(false)
+  paga_recargos            Boolean?                   @default(false)
+  configuraciones_salarios configuraciones_salarios[]
+  pernotes                 pernotes[]
+  recargos                 recargos[]
+  recargos_planillas       recargos_planillas[]
+  servicios                servicios[]
+}
+
+model firmas_desprendibles {
+  id                                                   String                           @id @db.Uuid
+  liquidacion_id                                       String                           @db.Uuid
+  conductor_id                                         String                           @db.Uuid
+  firma_url                                            String
+  firma_s3_key                                         String
+  ip_address                                           String?                          @db.Inet
+  user_agent                                           String?
+  fecha_firma                                          DateTime                         @db.Timestamptz(6)
+  hash_firma                                           String?
+  estado                                               enum_firmas_desprendibles_estado @default(Activa)
+  observaciones                                        String?
+  creado_por_id                                        String?                          @db.Uuid
+  actualizado_por_id                                   String?                          @db.Uuid
+  created_at                                           DateTime                         @db.Timestamptz(6)
+  updated_at                                           DateTime                         @db.Timestamptz(6)
+  users_firmas_desprendibles_actualizado_por_idTousers users?                           @relation("firmas_desprendibles_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id])
+  conductores                                          conductores                      @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+  users_firmas_desprendibles_creado_por_idTousers      users?                           @relation("firmas_desprendibles_creado_por_idTousers", fields: [creado_por_id], references: [id])
+  liquidaciones                                        liquidaciones                    @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+
+  @@unique([liquidacion_id, conductor_id], map: "uk_firmas_desprendibles_liquidacion_conductor")
+  @@index([conductor_id], map: "idx_firmas_desprendibles_conductor_id")
+  @@index([fecha_firma], map: "idx_firmas_desprendibles_fecha_firma")
+  @@index([liquidacion_id], map: "idx_firmas_desprendibles_liquidacion_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model historial_recargos_planillas {
+  id                  String                                   @id @db.Uuid
+  recargo_planilla_id String                                   @db.Uuid
+  accion              enum_historial_recargos_planillas_accion
+  version_anterior    Int?
+  version_nueva       Int
+  datos_anteriores    Json?
+  datos_nuevos        Json?
+  campos_modificados  String[]                                 @db.VarChar(255)
+  motivo              String?
+  ip_usuario          String?                                  @db.Inet
+  user_agent          String?
+  realizado_por_id    String                                   @db.Uuid
+  fecha_accion        DateTime                                 @db.Timestamptz(6)
+  users               users                                    @relation(fields: [realizado_por_id], references: [id], onDelete: NoAction)
+
+  @@index([accion], map: "idx_historial_accion")
+  @@index([fecha_accion], map: "idx_historial_fecha")
+  @@index([recargo_planilla_id], map: "idx_historial_recargo")
+  @@index([realizado_por_id], map: "idx_historial_usuario")
+  @@index([version_nueva], map: "idx_historial_version")
+}
+
+model liquidacion_vehiculo {
+  created_at     DateTime      @db.Timestamptz(6)
+  updated_at     DateTime      @db.Timestamptz(6)
+  liquidacion_id String        @db.Uuid
+  vehiculo_id    String        @db.Uuid
+  liquidaciones  liquidaciones @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+  vehiculos      vehiculos     @relation(fields: [vehiculo_id], references: [id], onDelete: Cascade)
+
+  @@id([liquidacion_id, vehiculo_id])
+}
+
+model liquidaciones {
+  id                                            String                    @id @db.Uuid
+  periodo_start                                 String                    @db.VarChar(255)
+  periodo_end                                   String                    @db.VarChar(255)
+  auxilio_transporte                            Decimal                   @default(0) @db.Decimal(10, 2)
+  sueldo_total                                  Decimal                   @default(0) @db.Decimal(10, 2)
+  salario_devengado                             Decimal                   @default(0) @db.Decimal(10, 2)
+  total_pernotes                                Decimal                   @default(0) @db.Decimal(10, 2)
+  total_bonificaciones                          Decimal                   @default(0) @db.Decimal(10, 2)
+  total_recargos                                Decimal                   @default(0) @db.Decimal(10, 2)
+  total_anticipos                               Decimal                   @default(0) @db.Decimal(10, 2)
+  total_vacaciones                              Decimal                   @default(0) @db.Decimal(10, 2)
+  periodo_start_vacaciones                      String?                   @db.VarChar(255)
+  periodo_end_vacaciones                        String?                   @db.VarChar(255)
+  dias_laborados                                Int                       @default(0)
+  dias_laborados_villanueva                     Int                       @default(0)
+  dias_laborados_anual                          Int                       @default(0)
+  ajuste_salarial                               Decimal                   @default(0) @db.Decimal(10, 2)
+  salud                                         Decimal                   @default(0) @db.Decimal(10, 2)
+  pension                                       Decimal                   @default(0) @db.Decimal(10, 2)
+  cesantias                                     Decimal                   @default(0) @db.Decimal(10, 2)
+  interes_cesantias                             Decimal                   @default(0) @db.Decimal(10, 2)
+  estado                                        enum_liquidaciones_estado @default(Pendiente)
+  fecha_liquidacion                             DateTime?                 @db.Timestamptz(6)
+  observaciones                                 String?
+  created_at                                    DateTime                  @db.Timestamptz(6)
+  updated_at                                    DateTime                  @db.Timestamptz(6)
+  conductor_id                                  String?                   @db.Uuid
+  creado_por_id                                 String?                   @db.Uuid
+  actualizado_por_id                            String?                   @db.Uuid
+  liquidado_por_id                              String?                   @db.Uuid
+  old_id                                        Int?
+  periodo_start_incapacidad                     String?                   @db.VarChar(255)
+  periodo_end_incapacidad                       String?                   @db.VarChar(255)
+  valor_incapacidad                             Decimal                   @default(0) @db.Decimal(10, 2)
+  ajuste_parex                                  Decimal                   @default(0) @db.Decimal(10, 2)
+  ajuste_salarial_por_dia                       Boolean                   @default(false)
+  conceptos_adicionales                         Json?                     @db.Json
+  anticipos                                     anticipos[]
+  bonificaciones                                bonificaciones[]
+  firmas_desprendibles                          firmas_desprendibles[]
+  liquidacion_vehiculo                          liquidacion_vehiculo[]
+  users_liquidaciones_actualizado_por_idTousers users?                    @relation("liquidaciones_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id])
+  conductores                                   conductores?              @relation(fields: [conductor_id], references: [id])
+  users_liquidaciones_creado_por_idTousers      users?                    @relation("liquidaciones_creado_por_idTousers", fields: [creado_por_id], references: [id])
+  users_liquidaciones_liquidado_por_idTousers   users?                    @relation("liquidaciones_liquidado_por_idTousers", fields: [liquidado_por_id], references: [id])
+  mantenimientos                                mantenimientos[]
+  pernotes                                      pernotes[]
+  recargos                                      recargos[]
+}
+
+model liquidaciones_servicios {
+  id                     String                              @id @db.Uuid
+  consecutivo            String                              @unique @db.VarChar(255)
+  fecha_liquidacion      DateTime                            @db.Timestamptz(6)
+  valor_total            Decimal                             @db.Decimal(12, 2)
+  estado                 enum_liquidaciones_servicios_estado @default(pendiente)
+  user_id                String                              @db.Uuid
+  observaciones          String?
+  created_at             DateTime                            @db.Timestamptz(6)
+  updated_at             DateTime                            @db.Timestamptz(6)
+  users                  users                               @relation(fields: [user_id], references: [id], onDelete: NoAction)
+  servicio_liquidaciones servicio_liquidaciones[]
+}
+
+model mantenimientos {
+  id             String         @id @db.Uuid
+  values         String         @default("[]")
+  value          Float
+  vehiculo_id    String?        @db.Uuid
+  liquidacion_id String?        @db.Uuid
+  created_at     DateTime       @db.Timestamptz(6)
+  updated_at     DateTime       @db.Timestamptz(6)
+  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+  vehiculos      vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+}
+
+model municipios {
+  id                                         String      @id @db.Uuid
+  codigo_departamento                        Int
+  nombre_departamento                        String      @db.VarChar(255)
+  codigo_municipio                           Int         @unique
+  nombre_municipio                           String      @db.VarChar(255)
+  tipo                                       String      @db.VarChar(255)
+  longitud                                   Decimal     @db.Decimal(10, 6)
+  latitud                                    Decimal     @db.Decimal(10, 6)
+  created_at                                 DateTime    @db.Timestamptz(6)
+  updated_at                                 DateTime    @db.Timestamptz(6)
+  servicios_servicios_destino_idTomunicipios servicios[] @relation("servicios_destino_idTomunicipios")
+  servicios_servicios_origen_idTomunicipios  servicios[] @relation("servicios_origen_idTomunicipios")
+}
+
+model pernotes {
+  id             String         @id @db.Uuid
+  empresa_id     String         @db.Uuid
+  cantidad       Int
+  valor          Decimal        @db.Decimal(10, 2)
+  fechas         String         @default("[]")
+  created_at     DateTime       @db.Timestamptz(6)
+  updated_at     DateTime       @db.Timestamptz(6)
+  liquidacion_id String?        @db.Uuid
+  vehiculo_id    String?        @db.Uuid
+  creado_por_id  String?        @db.Uuid
+  old_id         Int?
+  users          users?         @relation(fields: [creado_por_id], references: [id])
+  empresas       empresas       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
+  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+  vehiculos      vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+}
+
+model recargos {
+  id             String         @id @db.Uuid
+  empresa_id     String         @db.Uuid
+  valor          Decimal        @db.Decimal(10, 2)
+  pag_cliente    Boolean?
+  mes            String?        @db.VarChar(255)
+  vehiculo_id    String?        @db.Uuid
+  created_at     DateTime       @db.Timestamptz(6)
+  updated_at     DateTime       @db.Timestamptz(6)
+  liquidacion_id String?        @db.Uuid
+  old_id         Int?
+  empresas       empresas       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
+  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+  vehiculos      vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model recargos_planillas {
+  id                                                 String                         @id @db.Uuid
+  conductor_id                                       String                         @db.Uuid
+  vehiculo_id                                        String                         @db.Uuid
+  empresa_id                                         String                         @db.Uuid
+  numero_planilla                                    String?                        @db.VarChar(50)
+  mes                                                Int
+  a_o                                                Int                            @map("año")
+  total_dias_laborados                               Int?                           @default(0)
+  total_horas_trabajadas                             Decimal?                       @default(0) @db.Decimal(4, 1)
+  total_horas_ordinarias                             Decimal?                       @default(0) @db.Decimal(4, 1)
+  archivo_planilla_url                               String?                        @db.VarChar(500)
+  archivo_planilla_nombre                            String?                        @db.VarChar(255)
+  archivo_planilla_tipo                              String?                        @db.VarChar(100)
+  archivo_planilla_tama_o                            Int?                           @map("archivo_planilla_tamaño")
+  observaciones                                      String?
+  estado                                             enum_recargos_planillas_estado @default(pendiente)
+  version                                            Int                            @default(1)
+  creado_por_id                                      String?                        @db.Uuid
+  actualizado_por_id                                 String?                        @db.Uuid
+  created_at                                         DateTime                       @db.Timestamptz(6)
+  updated_at                                         DateTime                       @db.Timestamptz(6)
+  deleted_at                                         DateTime?                      @db.Timestamptz(6)
+  planilla_s3key                                     String?
+  dias_laborales_planillas                           dias_laborales_planillas[]
+  users_recargos_planillas_actualizado_por_idTousers users?                         @relation("recargos_planillas_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conductores                                        conductores                    @relation(fields: [conductor_id], references: [id])
+  users_recargos_planillas_creado_por_idTousers      users?                         @relation("recargos_planillas_creado_por_idTousers", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  empresas                                           empresas                       @relation(fields: [empresa_id], references: [id])
+  vehiculos                                          vehiculos                      @relation(fields: [vehiculo_id], references: [id])
+  snapshots_recargos_planillas                       snapshots_recargos_planillas[]
+}
+
+model servicio_historicos {
+  id                 String                                  @id @db.Uuid
+  servicio_id        String                                  @db.Uuid
+  usuario_id         String                                  @db.Uuid
+  campo_modificado   String                                  @db.VarChar(255)
+  valor_anterior     String?
+  valor_nuevo        String
+  tipo_operacion     enum_servicio_historicos_tipo_operacion @default(actualizacion)
+  fecha_modificacion DateTime                                @db.Timestamptz(6)
+  ip_usuario         String?                                 @db.VarChar(255)
+  navegador_usuario  String?                                 @db.VarChar(255)
+  detalles           Json?
+  created_at         DateTime                                @db.Timestamptz(6)
+  updated_at         DateTime                                @db.Timestamptz(6)
+  users              users                                   @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model servicio_liquidaciones {
+  id                      String                  @id @db.Uuid
+  servicio_id             String                  @db.Uuid
+  liquidacion_id          String                  @db.Uuid
+  valor_liquidado         Decimal                 @db.Decimal(12, 2)
+  created_at              DateTime                @db.Timestamptz(6)
+  updated_at              DateTime                @db.Timestamptz(6)
+  liquidaciones_servicios liquidaciones_servicios @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+  servicios               servicios               @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
+
+  @@unique([servicio_id, liquidacion_id], map: "servicio_liquidaciones_servicio_id_liquidacion_id")
+  @@unique([servicio_id, liquidacion_id])
+}
+
+model servicios {
+  id                                          String                            @id @db.Uuid
+  origen_id                                   String                            @db.Uuid
+  destino_id                                  String                            @db.Uuid
+  origen_especifico                           String                            @db.VarChar(255)
+  destino_especifico                          String                            @db.VarChar(255)
+  conductor_id                                String?                           @db.Uuid
+  vehiculo_id                                 String?                           @db.Uuid
+  cliente_id                                  String                            @db.Uuid
+  fecha_solicitud                             DateTime                          @db.Timestamptz(6)
+  fecha_realizacion                           DateTime?                         @db.Timestamptz(6)
+  origen_latitud                              Float?
+  origen_longitud                             Float?
+  destino_latitud                             Float?
+  destino_longitud                            Float?
+  valor                                       Decimal                           @db.Decimal(12, 2)
+  numero_planilla                             String?                           @db.VarChar(255)
+  observaciones                               String?
+  created_at                                  DateTime                          @db.Timestamptz(6)
+  updated_at                                  DateTime                          @db.Timestamptz(6)
+  proposito_servicio                          enum_servicios_proposito_servicio @default(personal)
+  estado                                      enum_servicios_estado             @default(solicitado)
+  fecha_finalizacion                          DateTime?                         @db.Timestamptz(6)
+  no_conformidades                            String?
+  servicio_liquidaciones                      servicio_liquidaciones[]
+  empresas                                    empresas                          @relation(fields: [cliente_id], references: [id], onDelete: NoAction)
+  conductores                                 conductores?                      @relation(fields: [conductor_id], references: [id])
+  municipios_servicios_destino_idTomunicipios municipios                        @relation("servicios_destino_idTomunicipios", fields: [destino_id], references: [id], onDelete: NoAction)
+  municipios_servicios_origen_idTomunicipios  municipios                        @relation("servicios_origen_idTomunicipios", fields: [origen_id], references: [id], onDelete: NoAction)
+  vehiculos                                   vehiculos?                        @relation(fields: [vehiculo_id], references: [id])
+  servicios_cancelados                        servicios_cancelados[]
+}
+
+model servicios_cancelados {
+  id                                                       String                                       @id @db.Uuid
+  servicio_id                                              String                                       @db.Uuid
+  usuario_cancelacion_id                                   String                                       @db.Uuid
+  motivo_cancelacion                                       enum_servicios_cancelados_motivo_cancelacion
+  observaciones                                            String?
+  fecha_cancelacion                                        DateTime                                     @db.Timestamptz(6)
+  created_at                                               DateTime                                     @db.Timestamptz(6)
+  updated_at                                               DateTime                                     @db.Timestamptz(6)
+  user_cancelacion_id                                      String?                                      @db.Uuid
+  servicios                                                servicios                                    @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
+  users_servicios_cancelados_user_cancelacion_idTousers    users?                                       @relation("servicios_cancelados_user_cancelacion_idTousers", fields: [user_cancelacion_id], references: [id])
+  users_servicios_cancelados_usuario_cancelacion_idTousers users                                        @relation("servicios_cancelados_usuario_cancelacion_idTousers", fields: [usuario_cancelacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([fecha_cancelacion], map: "servicios_cancelados_fecha_cancelacion")
+  @@index([servicio_id], map: "servicios_cancelados_servicio_id")
+  @@index([usuario_cancelacion_id], map: "servicios_cancelados_usuario_cancelacion_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model snapshots_recargos_planillas {
+  id                  String                                           @id @db.Uuid
+  recargo_planilla_id String                                           @db.Uuid
+  version             Int
+  snapshot_completo   Json
+  es_snapshot_mayor   Boolean?                                         @default(false)
+  tipo_snapshot       enum_snapshots_recargos_planillas_tipo_snapshot? @default(automatico)
+  tama_o_bytes        Int?                                             @map("tamaño_bytes")
+  creado_por_id       String?                                          @db.Uuid
+  created_at          DateTime                                         @db.Timestamptz(6)
+  users               users?                                           @relation(fields: [creado_por_id], references: [id], onDelete: NoAction)
+  recargos_planillas  recargos_planillas                               @relation(fields: [recargo_planilla_id], references: [id], onDelete: Cascade)
+
+  @@unique([recargo_planilla_id, version], map: "snapshots_recargos_planillas_recargo_planilla_id_version")
+  @@index([es_snapshot_mayor], map: "snapshots_recargos_planillas_es_snapshot_mayor")
+  @@index([tipo_snapshot], map: "snapshots_recargos_planillas_tipo_snapshot")
+}
+
+model subsystems {
+  id                  Int      @id @default(autoincrement())
+  name                String   @unique @db.VarChar(50)
+  title               String   @db.VarChar(100)
+  description         String
+  url                 String   @db.VarChar(255)
+  health_endpoint     String   @default("/") @db.VarChar(100)
+  icon_name           String   @db.VarChar(50)
+  color_gradient      String   @db.VarChar(100)
+  is_active           Boolean  @default(true)
+  required_permission String?  @db.VarChar(50)
+  required_roles      String[] @default(dbgenerated("(ARRAY[]::character varying[])::character varying(255)[]")) @db.VarChar(255)
+  order_index         Int      @default(0)
+  created_at          DateTime @db.Timestamptz(6)
+  updated_at          DateTime @db.Timestamptz(6)
+
+  @@index([is_active], map: "idx_subsystems_active")
+  @@index([name], map: "idx_subsystems_name")
+  @@index([order_index], map: "idx_subsystems_order")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tipos_recargos {
+  id                     String                        @id @db.Uuid
+  codigo                 String                        @unique(map: "idx_tipo_recargo_codigo") @db.VarChar(20)
+  nombre                 String                        @db.VarChar(100)
+  descripcion            String?                       @db.VarChar(255)
+  categoria              enum_tipos_recargos_categoria
+  subcategoria           String?                       @db.VarChar(50)
+  porcentaje             Decimal                       @default(0) @db.Decimal(8, 2)
+  es_valor_fijo          Boolean                       @default(false)
+  valor_fijo             Decimal?                      @default(0) @db.Decimal(12, 2)
+  aplica_festivos        Boolean?
+  aplica_domingos        Boolean?
+  aplica_nocturno        Boolean?
+  aplica_diurno          Boolean?
+  orden_calculo          Int                           @default(1)
+  es_hora_extra          Boolean                       @default(false)
+  requiere_horas_extras  Boolean                       @default(false)
+  limite_horas_diarias   Decimal?                      @db.Decimal(4, 2)
+  activo                 Boolean                       @default(true)
+  vigencia_desde         DateTime                      @db.Timestamptz(6)
+  vigencia_hasta         DateTime?                     @db.Timestamptz(6)
+  creado_por_id          String?                       @db.Uuid
+  created_at             DateTime                      @db.Timestamptz(6)
+  updated_at             DateTime                      @db.Timestamptz(6)
+  deleted_at             DateTime?                     @db.Timestamptz(6)
+  adicional              Boolean                       @default(false)
+  detalles_recargos_dias detalles_recargos_dias[]
+  users                  users?                        @relation(fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([adicional], map: "idx_tipo_recargo_adicional")
+  @@index([categoria, activo], map: "idx_tipo_recargo_categoria")
+  @@index([orden_calculo, activo], map: "idx_tipo_recargo_orden")
+  @@index([codigo, activo], map: "idx_tipos_recargos_codigo_activo")
+}
+
+model users {
+  id                                                                          String                         @id @db.Uuid
+  nombre                                                                      String                         @db.VarChar(255)
+  correo                                                                      String                         @unique @db.VarChar(255)
+  password                                                                    String                         @db.VarChar(255)
+  telefono                                                                    String?                        @db.VarChar(255)
+  role                                                                        enum_users_role?               @default(usuario)
+  permisos                                                                    Json?                          @default("{\"admin\": false, \"flota\": false, \"nomina\": false}")
+  ultimo_acceso                                                               DateTime?                      @db.Timestamptz(6)
+  created_at                                                                  DateTime                       @db.Timestamptz(6)
+  updated_at                                                                  DateTime                       @db.Timestamptz(6)
+  anticipos                                                                   anticipos[]
+  bonificaciones                                                              bonificaciones[]
+  conductores                                                                 conductores[]
+  configuracion_liquidador_configuracion_liquidador_actualizado_por_idTousers configuracion_liquidador[]     @relation("configuracion_liquidador_actualizado_por_idTousers")
+  configuracion_liquidador_configuracion_liquidador_creado_por_idTousers      configuracion_liquidador[]     @relation("configuracion_liquidador_creado_por_idTousers")
+  configuraciones_salarios                                                    configuraciones_salarios[]
+  detalles_recargos_dias_detalles_recargos_dias_actualizado_por_idTousers     detalles_recargos_dias[]       @relation("detalles_recargos_dias_actualizado_por_idTousers")
+  detalles_recargos_dias_detalles_recargos_dias_creado_por_idTousers          detalles_recargos_dias[]       @relation("detalles_recargos_dias_creado_por_idTousers")
+  dias_laborales_planillas_dias_laborales_planillas_actualizado_por_idTousers dias_laborales_planillas[]     @relation("dias_laborales_planillas_actualizado_por_idTousers")
+  dias_laborales_planillas_dias_laborales_planillas_creado_por_idTousers      dias_laborales_planillas[]     @relation("dias_laborales_planillas_creado_por_idTousers")
+  firmas_desprendibles_firmas_desprendibles_actualizado_por_idTousers         firmas_desprendibles[]         @relation("firmas_desprendibles_actualizado_por_idTousers")
+  firmas_desprendibles_firmas_desprendibles_creado_por_idTousers              firmas_desprendibles[]         @relation("firmas_desprendibles_creado_por_idTousers")
+  historial_recargos_planillas                                                historial_recargos_planillas[]
+  liquidaciones_liquidaciones_actualizado_por_idTousers                       liquidaciones[]                @relation("liquidaciones_actualizado_por_idTousers")
+  liquidaciones_liquidaciones_creado_por_idTousers                            liquidaciones[]                @relation("liquidaciones_creado_por_idTousers")
+  liquidaciones_liquidaciones_liquidado_por_idTousers                         liquidaciones[]                @relation("liquidaciones_liquidado_por_idTousers")
+  liquidaciones_servicios                                                     liquidaciones_servicios[]
+  pernotes                                                                    pernotes[]
+  recargos_planillas_recargos_planillas_actualizado_por_idTousers             recargos_planillas[]           @relation("recargos_planillas_actualizado_por_idTousers")
+  recargos_planillas_recargos_planillas_creado_por_idTousers                  recargos_planillas[]           @relation("recargos_planillas_creado_por_idTousers")
+  servicio_historicos                                                         servicio_historicos[]
+  servicios_cancelados_servicios_cancelados_user_cancelacion_idTousers        servicios_cancelados[]         @relation("servicios_cancelados_user_cancelacion_idTousers")
+  servicios_cancelados_servicios_cancelados_usuario_cancelacion_idTousers     servicios_cancelados[]         @relation("servicios_cancelados_usuario_cancelacion_idTousers")
+  snapshots_recargos_planillas                                                snapshots_recargos_planillas[]
+  tipos_recargos                                                              tipos_recargos[]
+  vehiculos                                                                   vehiculos[]
+
+  @@index([correo], map: "users_correo")
+  @@index([role], map: "users_role")
+}
+
+model vehiculos {
+  id                         String                 @id @db.Uuid
+  placa                      String                 @unique @db.VarChar(255)
+  marca                      String                 @db.VarChar(255)
+  linea                      String                 @db.VarChar(255)
+  modelo                     String                 @db.VarChar(255)
+  color                      String?                @db.VarChar(255)
+  clase_vehiculo             String                 @db.VarChar(255)
+  tipo_carroceria            String?                @db.VarChar(255)
+  combustible                String?                @db.VarChar(255)
+  numero_motor               String?                @db.VarChar(255)
+  vin                        String?                @db.VarChar(255)
+  numero_serie               String?                @db.VarChar(255)
+  numero_chasis              String?                @db.VarChar(255)
+  propietario_nombre         String?                @db.VarChar(255)
+  propietario_identificacion String?                @db.VarChar(255)
+  kilometraje                Int?                   @default(0)
+  estado                     enum_vehiculos_estado  @default(DISPONIBLE)
+  fecha_matricula            String?                @db.VarChar(255)
+  created_at                 DateTime               @db.Timestamptz(6)
+  updated_at                 DateTime               @db.Timestamptz(6)
+  conductor_id               String?                @db.Uuid
+  propietario_id             String?                @db.Uuid
+  bonificaciones             bonificaciones[]
+  documento                  documento[]
+  liquidacion_vehiculo       liquidacion_vehiculo[]
+  mantenimientos             mantenimientos[]
+  pernotes                   pernotes[]
+  recargos                   recargos[]
+  recargos_planillas         recargos_planillas[]
+  servicios                  servicios[]
+  conductores                conductores?           @relation(fields: [conductor_id], references: [id])
+  users                      users?                 @relation(fields: [propietario_id], references: [id])
+}
+
+enum enum_conductores_estado {
+  ACTIVO
+  INACTIVO
+  SUSPENDIDO
+  RETIRADO
+  servicio
+  disponible
+  descanso
+  vacaciones
+  incapacidad
+  desvinculado
+}
+
+enum enum_conductores_sede_trabajo {
+  Yopal
+  Villanueva
+  Tauramena
+  YOPAL
+  VILLANUEVA
+  TAURAMENA
+}
+
+enum enum_conductores_tipo_sangre {
+  A_POSITIVO  @map("A+")
+  A_NEGATIVO  @map("A-")
+  B_POSITIVO  @map("B+")
+  B_NEGATIVO  @map("B-")
+  AB_POSITIVO @map("AB+")
+  AB_NEGATIVO @map("AB-")
+  O_POSITIVO  @map("O+")
+  O_NEGATIVO  @map("O-")
+}
+
+enum enum_configuraciones_liquidacion_tipo {
+  BONO
+  CONFIGURACION
+  PARAMETRO
+  OTROS
+  VALOR_NUMERICO
+  PORCENTAJE
+  MONTO_FIJO
+  BOOLEAN
+  MULTIPLICADOR
+  DESCUENTO
+}
+
+enum enum_configuraciones_liquidacion_tipo_valor {
+  VALOR_NUMERICO
+  PORCENTAJE
+  MONTO_FIJO
+  BOOLEAN
+  MULTIPLICADOR
+  DESCUENTO
+}
+
+enum enum_configuraciones_salarios_sede {
+  YOPAL
+  VILLANUEVA
+  TAURAMENA
+}
+
+enum enum_documento_estado {
+  vigente
+  proximo_a_vencer
+  vencido
+}
+
+enum enum_firmas_desprendibles_estado {
+  Activa
+  Revocada
+  Expirada
+}
+
+enum enum_historial_recargos_planillas_accion {
+  creacion
+  actualizacion
+  eliminacion
+  restauracion
+  aprobacion
+  rechazo
+  marcar_pendiente
+  marcar_no_esta
+  marcar_facturada
+  marcar_encontrada
+}
+
+enum enum_liquidaciones_estado {
+  Pendiente
+  Liquidado
+}
+
+enum enum_liquidaciones_servicios_estado {
+  liquidado
+  aprobado
+  rechazada
+  facturado
+  anulado
+  pendiente
+}
+
+enum enum_recargos_planillas_estado {
+  pendiente
+  liquidada
+  facturada
+  no_esta
+  encontrada
+  borrador
+  activo
+  completado
+  liquidado
+  cancelado
+}
+
+enum enum_servicio_historicos_tipo_operacion {
+  creacion
+  actualizacion
+  eliminacion
+}
+
+enum enum_servicios_cancelados_motivo_cancelacion {
+  cliente_solicito
+  conductor_no_disponible
+  vehiculo_averiado
+  vehiculo_no_disponible
+  condiciones_climaticas
+  problema_operativo
+  falta_pago
+  problemas_comunidad
+  paro_via
+  emergencia
+  duplicado
+  otro
+}
+
+enum enum_servicios_estado {
+  solicitado
+  planificado
+  en_curso
+  pendiente
+  realizado
+  planilla_asignada
+  liquidado
+  cancelado
+}
+
+enum enum_servicios_proposito_servicio {
+  personal
+  personal_y_herramienta @map("personal y herramienta")
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum enum_snapshots_recargos_planillas_tipo_snapshot {
+  automatico
+  manual
+  pre_aprobacion
+  pre_facturacion
+}
+
+enum enum_tipos_recargos_categoria {
+  HORAS_EXTRAS
+  RECARGOS
+  FESTIVOS
+  SEGURIDAD_SOCIAL
+  PRESTACIONES
+  OTROS
+}
+
+enum enum_users_role {
+  admin
+  liquidador
+  facturador
+  aprobador
+  gestor_flota
+  gestor_nomina
+  consulta
+  usuario
+  gestor_servicio
+  gestor_planillas
+  kilometraje
+}
+
+enum enum_vehiculos_estado {
+  DISPONIBLE
+  NO_DISPONIBLE @map("NO DISPONIBLE")
+  SERVICIO
+  MANTENIMIENTO
+  INACTIVO
+  DESVINCULADO
+  activo
+  inactivo
+  mantenimiento
+}
+
+enum tipo_sangre_enum {
+  A_POSITIVO  @map("A+")
+  A_NEGATIVO  @map("A-")
+  B_POSITIVO  @map("B+")
+  B_NEGATIVO  @map("B-")
+  AB_POSITIVO @map("AB+")
+  AB_NEGATIVO @map("AB-")
+  O_POSITIVO  @map("O+")
+  O_NEGATIVO  @map("O-")
+}

@@ -1,0 +1,157 @@
+2025-12-17T17:27:21.685256771Z [inf]  scheduling build on Metal builder "builder-twncec"
+2025-12-17T17:27:22.525140986Z [inf]  [snapshot] received sha256:108332c4a7e1a07613295d8620f2bb037447a795ceebc8328fc1f8f2808e7f97 md5:4ff849362ca1d847257e5234ea9029f1
+2025-12-17T17:27:22.525250771Z [inf]  receiving snapshot
+2025-12-17T17:27:22.537488822Z [dbg]  found 'Dockerfile' at 'Dockerfile'
+2025-12-17T17:27:22.537492157Z [dbg]  found 'railway.json' at 'railway.json'
+2025-12-17T17:27:22.537801361Z [inf]  analyzing snapshot
+2025-12-17T17:27:22.537845207Z [inf]  uploading snapshot
+2025-12-17T17:27:29.916893638Z [inf]  scheduling build on Metal builder "builder-twncec"
+2025-12-17T17:27:30.959251420Z [inf]  fetched snapshot sha256:108332c4a7e1a07613295d8620f2bb037447a795ceebc8328fc1f8f2808e7f97 (79 kB bytes)
+2025-12-17T17:27:30.959374935Z [inf]  fetching snapshot
+2025-12-17T17:27:31.812279648Z [inf]  unpacking archive
+2025-12-17T17:27:34.078828683Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:27:34.078937406Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:27:34.079066129Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:27:34.306380841Z [inf]  [internal] load build definition from Dockerfile
+2025-12-17T17:27:34.393904020Z [inf]  [internal] load metadata for docker.io/library/node:20-alpine
+2025-12-17T17:27:34.754471793Z [inf]  [internal] load metadata for docker.io/library/node:20-alpine
+2025-12-17T17:27:34.755261879Z [inf]  [internal] load .dockerignore
+2025-12-17T17:27:34.755447848Z [inf]  [internal] load .dockerignore
+2025-12-17T17:27:34.815020681Z [inf]  [internal] load .dockerignore
+2025-12-17T17:27:35.081073845Z [inf]  [internal] load .dockerignore
+2025-12-17T17:27:35.160327977Z [inf]  [builder 6/8] RUN npx prisma generate
+2025-12-17T17:27:35.160346485Z [inf]  [builder 5/8] COPY prisma ./prisma
+2025-12-17T17:27:35.160347707Z [inf]  [builder 4/8] RUN npm ci || npm install
+2025-12-17T17:27:35.160348218Z [inf]  [builder 3/8] COPY package.json package-lock.json* ./
+2025-12-17T17:27:35.160348528Z [inf]  [internal] load build context
+2025-12-17T17:27:35.160348838Z [inf]  [builder 2/8] WORKDIR /app
+2025-12-17T17:27:35.160349479Z [inf]  [builder 1/8] FROM docker.io/library/node:20-alpine@sha256:643e7036aa985317ebfee460005e322aa550c6b6883000d01daefb58689a58e2
+2025-12-17T17:27:35.160407567Z [inf]  [runner 9/9] RUN npm ci --only=production || npm install --production
+2025-12-17T17:27:35.160411162Z [inf]  [runner 8/9] COPY --from=builder /app/dist ./dist
+2025-12-17T17:27:35.160412044Z [inf]  [runner 7/9] COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+2025-12-17T17:27:35.160412634Z [inf]  [runner 6/9] COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+2025-12-17T17:27:35.160413466Z [inf]  [runner 5/9] COPY --from=builder /app/prisma ./prisma
+2025-12-17T17:27:35.160413986Z [inf]  [runner 4/9] COPY --from=builder /app/package-lock.json* ./
+2025-12-17T17:27:35.160414417Z [inf]  [runner 3/9] COPY --from=builder /app/package.json ./
+2025-12-17T17:27:35.160414878Z [inf]  [builder 8/8] RUN npm run build
+2025-12-17T17:27:35.160415318Z [inf]  [builder 7/8] COPY . .
+2025-12-17T17:27:35.160801377Z [inf]  [builder 1/8] FROM docker.io/library/node:20-alpine@sha256:643e7036aa985317ebfee460005e322aa550c6b6883000d01daefb58689a58e2
+2025-12-17T17:27:35.160803230Z [inf]  [internal] load build context
+2025-12-17T17:27:35.178387303Z [inf]  [builder 1/8] FROM docker.io/library/node:20-alpine@sha256:643e7036aa985317ebfee460005e322aa550c6b6883000d01daefb58689a58e2
+2025-12-17T17:27:35.178893182Z [inf]  [internal] load build context
+2025-12-17T17:27:35.178893994Z [inf]  [builder 2/8] WORKDIR /app
+2025-12-17T17:27:35.256470499Z [inf]  [builder 2/8] WORKDIR /app
+2025-12-17T17:27:35.548026387Z [inf]  [internal] load build context
+2025-12-17T17:27:35.790438281Z [inf]  [builder 3/8] COPY package.json package-lock.json* ./
+2025-12-17T17:27:36.332926226Z [inf]  [builder 3/8] COPY package.json package-lock.json* ./
+2025-12-17T17:27:36.432510271Z [inf]  [builder 4/8] RUN npm ci || npm install
+2025-12-17T17:27:40.666813983Z [inf]  npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+
+2025-12-17T17:27:40.672240515Z [inf]  npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
+
+2025-12-17T17:27:40.673621176Z [inf]  npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+
+2025-12-17T17:27:40.682484885Z [inf]  npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+
+2025-12-17T17:27:40.684611817Z [inf]  npm warn deprecated npmlog@5.0.1: This package is no longer supported.
+
+2025-12-17T17:27:40.697761636Z [inf]  npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+
+2025-12-17T17:27:40.750228858Z [inf]  npm warn deprecated gauge@3.0.2: This package is no longer supported.
+
+2025-12-17T17:27:43.992504307Z [inf]  
+added 250 packages, and audited 251 packages in 7s
+
+27 packages are looking for funding
+  run `npm fund` for details
+
+2025-12-17T17:27:43.997679812Z [inf]  
+3 vulnerabilities (2 moderate, 1 high)
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
+
+2025-12-17T17:27:43.998922326Z [inf]  npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.7.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.7.0
+npm notice To update run: npm install -g npm@11.7.0
+npm notice
+
+2025-12-17T17:27:44.267562112Z [inf]  [builder 4/8] RUN npm ci || npm install
+2025-12-17T17:27:44.385415448Z [inf]  [builder 5/8] COPY prisma ./prisma
+2025-12-17T17:27:45.920242823Z [inf]  [builder 5/8] COPY prisma ./prisma
+2025-12-17T17:27:46.062857711Z [inf]  [builder 6/8] RUN npx prisma generate
+2025-12-17T17:27:47.543757814Z [inf]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+Please manually install OpenSSL and try installing Prisma again.
+
+2025-12-17T17:27:47.687667095Z [inf]  Prisma schema loaded from prisma/schema.prisma
+
+2025-12-17T17:27:47.753763045Z [inf]  prisma:warn Prisma failed to detect the libssl/openssl version to use, and may not work as expected. Defaulting to "openssl-1.1.x".
+Please manually install OpenSSL and try installing Prisma again.
+
+2025-12-17T17:27:49.244738945Z [inf]  
+✔ Generated Prisma Client (v5.22.0) to ./node_modules/@prisma/client in 599ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+
+
+2025-12-17T17:27:49.804992296Z [inf]  [builder 6/8] RUN npx prisma generate
+2025-12-17T17:27:49.879672595Z [inf]  [builder 7/8] COPY . .
+2025-12-17T17:27:50.434813916Z [inf]  [builder 7/8] COPY . .
+2025-12-17T17:27:50.492158565Z [inf]  [builder 8/8] RUN npm run build
+2025-12-17T17:27:50.982937286Z [inf]  
+> cotransmeq-backend@0.1.0 build
+> tsc
+
+
+2025-12-17T17:27:54.187054763Z [inf]  src/modules/clientes/cliente.service.ts(18,18): error TS2353: Object literal may only specify known properties, and 'correo' does not exist in type 'clientesWhereUniqueInput'.
+
+2025-12-17T17:27:54.187094182Z [inf]  src/modules/clientes/cliente.service.ts(27,9): error TS2353: Object literal may only specify known properties, and 'tipo' does not exist in type '(Without<clientesCreateInput, clientesUncheckedCreateInput> & clientesUncheckedCreateInput) | (Without<...> & clientesCreateInput)'.
+src/modules/clientes/cliente.service.ts(57,20): error TS2353: Object literal may only specify known properties, and 'created_at' does not exist in type 'clientesOrderByWithRelationInput | clientesOrderByWithRelationInput[]'.
+src/modules/clientes/cliente.service.ts(136,56): error TS2339: Property 'correo' does not exist on type '{ id: string; nombre: string | null; telefono: string | null; deletedAt: Date | null; direccion: string | null; old_id: number | null; nit: string | null; representante: string | null; ... 4 more ...; paga_recargos: boolean | null; }'.
+
+2025-12-17T17:27:54.18729274Z [inf]  src/modules/clientes/cliente.service.ts(138,18): error TS2353: Object literal may only specify known properties, and 'correo' does not exist in type 'clientesWhereUniqueInput'.
+src/modules/clientes/cliente.service.ts(243,20): error TS2353: Object literal may only specify known properties, and 'created_at' does not exist in type 'clientesOrderByWithRelationInput | clientesOrderByWithRelationInput[]'.
+src/modules/clientes/cliente.service.ts(280,18): error TS2561: Object literal may only specify known properties, but 'cliente_id' does not exist in type 'recargosWhereInput'. Did you mean to write 'clientes'?
+
+2025-12-17T17:27:54.18731901Z [inf]  src/modules/clientes/cliente.service.ts(283,18): error TS2561: Object literal may only specify known properties, but 'cliente_id' does not exist in type 'pernotesWhereInput'. Did you mean to write 'clientes'?
+
+2025-12-17T17:27:54.187456746Z [inf]  src/modules/clientes/cliente.service.ts(286,18): error TS2561: Object literal may only specify known properties, but 'cliente_id' does not exist in type 'recargosWhereInput'. Did you mean to write 'clientes'?
+src/modules/clientes/cliente.service.ts(290,18): error TS2561: Object literal may only specify known properties, but 'cliente_id' does not exist in type 'pernotesWhereInput'. Did you mean to write 'clientes'?
+
+2025-12-17T17:27:54.187482244Z [inf]  src/modules/clientes/cliente.service.ts(300,18): error TS18048: 'recargosTotal._sum' is possibly 'undefined'.
+src/modules/clientes/cliente.service.ts(304,18): error TS18048: 'pernotesTotal._sum' is possibly 'undefined'.
+src/modules/clientes/cliente.service.ts(319,9): error TS2353: Object literal may only specify known properties, and 'tipo' does not exist in type 'clientesSelect<DefaultArgs>'.
+
+2025-12-17T17:27:54.187631889Z [inf]  src/modules/municipios/municipios.service.ts(7,7): error TS2322: Type '{ codigo_departamento: number; nombre_departamento: string; codigo_municipio: number; nombre_municipio: string; tipo: "Municipio" | "Isla" | "Area_no_municipalizada"; longitud: number; latitud: number; }' is not assignable to type '(Without<municipiosCreateInput, municipiosUncheckedCreateInput> & municipiosUncheckedCreateInput) | (Without<...> & municipiosCreateInput)'.
+  Type '{ codigo_departamento: number; nombre_departamento: string; codigo_municipio: number; nombre_municipio: string; tipo: "Municipio" | "Isla" | "Area_no_municipalizada"; longitud: number; latitud: number; }' is not assignable to type 'Without<municipiosUncheckedCreateInput, municipiosCreateInput> & municipiosCreateInput'.
+    Type '{ codigo_departamento: number; nombre_departamento: string; codigo_municipio: number; nombre_municipio: string; tipo: "Municipio" | "Isla" | "Area_no_municipalizada"; longitud: number; latitud: number; }' is missing the following properties from type 'municipiosCreateInput': id, created_at, updated_at
+src/modules/municipios/municipios.service.ts(24,9): error TS2353: Object literal may only specify known properties, and 'serviciosOrigen' does not exist in type 'municipiosInclude<DefaultArgs>'.
+src/modules/servicios/servicios.service.ts(16,5): error TS1117: An object literal cannot have multiple properties with the same name.
+
+2025-12-17T17:27:54.187750227Z [inf]  src/modules/servicios/servicios.service.ts(27,7): error TS2322: Type '{ fecha_solicitud: Date; fecha_realizacion: Date | undefined; fecha_finalizacion: Date | undefined; origen_especifico: string; destino_especifico: string; cliente_id: string; ... 12 more ...; observaciones?: string | undefined; }' is not assignable to type '(Without<servicioCreateInput, servicioUncheckedCreateInput> & servicioUncheckedCreateInput) | (Without<...> & servicioCreateInput)'.
+  Type '{ fecha_solicitud: Date; fecha_realizacion: Date | undefined; fecha_finalizacion: Date | undefined; origen_especifico: string; destino_especifico: string; cliente_id: string; ... 12 more ...; observaciones?: string | undefined; }' is not assignable to type 'Without<servicioCreateInput, servicioUncheckedCreateInput> & servicioUncheckedCreateInput'.
+    Type '{ fecha_solicitud: Date; fecha_realizacion: Date | undefined; fecha_finalizacion: Date | undefined; origen_especifico: string; destino_especifico: string; cliente_id: string; ... 12 more ...; observaciones?: string | undefined; }' is not assignable to type 'servicioUncheckedCreateInput'.
+      Types of property 'proposito_servicio' are incompatible.
+        Type '"personal" | "empresarial" | "medico" | "aeropuerto" | undefined' is not assignable to type 'enum_servicio_proposito_servicio | undefined'.
+          Type '"empresarial"' is not assignable to type 'enum_servicio_proposito_servicio | undefined'.
+
+2025-12-17T17:27:54.187791088Z [inf]  src/modules/usuarios/usuarios.service.ts(19,9): error TS2322: Type '"CONDUCTOR"' is not assignable to type 'enum_users_role | Enumenum_users_roleNullableFilter<"usuarios"> | null | undefined'.
+
+2025-12-17T17:27:54.187881844Z [inf]  src/modules/vehiculos/vehiculos.service.ts(7,7): error TS2322: Type '{ placa: string; marca: string; modelo: string; clase_vehiculo: string; kilometraje?: number | undefined; estado?: "DISPONIBLE" | "SERVICIO" | "MANTENIMIENTO" | "DESVINCULADO" | undefined; ... 11 more ...; conductor_id?: string | undefined; }' is not assignable to type '(Without<vehiculosCreateInput, vehiculosUncheckedCreateInput> & vehiculosUncheckedCreateInput) | (Without<...> & vehiculosCreateInput)'.
+  Type '{ placa: string; marca: string; modelo: string; clase_vehiculo: string; kilometraje?: number | undefined; estado?: "DISPONIBLE" | "SERVICIO" | "MANTENIMIENTO" | "DESVINCULADO" | undefined; ... 11 more ...; conductor_id?: string | undefined; }' is not assignable to type 'Without<vehiculosUncheckedCreateInput, vehiculosCreateInput> & vehiculosCreateInput'.
+    Type '{ placa: string; marca: string; modelo: string; clase_vehiculo: string; kilometraje?: number | undefined; estado?: "DISPONIBLE" | "SERVICIO" | "MANTENIMIENTO" | "DESVINCULADO" | undefined; ... 11 more ...; conductor_id?: string | undefined; }' is not assignable to type 'Without<vehiculosUncheckedCreateInput, vehiculosCreateInput>'.
+      Types of property 'conductor_id' are incompatible.
+        Type 'string | undefined' is not assignable to type 'undefined'.
+          Type 'string' is not assignable to type 'undefined'.
+
+2025-12-17T17:27:54.187890688Z [inf]  src/modules/vehiculos/vehiculos.service.ts(56,9): error TS2561: Object literal may only specify known properties, but 'servicios' does not exist in type 'vehiculosInclude<DefaultArgs>'. Did you mean to write 'servicio'?
+
+2025-12-17T17:27:54.187895575Z [inf]  src/modules/vehiculos/vehiculos.service.ts(109,9): error TS2353: Object literal may only specify known properties, and 'deletedAt' does not exist in type 'vehiculosWhereInput'.
+
+2025-12-17T17:27:54.571282887Z [err]  [builder 8/8] RUN npm run build
+2025-12-17T17:27:54.600307004Z [err]  Build Failed: build daemon returned an error < failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2 >
