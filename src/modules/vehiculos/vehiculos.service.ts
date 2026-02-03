@@ -52,7 +52,8 @@ export const VehiculosService = {
   },
 
   async findById(id: string) {
-    return prisma.vehiculos.findUnique({
+    console.log('🔍 [SERVICE] findById llamado con ID:', id)
+    const result = await prisma.vehiculos.findUnique({
       where: { id },
       include: {
         conductores: {
@@ -65,7 +66,7 @@ export const VehiculosService = {
             estado: true
           }
         },
-        servicios: {
+        servicio: {
           select: {
             id: true,
             estado: true,
@@ -80,6 +81,8 @@ export const VehiculosService = {
         }
       }
     })
+    console.log('📦 [SERVICE] Resultado de Prisma:', result)
+    return result
   },
 
   async update(id: string, data: UpdateVehiculoInput) {

@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { VehiculosService } from './vehiculos.service'
 import { createVehiculoSchema, updateVehiculoSchema } from './vehiculos.schema'
+import { getIo } from '../../sockets'
 
 interface VehiculoParams {
   id: string
@@ -71,19 +72,74 @@ export const VehiculosController = {
 
   async getById(request: FastifyRequest<{ Params: VehiculoParams }>, reply: FastifyReply) {
     const { id } = request.params
+    console.log('🔍 [VEHICULOS] Buscando vehículo con ID:', id)
+    
     const vehiculo = await VehiculosService.findById(id)
+    console.log('📦 [VEHICULOS] Resultado de findById:', vehiculo)
+    console.log('📦 [VEHICULOS] Tipo:', typeof vehiculo)
+    console.log('📦 [VEHICULOS] Keys:', Object.keys(vehiculo || {}))
     
     if (!vehiculo) {
+      console.log('❌ [VEHICULOS] Vehículo no encontrado')
       return reply.status(404).send({
         success: false,
         message: 'Vehículo no encontrado'
       })
     }
 
-    reply.send({
+    // Crear objeto plano con campos explícitos para evitar problemas de serialización
+    const vehiculoResponse = {
+      id: vehiculo.id,
+      placa: vehiculo.placa,
+      marca: vehiculo.marca,
+      linea: vehiculo.linea,
+      modelo: vehiculo.modelo,
+      color: vehiculo.color,
+      clase_vehiculo: vehiculo.clase_vehiculo,
+      tipo_carroceria: vehiculo.tipo_carroceria,
+      combustible: vehiculo.combustible,
+      numero_motor: vehiculo.numero_motor,
+      vin: vehiculo.vin,
+      numero_serie: vehiculo.numero_serie,
+      numero_chasis: vehiculo.numero_chasis,
+      propietario_nombre: vehiculo.propietario_nombre,
+      propietario_identificacion: vehiculo.propietario_identificacion,
+      kilometraje: vehiculo.kilometraje,
+      fecha_matricula: vehiculo.fecha_matricula,
+      created_at: vehiculo.created_at?.toISOString(),
+      updated_at: vehiculo.updated_at?.toISOString(),
+      deleted_at: vehiculo.deleted_at?.toISOString() || null,
+      estado: vehiculo.estado,
+      propietario_id: vehiculo.propietario_id,
+      conductor_id: vehiculo.conductor_id,
+      conductores: vehiculo.conductores ? {
+        id: vehiculo.conductores.id,
+        nombre: vehiculo.conductores.nombre,
+        apellido: vehiculo.conductores.apellido,
+        email: vehiculo.conductores.email,
+        telefono: vehiculo.conductores.telefono,
+        estado: vehiculo.conductores.estado
+      } : null,
+      servicio: vehiculo.servicio?.map(s => ({
+        id: s.id,
+        estado: s.estado,
+        fecha_solicitud: s.fecha_solicitud?.toISOString(),
+        origen_especifico: s.origen_especifico,
+        destino_especifico: s.destino_especifico
+      })) || []
+    }
+    
+    console.log('✅ [VEHICULOS] Vehículo mapeado para respuesta:', vehiculoResponse)
+    console.log('✅ [VEHICULOS] JSON.stringify test:', JSON.stringify(vehiculoResponse).substring(0, 200))
+
+    const responsePayload = {
       success: true,
-      data: vehiculo
-    })
+      data: vehiculoResponse
+    }
+    
+    console.log('📤 [VEHICULOS] Enviando payload:', JSON.stringify(responsePayload).substring(0, 300))
+
+    return responsePayload
   },
 
   async update(request: FastifyRequest<{ Params: VehiculoParams }>, reply: FastifyReply) {
@@ -92,6 +148,20 @@ export const VehiculosController = {
       const data = updateVehiculoSchema.parse(request.body)
       
       const vehiculo = await VehiculosService.update(id, data)
+      
+      // Emitir evento socket para actualización en tiempo real
+      try {
+        const io = getIo()
+        io.emit('vehiculo-actualizado', {
+          vehiculoId: id,
+          vehiculo: vehiculo
+        })
+        console.log('🔔 Socket event emitted: vehiculo-actualizado', id)
+      } catch (socketError) {
+        console.error('Error emitiendo socket event:', socketError)
+        // No fallar la request por error de socket
+      }
+      
       reply.send({
         success: true,
         message: 'Vehículo actualizado exitosamente',
