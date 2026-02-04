@@ -605,6 +605,25 @@ export const ServiciosService = {
       updateData.proposito_servicio = normalizarProposito(data.proposito_servicio)
     }
 
+    // Obtener el servicio actual antes de actualizar
+    const servicioActual = await prisma.servicio.findUnique({
+      where: { id },
+      include: {
+        recargos_planillas: {
+          where: {
+            deleted_at: null
+          },
+          select: {
+            id: true
+          }
+        }
+      }
+    })
+
+    if (!servicioActual) {
+      throw new Error('Servicio no encontrado')
+    }
+
     const servicio = await prisma.servicio.update({
       where: { id },
       data: updateData,
@@ -652,6 +671,52 @@ export const ServiciosService = {
         }
       }
     })
+    
+    // Verificar si se agregó conductor y/o vehículo, y si hay fecha de realización
+    const conductorAgregado = !servicioActual.conductor_id && data.conductor_id
+    const vehiculoAgregado = !servicioActual.vehiculo_id && data.vehiculo_id
+    const tieneFechaRealizacion = data.fecha_realizacion || servicioActual.fecha_realizacion
+    const noTieneRecargos = servicioActual.recargos_planillas.length === 0
+
+    // Si se agregó conductor o vehículo, hay fecha de realización, y no tiene recargos, crear recargo automáticamente
+    if ((conductorAgregado || vehiculoAgregado) && tieneFechaRealizacion && noTieneRecargos) {
+      try {
+        const fechaRealizacion = data.fecha_realizacion 
+          ? new Date(data.fecha_realizacion) 
+          : new Date(servicioActual.fecha_realizacion!)
+        
+        const mes = fechaRealizacion.getMonth() + 1
+        const año = fechaRealizacion.getFullYear()
+        
+        console.log('🔄 [AUTO-RECARGO-UPDATE] Creando recargo automático al actualizar servicio:', {
+          servicio_id: servicio.id,
+          conductor_agregado: conductorAgregado,
+          vehiculo_agregado: vehiculoAgregado,
+          conductor_id: data.conductor_id || servicioActual.conductor_id,
+          vehiculo_id: data.vehiculo_id || servicioActual.vehiculo_id,
+          numero_planilla: data.numero_planilla || servicioActual.numero_planilla,
+          mes,
+          año
+        })
+        
+        await RecargosService.create({
+          conductor_id: data.conductor_id || servicioActual.conductor_id,
+          vehiculo_id: data.vehiculo_id || servicioActual.vehiculo_id,
+          empresa_id: servicio.cliente_id,
+          numero_planilla: data.numero_planilla || servicioActual.numero_planilla || undefined,
+          mes,
+          año,
+          servicio_id: servicio.id,
+          observaciones: `Recargo creado automáticamente al agregar ${conductorAgregado && vehiculoAgregado ? 'conductor y vehículo' : conductorAgregado ? 'conductor' : 'vehículo'} al servicio ${data.numero_planilla || servicioActual.numero_planilla || servicio.id}`,
+          dias_laborales: []
+        })
+        
+        console.log('✅ [AUTO-RECARGO-UPDATE] Recargo creado exitosamente')
+      } catch (error) {
+        console.error('❌ [AUTO-RECARGO-UPDATE] Error creando recargo automático:', error)
+        // No lanzar error para no interrumpir la actualización del servicio
+      }
+    }
     
     return await transformarServicio(servicio)
   },

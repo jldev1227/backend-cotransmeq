@@ -1,7 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import { RecargosController } from './recargos.controller'
+import { authMiddleware } from '../../middlewares/auth.middleware'
 
 export async function recargosRoutes(fastify: FastifyInstance) {
+  // Aplicar middleware de autenticación a todas las rutas de recargos
+  fastify.addHook('onRequest', authMiddleware)
+
   // Obtener tipos de recargo (debe ir primero para evitar conflicto con /:id)
   fastify.get('/recargos/tipos-recargo/activos', RecargosController.obtenerTiposRecargo)
 

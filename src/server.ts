@@ -3,6 +3,7 @@ import { env } from './config/env'
 import { initSockets } from './sockets'
 import { testDatabaseConnection } from './config/prisma'
 import { logger } from './utils/logger'
+import { CronService } from './services/cron.service'
 
 async function start() {
   try {
@@ -19,6 +20,9 @@ async function start() {
     
     // init sockets with underlying server
     initSockets(app.server as any)
+
+    // Iniciar CRON jobs
+    CronService.start()
 
     logger.info({
       server: address,
@@ -41,6 +45,9 @@ start()
 process.on('SIGINT', async () => {
   logger.info('📴 Shutting down server...')
   try {
+    // Detener CRON jobs
+    CronService.stop()
+    
     const { prisma } = await import('./config/prisma')
     await prisma.$disconnect()
     logger.info('✅ Database disconnected successfully')

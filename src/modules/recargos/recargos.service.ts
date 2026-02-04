@@ -34,14 +34,23 @@ function calcularRecargosDia(
   total_horas: number,
   es_domingo_o_festivo: boolean
 ): RecargosCalculados {
+  console.log(`📊 [CALC] Entrada: inicio=${hora_inicio}, fin=${hora_fin}, total=${total_horas}, domingo/festivo=${es_domingo_o_festivo}`)
+  
   let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0
 
-  // Calcular recargo nocturno (horas antes de 6am + horas después de 9pm)
-  if (hora_inicio < HORAS_LIMITE.FIN_NOCTURNO) {
-    rn += HORAS_LIMITE.FIN_NOCTURNO - hora_inicio
-  }
-  if (hora_fin > HORAS_LIMITE.INICIO_NOCTURNO) {
-    rn += hora_fin - HORAS_LIMITE.INICIO_NOCTURNO
+  // Calcular recargo nocturno (21:00-06:00)
+  // Necesitamos considerar que la jornada puede cruzar medianoche
+  let horaActual = hora_inicio
+  while (horaActual < hora_inicio + total_horas) {
+    const horaDelDia = horaActual % 24
+    const siguienteHora = Math.min(horaActual + 0.5, hora_inicio + total_horas)
+    
+    // Verificar si está en período nocturno (21:00-23:59 o 00:00-06:00)
+    if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
+      rn += siguienteHora - horaActual
+    }
+    
+    horaActual = siguienteHora
   }
 
   if (es_domingo_o_festivo) {
@@ -52,12 +61,23 @@ function calcularRecargosDia(
     if (total_horas > HORAS_LIMITE.JORNADA_NORMAL) {
       const horas_extras = total_horas - HORAS_LIMITE.JORNADA_NORMAL
       
-      // HEFN: horas extras nocturnas (después de 9pm)
-      if (hora_fin > HORAS_LIMITE.INICIO_NOCTURNO) {
-        hefn = Math.min(horas_extras, hora_fin - HORAS_LIMITE.INICIO_NOCTURNO)
+      // Calcular cuántas horas extras son nocturnas
+      const horaInicioExtras = hora_inicio + HORAS_LIMITE.JORNADA_NORMAL
+      let horasExtrasNocturnas = 0
+      
+      let horaActualExtra = horaInicioExtras
+      while (horaActualExtra < hora_inicio + total_horas) {
+        const horaDelDia = horaActualExtra % 24
+        const siguienteHora = Math.min(horaActualExtra + 0.5, hora_inicio + total_horas)
+        
+        if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
+          horasExtrasNocturnas += siguienteHora - horaActualExtra
+        }
+        
+        horaActualExtra = siguienteHora
       }
       
-      // HEFD: el resto de horas extras
+      hefn = Math.min(horasExtrasNocturnas, horas_extras)
       hefd = horas_extras - hefn
     }
   } else {
@@ -66,17 +86,39 @@ function calcularRecargosDia(
     if (total_horas > HORAS_LIMITE.JORNADA_NORMAL) {
       const horas_extras = total_horas - HORAS_LIMITE.JORNADA_NORMAL
       
-      // HEN: horas extras nocturnas (después de 9pm)
-      if (hora_fin > HORAS_LIMITE.INICIO_NOCTURNO) {
-        hen = Math.min(horas_extras, hora_fin - HORAS_LIMITE.INICIO_NOCTURNO)
+      // Calcular cuántas horas extras son nocturnas
+      const horaInicioExtras = hora_inicio + HORAS_LIMITE.JORNADA_NORMAL
+      let horasExtrasNocturnas = 0
+      
+      let horaActualExtra = horaInicioExtras
+      while (horaActualExtra < hora_inicio + total_horas) {
+        const horaDelDia = horaActualExtra % 24
+        const siguienteHora = Math.min(horaActualExtra + 0.5, hora_inicio + total_horas)
+        
+        if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
+          horasExtrasNocturnas += siguienteHora - horaActualExtra
+        }
+        
+        horaActualExtra = siguienteHora
       }
       
-      // HED: el resto de horas extras
+      hen = Math.min(horasExtrasNocturnas, horas_extras)
       hed = horas_extras - hen
     }
   }
 
-  return { hed, hen, hefd, hefn, rn, rd }
+  const resultado = { 
+    hed: Math.round(hed * 10) / 10, 
+    hen: Math.round(hen * 10) / 10, 
+    hefd: Math.round(hefd * 10) / 10, 
+    hefn: Math.round(hefn * 10) / 10, 
+    rn: Math.round(rn * 10) / 10, 
+    rd: Math.round(rd * 10) / 10 
+  }
+  
+  console.log(`📊 [CALC] Resultado:`, resultado)
+  
+  return resultado
 }
 
 export const RecargosService = {
@@ -174,13 +216,26 @@ export const RecargosService = {
         total_dias: 0
       }
 
+      console.log(`📊 [DEBUG] Calculando totales para recargo ID: ${recargo.id}`)
+      console.log(`📊 [DEBUG] Días laborales: ${recargo.dias_laborales_planillas.length}`)
+      
+      if (recargo.dias_laborales_planillas.length === 0) {
+        console.log(`⚠️ [DEBUG] Este recargo NO tiene días laborales!`)
+      }
+
       recargo.dias_laborales_planillas.forEach(dia => {
-        totales.total_horas += Number(dia.total_horas) || 0
+        const horasDia = Number(dia.total_horas) || 0
+        totales.total_horas += horasDia
         totales.total_dias += 1
+
+        console.log(`📊 [DEBUG] Día ${dia.dia}: total_horas=${dia.total_horas}, parsed=${horasDia}`)
+        console.log(`📊 [DEBUG] Detalles recargos: ${dia.detalles_recargos_dias.length}`)
 
         dia.detalles_recargos_dias.forEach(detalle => {
           const codigo = detalle.tipos_recargos.codigo.toLowerCase()
           const horas = Number(detalle.horas) || 0
+
+          console.log(`📊 [DEBUG] Detalle: tipo=${codigo}, horas=${detalle.horas}, parsed=${horas}`)
 
           switch(codigo) {
             case 'hed': totales.total_hed += horas; break
@@ -192,6 +247,8 @@ export const RecargosService = {
           }
         })
       })
+
+      console.log(`📊 [DEBUG] Totales calculados:`, totales)
 
       // Mapear nombres de relaciones para que coincidan con el frontend
       return {
@@ -259,12 +316,16 @@ export const RecargosService = {
 
   // Crear recargo con días laborales
   async create(data: CreateRecargoDTO, userId?: string) {
+    console.log('📊 [CREATE] Datos recibidos:', JSON.stringify(data, null, 2))
+    console.log('📊 [CREATE] Días laborales recibidos:', data.dias_laborales?.length)
+    
     // Obtener tipos de recargo activos
     const tiposRecargo = await prisma.tipos_recargos.findMany({
       where: { activo: true }
     })
 
     const tiposMap = new Map(tiposRecargo.map(t => [t.codigo, t.id]))
+    console.log('📊 [CREATE] Tipos de recargo disponibles:', Array.from(tiposMap.keys()))
 
     const now = new Date()
 
@@ -320,6 +381,9 @@ export const RecargosService = {
               total_horas,
               es_domingo_o_festivo
             )
+
+            console.log(`📊 [CREATE DEBUG] Día ${dia.dia}: hora_inicio=${hora_inicio}, hora_fin=${hora_fin}, total_horas=${total_horas}`)
+            console.log(`📊 [CREATE DEBUG] Recargos calculados:`, recargos)
 
             return {
               id: randomUUID(), // Generar UUID para el día laboral
