@@ -1,5 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { ServiciosService } from './servicios.service'
+import { RutogramaService } from './rutograma.service'
 import { 
   createServicioSchema, 
   updateServicioSchema, 
@@ -7,6 +8,9 @@ import {
   asignarPlanillaSchema, 
   buscarServiciosSchema 
 } from './servicios.schema'
+
+// Crear instancia del servicio de rutogramas
+const rutogramaService = new RutogramaService()
 
 interface ServicioParams {
   id: string
@@ -391,6 +395,29 @@ export const ServiciosController = {
         data: clientes
       })
     } catch (error) {
+      throw error
+    }
+  },
+
+  async generarRutograma(request: FastifyRequest<{ Params: ServicioParams }>, reply: FastifyReply) {
+    try {
+      const { id } = request.params
+      
+      // Generar el PDF
+      const pdfBuffer = await rutogramaService.generarRutograma(id)
+      
+      // Configurar headers para descarga
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="rutograma-${id}.pdf"`)
+        .send(pdfBuffer)
+    } catch (error) {
+      if (error instanceof Error) {
+        reply.status(400).send({
+          success: false,
+          message: error.message
+        })
+      }
       throw error
     }
   }

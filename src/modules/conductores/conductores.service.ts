@@ -12,7 +12,7 @@ export const ConductoresService = {
     limit?: number
   }) {
     const page = filters?.page || 1
-    const limit = filters?.limit || 50
+    const limit = filters?.limit || 1000  // ← Aumentado de 50 a 1000 para mostrar todos
     const skip = (page - 1) * limit
 
     const where: any = {
@@ -413,7 +413,7 @@ export const ConductoresService = {
     limit?: number
   }) {
     const page = filters?.page || 1
-    const limit = filters?.limit || 50
+    const limit = filters?.limit || 1000  // ← Aumentado de 50 a 1000
     const skip = (page - 1) * limit
 
     const where: any = {

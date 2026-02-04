@@ -222,6 +222,42 @@ export async function serviciosRoutes(app: FastifyInstance) {
     }
   }, ServiciosController.obtenerPorId)
 
+  // Ruta para generar rutograma en PDF
+  app.get('/servicios/:id/rutograma', {
+    schema: {
+      description: 'Generar rutograma en PDF para un servicio',
+      tags: ['servicios'],
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' }
+        },
+        required: ['id']
+      },
+      response: {
+        200: {
+          description: 'PDF del rutograma',
+          type: 'string',
+          format: 'binary'
+        },
+        400: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' }
+          }
+        },
+        404: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' }
+          }
+        }
+      }
+    }
+  }, ServiciosController.generarRutograma)
+
   // Rutas que requieren permisos de creación/edición
   app.post('/servicios', {
     schema: {

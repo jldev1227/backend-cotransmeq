@@ -37,29 +37,38 @@ async function transformarServicio(servicio: any) {
   // Si hay conductor, obtener su foto desde la tabla documento
   if (conductor && conductor.id) {
     try {
-      // Buscar foto de perfil en la tabla documento
-      const fotoDocumento = await prisma.documento.findFirst({
-        where: {
-          conductor_id: conductor.id,
-          categoria: 'FOTO_PERFIL',
-          estado: 'vigente'
-        },
-        select: {
-          ruta_archivo: true
-        },
-        orderBy: {
-          created_at: 'desc' // La más reciente
-        }
-      })
-      
-      if (fotoDocumento && fotoDocumento.ruta_archivo) {
-        // Generar URL firmada desde S3
-        conductor.foto_signed_url = await getS3SignedUrl(fotoDocumento.ruta_archivo, 3600) // URL válida por 1 hora
+      // Primero intentar con foto_url directa del conductor
+      if (conductor.foto_url) {
+        console.log('🖼️ [TRANSFORM] Generando URL firmada para foto_url:', conductor.foto_url)
+        conductor.foto_signed_url = await getS3SignedUrl(conductor.foto_url, 3600) // URL válida por 1 hora
+        console.log('✅ [TRANSFORM] URL firmada generada:', conductor.foto_signed_url)
       } else {
-        conductor.foto_signed_url = null
+        // Si no hay foto_url, buscar foto de perfil en la tabla documento
+        const fotoDocumento = await prisma.documento.findFirst({
+          where: {
+            conductor_id: conductor.id,
+            categoria: 'FOTO_PERFIL',
+            estado: 'vigente'
+          },
+          select: {
+            ruta_archivo: true
+          },
+          orderBy: {
+            created_at: 'desc' // La más reciente
+          }
+        })
+        
+        if (fotoDocumento && fotoDocumento.ruta_archivo) {
+          console.log('🖼️ [TRANSFORM] Generando URL firmada desde documento:', fotoDocumento.ruta_archivo)
+          // Generar URL firmada desde S3
+          conductor.foto_signed_url = await getS3SignedUrl(fotoDocumento.ruta_archivo, 3600) // URL válida por 1 hora
+          console.log('✅ [TRANSFORM] URL firmada generada desde documento:', conductor.foto_signed_url)
+        } else {
+          conductor.foto_signed_url = null
+        }
       }
     } catch (error) {
-      console.error('Error obteniendo foto del conductor desde documento:', error)
+      console.error('❌ [TRANSFORM] Error obteniendo foto del conductor:', error)
       conductor.foto_signed_url = null
     }
   }
