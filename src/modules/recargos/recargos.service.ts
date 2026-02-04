@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto'
 // Constantes de cálculo
 const HORAS_LIMITE = {
   JORNADA_NORMAL: 10,
-  INICIO_NOCTURNO: 21,
+  INICIO_NOCTURNO: 19,
   FIN_NOCTURNO: 6
 }
 
@@ -38,14 +38,14 @@ function calcularRecargosDia(
   
   let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0
 
-  // Calcular recargo nocturno (21:00-06:00)
-  // Necesitamos considerar que la jornada puede cruzar medianoche
+  // Calcular recargo nocturno (19:00-06:00) - SOLO EN LAS PRIMERAS 10 HORAS
+  // El recargo nocturno NO se cuenta en horas extras (HEN/HEFN ya incluyen el recargo nocturno)
   let horaActual = hora_inicio
-  while (horaActual < hora_inicio + total_horas) {
+  while (horaActual < Math.min(hora_inicio + total_horas, hora_inicio + HORAS_LIMITE.JORNADA_NORMAL)) {
     const horaDelDia = horaActual % 24
-    const siguienteHora = Math.min(horaActual + 0.5, hora_inicio + total_horas)
+    const siguienteHora = Math.min(horaActual + 0.5, hora_inicio + total_horas, hora_inicio + HORAS_LIMITE.JORNADA_NORMAL)
     
-    // Verificar si está en período nocturno (21:00-23:59 o 00:00-06:00)
+    // Verificar si está en período nocturno (19:00-23:59 o 00:00-06:00)
     if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
       rn += siguienteHora - horaActual
     }
