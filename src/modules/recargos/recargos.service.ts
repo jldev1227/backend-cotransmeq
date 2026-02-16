@@ -910,5 +910,44 @@ export const RecargosService = {
       message: `${validIds.length} recargo(s) eliminado(s) correctamente`,
       eliminados: validIds.length
     }
+  },
+
+  async cambiarEstadoMultiple(ids: string[], estado: string, userId?: string) {
+    const now = new Date()
+
+    // Verificar que todos los recargos existen y no están eliminados
+    const recargos = await prisma.recargos_planillas.findMany({
+      where: {
+        id: { in: ids },
+        deleted_at: null
+      },
+      select: { id: true, estado: true }
+    })
+
+    if (recargos.length === 0) {
+      throw new Error('No se encontraron recargos válidos para actualizar')
+    }
+
+    const validIds = recargos.map(r => r.id)
+
+    // Actualizar estado de todos los recargos válidos
+    await prisma.recargos_planillas.updateMany({
+      where: {
+        id: { in: validIds },
+        deleted_at: null
+      },
+      data: {
+        estado: estado as any,
+        actualizado_por_id: userId,
+        updated_at: now
+      }
+    })
+
+    return {
+      success: true,
+      message: `${validIds.length} recargo(s) actualizado(s) al estado "${estado}"`,
+      actualizados: validIds.length,
+      estado
+    }
   }
 }

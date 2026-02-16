@@ -58,7 +58,7 @@ export const createRecargoSchema = z.object({
 
 // Schema para actualizar recargo
 export const updateRecargoSchema = createRecargoSchema.partial().extend({
-  estado: z.enum(['pendiente', 'liquidada', 'facturada', 'encontrada', 'no_esta']).optional()
+  estado: z.enum(['pendiente', 'liquidada', 'facturada', 'no_esta', 'encontrada', 'borrador', 'activo', 'completado', 'liquidado', 'cancelado']).optional()
 })
 
 // Schema para filtros de búsqueda
@@ -84,6 +84,23 @@ export const buscarRecargosSchema = z.object({
 // Schema para liquidar recargo
 export const liquidarRecargoSchema = z.object({
   observaciones: z.string().optional()
+})
+
+// Schema para cambio de estado masivo
+export const cambiarEstadoMultipleSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'Debe proporcionar al menos un ID'),
+  estado: z.enum([
+    'pendiente',
+    'liquidada',
+    'facturada',
+    'no_esta',
+    'encontrada',
+    'borrador',
+    'activo',
+    'completado',
+    'liquidado',
+    'cancelado'
+  ])
 })
 
 export type CreateRecargoDTO = z.infer<typeof createRecargoSchema>

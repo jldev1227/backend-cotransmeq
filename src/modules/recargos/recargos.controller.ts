@@ -5,7 +5,8 @@ import {
   createRecargoSchema, 
   updateRecargoSchema, 
   buscarRecargosSchema,
-  liquidarRecargoSchema 
+  liquidarRecargoSchema,
+  cambiarEstadoMultipleSchema
 } from './recargos.schema'
 
 interface RecargoParams {
@@ -270,6 +271,50 @@ export const RecargosController = {
         data: recargo
       })
     } catch (error) {
+      if (error instanceof Error) {
+        reply.status(400).send({
+          success: false,
+          message: error.message
+        })
+      } else {
+        throw error
+      }
+    }
+  },
+
+  async cambiarEstadoMultiple(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const data = cambiarEstadoMultipleSchema.parse(request.body)
+      const userId = (request as any).user?.id
+
+      const result = await RecargosService.cambiarEstadoMultiple(data.ids, data.estado, userId)
+
+      // Emitir evento socket para notificar cambio de estado masivo
+      const io = (request.server as any).io
+      if (io) {
+        io.emit('recargos-estado-actualizado', {
+          recargoIds: data.ids,
+          estado: data.estado,
+          cantidad: result.actualizados
+        })
+      }
+
+      reply.send({
+        success: true,
+        message: result.message,
+        data: {
+          actualizados: result.actualizados,
+          estado: result.estado
+        }
+      })
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Error de validación',
+          errors: error.errors
+        })
+      }
       if (error instanceof Error) {
         reply.status(400).send({
           success: false,

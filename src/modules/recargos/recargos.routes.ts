@@ -30,6 +30,9 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // Eliminar múltiples recargos (soft delete)
   fastify.post('/recargos/eliminar-multiple', RecargosController.eliminarMultiple)
 
+  // Cambiar estado de múltiples recargos
+  fastify.patch('/recargos/cambiar-estado-multiple', RecargosController.cambiarEstadoMultiple)
+
   // Liquidar recargo
   fastify.post('/recargos/:id/liquidar', RecargosController.liquidar)
 
