@@ -179,6 +179,10 @@ export const RecargosService = {
               total_horas: true,
               es_festivo: true,
               es_domingo: true,
+              pernocte: true,
+              disponibilidad: true,
+              kilometraje_inicial: true,
+              kilometraje_final: true,
               detalles_recargos_dias: {
                 where: { deleted_at: null, activo: true },
                 include: {
@@ -224,6 +228,9 @@ export const RecargosService = {
       }
 
       recargo.dias_laborales_planillas.forEach(dia => {
+        // Excluir días marcados como disponible de los totales
+        if (dia.disponibilidad) return
+
         const horasDia = Number(dia.total_horas) || 0
         totales.total_horas += horasDia
         totales.total_dias += 1
@@ -374,13 +381,10 @@ export const RecargosService = {
             const total_horas = dia.total_horas || 0
             const es_domingo_o_festivo = dia.es_domingo || dia.es_festivo
 
-            // Calcular recargos
-            const recargos = calcularRecargosDia(
-              hora_inicio,
-              hora_fin,
-              total_horas,
-              es_domingo_o_festivo
-            )
+            // Si el día está marcado como disponible, no calcular recargos
+            const recargos = dia.disponibilidad
+              ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rn: 0, rd: 0 }
+              : calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
 
             console.log(`📊 [CREATE DEBUG] Día ${dia.dia}: hora_inicio=${hora_inicio}, hora_fin=${hora_fin}, total_horas=${total_horas}`)
             console.log(`📊 [CREATE DEBUG] Recargos calculados:`, recargos)
@@ -563,13 +567,10 @@ export const RecargosService = {
         const total_horas = dia.total_horas || 0
         const es_domingo_o_festivo = dia.es_domingo || dia.es_festivo
 
-        // Calcular recargos
-        const recargos = calcularRecargosDia(
-          hora_inicio,
-          hora_fin,
-          total_horas,
-          es_domingo_o_festivo
-        )
+        // Si el día está marcado como disponible, no calcular recargos
+        const recargos = dia.disponibilidad
+          ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rn: 0, rd: 0 }
+          : calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
 
         // Crear día laboral con sus detalles de recargos
         await prisma.dias_laborales_planillas.create({
@@ -713,7 +714,8 @@ export const RecargosService = {
           where: { deleted_at: null },
           select: {
             total_horas: true,
-            horas_ordinarias: true
+            horas_ordinarias: true,
+            disponibilidad: true
           }
         }
       }
@@ -721,12 +723,14 @@ export const RecargosService = {
 
     if (!recargo) return
 
-    const total_dias_laborados = recargo.dias_laborales_planillas.length
-    const total_horas_trabajadas = recargo.dias_laborales_planillas.reduce(
+    // Excluir días marcados como disponible de los totales
+    const diasNoDisponibles = recargo.dias_laborales_planillas.filter(dia => !dia.disponibilidad)
+    const total_dias_laborados = diasNoDisponibles.length
+    const total_horas_trabajadas = diasNoDisponibles.reduce(
       (sum, dia) => sum + Number(dia.total_horas), 
       0
     )
-    const total_horas_ordinarias = recargo.dias_laborales_planillas.reduce(
+    const total_horas_ordinarias = diasNoDisponibles.reduce(
       (sum, dia) => sum + Number(dia.horas_ordinarias), 
       0
     )
