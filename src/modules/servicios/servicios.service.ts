@@ -916,11 +916,7 @@ export const ServiciosService = {
 
   // Métodos para obtener listas para filtros
   async obtenerConductores(search?: string) {
-    const where: any = {
-      estado: {
-        in: ['ACTIVO', 'disponible', 'servicio']
-      }
-    }
+    const where: any = {}
 
     if (search && search.trim()) {
       where.OR = [
@@ -936,14 +932,13 @@ export const ServiciosService = {
         id: true,
         nombre: true,
         apellido: true,
-        telefono: true,
+        numero_identificacion: true,
         estado: true
       },
       orderBy: [
         { nombre: 'asc' },
         { apellido: 'asc' }
-      ],
-      take: 100 // Limitar a 100 resultados
+      ]
     })
 
     return conductores
@@ -951,7 +946,7 @@ export const ServiciosService = {
 
   async obtenerVehiculos(search?: string) {
     const where: any = {
-      estado: 'DISPONIBLE' // Solo vehículos disponibles
+      deleted_at: null // Excluir vehículos eliminados
     }
 
     if (search && search.trim()) {
@@ -973,8 +968,7 @@ export const ServiciosService = {
       },
       orderBy: {
         placa: 'asc'
-      },
-      take: 100 // Limitar a 100 resultados
+      }
     })
 
     return vehiculos
@@ -1001,8 +995,7 @@ export const ServiciosService = {
       },
       orderBy: {
         nombre: 'asc'
-      },
-      take: 100 // Limitar a 100 resultados
+      }
     })
 
     return clientes
