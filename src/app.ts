@@ -22,6 +22,7 @@ import { recargosRoutes } from './modules/recargos/recargos.routes'
 import { documentosRoutes } from './modules/documentos/documentos.routes'
 import { evaluacionesRoutes } from './modules/evaluaciones/evaluacion.routes'
 import { cronRoutes } from './modules/cron/cron.routes'
+import { liquidacionesRoutes } from './modules/liquidaciones/liquidaciones.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -80,6 +81,7 @@ export function buildApp() {
     app.register(documentosRoutes, { prefix: '/api' })
     app.register(evaluacionesRoutes, { prefix: '/api' })
     app.register(cronRoutes, { prefix: '/api' })
+    app.register(liquidacionesRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

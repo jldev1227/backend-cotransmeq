@@ -59,6 +59,14 @@ export const ConductoresController = {
 
       const result = await ConductoresService.obtenerTodos(filters)
 
+      // Log para depuración: ver salario_base de cada conductor
+      console.log('📋 Conductores retornados:', result.conductores.map((c: any) => ({
+        id: c.id,
+        nombre: `${c.nombre} ${c.apellido || ''}`,
+        salario_base: c.salario_base,
+        tipo_salario: typeof c.salario_base
+      })))
+
       return reply.status(200).send({
         success: true,
         data: result.conductores,

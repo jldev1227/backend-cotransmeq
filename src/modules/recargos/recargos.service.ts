@@ -4,7 +4,8 @@ import { randomUUID } from 'crypto'
 
 // Constantes de cálculo
 const HORAS_LIMITE = {
-  JORNADA_NORMAL: 10,
+  JORNADA_NORMAL: 9.33,    // 9 horas 20 minutos - extras empiezan después de esto (días normales)
+  JORNADA_FESTIVA: 7.33,   // 7 horas 20 minutos - extras empiezan después de esto (domingos/festivos)
   INICIO_NOCTURNO: 19,
   FIN_NOCTURNO: 6
 }
@@ -12,10 +13,10 @@ const HORAS_LIMITE = {
 const PORCENTAJES_RECARGO = {
   HE_DIURNA: 25,
   HE_NOCTURNA: 75,
-  HE_FESTIVA_DIURNA: 100,
-  HE_FESTIVA_NOCTURNA: 150,
+  HE_FESTIVA_DIURNA: 105,
+  HE_FESTIVA_NOCTURNA: 155,
   RECARGO_NOCTURNO: 35,
-  RECARGO_DOMINICAL: 75
+  RECARGO_DOMINICAL: 80
 }
 
 interface RecargosCalculados {
@@ -54,15 +55,15 @@ function calcularRecargosDia(
   }
 
   if (es_domingo_o_festivo) {
-    // Recargo dominical/festivo: máximo 10 horas
-    rd = Math.min(total_horas, HORAS_LIMITE.JORNADA_NORMAL)
+    // Recargo dominical/festivo: jornada festiva de 7.33 horas
+    rd = Math.min(total_horas, HORAS_LIMITE.JORNADA_FESTIVA)
 
-    // Horas extras festivas (solo si trabaja más de 10 horas)
-    if (total_horas > HORAS_LIMITE.JORNADA_NORMAL) {
-      const horas_extras = total_horas - HORAS_LIMITE.JORNADA_NORMAL
+    // Horas extras festivas (solo si trabaja más de 7.33 horas)
+    if (total_horas > HORAS_LIMITE.JORNADA_FESTIVA) {
+      const horas_extras = total_horas - HORAS_LIMITE.JORNADA_FESTIVA
       
       // Calcular cuántas horas extras son nocturnas
-      const horaInicioExtras = hora_inicio + HORAS_LIMITE.JORNADA_NORMAL
+      const horaInicioExtras = hora_inicio + HORAS_LIMITE.JORNADA_FESTIVA
       let horasExtrasNocturnas = 0
       
       let horaActualExtra = horaInicioExtras
@@ -395,7 +396,7 @@ export const RecargosService = {
               hora_inicio,
               hora_fin,
               total_horas,
-              horas_ordinarias: Math.min(total_horas, HORAS_LIMITE.JORNADA_NORMAL),
+              horas_ordinarias: Math.min(total_horas, es_domingo_o_festivo ? HORAS_LIMITE.JORNADA_FESTIVA : HORAS_LIMITE.JORNADA_NORMAL),
               es_festivo: dia.es_festivo,
               es_domingo: dia.es_domingo,
               kilometraje_inicial: dia.kilometraje_inicial,
@@ -581,7 +582,7 @@ export const RecargosService = {
             hora_inicio,
             hora_fin,
             total_horas,
-            horas_ordinarias: Math.min(total_horas, HORAS_LIMITE.JORNADA_NORMAL),
+            horas_ordinarias: Math.min(total_horas, es_domingo_o_festivo ? HORAS_LIMITE.JORNADA_FESTIVA : HORAS_LIMITE.JORNADA_NORMAL),
             es_festivo: dia.es_festivo,
             es_domingo: dia.es_domingo,
             kilometraje_inicial: dia.kilometraje_inicial,
