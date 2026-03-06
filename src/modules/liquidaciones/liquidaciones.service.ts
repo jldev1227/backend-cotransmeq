@@ -771,11 +771,15 @@ export const LiquidacionesService = {
         if (dia.es_festivo) tipoDia = 'Festivo'
         else if (dia.es_domingo) tipoDia = 'Domingo'
 
-        totalHorasTrabajadas += Number(dia.total_horas)
-        totalDiasTrabajados++
+        // Días disponibles no suman al total de horas/días trabajados ni a recargos
+        if (!dia.disponibilidad) {
+          totalHorasTrabajadas += Number(dia.total_horas)
+          totalDiasTrabajados++
+        }
 
         // Calcular detalles de recargos con valores monetarios
-        const recargosDetalle = dia.detalles_recargos_dias.map(detalle => {
+        // Si es día disponible, no calcular valores de recargos
+        const recargosDetalle = dia.disponibilidad ? [] : dia.detalles_recargos_dias.map(detalle => {
           const tipo = detalle.tipos_recargos
           const horas = Number(detalle.horas)
           const porcentaje = Number(tipo.porcentaje)
@@ -852,18 +856,18 @@ export const LiquidacionesService = {
         empresa: planilla.clientes,
         mes: mesPlanilla,
         año: añoPlanilla,
-        total_dias: diasDetalle.length,
-        total_horas: diasDetalle.reduce((sum, d) => sum + d.total_horas, 0),
+        total_dias: diasDetalle.filter(d => !d.disponibilidad).length,
+        total_horas: diasDetalle.filter(d => !d.disponibilidad).reduce((sum, d) => sum + d.total_horas, 0),
         total_valor: Math.round(totalRecargoPlanilla),
         dias: diasDetalle
       }
     })
 
-    // Días festivos (si aplica pago festivos)
+    // Días festivos (si aplica pago festivos) - excluir días disponibles
     let totalFestivos = 0
     if (pagaFestivos) {
       const diasFestivos = planillasDetalle.reduce((count, p) =>
-        count + p.dias.filter(d => d.es_festivo || d.es_domingo).length, 0
+        count + p.dias.filter(d => !d.disponibilidad && (d.es_festivo || d.es_domingo)).length, 0
       )
       totalFestivos = diasFestivos * valorHoraBase * (porcentajeFestivos / 100) * 10 // 10 horas base festivo
     }
