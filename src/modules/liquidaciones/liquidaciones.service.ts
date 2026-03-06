@@ -627,5 +627,273 @@ export const LiquidacionesService = {
       },
       orderBy: { nombre: 'asc' }
     })
+  },
+
+  // Preview de recargos para un conductor en un período
+  async previewRecargos(conductor_id: string, periodo_inicio: string, periodo_fin: string) {
+    // Parsear el período para obtener los meses involucrados
+    const fechaInicio = new Date(periodo_inicio + 'T00:00:00Z')
+    const fechaFin = new Date(periodo_fin + 'T00:00:00Z')
+
+    // Generar lista de meses/años que abarca el período
+    const mesesPeriodo: Array<{ mes: number; año: number }> = []
+    const current = new Date(Date.UTC(fechaInicio.getUTCFullYear(), fechaInicio.getUTCMonth(), 1))
+    const lastMonth = new Date(Date.UTC(fechaFin.getUTCFullYear(), fechaFin.getUTCMonth(), 1))
+    while (current <= lastMonth) {
+      mesesPeriodo.push({
+        mes: current.getUTCMonth() + 1,
+        año: current.getUTCFullYear()
+      })
+      current.setUTCMonth(current.getUTCMonth() + 1)
+    }
+
+    console.log('📋 [PREVIEW] Conductor:', conductor_id)
+    console.log('📋 [PREVIEW] Período:', periodo_inicio, '->', periodo_fin)
+    console.log('📋 [PREVIEW] Meses a buscar:', mesesPeriodo)
+
+    // Obtener configuración salarial activa (la más reciente vigente)
+    const configSalarial = await prisma.configuraciones_salarios.findFirst({
+      where: {
+        activo: true,
+        vigencia_desde: { lte: fechaFin },
+        OR: [
+          { vigencia_hasta: null },
+          { vigencia_hasta: { gte: fechaInicio } }
+        ]
+      },
+      orderBy: { vigencia_desde: 'desc' }
+    })
+
+    console.log('📋 [PREVIEW] Config salarial:', configSalarial ? {
+      id: configSalarial.id,
+      valor_hora: Number(configSalarial.valor_hora_trabajador),
+      sede: configSalarial.sede
+    } : 'NO ENCONTRADA')
+
+    const valorHoraBase = configSalarial ? Number(configSalarial.valor_hora_trabajador) : 0
+    const pagaFestivos = configSalarial?.paga_dias_festivos ?? false
+    const porcentajeFestivos = configSalarial ? Number(configSalarial.porcentaje_festivos) : 75
+
+    // Buscar todas las planillas del conductor en los meses del período
+    const whereConditions = mesesPeriodo.map(mp => ({
+      mes: mp.mes,
+      a_o: mp.año
+    }))
+
+    console.log('📋 [PREVIEW] WHERE conditions para planillas:', JSON.stringify(whereConditions))
+
+    const planillas = await prisma.recargos_planillas.findMany({
+      where: {
+        conductor_id,
+        deleted_at: null,
+        OR: whereConditions
+      },
+      include: {
+        vehiculos: {
+          select: { id: true, placa: true, marca: true, modelo: true }
+        },
+        clientes: {
+          select: { id: true, nombre: true }
+        },
+        dias_laborales_planillas: {
+          where: { deleted_at: null },
+          orderBy: { dia: 'asc' },
+          include: {
+            detalles_recargos_dias: {
+              where: { deleted_at: null, activo: true },
+              include: {
+                tipos_recargos: {
+                  select: {
+                    id: true,
+                    codigo: true,
+                    nombre: true,
+                    porcentaje: true,
+                    es_hora_extra: true,
+                    categoria: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ a_o: 'asc' }, { mes: 'asc' }]
+    })
+
+    console.log('📋 [PREVIEW] Planillas encontradas:', planillas.length)
+    planillas.forEach(p => {
+      console.log(`  → Planilla ${p.id}: mes=${p.mes}, año=${p.a_o}, vehículo=${(p.vehiculos as any)?.placa}, empresa=${(p.clientes as any)?.nombre}, días=${p.dias_laborales_planillas?.length}`)
+    })
+
+    // Filtrar solo los días que caen dentro del período
+    const diaInicio = fechaInicio.getUTCDate()
+    const mesInicio = fechaInicio.getUTCMonth() + 1
+    const añoInicio = fechaInicio.getUTCFullYear()
+    const diaFin = fechaFin.getUTCDate()
+    const mesFin = fechaFin.getUTCMonth() + 1
+    const añoFin = fechaFin.getUTCFullYear()
+
+    // Construir el desglose detallado
+    let totalGeneralRecargos = 0
+    let totalDiasTrabajados = 0
+    let totalHorasTrabajadas = 0
+
+    // Resumen por tipo de recargo
+    const resumenTipos: Record<string, {
+      codigo: string
+      nombre: string
+      porcentaje: number
+      es_hora_extra: boolean
+      totalHoras: number
+      valorHoraBase: number
+      valorTotal: number
+    }> = {}
+
+    const planillasDetalle = planillas.map(planilla => {
+      const mesPlanilla = planilla.mes
+      const añoPlanilla = planilla.a_o
+
+      // Filtrar días dentro del rango del período
+      const diasFiltrados = planilla.dias_laborales_planillas.filter(dia => {
+        const fechaDia = new Date(Date.UTC(añoPlanilla, mesPlanilla - 1, dia.dia))
+        return fechaDia >= fechaInicio && fechaDia <= fechaFin
+      })
+
+      let totalRecargoPlanilla = 0
+
+      const diasDetalle = diasFiltrados.map(dia => {
+        const fechaDia = new Date(Date.UTC(añoPlanilla, mesPlanilla - 1, dia.dia))
+        const nombreDia = fechaDia.toLocaleDateString('es-CO', { weekday: 'short', timeZone: 'UTC' })
+        const fechaFormateada = fechaDia.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
+
+        // Determinar tipo de día
+        let tipoDia = 'Normal'
+        if (dia.es_festivo) tipoDia = 'Festivo'
+        else if (dia.es_domingo) tipoDia = 'Domingo'
+
+        totalHorasTrabajadas += Number(dia.total_horas)
+        totalDiasTrabajados++
+
+        // Calcular detalles de recargos con valores monetarios
+        const recargosDetalle = dia.detalles_recargos_dias.map(detalle => {
+          const tipo = detalle.tipos_recargos
+          const horas = Number(detalle.horas)
+          const porcentaje = Number(tipo.porcentaje)
+
+          // Horas extras: valor_hora_base + (valor_hora_base * porcentaje / 100)
+          // Recargos: valor_hora_base * (porcentaje / 100)
+          let valorCalculado = 0
+          if (tipo.es_hora_extra) {
+            // Hora extra = hora base + (hora base × porcentaje / 100)
+            valorCalculado = horas * (valorHoraBase + (valorHoraBase * porcentaje / 100))
+          } else if (tipo.codigo === 'RD' || tipo.codigo === 'HDFN') {
+            // Recargo dominical/festivo = hora base × (porcentaje / 100)
+            valorCalculado = horas * (valorHoraBase * porcentaje / 100)
+          } else {
+            // Recargo nocturno u otros = hora base × (porcentaje / 100)
+            valorCalculado = horas * (valorHoraBase * porcentaje / 100)
+          }
+
+          totalRecargoPlanilla += valorCalculado
+
+          // Acumular en resumen por tipo
+          if (!resumenTipos[tipo.codigo]) {
+            resumenTipos[tipo.codigo] = {
+              codigo: tipo.codigo,
+              nombre: tipo.nombre,
+              porcentaje,
+              es_hora_extra: tipo.es_hora_extra,
+              totalHoras: 0,
+              valorHoraBase: valorHoraBase,
+              valorTotal: 0
+            }
+          }
+          resumenTipos[tipo.codigo].totalHoras += horas
+          resumenTipos[tipo.codigo].valorTotal += valorCalculado
+
+          return {
+            tipo_codigo: tipo.codigo,
+            tipo_nombre: tipo.nombre,
+            es_hora_extra: tipo.es_hora_extra,
+            porcentaje,
+            horas,
+            valor_hora_base: valorHoraBase,
+            valor_hora_calculada: tipo.es_hora_extra
+              ? valorHoraBase + (valorHoraBase * porcentaje / 100)
+              : valorHoraBase * porcentaje / 100,
+            valor_total: Math.round(valorCalculado)
+          }
+        })
+
+        const totalDia = recargosDetalle.reduce((sum, r) => sum + r.valor_total, 0)
+
+        return {
+          dia: dia.dia,
+          fecha: fechaFormateada,
+          nombre_dia: nombreDia,
+          tipo_dia: tipoDia,
+          es_festivo: dia.es_festivo,
+          es_domingo: dia.es_domingo,
+          disponibilidad: dia.disponibilidad,
+          hora_inicio: Number(dia.hora_inicio),
+          hora_fin: Number(dia.hora_fin),
+          total_horas: Number(dia.total_horas),
+          recargos: recargosDetalle,
+          total_valor_dia: totalDia
+        }
+      })
+
+      totalGeneralRecargos += totalRecargoPlanilla
+
+      return {
+        planilla_id: planilla.id,
+        numero_planilla: planilla.numero_planilla,
+        vehiculo: planilla.vehiculos,
+        empresa: planilla.clientes,
+        mes: mesPlanilla,
+        año: añoPlanilla,
+        total_dias: diasDetalle.length,
+        total_horas: diasDetalle.reduce((sum, d) => sum + d.total_horas, 0),
+        total_valor: Math.round(totalRecargoPlanilla),
+        dias: diasDetalle
+      }
+    })
+
+    // Días festivos (si aplica pago festivos)
+    let totalFestivos = 0
+    if (pagaFestivos) {
+      const diasFestivos = planillasDetalle.reduce((count, p) =>
+        count + p.dias.filter(d => d.es_festivo || d.es_domingo).length, 0
+      )
+      totalFestivos = diasFestivos * valorHoraBase * (porcentajeFestivos / 100) * 10 // 10 horas base festivo
+    }
+
+    return {
+      conductor_id,
+      periodo: { inicio: periodo_inicio, fin: periodo_fin },
+      configuracion_salarial: configSalarial ? {
+        id: configSalarial.id,
+        salario_basico: Number(configSalarial.salario_basico),
+        valor_hora_trabajador: valorHoraBase,
+        horas_mensuales_base: configSalarial.horas_mensuales_base,
+        sede: configSalarial.sede,
+        paga_dias_festivos: pagaFestivos,
+        porcentaje_festivos: porcentajeFestivos
+      } : null,
+      resumen: {
+        total_planillas: planillasDetalle.length,
+        total_dias_trabajados: totalDiasTrabajados,
+        total_horas_trabajadas: Math.round(totalHorasTrabajadas * 10) / 10,
+        total_recargos: Math.round(totalGeneralRecargos),
+        total_festivos: Math.round(totalFestivos),
+        total_general: Math.round(totalGeneralRecargos + totalFestivos)
+      },
+      resumen_tipos: Object.values(resumenTipos).map(t => ({
+        ...t,
+        totalHoras: Math.round(t.totalHoras * 10) / 10,
+        valorTotal: Math.round(t.valorTotal)
+      })),
+      planillas: planillasDetalle
+    }
   }
 }

@@ -211,6 +211,43 @@ export const LiquidacionesController = {
     }
   },
 
+  // GET /liquidaciones/preview-recargos
+  async previewRecargos(
+    request: FastifyRequest<{
+      Querystring: { conductor_id: string; periodo_inicio: string; periodo_fin: string }
+    }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const { conductor_id, periodo_inicio, periodo_fin } = request.query
+
+      if (!conductor_id || !periodo_inicio || !periodo_fin) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Se requiere conductor_id, periodo_inicio y periodo_fin'
+        })
+      }
+
+      const preview = await LiquidacionesService.previewRecargos(
+        conductor_id,
+        periodo_inicio,
+        periodo_fin
+      )
+
+      return reply.status(200).send({
+        success: true,
+        data: preview
+      })
+    } catch (error: any) {
+      console.error('Error al obtener preview de recargos:', error)
+      return reply.status(500).send({
+        success: false,
+        message: 'Error al obtener preview de recargos',
+        error: error.message
+      })
+    }
+  },
+
   // GET /empresas
   async obtenerEmpresas(
     request: FastifyRequest,

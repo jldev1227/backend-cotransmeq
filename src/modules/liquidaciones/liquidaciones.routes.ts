@@ -9,6 +9,9 @@ export async function liquidacionesRoutes(fastify: FastifyInstance) {
   // Obtener configuraciones (debe ir antes de /:id)
   fastify.get('/configuraciones-liquidacion', LiquidacionesController.obtenerConfiguraciones)
 
+  // Preview de recargos para un conductor (debe ir antes de /:id)
+  fastify.get('/liquidaciones/preview-recargos', LiquidacionesController.previewRecargos)
+
   // Obtener todas las liquidaciones
   fastify.get('/liquidaciones', LiquidacionesController.obtenerTodas)
 
