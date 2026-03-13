@@ -24,6 +24,7 @@ interface RecargosCalculados {
   hen: number
   hefd: number
   hefn: number
+  rndf: number
   rn: number
   rd: number
 }
@@ -37,84 +38,105 @@ function calcularRecargosDia(
 ): RecargosCalculados {
   console.log(`📊 [CALC] Entrada: inicio=${hora_inicio}, fin=${hora_fin}, total=${total_horas}, domingo/festivo=${es_domingo_o_festivo}`)
   
-  let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0
+  let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0, rndf = 0
 
-  // Calcular recargo nocturno (19:00-06:00) sobre TODAS las horas trabajadas
-  // RN aplica a cualquier hora nocturna trabajada (jornada normal + extras)
+  // Determinar jornada ordinaria según tipo de día
+  const jornadaOrdinaria = es_domingo_o_festivo
+    ? HORAS_LIMITE.JORNADA_FESTIVA
+    : HORAS_LIMITE.JORNADA_NORMAL
+
+  // Función helper para verificar si una hora es nocturna (19:00-06:00)
+  function esNocturna(hora: number): boolean {
+    const h = hora % 24
+    return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO
+  }
+
+  // Recorrer cada fracción de hora y clasificarla
   let horaActual = hora_inicio
-  while (horaActual < hora_inicio + total_horas) {
-    const horaDelDia = horaActual % 24
-    const siguienteHora = Math.min(horaActual + 0.5, hora_inicio + total_horas)
-    
-    // Verificar si está en período nocturno (19:00-23:59 o 00:00-06:00)
-    if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
-      rn += siguienteHora - horaActual
+  let horasAcumuladas = 0
+
+  while (horaActual < hora_fin) {
+    const siguienteHora = Math.min(horaActual + 0.5, hora_fin)
+    const fraccion = siguienteHora - horaActual
+    const nocturna = esNocturna(horaActual)
+    const esExtra = horasAcumuladas >= jornadaOrdinaria
+
+    if (es_domingo_o_festivo) {
+      if (esExtra) {
+        // Horas extras en domingo/festivo
+        if (nocturna) {
+          hefn += fraccion
+        } else {
+          hefd += fraccion
+        }
+      } else {
+        // Jornada ordinaria en domingo/festivo
+        const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas
+        if (fraccion <= horasRestantesJornada) {
+          // Toda la fracción es jornada ordinaria
+          if (nocturna) {
+            rndf += fraccion
+          } else {
+            rd += fraccion
+          }
+        } else {
+          // Parte es jornada ordinaria, parte es extra
+          const parteOrdinaria = horasRestantesJornada
+          const parteExtra = fraccion - parteOrdinaria
+          if (nocturna) {
+            rndf += parteOrdinaria
+            hefn += parteExtra
+          } else {
+            rd += parteOrdinaria
+            hefd += parteExtra
+          }
+        }
+      }
+    } else {
+      // Día normal
+      if (esExtra) {
+        // Horas extras en día normal
+        if (nocturna) {
+          hen += fraccion
+        } else {
+          hed += fraccion
+        }
+      } else {
+        // Jornada ordinaria en día normal
+        const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas
+        if (fraccion <= horasRestantesJornada) {
+          // Jornada ordinaria normal: solo recargo si es nocturna
+          if (nocturna) {
+            rn += fraccion
+          }
+          // Diurna ordinaria en día normal = no genera recargo
+        } else {
+          // Parte ordinaria, parte extra
+          const parteOrdinaria = horasRestantesJornada
+          const parteExtra = fraccion - parteOrdinaria
+          if (nocturna) {
+            rn += parteOrdinaria
+            hen += parteExtra
+          } else {
+            // parteOrdinaria diurna = sin recargo
+            hed += parteExtra
+          }
+        }
+      }
     }
-    
+
+    horasAcumuladas += fraccion
     horaActual = siguienteHora
   }
 
-  if (es_domingo_o_festivo) {
-    // Recargo dominical/festivo: jornada festiva de 7.33 horas
-    rd = Math.min(total_horas, HORAS_LIMITE.JORNADA_FESTIVA)
-
-    // Horas extras festivas (solo si trabaja más de 7.33 horas)
-    if (total_horas > HORAS_LIMITE.JORNADA_FESTIVA) {
-      const horas_extras = total_horas - HORAS_LIMITE.JORNADA_FESTIVA
-      
-      // Calcular cuántas horas extras son nocturnas
-      const horaInicioExtras = hora_inicio + HORAS_LIMITE.JORNADA_FESTIVA
-      let horasExtrasNocturnas = 0
-      
-      let horaActualExtra = horaInicioExtras
-      while (horaActualExtra < hora_inicio + total_horas) {
-        const horaDelDia = horaActualExtra % 24
-        const siguienteHora = Math.min(horaActualExtra + 0.5, hora_inicio + total_horas)
-        
-        if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
-          horasExtrasNocturnas += siguienteHora - horaActualExtra
-        }
-        
-        horaActualExtra = siguienteHora
-      }
-      
-      hefn = Math.min(horasExtrasNocturnas, horas_extras)
-      hefd = horas_extras - hefn
-    }
-  } else {
-    // Día normal (no domingo ni festivo)
-    // Horas extras solo si trabaja más de 10 horas
-    if (total_horas > HORAS_LIMITE.JORNADA_NORMAL) {
-      const horas_extras = total_horas - HORAS_LIMITE.JORNADA_NORMAL
-      
-      // Calcular cuántas horas extras son nocturnas
-      const horaInicioExtras = hora_inicio + HORAS_LIMITE.JORNADA_NORMAL
-      let horasExtrasNocturnas = 0
-      
-      let horaActualExtra = horaInicioExtras
-      while (horaActualExtra < hora_inicio + total_horas) {
-        const horaDelDia = horaActualExtra % 24
-        const siguienteHora = Math.min(horaActualExtra + 0.5, hora_inicio + total_horas)
-        
-        if (horaDelDia >= HORAS_LIMITE.INICIO_NOCTURNO || horaDelDia < HORAS_LIMITE.FIN_NOCTURNO) {
-          horasExtrasNocturnas += siguienteHora - horaActualExtra
-        }
-        
-        horaActualExtra = siguienteHora
-      }
-      
-      hen = Math.min(horasExtrasNocturnas, horas_extras)
-      hed = horas_extras - hen
-    }
-  }
-
   const resultado = { 
-    hed: Math.round(hed * 10) / 10, 
-    hen: Math.round(hen * 10) / 10, 
-    hefd: Math.round(hefd * 10) / 10, 
-    hefn: Math.round(hefn * 10) / 10, 
-    rn: Math.round(rn * 10) / 10, 
-    rd: Math.round(rd * 10) / 10 
+    hed: Math.round(hed * 100) / 100, 
+    hen: Math.round(hen * 100) / 100, 
+    hefd: Math.round(hefd * 100) / 100, 
+    hefn: Math.round(hefn * 100) / 100, 
+    rndf: Math.round(rndf * 100) / 100,
+    rn: Math.round(rn * 100) / 100, 
+    rd: Math.round(rd * 100) / 100
   }
   
   console.log(`📊 [CALC] Resultado:`, resultado)
@@ -215,6 +237,7 @@ export const RecargosService = {
         total_hen: 0,
         total_hefd: 0,
         total_hefn: 0,
+        total_rndf: 0,
         total_rn: 0,
         total_rd: 0,
         total_horas: 0,
@@ -250,6 +273,7 @@ export const RecargosService = {
             case 'hen': totales.total_hen += horas; break
             case 'hefd': totales.total_hefd += horas; break
             case 'hefn': totales.total_hefn += horas; break
+            case 'rndf': totales.total_rndf += horas; break
             case 'rn': totales.total_rn += horas; break
             case 'rd': totales.total_rd += horas; break
           }
@@ -384,7 +408,7 @@ export const RecargosService = {
 
             // Si el día está marcado como disponible, no calcular recargos
             const recargos = dia.disponibilidad
-              ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rn: 0, rd: 0 }
+              ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 }
               : calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
 
             console.log(`📊 [CREATE DEBUG] Día ${dia.dia}: hora_inicio=${hora_inicio}, hora_fin=${hora_fin}, total_horas=${total_horas}`)
@@ -453,6 +477,14 @@ export const RecargosService = {
                     id: randomUUID(),
                     tipo_recargo_id: tiposMap.get('RD')!, 
                     horas: recargos.rd,
+                    creado_por_id: userId,
+                    created_at: now,
+                    updated_at: now
+                  } : null,
+                  recargos.rndf > 0 && tiposMap.has('RNDF') ? { 
+                    id: randomUUID(),
+                    tipo_recargo_id: tiposMap.get('RNDF')!, 
+                    horas: recargos.rndf,
                     creado_por_id: userId,
                     created_at: now,
                     updated_at: now
@@ -570,7 +602,7 @@ export const RecargosService = {
 
         // Si el día está marcado como disponible, no calcular recargos
         const recargos = dia.disponibilidad
-          ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rn: 0, rd: 0 }
+          ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 }
           : calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
 
         // Crear día laboral con sus detalles de recargos
@@ -639,6 +671,14 @@ export const RecargosService = {
                   id: randomUUID(),
                   tipo_recargo_id: tiposMap.get('RD')!, 
                   horas: recargos.rd,
+                  creado_por_id: userId,
+                  created_at: now,
+                  updated_at: now
+                } : null,
+                recargos.rndf > 0 && tiposMap.has('RNDF') ? { 
+                  id: randomUUID(),
+                  tipo_recargo_id: tiposMap.get('RNDF')!, 
+                  horas: recargos.rndf,
                   creado_por_id: userId,
                   created_at: now,
                   updated_at: now
