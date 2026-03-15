@@ -99,10 +99,13 @@ async function main() {
     }
   });
 
+  const fullName = `${firstName} ${lastName}`.trim() || conductorName || doc.filename;
+  const subject = `Desprendible de Nómina — ${fullName} — ${payrollMonth}`;
+
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: '1227jldev@gmail.com',
-    subject: `Tu desprendible - ${doc.filename}`,
+    subject,
     html
   };
 

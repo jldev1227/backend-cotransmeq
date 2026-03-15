@@ -93,16 +93,25 @@ async function main() {
       const outFile = path.join(OUTBOX, `sent_${doc.id}.html`);
       fs.writeFileSync(outFile, html, 'utf-8');
 
+      const conductorFull = `${firstName} ${lastName}`.trim() || doc.filename;
+      const subject = `Desprendible de Nómina — ${conductorFull} — ${payrollMonth}`;
+
+      const recipient = doc.conductores?.email?.trim();
+      if (!recipient) {
+        console.log('Omitido (sin email):', doc.filename, 'id=', doc.id);
+        continue;
+      }
+
       const mailOptions = {
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: '1227jldev@gmail.com',
-        subject: `Desprendible - ${doc.filename}`,
+        to: recipient,
+        subject,
         html
       };
 
-      console.log('Enviando correo para document id=', doc.id, ' filename=', doc.filename);
+      console.log('Enviando correo a', recipient, 'para document id=', doc.id, ' filename=', doc.filename);
       const info = await transporter.sendMail(mailOptions);
-      console.log('Enviado:', info.messageId, 'guardado en', outFile);
+      console.log('Enviado:', info.messageId, '->', recipient, 'guardado en', outFile);
 
       // brief delay to avoid hammering SMTP
       await delay(400);
