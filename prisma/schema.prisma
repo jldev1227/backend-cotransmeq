@@ -158,6 +158,7 @@ model conductores {
   anticipos             anticipos[]
   usuarios              usuarios?                      @relation(fields: [creado_por_id], references: [id])
   firmas_desprendibles  firmas_desprendibles[]
+  documentos_compartidos documentos_compartidos[]
   liquidaciones         liquidaciones[]
   recargos_planillas    recargos_planillas[]
   servicio              servicio[]
@@ -302,6 +303,29 @@ model documento {
   vehiculos       vehiculos? @relation(fields: [vehiculo_id], references: [id], onDelete: NoAction)
 }
 
+/// Tabla para documentos compartidos (desprendibles independientes)
+model documentos_compartidos {
+  id                String   @id @default(uuid()) @db.Uuid
+  token             String   @unique @db.VarChar(128)
+  filename          String   @db.VarChar(255)
+  original_name     String?  @db.VarChar(255)
+  s3_key            String   @db.VarChar(512)
+  s3_url            String?  @db.VarChar(1024)
+  expires_at        DateTime?@db.Timestamptz(6)
+  signed            Boolean  @default(false)
+  signature_s3_key  String?  @db.VarChar(512)
+  signature_url     String?  @db.VarChar(1024)
+  conductor_id      String?  @db.Uuid
+  conductores       conductores? @relation(fields: [conductor_id], references: [id])
+  ip_address        String?  @db.Inet
+  user_agent        String?
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([expires_at], map: "idx_documentos_compartidos_expires")
+  @@index([conductor_id], map: "idx_documentos_compartidos_conductor_id")
+}
+
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model documentos_requeridos_conductor {
   id                  Int      @id @default(autoincrement())
@@ -442,6 +466,8 @@ model liquidaciones {
   creado_por_id                                 String?                   @db.Uuid
   actualizado_por_id                            String?                   @db.Uuid
   liquidado_por_id                              String?                   @db.Uuid
+  share_token                                   String?                   @unique @db.VarChar(64)
+  share_token_expires_at                        DateTime?                 @db.Timestamptz(6)
   anticipos                                     anticipos[]
   bonificaciones                                bonificaciones[]
   firmas_desprendibles                          firmas_desprendibles[]

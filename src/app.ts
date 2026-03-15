@@ -23,6 +23,8 @@ import { documentosRoutes } from './modules/documentos/documentos.routes'
 import { evaluacionesRoutes } from './modules/evaluaciones/evaluacion.routes'
 import { cronRoutes } from './modules/cron/cron.routes'
 import { liquidacionesRoutes } from './modules/liquidaciones/liquidaciones.routes'
+import { desprendiblesPublicRoutes } from './modules/liquidaciones/desprendibles-public.routes'
+import { documentosCompartidosRoutes } from './modules/documentos/documentos-compartidos.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -82,6 +84,10 @@ export function buildApp() {
     app.register(evaluacionesRoutes, { prefix: '/api' })
     app.register(cronRoutes, { prefix: '/api' })
     app.register(liquidacionesRoutes, { prefix: '/api' })
+
+    // Rutas públicas (sin autenticación) - desprendibles de nómina
+    app.register(desprendiblesPublicRoutes, { prefix: '/api' })
+    app.register(documentosCompartidosRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app
