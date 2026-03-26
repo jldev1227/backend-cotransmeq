@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../transmeralda/backend-nest"
+		},
+		{
+			"path": "../../../transmeralda/ingreso-svelte"
+		},
+		{
+			"path": "../../../transmeralda/transmeralda_nomina"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "Cotransmeq"
+	}
+}

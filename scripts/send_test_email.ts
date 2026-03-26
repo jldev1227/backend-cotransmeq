@@ -17,7 +17,7 @@ async function main() {
 
   // Find a documentos_compartidos record that contains WILMER in the filename
   const doc = await prisma.documentos_compartidos.findFirst({
-    where: { filename: { contains: 'WILMER' } },
+    where: { filename: { contains: 'ROMERO' } },
     include: { conductores: true }
   });
 

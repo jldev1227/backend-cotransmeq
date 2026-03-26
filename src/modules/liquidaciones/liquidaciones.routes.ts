@@ -19,6 +19,9 @@ export async function liquidacionesRoutes(fastify: FastifyInstance) {
   // Obtener una liquidación por ID
   fastify.get('/liquidaciones/:id', LiquidacionesController.obtenerPorId)
 
+  // Obtener analisis
+  fastify.get('/liquidaciones/analisis', LiquidacionesController.obtenerAnalisis)
+
   // Crear liquidación
   fastify.post('/liquidaciones', LiquidacionesController.crear)
 
