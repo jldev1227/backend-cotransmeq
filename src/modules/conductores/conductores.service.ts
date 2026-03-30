@@ -275,10 +275,32 @@ export const ConductoresService = {
       }
     }
 
+    // Solo permitir campos que son columnas reales de la tabla conductores
+    const allowedFields = [
+      'nombre', 'apellido', 'tipo_identificacion', 'numero_identificacion',
+      'email', 'telefono', 'fecha_nacimiento', 'genero', 'direccion',
+      'fecha_ingreso', 'salario_base', 'eps', 'fondo_pension', 'arl',
+      'termino_contrato', 'fecha_terminacion', 'licencia_conduccion',
+      'ultimo_acceso', 'permisos', 'cargo', 'categoria_licencia',
+      'foto_url', 'password', 'tipo_contrato', 'vencimiento_licencia',
+      'estado', 'sede_trabajo', 'tipo_sangre', 'oculto'
+    ]
+
+    const cleanData: any = {}
+    for (const field of allowedFields) {
+      if (field in data && data[field] !== undefined) {
+        // Para campos JSON, si viene null lo dejamos como undefined para que Prisma no lo envíe
+        if ((field === 'licencia_conduccion' || field === 'permisos') && data[field] === null) {
+          continue
+        }
+        cleanData[field] = data[field]
+      }
+    }
+
     const conductor = await prisma.conductores.update({
       where: { id },
       data: {
-        ...data,
+        ...cleanData,
         actualizado_por_id,
         updated_at: new Date()
       }
