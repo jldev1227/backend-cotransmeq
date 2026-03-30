@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { preguntaSchema } from './evaluacion.schema';
 import { aiGradingService } from '../../services/ai-grading.service';
 import { getIo } from '../../sockets';
+import { EvaluacionPDFGeneratorService } from './pdf-generator.service';
+import archiver from 'archiver';
 
 // Esquema para registro de respuestas
 const respuestaRegistroSchema = z.object({
@@ -76,29 +78,70 @@ export const EvaluacionesController = {
     
     const { titulo, descripcion, requiere_firma, preguntas } = parsed.data;
     
-    // Eliminar preguntas y opciones antiguas
-    await prisma.pregunta.deleteMany({ where: { evaluacionId: id } });
+    // Obtener preguntas actuales para comparar
+    const preguntasActuales = await prisma.pregunta.findMany({
+      where: { evaluacionId: id },
+      include: { opciones: true }
+    });
     
-    // Actualizar evaluación con nuevas preguntas
-    const evaluacion = await prisma.evaluacion.update({
-      where: { id },
-      data: {
-        titulo,
-        descripcion,
-        requiere_firma,
-        preguntas: {
-          create: preguntas.map((p: any) => ({
-            texto: p.texto,
-            tipo: p.tipo,
-            puntaje: p.puntaje,
-            opciones: p.opciones ? { create: p.opciones } : undefined,
-            relacionIzq: p.relacionIzq || [],
-            relacionDer: p.relacionDer || [],
-            respuestaCorrecta: p.respuestaCorrecta,
-          }))
+    const idsActuales = preguntasActuales.map(p => p.id);
+    const idsEnviados = preguntas.filter(p => p.id).map(p => p.id!);
+    
+    // Preguntas que ya no están en la lista → eliminar (cascade borra respuestas asociadas)
+    const idsAEliminar = idsActuales.filter(idActual => !idsEnviados.includes(idActual));
+    
+    // Ejecutar todo en una transacción
+    const evaluacion = await prisma.$transaction(async (tx) => {
+      // 1. Eliminar preguntas removidas
+      if (idsAEliminar.length > 0) {
+        await tx.pregunta.deleteMany({ where: { id: { in: idsAEliminar } } });
+      }
+      
+      // 2. Actualizar preguntas existentes y crear nuevas
+      for (const p of preguntas) {
+        if (p.id && idsActuales.includes(p.id)) {
+          // Pregunta existente → actualizar preservando el ID
+          // Primero eliminar opciones viejas y recrear
+          await tx.opcion.deleteMany({ where: { preguntaId: p.id } });
+          await tx.pregunta.update({
+            where: { id: p.id },
+            data: {
+              texto: p.texto,
+              tipo: p.tipo,
+              puntaje: p.puntaje,
+              relacionIzq: p.relacionIzq || [],
+              relacionDer: p.relacionDer || [],
+              respuestaCorrecta: p.respuestaCorrecta,
+              opciones: p.opciones ? { create: p.opciones.map(o => ({ texto: o.texto, esCorrecta: o.esCorrecta })) } : undefined,
+            }
+          });
+        } else {
+          // Pregunta nueva → crear
+          await tx.pregunta.create({
+            data: {
+              evaluacionId: id,
+              texto: p.texto,
+              tipo: p.tipo,
+              puntaje: p.puntaje,
+              relacionIzq: p.relacionIzq || [],
+              relacionDer: p.relacionDer || [],
+              respuestaCorrecta: p.respuestaCorrecta,
+              opciones: p.opciones ? { create: p.opciones.map(o => ({ texto: o.texto, esCorrecta: o.esCorrecta })) } : undefined,
+            }
+          });
         }
-      },
-      include: { preguntas: { include: { opciones: true } } }
+      }
+      
+      // 3. Actualizar datos de la evaluación
+      return tx.evaluacion.update({
+        where: { id },
+        data: {
+          titulo,
+          descripcion,
+          requiere_firma,
+        },
+        include: { preguntas: { include: { opciones: true } } }
+      });
     });
     
     return res.send({ success: true, data: evaluacion });
@@ -203,6 +246,13 @@ export const EvaluacionesController = {
         }
         puntaje = aciertos;
         if (puntaje > pregunta.puntaje) puntaje = pregunta.puntaje;
+      } else if (pregunta.tipo === 'VERDADERO_FALSO') {
+        // Comparar valor_numero (1=Verdadero, 0=Falso) con respuestaCorrecta
+        if (typeof r.valor_numero === 'number' && pregunta.respuestaCorrecta !== null && pregunta.respuestaCorrecta !== undefined) {
+          if (pregunta.respuestaCorrecta === r.valor_numero) {
+            puntaje = pregunta.puntaje;
+          }
+        }
       }
       puntaje_total += puntaje;
       respuestasDB.push({
@@ -333,5 +383,324 @@ export const EvaluacionesController = {
     }
     
     return res.send({ success: true, data: null });
+  },
+
+  async exportarPDF(req: FastifyRequest<{ Params: { id: string } }>, res: FastifyReply) {
+    try {
+      const { id } = req.params;
+
+      const evaluacion = await prisma.evaluacion.findUnique({
+        where: { id },
+        include: {
+          preguntas: {
+            include: { opciones: true }
+          }
+        }
+      });
+
+      if (!evaluacion) {
+        return res.status(404).send({ success: false, message: 'Evaluación no encontrada' });
+      }
+
+      const resultados = await prisma.resultado.findMany({
+        where: { evaluacionId: id },
+        include: {
+          respuestas: {
+            include: {
+              pregunta: {
+                include: { opciones: true }
+              }
+            }
+          }
+        },
+        orderBy: { created_at: 'asc' }
+      });
+
+      const pdfBuffer = await EvaluacionPDFGeneratorService.generarPDFEvaluacion(
+        {
+          titulo: evaluacion.titulo,
+          descripcion: evaluacion.descripcion,
+          requiere_firma: evaluacion.requiere_firma,
+          created_at: evaluacion.created_at.toISOString(),
+          preguntas: evaluacion.preguntas.map((p: any) => ({
+            id: p.id,
+            texto: p.texto,
+            tipo: p.tipo,
+            puntaje: p.puntaje,
+            opciones: p.opciones,
+            relacionIzq: p.relacionIzq || [],
+            relacionDer: p.relacionDer || [],
+            respuestaCorrecta: p.respuestaCorrecta
+          }))
+        },
+        resultados.map((r: any) => ({
+          id: r.id,
+          nombre_completo: r.nombre_completo,
+          numero_documento: r.numero_documento,
+          cargo: r.cargo,
+          correo: r.correo,
+          telefono: r.telefono,
+          puntaje_total: r.puntaje_total,
+          firma: r.firma,
+          created_at: r.created_at.toISOString(),
+          respuestas: r.respuestas.map((resp: any) => ({
+            id: resp.id,
+            preguntaId: resp.preguntaId,
+            valor_texto: resp.valor_texto,
+            valor_numero: resp.valor_numero,
+            opcionesIds: resp.opcionesIds || [],
+            relacion: resp.relacion,
+            puntaje: resp.puntaje,
+            pregunta: resp.pregunta ? {
+              id: resp.pregunta.id,
+              texto: resp.pregunta.texto,
+              tipo: resp.pregunta.tipo,
+              puntaje: resp.pregunta.puntaje,
+              opciones: resp.pregunta.opciones,
+              relacionIzq: resp.pregunta.relacionIzq || [],
+              relacionDer: resp.pregunta.relacionDer || [],
+              respuestaCorrecta: resp.pregunta.respuestaCorrecta
+            } : undefined
+          }))
+        }))
+      );
+
+      const fileName = `evaluacion_${evaluacion.titulo.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+
+      res.header('Content-Type', 'application/pdf');
+      res.header('Content-Disposition', `attachment; filename="${fileName}"`);
+
+      return res.send(pdfBuffer);
+    } catch (error: any) {
+      console.error('Error generando PDF de evaluación:', error);
+      return res.status(500).send({
+        success: false,
+        message: error.message || 'Error al generar el PDF'
+      });
+    }
+  },
+
+  async exportarPDFIndividual(req: FastifyRequest<{ Params: { id: string; resultadoId: string } }>, res: FastifyReply) {
+    try {
+      const { id, resultadoId } = req.params;
+
+      const evaluacion = await prisma.evaluacion.findUnique({
+        where: { id },
+        include: {
+          preguntas: {
+            include: { opciones: true }
+          }
+        }
+      });
+
+      if (!evaluacion) {
+        return res.status(404).send({ success: false, message: 'Evaluación no encontrada' });
+      }
+
+      const resultado = await prisma.resultado.findFirst({
+        where: { id: resultadoId, evaluacionId: id },
+        include: {
+          respuestas: {
+            include: {
+              pregunta: {
+                include: { opciones: true }
+              }
+            }
+          }
+        }
+      });
+
+      if (!resultado) {
+        return res.status(404).send({ success: false, message: 'Resultado no encontrado' });
+      }
+
+      const pdfBuffer = await EvaluacionPDFGeneratorService.generarPDFIndividual(
+        {
+          titulo: evaluacion.titulo,
+          descripcion: evaluacion.descripcion,
+          requiere_firma: evaluacion.requiere_firma,
+          created_at: evaluacion.created_at.toISOString(),
+          preguntas: evaluacion.preguntas.map((p: any) => ({
+            id: p.id,
+            texto: p.texto,
+            tipo: p.tipo,
+            puntaje: p.puntaje,
+            opciones: p.opciones,
+            relacionIzq: p.relacionIzq || [],
+            relacionDer: p.relacionDer || [],
+            respuestaCorrecta: p.respuestaCorrecta
+          }))
+        },
+        {
+          id: resultado.id,
+          nombre_completo: resultado.nombre_completo,
+          numero_documento: resultado.numero_documento,
+          cargo: resultado.cargo,
+          correo: resultado.correo,
+          telefono: resultado.telefono,
+          puntaje_total: resultado.puntaje_total,
+          firma: resultado.firma,
+          created_at: resultado.created_at.toISOString(),
+          respuestas: resultado.respuestas.map((resp: any) => ({
+            id: resp.id,
+            preguntaId: resp.preguntaId,
+            valor_texto: resp.valor_texto,
+            valor_numero: resp.valor_numero,
+            opcionesIds: resp.opcionesIds || [],
+            relacion: resp.relacion,
+            puntaje: resp.puntaje,
+            pregunta: resp.pregunta ? {
+              id: resp.pregunta.id,
+              texto: resp.pregunta.texto,
+              tipo: resp.pregunta.tipo,
+              puntaje: resp.pregunta.puntaje,
+              opciones: resp.pregunta.opciones,
+              relacionIzq: resp.pregunta.relacionIzq || [],
+              relacionDer: resp.pregunta.relacionDer || [],
+              respuestaCorrecta: resp.pregunta.respuestaCorrecta
+            } : undefined
+          }))
+        }
+      );
+
+      const fileName = `evaluacion_${evaluacion.titulo.replace(/[^a-zA-Z0-9]/g, '_')}_${resultado.nombre_completo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+      res.header('Content-Type', 'application/pdf');
+      res.header('Content-Disposition', `attachment; filename="${fileName}"`);
+
+      return res.send(pdfBuffer);
+    } catch (error: any) {
+      console.error('Error generando PDF individual:', error);
+      return res.status(500).send({
+        success: false,
+        message: error.message || 'Error al generar el PDF'
+      });
+    }
+  },
+
+  async exportarZIP(req: FastifyRequest<{ Params: { id: string } }>, res: FastifyReply) {
+    try {
+      const { id } = req.params;
+
+      const evaluacion = await prisma.evaluacion.findUnique({
+        where: { id },
+        include: {
+          preguntas: {
+            include: { opciones: true }
+          }
+        }
+      });
+
+      if (!evaluacion) {
+        return res.status(404).send({ success: false, message: 'Evaluación no encontrada' });
+      }
+
+      const resultados = await prisma.resultado.findMany({
+        where: { evaluacionId: id },
+        include: {
+          respuestas: {
+            include: {
+              pregunta: {
+                include: { opciones: true }
+              }
+            }
+          }
+        },
+        orderBy: { created_at: 'asc' }
+      });
+
+      if (resultados.length === 0) {
+        return res.status(404).send({ success: false, message: 'No hay resultados para exportar' });
+      }
+
+      const evaluacionData = {
+        titulo: evaluacion.titulo,
+        descripcion: evaluacion.descripcion,
+        requiere_firma: evaluacion.requiere_firma,
+        created_at: evaluacion.created_at.toISOString(),
+        preguntas: evaluacion.preguntas.map((p: any) => ({
+          id: p.id,
+          texto: p.texto,
+          tipo: p.tipo,
+          puntaje: p.puntaje,
+          opciones: p.opciones,
+          relacionIzq: p.relacionIzq || [],
+          relacionDer: p.relacionDer || [],
+          respuestaCorrecta: p.respuestaCorrecta
+        }))
+      };
+
+      const zipFileName = `evaluacion_${evaluacion.titulo.replace(/[^a-zA-Z0-9]/g, '_')}_respuestas.zip`;
+
+      res.header('Content-Type', 'application/zip');
+      res.header('Content-Disposition', `attachment; filename="${zipFileName}"`);
+
+      const archive = archiver('zip', { zlib: { level: 6 } });
+
+      // Pipe archive to response
+      const chunks: Buffer[] = [];
+      archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const archiveFinished = new Promise<Buffer>((resolve, reject) => {
+        archive.on('end', () => resolve(Buffer.concat(chunks)));
+        archive.on('error', reject);
+      });
+
+      // Generate individual PDFs and add to archive
+      for (const resultado of resultados) {
+        const resultadoData = {
+          id: resultado.id,
+          nombre_completo: resultado.nombre_completo,
+          numero_documento: resultado.numero_documento,
+          cargo: resultado.cargo,
+          correo: resultado.correo,
+          telefono: resultado.telefono,
+          puntaje_total: resultado.puntaje_total,
+          firma: resultado.firma,
+          created_at: resultado.created_at.toISOString(),
+          respuestas: resultado.respuestas.map((resp: any) => ({
+            id: resp.id,
+            preguntaId: resp.preguntaId,
+            valor_texto: resp.valor_texto,
+            valor_numero: resp.valor_numero,
+            opcionesIds: resp.opcionesIds || [],
+            relacion: resp.relacion,
+            puntaje: resp.puntaje,
+            pregunta: resp.pregunta ? {
+              id: resp.pregunta.id,
+              texto: resp.pregunta.texto,
+              tipo: resp.pregunta.tipo,
+              puntaje: resp.pregunta.puntaje,
+              opciones: resp.pregunta.opciones,
+              relacionIzq: resp.pregunta.relacionIzq || [],
+              relacionDer: resp.pregunta.relacionDer || [],
+              respuestaCorrecta: resp.pregunta.respuestaCorrecta
+            } : undefined
+          }))
+        };
+
+        const pdfBuffer = await EvaluacionPDFGeneratorService.generarPDFIndividual(
+          evaluacionData,
+          resultadoData
+        );
+
+        const nombreLimpio = resultado.nombre_completo.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+        const documentoLimpio = resultado.numero_documento.replace(/[^a-zA-Z0-9]/g, '');
+        const pdfFileName = `${nombreLimpio}_${documentoLimpio}.pdf`;
+
+        archive.append(pdfBuffer, { name: pdfFileName });
+      }
+
+      archive.finalize();
+
+      const zipBuffer = await archiveFinished;
+      return res.send(zipBuffer);
+    } catch (error: any) {
+      console.error('Error generando ZIP de evaluación:', error);
+      return res.status(500).send({
+        success: false,
+        message: error.message || 'Error al generar el ZIP'
+      });
+    }
   },
 };

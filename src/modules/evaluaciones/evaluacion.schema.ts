@@ -6,14 +6,17 @@ export const tipoPreguntaEnum = z.enum([
   'NUMERICA',
   'TEXTO',
   'RELACION',
+  'VERDADERO_FALSO',
 ]);
 
 export const opcionSchema = z.object({
+  id: z.string().uuid().optional(), // ID existente para actualizaciones
   texto: z.string().min(1),
   esCorrecta: z.boolean().default(false),
 });
 
 export const preguntaSchema = z.object({
+  id: z.string().uuid().optional(), // ID existente para actualizaciones
   texto: z.string().min(1),
   tipo: tipoPreguntaEnum,
   puntaje: z.number().int().min(0), // Permitir 0 para preguntas de texto
