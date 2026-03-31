@@ -573,6 +573,104 @@ export const LiquidacionesService = {
       }
     }
 
+    // Actualizar detalles de vehículos (bonificaciones, mantenimientos, pernotes, recargos)
+    if (data.detalles_vehiculos) {
+      // Eliminar registros anteriores
+      await prisma.bonificaciones.deleteMany({ where: { liquidacion_id: id } })
+      await prisma.mantenimientos.deleteMany({ where: { liquidacion_id: id } })
+      await prisma.pernotes.deleteMany({ where: { liquidacion_id: id } })
+      await prisma.recargos.deleteMany({ where: { liquidacion_id: id } })
+
+      // Actualizar totales
+      await prisma.liquidaciones.update({
+        where: { id },
+        data: {
+          total_bonificaciones: data.total_bonificaciones ?? 0,
+          total_pernotes: data.total_pernotes ?? 0,
+          total_recargos: data.total_recargos ?? 0,
+          updated_at: now
+        }
+      })
+
+      // Re-crear detalles por vehículo
+      for (const detalle of data.detalles_vehiculos) {
+        const vehiculoId = detalle.vehiculo?.value
+
+        if (detalle.bonos && detalle.bonos.length > 0) {
+          for (const bono of detalle.bonos) {
+            await prisma.bonificaciones.create({
+              data: {
+                id: randomUUID(),
+                name: bono.name,
+                values: JSON.stringify(bono.values || []),
+                value: bono.value || 0,
+                vehiculo_id: vehiculoId,
+                liquidacion_id: id,
+                creado_por_id: userId,
+                created_at: now,
+                updated_at: now
+              }
+            })
+          }
+        }
+
+        if (detalle.mantenimientos && detalle.mantenimientos.length > 0) {
+          for (const mant of detalle.mantenimientos) {
+            await prisma.mantenimientos.create({
+              data: {
+                id: randomUUID(),
+                values: JSON.stringify(mant.values || []),
+                value: mant.value || 0,
+                vehiculo_id: vehiculoId,
+                liquidacion_id: id,
+                created_at: now,
+                updated_at: now
+              }
+            })
+          }
+        }
+
+        if (detalle.pernotes && detalle.pernotes.length > 0) {
+          for (const pernote of detalle.pernotes) {
+            if (!pernote.empresa_id) continue
+            await prisma.pernotes.create({
+              data: {
+                id: randomUUID(),
+                empresa_id: pernote.empresa_id,
+                cantidad: pernote.cantidad || 0,
+                valor: pernote.valor || 0,
+                fechas: JSON.stringify(pernote.fechas || []),
+                vehiculo_id: vehiculoId,
+                liquidacion_id: id,
+                creado_por_id: userId,
+                created_at: now,
+                updated_at: now
+              }
+            })
+          }
+        }
+
+        if (detalle.recargos && detalle.recargos.length > 0) {
+          for (const recargo of detalle.recargos) {
+            if (!recargo.empresa_id) continue
+            await prisma.recargos.create({
+              data: {
+                id: randomUUID(),
+                empresa_id: recargo.empresa_id,
+                valor: recargo.valor || 0,
+                pag_cliente: recargo.pag_cliente || false,
+                mes: recargo.mes || '',
+                vehiculo_id: vehiculoId,
+                liquidacion_id: id,
+                created_at: now,
+                updated_at: now
+              }
+            })
+          }
+        }
+      }
+    }
+
     return await LiquidacionesService.obtenerPorId(id)
   },
 
