@@ -2,6 +2,26 @@ import { prisma } from '../../config/prisma'
 import { getS3SignedUrl, uploadToS3, deleteFromS3 } from '../../config/aws'
 import { randomUUID } from 'crypto'
 
+// Mapeo de valores display de tipo de sangre a enum keys de Prisma
+const TIPO_SANGRE_MAP: Record<string, string> = {
+  'A+': 'A_POSITIVO',
+  'A-': 'A_NEGATIVO',
+  'B+': 'B_POSITIVO',
+  'B-': 'B_NEGATIVO',
+  'AB+': 'AB_POSITIVO',
+  'AB-': 'AB_NEGATIVO',
+  'O+': 'O_POSITIVO',
+  'O-': 'O_NEGATIVO',
+}
+
+function mapTipoSangre(value: string | null | undefined): string | null {
+  if (!value) return null
+  // Si ya es un enum key válido (e.g. "A_POSITIVO"), retornarlo tal cual
+  if (Object.values(TIPO_SANGRE_MAP).includes(value)) return value
+  // Si es un valor display (e.g. "A+"), mapearlo
+  return TIPO_SANGRE_MAP[value] || null
+}
+
 export const ConductoresService = {
   // Obtener todos los conductores (sin soft deleted)
   async obtenerTodos(filters?: {
@@ -233,7 +253,7 @@ export const ConductoresService = {
         categoria_licencia: data.categoria_licencia || null,
         vencimiento_licencia: vencimientoLicencia,
         sede_trabajo: data.sede_trabajo || null,
-        tipo_sangre: data.tipo_sangre || null,
+        tipo_sangre: mapTipoSangre(data.tipo_sangre) as any,
         creado_por_id,
         created_at: new Date(),
         updated_at: new Date()
@@ -293,7 +313,12 @@ export const ConductoresService = {
         if ((field === 'licencia_conduccion' || field === 'permisos') && data[field] === null) {
           continue
         }
-        cleanData[field] = data[field]
+        // Mapear tipo_sangre de valor display (A+) a enum key (A_POSITIVO)
+        if (field === 'tipo_sangre') {
+          cleanData[field] = mapTipoSangre(data[field])
+        } else {
+          cleanData[field] = data[field]
+        }
       }
     }
 
