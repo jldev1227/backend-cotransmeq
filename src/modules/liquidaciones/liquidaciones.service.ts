@@ -177,16 +177,15 @@ export const LiquidacionesService = {
         valor_incapacidad: Number(liq.valor_incapacidad),
         ajuste_salarial: Number(liq.ajuste_salarial),
         ajuste_parex: Number(liq.ajuste_parex),
-        total_devengado: Number(liq.salario_devengado) +
-          Number(liq.total_bonificaciones) +
-          Number(liq.total_pernotes) +
-          Number(liq.total_recargos) +
-          Number(liq.auxilio_transporte) +
-          Number(liq.cesantias) +
-          Number(liq.interes_cesantias) +
-          Number(liq.total_vacaciones) +
-          Number(liq.ajuste_salarial) +
-          Number(liq.ajuste_parex),
+        ajuste_parex_recargos_completos: (liq as any).ajuste_parex_recargos_completos ?? false,
+        dias_ajuste_deducciones: (liq as any).dias_ajuste_deducciones ?? null,
+        disponibilidad: Number((liq as any).disponibilidad ?? 0),
+        conceptos_adicionales: liq.conceptos_adicionales ?? [],
+        // total_devengado = neto + deducciones (sueldo_total ya es sueldoBruto - deducciones)
+        total_devengado: Number(liq.sueldo_total) +
+          Number(liq.salud) +
+          Number(liq.pension) +
+          Number(liq.total_anticipos),
         total_deducido: Number(liq.salud) +
           Number(liq.pension) +
           Number(liq.total_anticipos),
@@ -316,16 +315,15 @@ export const LiquidacionesService = {
       valor_incapacidad: Number(liquidacion.valor_incapacidad),
       ajuste_salarial: Number(liquidacion.ajuste_salarial),
       ajuste_parex: Number(liquidacion.ajuste_parex),
-      total_devengado: Number(liquidacion.salario_devengado) +
-        Number(liquidacion.total_bonificaciones) +
-        Number(liquidacion.total_pernotes) +
-        Number(liquidacion.total_recargos) +
-        Number(liquidacion.auxilio_transporte) +
-        Number(liquidacion.cesantias) +
-        Number(liquidacion.interes_cesantias) +
-        Number(liquidacion.total_vacaciones) +
-        Number(liquidacion.ajuste_salarial) +
-        Number(liquidacion.ajuste_parex),
+      ajuste_parex_recargos_completos: (liquidacion as any).ajuste_parex_recargos_completos ?? false,
+      dias_ajuste_deducciones: (liquidacion as any).dias_ajuste_deducciones ?? null,
+      disponibilidad: Number((liquidacion as any).disponibilidad ?? 0),
+      conceptos_adicionales: liquidacion.conceptos_adicionales ?? [],
+      // total_devengado = neto + deducciones (sueldo_total ya es sueldoBruto - deducciones)
+      total_devengado: Number(liquidacion.sueldo_total) +
+        Number(liquidacion.salud) +
+        Number(liquidacion.pension) +
+        Number(liquidacion.total_anticipos),
       total_deducido: Number(liquidacion.salud) +
         Number(liquidacion.pension) +
         Number(liquidacion.total_anticipos),
@@ -369,6 +367,11 @@ export const LiquidacionesService = {
         periodo_end_incapacidad: data.periodo_incapacidad_fin || null,
         conceptos_adicionales: data.conceptos_adicionales || null,
         observaciones: data.observaciones || null,
+        estado: data.estado || 'Pendiente',
+        ...(data.estado === 'Liquidado' ? {
+          liquidado_por_id: userId,
+          fecha_liquidacion: now
+        } : {}),
         creado_por_id: userId,
         created_at: now,
         updated_at: now
@@ -525,6 +528,17 @@ export const LiquidacionesService = {
         ajuste_salarial: data.ajuste_valor ?? Number(liquidacionExistente.ajuste_salarial),
         ajuste_salarial_por_dia: data.ajuste_por_dia_flag ?? liquidacionExistente.ajuste_salarial_por_dia,
         observaciones: data.observaciones ?? liquidacionExistente.observaciones,
+        // Estado de la liquidación
+        ...(data.estado ? {
+          estado: data.estado,
+          ...(data.estado === 'Liquidado' ? {
+            liquidado_por_id: userId,
+            fecha_liquidacion: now
+          } : {
+            liquidado_por_id: null,
+            fecha_liquidacion: null
+          })
+        } : {}),
         actualizado_por_id: userId,
         updated_at: now
       }
@@ -699,16 +713,113 @@ export const LiquidacionesService = {
   },
 
   // Obtener configuraciones de liquidación
-  async obtenerConfiguraciones() {
+  async obtenerConfiguraciones(anio?: number) {
+    const where: any = { activo: true }
+    if (anio) where.anio = anio
+
     const configuraciones = await prisma.configuraciones_liquidacion.findMany({
-      where: { activo: true },
-      orderBy: { nombre: 'asc' }
+      where,
+      orderBy: [{ anio: 'desc' }, { nombre: 'asc' }]
     })
 
     return configuraciones.map(config => ({
       ...config,
       valor: Number(config.valor)
     }))
+  },
+
+  // Obtener años disponibles en configuraciones
+  async obtenerAniosConfiguraciones() {
+    const result = await prisma.configuraciones_liquidacion.findMany({
+      where: { activo: true },
+      select: { anio: true },
+      distinct: ['anio'],
+      orderBy: { anio: 'desc' }
+    })
+    return result.map(r => r.anio)
+  },
+
+  // Actualizar una configuración
+  async actualizarConfiguracion(id: string, data: { nombre?: string; valor?: number; tipo?: string }) {
+    const config = await prisma.configuraciones_liquidacion.findUnique({ where: { id } })
+    if (!config) throw new Error('Configuración no encontrada')
+
+    const updateData: any = { updated_at: new Date() }
+    if (data.nombre !== undefined) updateData.nombre = data.nombre
+    if (data.valor !== undefined) updateData.valor = data.valor
+    if (data.tipo !== undefined) updateData.tipo = data.tipo as any
+
+    const updated = await prisma.configuraciones_liquidacion.update({
+      where: { id },
+      data: updateData
+    })
+
+    return { ...updated, valor: Number(updated.valor) }
+  },
+
+  // Crear nueva configuración
+  async crearConfiguracion(data: { nombre: string; valor: number; tipo: string; anio: number }) {
+    const { randomUUID } = await import('crypto')
+    const created = await prisma.configuraciones_liquidacion.create({
+      data: {
+        id: randomUUID(),
+        nombre: data.nombre,
+        valor: data.valor,
+        tipo: data.tipo as any,
+        anio: data.anio,
+        activo: true,
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    })
+
+    return { ...created, valor: Number(created.valor) }
+  },
+
+  // Duplicar configuraciones de un año a otro
+  async duplicarConfiguracionesAnio(anioOrigen: number, anioDestino: number) {
+    const existentes = await prisma.configuraciones_liquidacion.count({
+      where: { anio: anioDestino, activo: true }
+    })
+    if (existentes > 0) throw new Error(`Ya existen configuraciones para el año ${anioDestino}`)
+
+    const originales = await prisma.configuraciones_liquidacion.findMany({
+      where: { anio: anioOrigen, activo: true }
+    })
+    if (originales.length === 0) throw new Error(`No se encontraron configuraciones para el año ${anioOrigen}`)
+
+    const { randomUUID } = await import('crypto')
+    const nuevas = []
+    for (const config of originales) {
+      const nueva = await prisma.configuraciones_liquidacion.create({
+        data: {
+          id: randomUUID(),
+          nombre: config.nombre,
+          valor: config.valor,
+          tipo: config.tipo,
+          anio: anioDestino,
+          activo: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      })
+      nuevas.push({ ...nueva, valor: Number(nueva.valor) })
+    }
+
+    return nuevas
+  },
+
+  // Eliminar (soft delete) una configuración
+  async eliminarConfiguracion(id: string) {
+    const config = await prisma.configuraciones_liquidacion.findUnique({ where: { id } })
+    if (!config) throw new Error('Configuración no encontrada')
+
+    await prisma.configuraciones_liquidacion.update({
+      where: { id },
+      data: { activo: false, deleted_at: new Date(), updated_at: new Date() }
+    })
+
+    return { success: true, message: 'Configuración eliminada correctamente' }
   },
 
   // Obtener empresas (clientes)

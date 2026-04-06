@@ -25,6 +25,7 @@ import { cronRoutes } from './modules/cron/cron.routes'
 import { liquidacionesRoutes } from './modules/liquidaciones/liquidaciones.routes'
 import { desprendiblesPublicRoutes } from './modules/liquidaciones/desprendibles-public.routes'
 import { documentosCompartidosRoutes } from './modules/documentos/documentos-compartidos.routes'
+import { conductorPortalRoutes } from './modules/conductor-portal/conductor-portal.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -88,6 +89,9 @@ export function buildApp() {
     // Rutas públicas (sin autenticación) - desprendibles de nómina
     app.register(desprendiblesPublicRoutes, { prefix: '/api' })
     app.register(documentosCompartidosRoutes, { prefix: '/api' })
+
+    // Portal del conductor (tiene rutas públicas y protegidas propias)
+    app.register(conductorPortalRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

@@ -227,10 +227,18 @@ export const LiquidacionesController = {
   },
 
   // GET /configuraciones-liquidacion
-  async obtenerConfiguraciones(request: FastifyRequest, reply: FastifyReply) {
+  async obtenerConfiguraciones(
+    request: FastifyRequest<{
+      Querystring: { anio?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
     try {
+      const anio = request.query.anio
+        ? parseInt(request.query.anio)
+        : undefined;
       const configuraciones =
-        await LiquidacionesService.obtenerConfiguraciones();
+        await LiquidacionesService.obtenerConfiguraciones(anio);
 
       return reply.status(200).send({
         success: true,
@@ -241,6 +249,172 @@ export const LiquidacionesController = {
       return reply.status(500).send({
         success: false,
         message: "Error al obtener configuraciones",
+        error: error.message,
+      });
+    }
+  },
+
+  // GET /configuraciones-liquidacion/anios
+  async obtenerAniosConfiguraciones(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    try {
+      const anios = await LiquidacionesService.obtenerAniosConfiguraciones();
+
+      return reply.status(200).send({
+        success: true,
+        data: anios,
+      });
+    } catch (error: any) {
+      console.error("Error al obtener años de configuraciones:", error);
+      return reply.status(500).send({
+        success: false,
+        message: "Error al obtener años de configuraciones",
+        error: error.message,
+      });
+    }
+  },
+
+  // PUT /configuraciones-liquidacion/:id
+  async actualizarConfiguracion(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: { nombre?: string; valor?: number; tipo?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { id } = request.params;
+      const data = request.body as {
+        nombre?: string;
+        valor?: number;
+        tipo?: string;
+      };
+      const updated = await LiquidacionesService.actualizarConfiguracion(
+        id,
+        data,
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: updated,
+      });
+    } catch (error: any) {
+      console.error("Error al actualizar configuración:", error);
+      if (error.message === "Configuración no encontrada") {
+        return reply
+          .status(404)
+          .send({ success: false, message: error.message });
+      }
+      return reply.status(500).send({
+        success: false,
+        message: "Error al actualizar configuración",
+        error: error.message,
+      });
+    }
+  },
+
+  // POST /configuraciones-liquidacion
+  async crearConfiguracion(
+    request: FastifyRequest<{
+      Body: { nombre: string; valor: number; tipo: string; anio: number };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const data = request.body as {
+        nombre: string;
+        valor: number;
+        tipo: string;
+        anio: number;
+      };
+      if (
+        !data.nombre ||
+        data.valor === undefined ||
+        !data.tipo ||
+        !data.anio
+      ) {
+        return reply.status(400).send({
+          success: false,
+          message: "Se requiere nombre, valor, tipo y anio",
+        });
+      }
+      const created = await LiquidacionesService.crearConfiguracion(data);
+
+      return reply.status(201).send({
+        success: true,
+        data: created,
+      });
+    } catch (error: any) {
+      console.error("Error al crear configuración:", error);
+      return reply.status(500).send({
+        success: false,
+        message: "Error al crear configuración",
+        error: error.message,
+      });
+    }
+  },
+
+  // POST /configuraciones-liquidacion/duplicar
+  async duplicarConfiguraciones(
+    request: FastifyRequest<{
+      Body: { anio_origen: number; anio_destino: number };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { anio_origen, anio_destino } = request.body as {
+        anio_origen: number;
+        anio_destino: number;
+      };
+      if (!anio_origen || !anio_destino) {
+        return reply.status(400).send({
+          success: false,
+          message: "Se requiere anio_origen y anio_destino",
+        });
+      }
+      const nuevas = await LiquidacionesService.duplicarConfiguracionesAnio(
+        anio_origen,
+        anio_destino,
+      );
+
+      return reply.status(201).send({
+        success: true,
+        data: nuevas,
+        message: `Se duplicaron ${nuevas.length} configuraciones del año ${anio_origen} al año ${anio_destino}`,
+      });
+    } catch (error: any) {
+      console.error("Error al duplicar configuraciones:", error);
+      return reply.status(400).send({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  // DELETE /configuraciones-liquidacion/:id
+  async eliminarConfiguracion(
+    request: FastifyRequest<{
+      Params: { id: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { id } = request.params;
+      const result = await LiquidacionesService.eliminarConfiguracion(id);
+
+      return reply.status(200).send(result);
+    } catch (error: any) {
+      console.error("Error al eliminar configuración:", error);
+      if (error.message === "Configuración no encontrada") {
+        return reply
+          .status(404)
+          .send({ success: false, message: error.message });
+      }
+      return reply.status(500).send({
+        success: false,
+        message: "Error al eliminar configuración",
         error: error.message,
       });
     }

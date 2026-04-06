@@ -4,8 +4,8 @@ import { randomUUID } from 'crypto'
 
 // Constantes de cálculo
 const HORAS_LIMITE = {
-  JORNADA_NORMAL: 9.33,    // 9 horas 20 minutos - extras empiezan después de esto (días normales)
-  JORNADA_FESTIVA: 7.33,   // 7 horas 20 minutos - extras empiezan después de esto (domingos/festivos)
+  JORNADA_NORMAL: 10.33,    // 10 horas 20 minutos - extras SIEMPRE empiezan después de esto
+  JORNADA_FESTIVA: 7.33,    // 7 horas 20 minutos - RD fijo para domingos/festivos (NO es umbral de extras)
   INICIO_NOCTURNO: 19,
   FIN_NOCTURNO: 6
 }
@@ -40,10 +40,8 @@ function calcularRecargosDia(
   
   let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0, rndf = 0
 
-  // Determinar jornada ordinaria según tipo de día
-  const jornadaOrdinaria = es_domingo_o_festivo
-    ? HORAS_LIMITE.JORNADA_FESTIVA
-    : HORAS_LIMITE.JORNADA_NORMAL
+  // Extras SIEMPRE empiezan después de JORNADA_NORMAL (10.33h)
+  const umbralExtras = HORAS_LIMITE.JORNADA_NORMAL
 
   // Función helper para verificar si una hora es nocturna (19:00-06:00)
   function esNocturna(hora: number): boolean {
@@ -59,11 +57,11 @@ function calcularRecargosDia(
     const siguienteHora = Math.min(horaActual + 0.5, hora_fin)
     const fraccion = siguienteHora - horaActual
     const nocturna = esNocturna(horaActual)
-    const esExtra = horasAcumuladas >= jornadaOrdinaria
+    const esExtra = horasAcumuladas >= umbralExtras
 
     if (es_domingo_o_festivo) {
       if (esExtra) {
-        // Horas extras en domingo/festivo
+        // Horas extras en domingo/festivo (después de 10.33h)
         if (nocturna) {
           hefn += fraccion
         } else {
@@ -71,17 +69,16 @@ function calcularRecargosDia(
         }
       } else {
         // Jornada ordinaria en domingo/festivo
-        const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas
-        if (fraccion <= horasRestantesJornada) {
-          // Toda la fracción es jornada ordinaria
+        const horasRestantes = umbralExtras - horasAcumuladas
+        if (fraccion <= horasRestantes) {
           if (nocturna) {
             rndf += fraccion
           } else {
             rd += fraccion
           }
         } else {
-          // Parte es jornada ordinaria, parte es extra
-          const parteOrdinaria = horasRestantesJornada
+          // Parte ordinaria, parte extra
+          const parteOrdinaria = horasRestantes
           const parteExtra = fraccion - parteOrdinaria
           if (nocturna) {
             rndf += parteOrdinaria
@@ -95,30 +92,25 @@ function calcularRecargosDia(
     } else {
       // Día normal
       if (esExtra) {
-        // Horas extras en día normal
         if (nocturna) {
           hen += fraccion
         } else {
           hed += fraccion
         }
       } else {
-        // Jornada ordinaria en día normal
-        const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas
-        if (fraccion <= horasRestantesJornada) {
-          // Jornada ordinaria normal: solo recargo si es nocturna
+        const horasRestantes = umbralExtras - horasAcumuladas
+        if (fraccion <= horasRestantes) {
           if (nocturna) {
             rn += fraccion
           }
           // Diurna ordinaria en día normal = no genera recargo
         } else {
-          // Parte ordinaria, parte extra
-          const parteOrdinaria = horasRestantesJornada
+          const parteOrdinaria = horasRestantes
           const parteExtra = fraccion - parteOrdinaria
           if (nocturna) {
             rn += parteOrdinaria
             hen += parteExtra
           } else {
-            // parteOrdinaria diurna = sin recargo
             hed += parteExtra
           }
         }
@@ -420,13 +412,14 @@ export const RecargosService = {
               hora_inicio,
               hora_fin,
               total_horas,
-              horas_ordinarias: Math.min(total_horas, es_domingo_o_festivo ? HORAS_LIMITE.JORNADA_FESTIVA : HORAS_LIMITE.JORNADA_NORMAL),
+              horas_ordinarias: Math.min(total_horas, HORAS_LIMITE.JORNADA_NORMAL),
               es_festivo: dia.es_festivo,
               es_domingo: dia.es_domingo,
               kilometraje_inicial: dia.kilometraje_inicial,
               kilometraje_final: dia.kilometraje_final,
               pernocte: dia.pernocte || false,
               disponibilidad: dia.disponibilidad,
+              continua_siguiente_dia: dia.continua_siguiente_dia || false,
               observaciones: dia.observaciones,
               creado_por_id: userId,
               created_at: now,
@@ -614,13 +607,14 @@ export const RecargosService = {
             hora_inicio,
             hora_fin,
             total_horas,
-            horas_ordinarias: Math.min(total_horas, es_domingo_o_festivo ? HORAS_LIMITE.JORNADA_FESTIVA : HORAS_LIMITE.JORNADA_NORMAL),
+            horas_ordinarias: Math.min(total_horas, HORAS_LIMITE.JORNADA_NORMAL),
             es_festivo: dia.es_festivo,
             es_domingo: dia.es_domingo,
             kilometraje_inicial: dia.kilometraje_inicial,
             kilometraje_final: dia.kilometraje_final,
             pernocte: dia.pernocte || false,
             disponibilidad: dia.disponibilidad || false,
+            continua_siguiente_dia: dia.continua_siguiente_dia || false,
             observaciones: dia.observaciones,
             creado_por_id: userId,
             created_at: now,
@@ -739,6 +733,7 @@ export const RecargosService = {
         kilometraje_final: dia.kilometraje_final ? Number(dia.kilometraje_final) : null,
         pernocte: dia.pernocte,
         disponibilidad: dia.disponibilidad,
+        continua_siguiente_dia: dia.continua_siguiente_dia || false,
         observaciones: dia.observaciones
       }))
     }, userId)

@@ -10,6 +10,21 @@ export async function liquidacionesRoutes(fastify: FastifyInstance) {
   // Obtener configuraciones (debe ir antes de /:id)
   fastify.get('/configuraciones-liquidacion', LiquidacionesController.obtenerConfiguraciones)
 
+  // Obtener años disponibles en configuraciones
+  fastify.get('/configuraciones-liquidacion/anios', LiquidacionesController.obtenerAniosConfiguraciones)
+
+  // Crear nueva configuración
+  fastify.post('/configuraciones-liquidacion', LiquidacionesController.crearConfiguracion)
+
+  // Duplicar configuraciones de un año a otro
+  fastify.post('/configuraciones-liquidacion/duplicar', LiquidacionesController.duplicarConfiguraciones)
+
+  // Actualizar configuración
+  fastify.put('/configuraciones-liquidacion/:id', LiquidacionesController.actualizarConfiguracion)
+
+  // Eliminar configuración
+  fastify.delete('/configuraciones-liquidacion/:id', LiquidacionesController.eliminarConfiguracion)
+
   // Preview de recargos para un conductor (debe ir antes de /:id)
   fastify.get('/liquidaciones/preview-recargos', LiquidacionesController.previewRecargos)
 

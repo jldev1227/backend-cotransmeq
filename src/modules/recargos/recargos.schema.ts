@@ -12,6 +12,7 @@ export const diaLaboralSchema = z.object({
   kilometraje_final: z.number().optional().nullable(),
   pernocte: z.boolean().default(false),
   disponibilidad: z.boolean().default(false),
+  continua_siguiente_dia: z.boolean().default(false),
   observaciones: z.string().optional().nullable()
 })
 
