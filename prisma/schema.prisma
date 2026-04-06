@@ -420,6 +420,7 @@ model firmas_desprendibles {
   hash_firma                                           String?
   estado                                               enum_firmas_desprendibles_estado @default(Activa)
   observaciones                                        String?
+  token                                                String?                          @db.VarChar(255)
   creado_por_id                                        String?                          @db.Uuid
   actualizado_por_id                                   String?                          @db.Uuid
   created_at                                           DateTime                         @db.Timestamptz(6)
