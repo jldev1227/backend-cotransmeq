@@ -909,7 +909,11 @@ export const LiquidacionesService = {
       sede: configSalarial.sede
     } : 'NO ENCONTRADA')
 
-    const valorHoraBase = configSalarial ? Number(configSalarial.valor_hora_trabajador) : 0
+    // Calcular valor hora en vivo con máxima precisión (como Excel: salario / horas_mes)
+    // NO usar valor_hora_trabajador almacenado porque está redondeado
+    const valorHoraBase = configSalarial
+      ? Number(configSalarial.salario_basico) / configSalarial.horas_mensuales_base
+      : 0
     const pagaFestivos = configSalarial?.paga_dias_festivos ?? false
     const porcentajeFestivos = configSalarial ? Number(configSalarial.porcentaje_festivos) : 75
 

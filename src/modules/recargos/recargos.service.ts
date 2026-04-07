@@ -53,13 +53,12 @@ function calcularRecargosDia(
     return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO
   }
 
-  // Descuento almuerzo: aplica cuando turno inicia antes de las 6am Y cubre el rango 12-13
+  // Descuento almuerzo: aplica SOLO en días festivos/domingos que cubran el rango 12-13
   function esHoraAlmuerzo(hora: number): boolean {
     const h = hora % 24
     return h >= ALMUERZO_INICIO && h < ALMUERZO_FIN
   }
-  const inicioNorm = hora_inicio % 24
-  const aplicaDescuentoAlmuerzo = inicioNorm < HORAS_LIMITE.FIN_NOCTURNO && hora_fin > (hora_inicio - inicioNorm + ALMUERZO_FIN)
+  const aplicaDescuentoAlmuerzo = es_domingo_o_festivo && hora_fin > (hora_inicio - (hora_inicio % 24) + ALMUERZO_FIN)
 
   // Recorrer cada fracción de hora y clasificarla
   let horaActual = hora_inicio
