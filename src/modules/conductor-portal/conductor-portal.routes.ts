@@ -214,7 +214,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         const liquidaciones = await prisma.liquidaciones.findMany({
           where: {
-            conductor_id: conductor.id
+            conductor_id: conductor.id,
+            desprendible_visible: true
           },
           select: {
             id: true,

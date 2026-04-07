@@ -46,6 +46,33 @@ export async function liquidacionesRoutes(fastify: FastifyInstance) {
   // Eliminar liquidación
   fastify.delete('/liquidaciones/:id', LiquidacionesController.eliminar)
 
+  // PATCH /api/liquidaciones/desprendible-visible - Toggle visibilidad de desprendibles
+  fastify.patch('/liquidaciones/desprendible-visible', async (request: FastifyRequest<{
+    Body: { liquidacionIds: string[], visible: boolean }
+  }>, reply: FastifyReply) => {
+    try {
+      const { liquidacionIds, visible } = request.body as { liquidacionIds: string[], visible: boolean }
+
+      if (!liquidacionIds || !Array.isArray(liquidacionIds) || liquidacionIds.length === 0) {
+        return reply.status(400).send({ success: false, message: 'liquidacionIds es requerido' })
+      }
+
+      await prisma.liquidaciones.updateMany({
+        where: { id: { in: liquidacionIds } },
+        data: { desprendible_visible: visible }
+      })
+
+      return reply.send({
+        success: true,
+        message: `${liquidacionIds.length} liquidación(es) actualizadas`,
+        data: { count: liquidacionIds.length, visible }
+      })
+    } catch (error: any) {
+      request.log.error({ error }, 'Error al cambiar visibilidad de desprendibles')
+      return reply.status(500).send({ success: false, message: error.message })
+    }
+  })
+
   // Generar token para compartir desprendible (requiere auth)
   fastify.post('/liquidaciones/:id/compartir', async (request: FastifyRequest<{
     Params: { id: string }

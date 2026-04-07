@@ -32,6 +32,7 @@ export const EmailService = {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
     const magicLink = `${frontendUrl}/public/dias-laborados?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/cotransmeq.png'
 
     const html = `
 <!DOCTYPE html>
@@ -50,7 +51,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
-                    <img src="${frontendUrl}/assets/logo.png" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
+                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
                   </td>
                 </tr>
                 <tr>
@@ -139,6 +140,7 @@ export const EmailService = {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
     const portalLink = `${frontendUrl}/public/portal?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/cotransmeq.png'
 
     const html = `
 <!DOCTYPE html>
@@ -157,7 +159,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
-                    <img src="${frontendUrl}/assets/logo.png" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
+                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
                   </td>
                 </tr>
                 <tr>
@@ -265,6 +267,7 @@ export const EmailService = {
     portalLink: string
   }) {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/cotransmeq.png'
 
     const html = `
 <!DOCTYPE html>
@@ -283,7 +286,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
-                    <img src="${frontendUrl}/assets/logo.png" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
+                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
                   </td>
                 </tr>
                 <tr>
@@ -303,26 +306,6 @@ export const EmailService = {
               <p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">
                 Tu desprendible de nómina correspondiente al periodo <strong>${periodo}</strong> ya está disponible para consulta.
               </p>
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:28px;">
-                <tr>
-                  <td style="background-color:#eff6ff;border-radius:10px;padding:20px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td style="padding-bottom:12px;border-bottom:1px solid #bfdbfe;">
-                          <p style="margin:0;color:#1e3a8a;font-size:13px;font-weight:600;">PERIODO</p>
-                          <p style="margin:4px 0 0 0;color:#0f172a;font-size:16px;font-weight:700;">${periodo}</p>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-top:12px;">
-                          <p style="margin:0;color:#1e3a8a;font-size:13px;font-weight:600;">SUELDO TOTAL</p>
-                          <p style="margin:4px 0 0 0;color:#1e40af;font-size:22px;font-weight:800;">${monto}</p>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
@@ -346,10 +329,6 @@ export const EmailService = {
                   </td>
                 </tr>
               </table>
-              <p style="margin:24px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.5;">Si el botón no funciona, copia y pega este enlace:</p>
-              <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${portalLink}" style="color:#1e40af;font-size:12px;text-decoration:underline;">${portalLink}</a>
-              </p>
             </td>
           </tr>
           <tr>

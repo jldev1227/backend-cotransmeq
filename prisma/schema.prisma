@@ -515,6 +515,7 @@ model liquidaciones {
   ajuste_parex_recargos_completos               Boolean                   @default(false)
   share_token                                   String?                   @unique @db.VarChar(64)
   share_token_expires_at                        DateTime?                 @db.Timestamptz(6)
+  desprendible_visible                          Boolean                   @default(false)
   anticipos                                     anticipos[]
   bonificaciones                                bonificaciones[]
   firmas_desprendibles                          firmas_desprendibles[]
