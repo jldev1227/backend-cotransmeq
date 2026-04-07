@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesService } from "./liquidaciones.service";
+import { getS3ObjectAsBase64 } from "../../config/aws";
 
 interface ObtenerTodasQuery {
   page?: string;
@@ -72,6 +73,25 @@ export const LiquidacionesController = {
     try {
       const { id } = request.params;
       const liquidacion = await LiquidacionesService.obtenerPorId(id);
+
+      // Enriquecer firmas con base64 desde S3 (solo para admin, evita CORS en el frontend)
+      if (liquidacion.firmas_desprendibles?.length) {
+        const firmasConBase64 = await Promise.all(
+          liquidacion.firmas_desprendibles.map(async (firma: any) => {
+            if (firma.firma_s3_key) {
+              try {
+                const firmaBase64 = await getS3ObjectAsBase64(firma.firma_s3_key);
+                return { ...firma, presignedUrl: firmaBase64 };
+              } catch (error) {
+                console.error("Error descargando firma de S3:", firma.id, error);
+                return firma;
+              }
+            }
+            return firma;
+          })
+        );
+        liquidacion.firmas_desprendibles = firmasConBase64;
+      }
 
       return reply.status(200).send({
         success: true,

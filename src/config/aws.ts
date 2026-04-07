@@ -90,3 +90,28 @@ export async function deleteFromS3(key: string): Promise<void> {
 }
 
 export { s3Client, BUCKET_NAME }
+
+/**
+ * Descarga un objeto de S3 y lo retorna como data URL base64
+ * @param key - La clave (path) del objeto en S3
+ * @returns Data URL base64 (ej: "data:image/png;base64,iVBOR...")
+ */
+export async function getS3ObjectAsBase64(key: string): Promise<string> {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key
+    })
+
+    const response = await s3Client.send(command)
+    const byteArray = await response.Body?.transformToByteArray()
+    if (!byteArray) throw new Error('No se pudo leer el objeto de S3')
+
+    const base64 = Buffer.from(byteArray).toString('base64')
+    const contentType = response.ContentType || 'image/png'
+    return `data:${contentType};base64,${base64}`
+  } catch (error) {
+    console.error('Error descargando objeto de S3 como base64:', error)
+    throw error
+  }
+}

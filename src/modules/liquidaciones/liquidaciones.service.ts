@@ -1,6 +1,5 @@
 import { prisma } from '../../config/prisma'
 import { randomUUID } from 'crypto'
-import { getS3SignedUrl } from '../../config/aws'
 
 /**
  * Parsea el campo `fechas` de cada pernote.
@@ -312,25 +311,8 @@ export const LiquidacionesService = {
     const actualizado_por = liquidacion.users_liquidaciones_actualizado_por_idTousers
     const liquidado_por = liquidacion.users_liquidaciones_liquidado_por_idTousers
 
-    // Generar presigned URLs para las firmas desprendibles
-    const firmasConUrl = await Promise.all(
-      (liquidacion.firmas_desprendibles || []).map(async (firma: any) => {
-        if (firma.firma_s3_key) {
-          try {
-            const presignedUrl = await getS3SignedUrl(firma.firma_s3_key, 3600)
-            return { ...firma, presignedUrl }
-          } catch (error) {
-            console.error('Error generando presigned URL para firma:', firma.id, error)
-            return firma
-          }
-        }
-        return firma
-      })
-    )
-
     return {
       ...liquidacion,
-      firmas_desprendibles: firmasConUrl,
       periodo_inicio: liquidacion.periodo_start,
       periodo_fin: liquidacion.periodo_end,
       // Parsear pernotes.fechas de JSON string a array
