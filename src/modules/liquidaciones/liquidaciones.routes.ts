@@ -2,6 +2,11 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { LiquidacionesController } from './liquidaciones.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { prisma } from '../../config/prisma'
+import { env } from '../../config/env'
+import { EmailService } from '../../services/email.service'
+import jwt from 'jsonwebtoken'
+
+const TOKEN_VALIDITY_DAYS = 30
 
 export async function liquidacionesRoutes(fastify: FastifyInstance) {
   // Aplicar middleware de autenticación
@@ -45,6 +50,250 @@ export async function liquidacionesRoutes(fastify: FastifyInstance) {
 
   // Eliminar liquidación
   fastify.delete('/liquidaciones/:id', LiquidacionesController.eliminar)
+
+  // ═══════════════════════════════════════════════════════
+  // POST /api/liquidaciones/enviar-desprendibles
+  // Envía notificación por email a los conductores con link al portal
+  // ═══════════════════════════════════════════════════════
+  fastify.post('/liquidaciones/enviar-desprendibles', {
+    schema: {
+      description: 'Enviar notificación de desprendibles por email a los conductores',
+      tags: ['liquidaciones'],
+      body: {
+        type: 'object',
+        required: ['liquidacionIds'],
+        properties: {
+          liquidacionIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 100 }
+        }
+      }
+    }
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { liquidacionIds } = request.body as { liquidacionIds: string[] }
+
+      const liquidaciones = await prisma.liquidaciones.findMany({
+        where: { id: { in: liquidacionIds } },
+        select: {
+          id: true,
+          periodo_start: true,
+          periodo_end: true,
+          sueldo_total: true,
+          estado: true,
+          conductor_id: true,
+          conductores: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              email: true,
+              numero_identificacion: true
+            }
+          }
+        }
+      })
+
+      if (liquidaciones.length === 0) {
+        return reply.status(404).send({ success: false, message: 'No se encontraron liquidaciones' })
+      }
+
+      const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+      const resultados: any[] = []
+      let enviados = 0
+      let errores = 0
+
+      for (const liq of liquidaciones) {
+        const conductor = liq.conductores
+        if (!conductor) {
+          resultados.push({ liquidacionId: liq.id, status: 'error', message: 'Sin conductor asociado' })
+          errores++
+          continue
+        }
+
+        if (!conductor.email) {
+          resultados.push({
+            liquidacionId: liq.id,
+            conductor: conductor.nombre,
+            status: 'error',
+            message: 'Conductor sin email registrado'
+          })
+          errores++
+          continue
+        }
+
+        try {
+          // Generar o reutilizar token JWT para el conductor
+          const existingToken = await prisma.conductor_token.findFirst({
+            where: {
+              conductor_id: conductor.id,
+              expires_at: { gt: new Date() }
+            },
+            orderBy: { expires_at: 'desc' }
+          })
+
+          let portalToken: string
+
+          if (existingToken) {
+            portalToken = existingToken.token
+          } else {
+            const expiresAt = new Date()
+            expiresAt.setDate(expiresAt.getDate() + TOKEN_VALIDITY_DAYS)
+
+            portalToken = jwt.sign(
+              {
+                sub: conductor.id,
+                cedula: conductor.numero_identificacion,
+                nombre: `${conductor.nombre} ${conductor.apellido || ''}`.trim(),
+                tipo: 'conductor_portal'
+              },
+              env.JWT_SECRET,
+              { expiresIn: `${TOKEN_VALIDITY_DAYS}d` }
+            )
+
+            await prisma.conductor_token.create({
+              data: {
+                id: require('crypto').randomUUID(),
+                conductor_id: conductor.id,
+                token: portalToken,
+                expires_at: expiresAt
+              }
+            })
+          }
+
+          // Construir link con token y desprendible_id
+          const portalLink = `${frontendUrl}/public/portal?token=${encodeURIComponent(portalToken)}&desprendible=${liq.id}`
+
+          // Formatear datos para el email
+          const formatDate = (s: string) => {
+            try {
+              const d = new Date(s + (s.length === 10 ? 'T00:00:00' : ''))
+              return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })
+            } catch { return s }
+          }
+          const periodo = `${formatDate(liq.periodo_start)} — ${formatDate(liq.periodo_end)}`
+          const monto = new Intl.NumberFormat('es-CO', {
+            style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0
+          }).format(Number(liq.sueldo_total) || 0)
+          const nombreCompleto = `${conductor.nombre} ${conductor.apellido || ''}`.trim()
+
+          // Enviar email
+          await EmailService.sendDesprendibleNotification({
+            to: conductor.email,
+            conductorNombre: nombreCompleto,
+            periodo,
+            monto,
+            portalLink
+          })
+
+          resultados.push({
+            liquidacionId: liq.id,
+            conductor: nombreCompleto,
+            email: conductor.email,
+            status: 'enviado'
+          })
+          enviados++
+        } catch (err: any) {
+          request.log.error({ error: err, liquidacionId: liq.id }, 'Error enviando email desprendible')
+          resultados.push({
+            liquidacionId: liq.id,
+            conductor: `${conductor.nombre} ${conductor.apellido || ''}`.trim(),
+            email: conductor.email,
+            status: 'error',
+            message: err.message || 'Error al enviar email'
+          })
+          errores++
+        }
+      }
+
+      return reply.send({
+        success: true,
+        message: `${enviados} email(s) enviado(s), ${errores} error(es)`,
+        data: {
+          enviados,
+          errores,
+          total: liquidaciones.length,
+          resultados
+        }
+      })
+    } catch (err: any) {
+      request.log.error({ error: err }, 'Error en enviar-desprendibles')
+      return reply.status(500).send({
+        success: false,
+        message: err.message || 'Error al enviar desprendibles'
+      })
+    }
+  })
+
+  // ═══════════════════════════════════════════════════════
+  // POST /api/liquidaciones/preview-desprendibles
+  // Retorna preview de los conductores/emails para confirmar envío
+  // ═══════════════════════════════════════════════════════
+  fastify.post('/liquidaciones/preview-desprendibles', {
+    schema: {
+      description: 'Preview de desprendibles a enviar por email',
+      tags: ['liquidaciones'],
+      body: {
+        type: 'object',
+        required: ['liquidacionIds'],
+        properties: {
+          liquidacionIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 100 }
+        }
+      }
+    }
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { liquidacionIds } = request.body as { liquidacionIds: string[] }
+
+      const liquidaciones = await prisma.liquidaciones.findMany({
+        where: { id: { in: liquidacionIds } },
+        select: {
+          id: true,
+          periodo_start: true,
+          periodo_end: true,
+          sueldo_total: true,
+          estado: true,
+          conductores: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              email: true
+            }
+          }
+        },
+        orderBy: { periodo_end: 'desc' }
+      })
+
+      const preview = liquidaciones.map(liq => {
+        const c = liq.conductores
+        return {
+          liquidacionId: liq.id,
+          conductor: c ? `${c.nombre} ${c.apellido || ''}`.trim() : 'Sin conductor',
+          email: c?.email || null,
+          periodo_inicio: liq.periodo_start,
+          periodo_fin: liq.periodo_end,
+          sueldo_total: liq.sueldo_total,
+          estado: liq.estado,
+          canSend: !!c?.email
+        }
+      })
+
+      return reply.send({
+        success: true,
+        data: {
+          total: preview.length,
+          canSend: preview.filter(p => p.canSend).length,
+          cannotSend: preview.filter(p => !p.canSend).length,
+          items: preview
+        }
+      })
+    } catch (err: any) {
+      request.log.error({ error: err }, 'Error en preview-desprendibles')
+      return reply.status(500).send({
+        success: false,
+        message: err.message || 'Error al obtener preview'
+      })
+    }
+  })
 
   // PATCH /api/liquidaciones/desprendible-visible - Toggle visibilidad de desprendibles
   fastify.patch('/liquidaciones/desprendible-visible', async (request: FastifyRequest<{

@@ -1,16 +1,74 @@
 import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
+import type { Transporter } from 'nodemailer'
 import { env } from '../config/env'
 
+// ═══════════════════════════════════════════════════════
+// PROVEEDOR DE EMAIL: Resend (principal) o SMTP (fallback)
+// ═══════════════════════════════════════════════════════
+
 let _resend: Resend | null = null
+let _smtpTransporter: Transporter | null = null
+
+type EmailProvider = 'resend' | 'smtp'
+
+function getEmailProvider(): EmailProvider {
+  if (env.RESEND_API_KEY) return 'resend'
+  if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASSWORD) return 'smtp'
+  throw new Error('No hay proveedor de email configurado. Configure RESEND_API_KEY o las variables SMTP_HOST/SMTP_USER/SMTP_PASSWORD.')
+}
 
 function getResend(): Resend {
   if (!_resend) {
     if (!env.RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY no está configurada. El servicio de email no está disponible.')
+      throw new Error('RESEND_API_KEY no está configurada.')
     }
     _resend = new Resend(env.RESEND_API_KEY)
   }
   return _resend
+}
+
+function getSmtpTransporter(): Transporter {
+  if (!_smtpTransporter) {
+    _smtpTransporter = nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT || 587,
+      secure: env.SMTP_SECURE || false,
+      auth: {
+        user: env.SMTP_USER,
+        pass: env.SMTP_PASSWORD,
+      },
+    })
+  }
+  return _smtpTransporter
+}
+
+/**
+ * Envía un email usando el proveedor disponible (Resend o SMTP)
+ */
+async function sendEmail({ from, to, subject, html }: { from: string; to: string[]; subject: string; html: string }) {
+  const provider = getEmailProvider()
+
+  if (provider === 'resend') {
+    const { data, error } = await getResend().emails.send({ from, to, subject, html })
+    if (error) {
+      console.error('[EmailService][Resend] Error enviando email:', error)
+      throw new Error(`Error enviando email: ${error.message}`)
+    }
+    console.log('[EmailService][Resend] Email enviado exitosamente:', data?.id)
+    return data
+  }
+
+  // SMTP fallback
+  const smtpFrom = env.SMTP_FROM || from
+  const info = await getSmtpTransporter().sendMail({
+    from: smtpFrom,
+    to: to.join(', '),
+    subject,
+    html,
+  })
+  console.log('[EmailService][SMTP] Email enviado exitosamente:', info.messageId)
+  return { id: info.messageId }
 }
 
 interface SendMagicLinkParams {
@@ -116,19 +174,13 @@ export const EmailService = {
 </html>`
 
     try {
-      const { data, error } = await getResend().emails.send({
+      const data = await sendEmail({
         from: 'Cotransmeq <noreply@transmeralda.com>',
         to: [to],
         subject: '🚛 Acceso al Reporte Diario — Cotransmeq',
         html
       })
 
-      if (error) {
-        console.error('[EmailService] Error enviando email:', error)
-        throw new Error(`Error enviando email: ${error.message}`)
-      }
-
-      console.log('[EmailService] Email enviado exitosamente:', data?.id)
       return data
     } catch (err) {
       console.error('[EmailService] Error:', err)
@@ -233,19 +285,13 @@ export const EmailService = {
 </html>`
 
     try {
-      const { data, error } = await getResend().emails.send({
+      const data = await sendEmail({
         from: 'Cotransmeq <noreply@transmeralda.com>',
         to: [to],
         subject: '📋 Acceso al Portal del Conductor — Cotransmeq',
         html
       })
 
-      if (error) {
-        console.error('[EmailService] Error enviando email portal:', error)
-        throw new Error(`Error enviando email: ${error.message}`)
-      }
-
-      console.log('[EmailService] Email portal enviado exitosamente:', data?.id)
       return data
     } catch (err) {
       console.error('[EmailService] Error:', err)
@@ -347,19 +393,13 @@ export const EmailService = {
 </html>`
 
     try {
-      const { data, error } = await getResend().emails.send({
+      const data = await sendEmail({
         from: 'Cotransmeq <noreply@transmeralda.com>',
         to: [to],
         subject: `📄 Tu Desprendible de Nómina — ${periodo}`,
         html
       })
 
-      if (error) {
-        console.error('[EmailService] Error enviando desprendible email:', error)
-        throw new Error(`Error enviando email: ${error.message}`)
-      }
-
-      console.log('[EmailService] Desprendible email enviado exitosamente:', data?.id)
       return data
     } catch (err) {
       console.error('[EmailService] Error:', err)
