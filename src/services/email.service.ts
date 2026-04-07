@@ -79,9 +79,8 @@ interface SendMagicLinkParams {
 }
 
 // ═══════════════════════════════════════════════════════
-// COTRANSMEQ — Colores: Azul #1e40af (primary), #1d4ed8 (secondary)
+// COTRANSMEQ — Colores: Orange #EA580C (primary), #C2410C (secondary)
 // Logo: /assets/cotransmeq-logo.png
-// NIT: 900.123.456-7
 // ═══════════════════════════════════════════════════════
 
 export const EmailService = {
@@ -105,7 +104,7 @@ export const EmailService = {
       <td align="center" style="padding:40px 16px;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
           <tr>
-            <td style="background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%); padding:32px 32px 24px 32px; text-align:center;">
+            <td style="background: linear-gradient(135deg, #EA580C 0%, #C2410C 100%); padding:32px 32px 24px 32px; text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -132,7 +131,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <a href="${magicLink}" target="_blank" style="display:inline-block;background-color:#1e40af;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                    <a href="${magicLink}" target="_blank" style="display:inline-block;background-color:#EA580C;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
                       Ingresar al sistema →
                     </a>
                   </td>
@@ -140,11 +139,11 @@ export const EmailService = {
               </table>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#eff6ff;border-radius:10px;padding:16px 20px;">
+                  <td style="background-color:#FFF7ED;border-radius:10px;padding:16px 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:18px;">🔒</td>
-                        <td style="color:#1e3a8a;font-size:13px;line-height:1.5;">
+                        <td style="color:#9A3412;font-size:13px;line-height:1.5;">
                           Este enlace es válido por <strong>30 días</strong>. Después de ese período deberás solicitar un nuevo acceso.
                         </td>
                       </tr>
@@ -154,7 +153,7 @@ export const EmailService = {
               </table>
               <p style="margin:24px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.5;">Si el botón no funciona, copia y pega este enlace en tu navegador:</p>
               <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${magicLink}" style="color:#1e40af;font-size:12px;text-decoration:underline;">${magicLink}</a>
+                <a href="${magicLink}" style="color:#EA580C;font-size:12px;text-decoration:underline;">${magicLink}</a>
               </p>
             </td>
           </tr>
@@ -207,7 +206,7 @@ export const EmailService = {
       <td align="center" style="padding:40px 16px;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
           <tr>
-            <td style="background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%); padding:32px 32px 24px 32px; text-align:center;">
+            <td style="background: linear-gradient(135deg, #EA580C 0%, #C2410C 100%); padding:32px 32px 24px 32px; text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -234,7 +233,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#1e40af;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#EA580C;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
                       Ingresar al Portal →
                     </a>
                   </td>
@@ -242,20 +241,20 @@ export const EmailService = {
               </table>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#eff6ff;border-radius:10px;padding:16px 20px;">
-                    <p style="margin:0 0 8px 0;color:#1e3a8a;font-size:14px;font-weight:700;">📋 Desde tu portal puedes:</p>
-                    <p style="margin:0 0 4px 0;color:#1e3a8a;font-size:13px;">📄 Ver y descargar tus desprendibles de nómina</p>
-                    <p style="margin:0;color:#1e3a8a;font-size:13px;">📅 Registrar tu actividad diaria (días laborados)</p>
+                  <td style="background-color:#FFF7ED;border-radius:10px;padding:16px 20px;">
+                    <p style="margin:0 0 8px 0;color:#9A3412;font-size:14px;font-weight:700;">📋 Desde tu portal puedes:</p>
+                    <p style="margin:0 0 4px 0;color:#9A3412;font-size:13px;">📄 Ver y descargar tus desprendibles de nómina</p>
+                    <p style="margin:0;color:#9A3412;font-size:13px;">📅 Registrar tu actividad diaria (días laborados)</p>
                   </td>
                 </tr>
               </table>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:16px;">
                 <tr>
-                  <td style="background-color:#eff6ff;border-radius:10px;padding:12px 20px;">
+                  <td style="background-color:#FFF7ED;border-radius:10px;padding:12px 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:18px;">🔒</td>
-                        <td style="color:#1e3a8a;font-size:13px;line-height:1.5;">
+                        <td style="color:#9A3412;font-size:13px;line-height:1.5;">
                           Este enlace es válido por <strong>30 días</strong>. Después deberás solicitar un nuevo acceso.
                         </td>
                       </tr>
@@ -265,7 +264,7 @@ export const EmailService = {
               </table>
               <p style="margin:24px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.5;">Si el botón no funciona, copia y pega este enlace:</p>
               <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${portalLink}" style="color:#1e40af;font-size:12px;text-decoration:underline;">${portalLink}</a>
+                <a href="${portalLink}" style="color:#EA580C;font-size:12px;text-decoration:underline;">${portalLink}</a>
               </p>
             </td>
           </tr>
@@ -328,7 +327,7 @@ export const EmailService = {
       <td align="center" style="padding:40px 16px;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
           <tr>
-            <td style="background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%); padding:32px 32px 24px 32px; text-align:center;">
+            <td style="background: linear-gradient(135deg, #EA580C 0%, #C2410C 100%); padding:32px 32px 24px 32px; text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -355,7 +354,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#1e40af;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#EA580C;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
                       📄 Ver Desprendible →
                     </a>
                   </td>
@@ -363,11 +362,11 @@ export const EmailService = {
               </table>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#eff6ff;border-radius:10px;padding:16px 20px;">
+                  <td style="background-color:#FFF7ED;border-radius:10px;padding:16px 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:18px;">📋</td>
-                        <td style="color:#1e3a8a;font-size:13px;line-height:1.5;">
+                        <td style="color:#9A3412;font-size:13px;line-height:1.5;">
                           Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu desprendible de nómina.
                         </td>
                       </tr>
