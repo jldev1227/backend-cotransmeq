@@ -29,6 +29,10 @@ interface RecargosCalculados {
   rd: number
 }
 
+// Constantes de almuerzo
+const ALMUERZO_INICIO = 12
+const ALMUERZO_FIN = 13
+
 // Función para calcular recargos de un día
 function calcularRecargosDia(
   hora_inicio: number,
@@ -49,6 +53,14 @@ function calcularRecargosDia(
     return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO
   }
 
+  // Descuento almuerzo: aplica cuando turno inicia antes de las 6am Y cubre el rango 12-13
+  function esHoraAlmuerzo(hora: number): boolean {
+    const h = hora % 24
+    return h >= ALMUERZO_INICIO && h < ALMUERZO_FIN
+  }
+  const inicioNorm = hora_inicio % 24
+  const aplicaDescuentoAlmuerzo = inicioNorm < HORAS_LIMITE.FIN_NOCTURNO && hora_fin > (hora_inicio - inicioNorm + ALMUERZO_FIN)
+
   // Recorrer cada fracción de hora y clasificarla
   let horaActual = hora_inicio
   let horasAcumuladas = 0
@@ -56,6 +68,13 @@ function calcularRecargosDia(
   while (horaActual < hora_fin) {
     const siguienteHora = Math.min(horaActual + 0.5, hora_fin)
     const fraccion = siguienteHora - horaActual
+
+    // Saltar hora de almuerzo (12:00-13:00) si aplica
+    if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(horaActual)) {
+      horaActual = siguienteHora
+      continue
+    }
+
     const nocturna = esNocturna(horaActual)
     const esExtra = horasAcumuladas >= umbralExtras
 
@@ -121,6 +140,51 @@ function calcularRecargosDia(
     horaActual = siguienteHora
   }
 
+  // Post-procesamiento para días festivos/dominicales:
+  // 1. RNDF = horas nocturnas ordinarias de MADRUGADA (antes de 6am) en festivo
+  // 2. RD = min(horas_ordinarias_festivas, 7.33) - RNDF
+  // 3. Las horas nocturnas ordinarias DESPUÉS de las 19:00 no generan RNDF
+  if (es_domingo_o_festivo) {
+    // Recalcular RNDF: solo madrugada (antes de 6am) ordinaria
+    let rndfRecalculado = 0
+    let rdRecalculado = 0
+    let h = hora_inicio
+    let hAcum = 0
+    while (h < hora_fin) {
+      const sig = Math.min(h + 0.5, hora_fin)
+      const frac = sig - h
+
+      // Saltar almuerzo igual que en el bucle principal
+      if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(h)) {
+        h = sig
+        continue
+      }
+
+      const esOrdinaria = hAcum < HORAS_LIMITE.JORNADA_NORMAL
+      const horaActualNorm = h % 24
+      const esMadrugada = horaActualNorm < HORAS_LIMITE.FIN_NOCTURNO
+
+      if (esOrdinaria) {
+        const ordinaria = Math.min(frac, HORAS_LIMITE.JORNADA_NORMAL - hAcum)
+        if (esMadrugada) {
+          rndfRecalculado += ordinaria
+        } else {
+          rdRecalculado += ordinaria
+        }
+      }
+      hAcum += frac
+      h = sig
+    }
+
+    rndf = Math.round(rndfRecalculado * 100) / 100
+    const totalOrdinariasFestivas = rdRecalculado + rndfRecalculado
+    if (totalOrdinariasFestivas >= HORAS_LIMITE.JORNADA_FESTIVA) {
+      rd = Math.max(Math.round((HORAS_LIMITE.JORNADA_FESTIVA - rndf) * 100) / 100, 0)
+    } else {
+      rd = Math.round(rdRecalculado * 100) / 100
+    }
+  }
+
   const resultado = { 
     hed: Math.round(hed * 100) / 100, 
     hen: Math.round(hen * 100) / 100, 
@@ -134,6 +198,56 @@ function calcularRecargosDia(
   console.log(`📊 [CALC] Resultado:`, resultado)
   
   return resultado
+}
+
+/**
+ * Pre-procesa el array de días laborales para manejar `continua_siguiente_dia`.
+ * Si un día tiene continua_siguiente_dia=true, se combinan sus horas con el día siguiente
+ * y el día siguiente se marca para no generar recargos propios (como si fuera disponibilidad).
+ * Retorna un Map: diaIndex → recargos calculados (ya con la lógica de merge).
+ */
+function calcularRecargosConContinuacion(diasLaborales: any[]): Map<number, RecargosCalculados> {
+  const resultados = new Map<number, RecargosCalculados>()
+  const diasMerged = new Set<number>() // Indices de días que ya fueron absorbidos
+
+  for (let i = 0; i < diasLaborales.length; i++) {
+    const dia = diasLaborales[i]
+
+    // Si este día ya fue absorbido por el anterior, retornar ceros
+    if (diasMerged.has(i)) {
+      resultados.set(i, { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 })
+      continue
+    }
+
+    // Si está disponible, ceros
+    if (dia.disponibilidad) {
+      resultados.set(i, { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 })
+      continue
+    }
+
+    const hora_inicio = dia.hora_inicio || 0
+    let hora_fin = dia.hora_fin || 0
+    const es_domingo_o_festivo = dia.es_domingo || dia.es_festivo
+
+    // Si continua al siguiente día, combinar horas
+    if (dia.continua_siguiente_dia && i < diasLaborales.length - 1) {
+      const siguiente = diasLaborales[i + 1]
+      if (siguiente && !siguiente.disponibilidad) {
+        const horasNextDia = (siguiente.hora_fin || 0) - (siguiente.hora_inicio || 0)
+        if (horasNextDia > 0) {
+          hora_fin = hora_fin + horasNextDia
+          diasMerged.add(i + 1) // Marcar el siguiente como absorbido
+          console.log(`📊 [MERGE] Día ${dia.dia} continúa al día ${siguiente.dia}: hora_fin extendida a ${hora_fin}`)
+        }
+      }
+    }
+
+    const total_horas = hora_fin - hora_inicio
+    const recargos = calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
+    resultados.set(i, recargos)
+  }
+
+  return resultados
 }
 
 export const RecargosService = {
@@ -392,16 +506,17 @@ export const RecargosService = {
           // Cast to any because Prisma generated types for nested creates are strict
           // and may require created_at/updated_at depending on schema defaults.
           // The runtime shape is valid for creation; use `as any` to satisfy TS.
-          create: ((data.dias_laborales || []).map(dia => {
+          create: (() => {
+            // Pre-calcular recargos con lógica de continuación de días
+            const recargosMap = calcularRecargosConContinuacion(data.dias_laborales || [])
+            
+            return (data.dias_laborales || []).map((dia: any, index: number) => {
             const hora_inicio = dia.hora_inicio || 0
             const hora_fin = dia.hora_fin || 0
             const total_horas = dia.total_horas || 0
-            const es_domingo_o_festivo = dia.es_domingo || dia.es_festivo
 
-            // Si el día está marcado como disponible, no calcular recargos
-            const recargos = dia.disponibilidad
-              ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 }
-              : calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
+            // Usar recargos pre-calculados (ya incluyen lógica de merge)
+            const recargos = recargosMap.get(index) || { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 }
 
             console.log(`📊 [CREATE DEBUG] Día ${dia.dia}: hora_inicio=${hora_inicio}, hora_fin=${hora_fin}, total_horas=${total_horas}`)
             console.log(`📊 [CREATE DEBUG] Recargos calculados:`, recargos)
@@ -485,7 +600,8 @@ export const RecargosService = {
                 ].filter(Boolean)
               }
             }
-          })) as any
+          })
+          })() as any
         }
   } as any,
       include: {
@@ -586,17 +702,18 @@ export const RecargosService = {
         where: { recargo_planilla_id: id }
       })
 
+      // Pre-calcular recargos con lógica de continuación de días
+      const recargosMap = calcularRecargosConContinuacion(data.dias_laborales)
+
       // Crear nuevos días laborales con sus recargos
-      for (const dia of data.dias_laborales) {
+      for (let idx = 0; idx < data.dias_laborales.length; idx++) {
+        const dia = data.dias_laborales[idx]
         const hora_inicio = dia.hora_inicio || 0
         const hora_fin = dia.hora_fin || 0
         const total_horas = dia.total_horas || 0
-        const es_domingo_o_festivo = dia.es_domingo || dia.es_festivo
 
-        // Si el día está marcado como disponible, no calcular recargos
-        const recargos = dia.disponibilidad
-          ? { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 }
-          : calcularRecargosDia(hora_inicio, hora_fin, total_horas, es_domingo_o_festivo)
+        // Usar recargos pre-calculados (ya incluyen lógica de merge)
+        const recargos = recargosMap.get(idx) || { hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0 }
 
         // Crear día laboral con sus detalles de recargos
         await prisma.dias_laborales_planillas.create({

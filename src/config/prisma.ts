@@ -5,8 +5,8 @@ import { logger } from '../utils/logger'
 const getDatabaseUrl = () => {
   const baseUrl = process.env.DATABASE_URL || ''
   const poolParams = new URLSearchParams({
-    'connection_limit': '20',      // Máximo 20 conexiones por instancia
-    'pool_timeout': '20',           // Esperar 20s antes de timeout
+    'connection_limit': '5',        // Máximo 5 conexiones (evita saturar PostgreSQL Azure)
+    'pool_timeout': '30',           // Esperar 30s antes de timeout
     'connect_timeout': '10'         // Timeout de conexión inicial
   })
   return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${poolParams.toString()}`

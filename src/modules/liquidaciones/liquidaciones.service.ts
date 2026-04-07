@@ -1,6 +1,32 @@
 import { prisma } from '../../config/prisma'
 import { randomUUID } from 'crypto'
 
+/**
+ * Parsea el campo `fechas` de cada pernote.
+ * En la BD se almacena como String JSON (ej: '["2026-03-10","2026-03-11"]')
+ * pero el frontend espera string[].
+ */
+function parsePernotesFechas(pernotes: any[]): any[] {
+  if (!pernotes || !Array.isArray(pernotes)) return []
+  return pernotes.map(p => ({
+    ...p,
+    fechas: (() => {
+      if (Array.isArray(p.fechas)) return p.fechas
+      if (typeof p.fechas === 'string') {
+        try {
+          const parsed = JSON.parse(p.fechas)
+          return Array.isArray(parsed) ? parsed : []
+        } catch {
+          return []
+        }
+      }
+      return []
+    })(),
+    valor: Number(p.valor || 0),
+    cantidad: Number(p.cantidad || 0)
+  }))
+}
+
 export const LiquidacionesService = {
   // Obtener todas las liquidaciones
   async obtenerTodas(filters?: {
@@ -152,6 +178,8 @@ export const LiquidacionesService = {
         ...liq,
         periodo_inicio: liq.periodo_start,
         periodo_fin: liq.periodo_end,
+        // Parsear pernotes.fechas de JSON string a array
+        pernotes: parsePernotesFechas(liq.pernotes),
         conductor: conductor ? {
           id: conductor.id,
           nombre: `${conductor.nombre} ${conductor.apellido}`,
@@ -287,6 +315,8 @@ export const LiquidacionesService = {
       ...liquidacion,
       periodo_inicio: liquidacion.periodo_start,
       periodo_fin: liquidacion.periodo_end,
+      // Parsear pernotes.fechas de JSON string a array
+      pernotes: parsePernotesFechas(liquidacion.pernotes),
       conductor: conductor ? {
         id: conductor.id,
         nombre: `${conductor.nombre} ${conductor.apellido}`,
@@ -918,6 +948,7 @@ export const LiquidacionesService = {
                     nombre: true,
                     porcentaje: true,
                     es_hora_extra: true,
+                    adicional: true,
                     categoria: true
                   }
                 }
@@ -953,6 +984,7 @@ export const LiquidacionesService = {
       nombre: string
       porcentaje: number
       es_hora_extra: boolean
+      adicional: boolean
       totalHoras: number
       valorHoraBase: number
       valorTotal: number
@@ -993,19 +1025,18 @@ export const LiquidacionesService = {
           const horas = Number(detalle.horas)
           const porcentaje = Number(tipo.porcentaje)
 
-          // Horas extras: valor_hora_base + (valor_hora_base * porcentaje / 100)
-          // Recargos: valor_hora_base * (porcentaje / 100)
+          // Horas extras o adicionales (RD, RNDF): valor_hora_base + (valor_hora_base * porcentaje / 100)
+          // Recargos simples (RN): valor_hora_base * (porcentaje / 100)
           let valorCalculado = 0
-          if (tipo.es_hora_extra) {
-            // Hora extra = hora base + (hora base × porcentaje / 100)
-            valorCalculado = horas * (valorHoraBase + (valorHoraBase * porcentaje / 100))
-          } else if (tipo.codigo === 'RD' || tipo.codigo === 'HDFN') {
-            // Recargo dominical/festivo = hora base × (porcentaje / 100)
-            valorCalculado = horas * (valorHoraBase * porcentaje / 100)
+          let valorHoraCalc = 0
+          if (tipo.es_hora_extra || tipo.adicional) {
+            // Hora extra o adicional = hora base + (hora base × porcentaje / 100)
+            valorHoraCalc = valorHoraBase + (valorHoraBase * porcentaje / 100)
           } else {
-            // Recargo nocturno u otros = hora base × (porcentaje / 100)
-            valorCalculado = horas * (valorHoraBase * porcentaje / 100)
+            // Recargo simple (solo porcentaje sobre base)
+            valorHoraCalc = valorHoraBase * porcentaje / 100
           }
+          valorCalculado = horas * valorHoraCalc
 
           totalRecargoPlanilla += valorCalculado
 
@@ -1016,6 +1047,7 @@ export const LiquidacionesService = {
               nombre: tipo.nombre,
               porcentaje,
               es_hora_extra: tipo.es_hora_extra,
+              adicional: tipo.adicional,
               totalHoras: 0,
               valorHoraBase: valorHoraBase,
               valorTotal: 0
@@ -1028,12 +1060,11 @@ export const LiquidacionesService = {
             tipo_codigo: tipo.codigo,
             tipo_nombre: tipo.nombre,
             es_hora_extra: tipo.es_hora_extra,
+            adicional: tipo.adicional,
             porcentaje,
             horas,
-            valor_hora_base: valorHoraBase,
-            valor_hora_calculada: tipo.es_hora_extra
-              ? valorHoraBase + (valorHoraBase * porcentaje / 100)
-              : valorHoraBase * porcentaje / 100,
+            valor_hora_base: Math.round(valorHoraBase),
+            valor_hora_calculada: Math.round(valorHoraCalc),
             valor_total: Math.round(valorCalculado)
           }
         })
@@ -1056,7 +1087,33 @@ export const LiquidacionesService = {
         }
       })
 
-      totalGeneralRecargos += totalRecargoPlanilla
+      // Calcular total_valor de la planilla estilo Excel:
+      // Acumular horas por tipo de recargo, luego totalHoras × tasa (sin truncar intermedios)
+      const horasPorTipoPlanilla: Record<string, { horas: number, valorHoraCalc: number }> = {}
+      for (const dia of diasDetalle) {
+        for (const rec of dia.recargos) {
+          if (!horasPorTipoPlanilla[rec.tipo_codigo]) {
+            horasPorTipoPlanilla[rec.tipo_codigo] = { horas: 0, valorHoraCalc: 0 }
+          }
+          horasPorTipoPlanilla[rec.tipo_codigo].horas += rec.horas
+          // Recalcular tasa con precisión completa
+          const porcentaje = rec.porcentaje
+          if (rec.es_hora_extra || rec.adicional) {
+            horasPorTipoPlanilla[rec.tipo_codigo].valorHoraCalc = valorHoraBase + (valorHoraBase * porcentaje / 100)
+          } else {
+            horasPorTipoPlanilla[rec.tipo_codigo].valorHoraCalc = valorHoraBase * porcentaje / 100
+          }
+        }
+      }
+      let totalRecargoPlanillaRaw = 0
+      for (const key of Object.keys(horasPorTipoPlanilla)) {
+        const { horas, valorHoraCalc } = horasPorTipoPlanilla[key]
+        totalRecargoPlanillaRaw += horas * valorHoraCalc  // Sin redondear por tipo
+      }
+      // Redondear el total de la planilla una sola vez (como Excel)
+      const totalRecargoPlanillaFinal = Math.round(totalRecargoPlanillaRaw)
+
+      totalGeneralRecargos += totalRecargoPlanillaFinal
 
       return {
         planilla_id: planilla.id,
@@ -1067,7 +1124,7 @@ export const LiquidacionesService = {
         año: añoPlanilla,
         total_dias: diasDetalle.filter(d => !d.disponibilidad).length,
         total_horas: diasDetalle.filter(d => !d.disponibilidad).reduce((sum, d) => sum + d.total_horas, 0),
-        total_valor: Math.round(totalRecargoPlanilla),
+        total_valor: totalRecargoPlanillaFinal,
         dias: diasDetalle
       }
     })
@@ -1101,11 +1158,20 @@ export const LiquidacionesService = {
         total_festivos: Math.round(totalFestivos),
         total_general: Math.round(totalGeneralRecargos + totalFestivos)
       },
-      resumen_tipos: Object.values(resumenTipos).map(t => ({
-        ...t,
-        totalHoras: Math.round(t.totalHoras * 10) / 10,
-        valorTotal: Math.round(t.valorTotal)
-      })),
+      resumen_tipos: Object.values(resumenTipos).map(t => {
+        // Recalcular valorTotal estilo Excel: totalHoras × tasa (con precisión completa)
+        let valorHoraCalc = 0
+        if (t.es_hora_extra || t.adicional) {
+          valorHoraCalc = t.valorHoraBase + (t.valorHoraBase * t.porcentaje / 100)
+        } else {
+          valorHoraCalc = t.valorHoraBase * t.porcentaje / 100
+        }
+        return {
+          ...t,
+          totalHoras: Math.round(t.totalHoras * 100) / 100,
+          valorTotal: Math.round(t.totalHoras * valorHoraCalc)
+        }
+      }),
       planillas: planillasDetalle
     }
   }
