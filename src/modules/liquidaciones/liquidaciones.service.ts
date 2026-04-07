@@ -488,6 +488,8 @@ export const LiquidacionesService = {
                 empresa_id: recargo.empresa_id,
                 valor: recargo.valor || 0,
                 pag_cliente: recargo.pag_cliente || false,
+                porcentaje_propietario: recargo.porcentaje_propietario ?? null,
+                es_automatico: false,
                 mes: recargo.mes || '',
                 vehiculo_id: vehiculoId,
                 liquidacion_id: id,
@@ -497,6 +499,28 @@ export const LiquidacionesService = {
             })
           }
         }
+      }
+    }
+
+    // Recargos calculados desde planillas (recargos_preview)
+    if (data.recargos_preview && data.recargos_preview.length > 0) {
+      for (const grupo of data.recargos_preview) {
+        if (!grupo.empresa_id) continue
+        await prisma.recargos.create({
+          data: {
+            id: randomUUID(),
+            empresa_id: grupo.empresa_id,
+            valor: grupo.valor || 0,
+            pag_cliente: grupo.pag_cliente || false,
+            porcentaje_propietario: grupo.porcentaje_propietario ?? null,
+            es_automatico: true,
+            mes: grupo.mes || '',
+            vehiculo_id: grupo.vehiculo_id || null,
+            liquidacion_id: id,
+            created_at: now,
+            updated_at: now
+          }
+        })
       }
     }
 
@@ -703,6 +727,8 @@ export const LiquidacionesService = {
                 empresa_id: recargo.empresa_id,
                 valor: recargo.valor || 0,
                 pag_cliente: recargo.pag_cliente || false,
+                porcentaje_propietario: recargo.porcentaje_propietario ?? null,
+                es_automatico: false,
                 mes: recargo.mes || '',
                 vehiculo_id: vehiculoId,
                 liquidacion_id: id,
@@ -711,6 +737,28 @@ export const LiquidacionesService = {
               }
             })
           }
+        }
+      }
+
+      // Recargos calculados desde planillas (recargos_preview)
+      if (data.recargos_preview && data.recargos_preview.length > 0) {
+        for (const grupo of data.recargos_preview) {
+          if (!grupo.empresa_id) continue
+          await prisma.recargos.create({
+            data: {
+              id: randomUUID(),
+              empresa_id: grupo.empresa_id,
+              valor: grupo.valor || 0,
+              pag_cliente: grupo.pag_cliente || false,
+              porcentaje_propietario: grupo.porcentaje_propietario ?? null,
+              es_automatico: true,
+              mes: grupo.mes || '',
+              vehiculo_id: grupo.vehiculo_id || null,
+              liquidacion_id: id,
+              created_at: now,
+              updated_at: now
+            }
+          })
         }
       }
     }

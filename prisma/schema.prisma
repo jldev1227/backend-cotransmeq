@@ -588,19 +588,21 @@ model pernotes {
 }
 
 model recargos {
-  valor          Decimal        @db.Decimal(10, 2)
-  pag_cliente    Boolean?
-  mes            String?        @db.VarChar(255)
-  created_at     DateTime       @db.Timestamptz(6)
-  empresa_id     String         @db.Uuid
-  old_id         Int?
-  updated_at     DateTime       @db.Timestamptz(6)
-  id             String         @id @db.Uuid
-  vehiculo_id    String?        @db.Uuid
-  liquidacion_id String?        @db.Uuid
-  clientes       clientes       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
-  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
-  vehiculos      vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+  valor                  Decimal        @db.Decimal(10, 2)
+  pag_cliente            Boolean?
+  porcentaje_propietario Decimal?       @db.Decimal(5, 2)
+  es_automatico          Boolean        @default(false)
+  mes                    String?        @db.VarChar(255)
+  created_at             DateTime       @db.Timestamptz(6)
+  empresa_id             String         @db.Uuid
+  old_id                 Int?
+  updated_at             DateTime       @db.Timestamptz(6)
+  id                     String         @id @db.Uuid
+  vehiculo_id            String?        @db.Uuid
+  liquidacion_id         String?        @db.Uuid
+  clientes               clientes       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
+  liquidaciones          liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+  vehiculos              vehiculos?     @relation(fields: [vehiculo_id], references: [id])
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
