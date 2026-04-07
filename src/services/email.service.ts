@@ -349,7 +349,7 @@ export const EmailService = {
               <p style="margin:0 0 8px 0;color:#475569;font-size:15px;line-height:1.5;">Hola,</p>
               <p style="margin:0 0 24px 0;color:#0f172a;font-size:18px;font-weight:700;line-height:1.3;">${conductorNombre}</p>
               <p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">
-                Tu desprendible de nómina correspondiente al periodo <strong>${periodo}</strong> ya está disponible para consulta.
+                Tu desprendible de nómina correspondiente al <strong>${periodo}</strong> ya está disponible para consulta.
               </p>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>

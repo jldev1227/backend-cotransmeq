@@ -162,14 +162,10 @@ export async function liquidacionesRoutes(fastify: FastifyInstance) {
           // Construir link con token y desprendible_id
           const portalLink = `${frontendUrl}/public/portal?token=${encodeURIComponent(portalToken)}&desprendible=${liq.id}`
 
-          // Formatear datos para el email
-          const formatDate = (s: string) => {
-            try {
-              const d = new Date(s + (s.length === 10 ? 'T00:00:00' : ''))
-              return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })
-            } catch { return s }
-          }
-          const periodo = `${formatDate(liq.periodo_start)} — ${formatDate(liq.periodo_end)}`
+          // Formatear datos para el email — extraer mes de periodo_end
+          const periodoEndDate = new Date(liq.periodo_end + (liq.periodo_end.length === 10 ? 'T00:00:00' : ''))
+          const mesNombre = periodoEndDate.toLocaleDateString('es-CO', { month: 'long' })
+          const periodo = `mes de ${mesNombre}`
           const monto = new Intl.NumberFormat('es-CO', {
             style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0
           }).format(Number(liq.sueldo_total) || 0)
