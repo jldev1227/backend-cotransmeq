@@ -1119,6 +1119,13 @@ export const LiquidacionesService = {
 
       totalGeneralRecargos += totalRecargoPlanillaFinal
 
+      // Calcular festivos por planilla
+      let planillaFestivos = 0
+      if (pagaFestivos) {
+        const diasFestivosP = diasDetalle.filter(d => !d.disponibilidad && (d.es_festivo || d.es_domingo)).length
+        planillaFestivos = Math.round(diasFestivosP * valorHoraBase * (porcentajeFestivos / 100) * 10)
+      }
+
       return {
         planilla_id: planilla.id,
         numero_planilla: planilla.numero_planilla,
@@ -1129,6 +1136,15 @@ export const LiquidacionesService = {
         total_dias: diasDetalle.filter(d => !d.disponibilidad).length,
         total_horas: diasDetalle.filter(d => !d.disponibilidad).reduce((sum, d) => sum + d.total_horas, 0),
         total_valor: totalRecargoPlanillaFinal,
+        total_festivos: planillaFestivos,
+        configuracion_salarial: configSalarial ? {
+          id: configSalarial.id,
+          salario_basico: Number(configSalarial.salario_basico),
+          valor_hora_trabajador: valorHoraBase,
+          horas_mensuales_base: configSalarial.horas_mensuales_base,
+          paga_dias_festivos: pagaFestivos,
+          porcentaje_festivos: porcentajeFestivos
+        } : null,
         dias: diasDetalle
       }
     })
