@@ -417,6 +417,15 @@ export const RecargosService = {
         conductores: true,
         vehiculos: true,
         clientes: true,
+        servicio: {
+          include: {
+            municipios_servicio_origen_idTomunicipios: true,
+            municipios_servicio_destino_idTomunicipios: true,
+            clientes: {
+              select: { id: true, nombre: true, nit: true }
+            }
+          }
+        },
         dias_laborales_planillas: {
           where: { deleted_at: null },
           include: {
@@ -451,11 +460,82 @@ export const RecargosService = {
     return recargo
   },
 
+  // Helper: Determinar estado del servicio basado en días laborales
+  _determinarEstadoServicio(diasLaborales: { dia: number }[], mes: number, año: number): string {
+    if (!diasLaborales || diasLaborales.length === 0) {
+      return 'solicitado'
+    }
+
+    const hoy = new Date()
+    hoy.setHours(0, 0, 0, 0)
+    const hoyTime = hoy.getTime()
+
+    const dias = diasLaborales.map(d => {
+      const fecha = new Date(año, mes - 1, d.dia)
+      fecha.setHours(0, 0, 0, 0)
+      return fecha.getTime()
+    })
+
+    const maxDia = Math.max(...dias)
+    const minDia = Math.min(...dias)
+    const incluyeHoy = dias.some(d => d === hoyTime)
+
+    if (maxDia < hoyTime) {
+      return 'realizado'
+    } else if (incluyeHoy || (minDia <= hoyTime && maxDia >= hoyTime)) {
+      return 'en_curso'
+    } else {
+      return 'planificado'
+    }
+  },
+
+  // Helper: normalizar propósito del servicio
+  _normalizarProposito(proposito: string | null | undefined): any {
+    if (!proposito) return 'personal'
+    if (proposito === 'personal y herramienta') return 'personal_y_herramienta'
+    return proposito
+  },
+
   // Crear recargo con días laborales
   async create(data: CreateRecargoDTO, userId?: string) {
     console.log('📊 [CREATE] Datos recibidos:', JSON.stringify(data, null, 2))
     console.log('📊 [CREATE] Días laborales recibidos:', data.dias_laborales?.length)
     
+    // Si hay datos de servicio, crear el servicio primero
+    let servicioId = data.servicio_id || null
+    if (!servicioId && data.servicio_origen_id && data.servicio_destino_id) {
+      const estadoServicio = this._determinarEstadoServicio(
+        data.dias_laborales || [],
+        data.mes,
+        data.año
+      )
+      const now = new Date()
+      const nuevoServicio = await prisma.servicio.create({
+        data: {
+          id: randomUUID(),
+          cliente_id: data.empresa_id,
+          conductor_id: data.conductor_id,
+          vehiculo_id: data.vehiculo_id,
+          origen_id: data.servicio_origen_id,
+          destino_id: data.servicio_destino_id,
+          origen_especifico: data.servicio_origen_especifico || '',
+          destino_especifico: data.servicio_destino_especifico || '',
+          origen_latitud: data.servicio_origen_latitud,
+          origen_longitud: data.servicio_origen_longitud,
+          destino_latitud: data.servicio_destino_latitud,
+          destino_longitud: data.servicio_destino_longitud,
+          observaciones: data.servicio_observaciones,
+          proposito_servicio: this._normalizarProposito(data.servicio_proposito) as any,
+          estado: estadoServicio as any,
+          fecha_solicitud: now,
+          valor: 0,
+          created_at: now,
+          updated_at: now,
+        }
+      })
+      servicioId = nuevoServicio.id
+    }
+
     // Obtener tipos de recargo activos
     const tiposRecargo = await prisma.tipos_recargos.findMany({
       where: { activo: true }
@@ -483,7 +563,7 @@ export const RecargosService = {
         updated_at: now,
         
         // Nuevos campos de relación y condiciones
-        servicio_id: data.servicio_id,
+        servicio_id: servicioId || data.servicio_id,
         estado_conductor: data.estado_conductor as any,
         via_trocha: data.via_trocha,
         via_afirmado: data.via_afirmado,
@@ -680,6 +760,53 @@ export const RecargosService = {
     if (data.tiempo_disponibilidad_horas !== undefined) updateData.tiempo_disponibilidad_horas = data.tiempo_disponibilidad_horas
     if (data.duracion_trayecto_horas !== undefined) updateData.duracion_trayecto_horas = data.duracion_trayecto_horas
     if (data.numero_dias_servicio !== undefined) updateData.numero_dias_servicio = data.numero_dias_servicio
+
+    // Manejar servicio asociado: crear nuevo o actualizar existente
+    const tieneServicioData = data.servicio_origen_id && data.servicio_destino_id
+    const mesRecargo = data.mes ?? recargoExistente.mes
+    const añoRecargo = data.año ?? recargoExistente.a_o
+
+    if (tieneServicioData) {
+      const diasParaEstado = (data.dias_laborales || []).map(d => ({ dia: d.dia }))
+      const estadoServicio = this._determinarEstadoServicio(diasParaEstado, mesRecargo, añoRecargo)
+      const servicioUpdateData: any = {
+        origen_id: data.servicio_origen_id,
+        destino_id: data.servicio_destino_id,
+        origen_especifico: data.servicio_origen_especifico || '',
+        destino_especifico: data.servicio_destino_especifico || '',
+        origen_latitud: data.servicio_origen_latitud,
+        origen_longitud: data.servicio_origen_longitud,
+        destino_latitud: data.servicio_destino_latitud,
+        destino_longitud: data.servicio_destino_longitud,
+        observaciones: data.servicio_observaciones,
+        proposito_servicio: this._normalizarProposito(data.servicio_proposito) as any,
+        estado: estadoServicio as any,
+        conductor_id: data.conductor_id || recargoExistente.conductor_id,
+        vehiculo_id: data.vehiculo_id || recargoExistente.vehiculo_id,
+        updated_at: new Date(),
+      }
+
+      if (recargoExistente.servicio_id) {
+        // Actualizar servicio existente
+        await prisma.servicio.update({
+          where: { id: recargoExistente.servicio_id },
+          data: servicioUpdateData
+        })
+      } else {
+        // Crear nuevo servicio
+        const nuevoServicio = await prisma.servicio.create({
+          data: {
+            id: randomUUID(),
+            cliente_id: data.empresa_id || recargoExistente.empresa_id,
+            fecha_solicitud: new Date(),
+            valor: 0,
+            created_at: new Date(),
+            ...servicioUpdateData
+          }
+        })
+        updateData.servicio_id = nuevoServicio.id
+      }
+    }
 
     // Actualizar el recargo principal
     await prisma.recargos_planillas.update({

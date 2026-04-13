@@ -30,6 +30,18 @@ export const createRecargoSchema = z.object({
   // Relación con servicio
   servicio_id: z.string().uuid().optional().nullable(),
   
+  // Datos del servicio (para crear/editar servicio desde recargo)
+  servicio_origen_id: z.string().uuid().optional().nullable(),
+  servicio_destino_id: z.string().uuid().optional().nullable(),
+  servicio_origen_especifico: z.string().optional().nullable(),
+  servicio_destino_especifico: z.string().optional().nullable(),
+  servicio_origen_latitud: z.number().optional().nullable(),
+  servicio_origen_longitud: z.number().optional().nullable(),
+  servicio_destino_latitud: z.number().optional().nullable(),
+  servicio_destino_longitud: z.number().optional().nullable(),
+  servicio_observaciones: z.string().optional().nullable(),
+  servicio_proposito: z.enum(['personal', 'personal y herramienta', 'personal_y_herramienta']).optional().nullable(),
+  
   // Estado del conductor
   estado_conductor: z.enum(['optimo', 'fatigado', 'regular', 'malo']).optional().nullable(),
   
