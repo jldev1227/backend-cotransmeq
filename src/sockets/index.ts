@@ -30,3 +30,10 @@ export function getIo() {
   if (!io) throw new Error('Socket.io not initialized')
   return io
 }
+
+/** Emit a facturacion-liquidacion event to all connected clients */
+export function emitFacturacionLiquidacion(event: 'facturacion-created' | 'facturacion-anulada' | 'liquidacion-servicio-facturada', data: any) {
+  if (io) {
+    io.emit(event, data)
+  }
+}

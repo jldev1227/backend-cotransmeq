@@ -404,6 +404,8 @@ model clientes {
   recargos                 recargos[]
   recargos_planillas       recargos_planillas[]
   servicio                 servicio[]
+  tarifas_servicios        tarifas_servicios[]
+  liquidacion_servicio     liquidacion_servicio[]
 
   @@map("empresas")
 }
@@ -861,6 +863,14 @@ model usuarios {
   tipos_recargos                                                              tipos_recargos[]
   vehiculos                                                                   vehiculos[]
   acciones_correctivas_preventivas                                            acciones_correctivas_preventivas[]
+  // ─── Liquidaciones de Servicio (nuevo módulo) ───
+  liq_serv_creado                                                             liquidacion_servicio[]             @relation("liq_serv_creado_por")
+  liq_serv_actualizado                                                        liquidacion_servicio[]             @relation("liq_serv_actualizado_por")
+  liq_serv_liquidado                                                          liquidacion_servicio[]             @relation("liq_serv_liquidado_por")
+  liq_serv_aprobado                                                           liquidacion_servicio[]             @relation("liq_serv_aprobado_por")
+  historial_estado_liq                                                        historial_estado_liquidacion[]     @relation("historial_estado_liq_usuario")
+  facturas_liq_facturado                                                      factura_liquidacion_servicio[]      @relation("factura_liq_facturado_por")
+  facturas_liq_anulado                                                        factura_liquidacion_servicio[]      @relation("factura_liq_anulado_por")
 
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
@@ -1221,4 +1231,243 @@ model causas_accion_correctiva {
   @@index([accion_correctiva_id])
   @@index([estado_seguimiento])
   @@unique([accion_correctiva_id, orden])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO DE TERCEROS (Directorio de propietarios de vehículos)
+// ═══════════════════════════════════════════════════════════════
+
+enum enum_terceros_tipo_persona {
+  PERSONA
+  EMPRESA
+}
+
+enum enum_terceros_regimen {
+  SIMPLIFICADO
+  COMUN
+  GRAN_CONTRIBUYENTE
+  NO_RESPONSABLE
+  AUTORRETENEDOR
+  ORDINARIO
+}
+
+model terceros {
+  id              String                       @id @default(uuid()) @db.Uuid
+  nombre_completo String                       @db.VarChar(255)
+  identificacion  String?                      @unique @db.VarChar(50)
+  telefono        String?                      @db.VarChar(50)
+  correo          String?                      @db.VarChar(255)
+  direccion       String?                      @db.VarChar(500)
+  tipo_persona    enum_terceros_tipo_persona   @default(PERSONA)
+  regimen         enum_terceros_regimen?
+  notas           String?                      @db.Text
+  activo          Boolean                      @default(true)
+  created_at      DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime                     @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?                    @db.Timestamptz(6)
+
+  items_liquidacion liquidacion_servicio_item[] @relation("item_tercero")
+
+  @@index([nombre_completo])
+  @@index([identificacion])
+  @@index([tipo_persona])
+  @@index([activo])
+  @@index([deleted_at])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO LIQUIDACIONES DE SERVICIO (OP-FR-07)
+// ═══════════════════════════════════════════════════════════════
+
+enum tipo_servicio_tarifa_enum {
+  HORA_24
+  HORA_12
+  HORA
+  KILOMETRO
+}
+
+enum estado_liquidacion_servicio_enum {
+  BORRADOR
+  LIQUIDADA
+  APROBADA
+  FACTURADA
+  ANULADA
+}
+
+model tarifas_servicios {
+  id             String    @id @default(uuid()) @db.Uuid
+  cliente_id     String    @db.Uuid
+  operadora      String?
+  anio           Int
+  valor_24h      Decimal   @db.Decimal(12, 2)
+  valor_12h      Decimal   @db.Decimal(12, 2)
+  valor_hora     Decimal   @db.Decimal(12, 2)
+  valor_km       Decimal   @db.Decimal(12, 2)
+  km_dia         Int       @default(150)
+  valor_pernocte Decimal   @default(0) @db.Decimal(12, 2)
+  activo         Boolean   @default(true)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  empresas       clientes  @relation(fields: [cliente_id], references: [id])
+
+  @@unique([cliente_id, anio])
+  @@index([anio])
+  @@index([activo])
+  @@index([operadora])
+}
+
+model liquidacion_servicio {
+  id                         String                           @id @default(uuid()) @db.Uuid
+  consecutivo                String                           @unique @db.VarChar(50)
+  cliente_id                 String                           @db.Uuid
+  mes                        Int
+  anio                       Int
+  fecha_liquidacion          DateTime                         @default(now()) @db.Timestamptz(6)
+  valor_servicios            Decimal                          @default(0) @db.Decimal(12, 2)
+  valor_recargos             Decimal                          @default(0) @db.Decimal(12, 2)
+  valor_transporte_adicional Decimal                          @default(0) @db.Decimal(12, 2)
+  valor_administracion_ta    Decimal                          @default(0) @db.Decimal(12, 2)
+  valor_pernoctes            Decimal                          @default(0) @db.Decimal(12, 2)
+  subtotal                   Decimal                          @default(0) @db.Decimal(12, 2)
+  porcentaje_iva             Decimal                          @default(0) @db.Decimal(5, 2)
+  valor_iva                  Decimal                          @default(0) @db.Decimal(12, 2)
+  total                      Decimal                          @default(0) @db.Decimal(12, 2)
+  recargos_data              Json?
+  estado                     estado_liquidacion_servicio_enum @default(BORRADOR)
+  motivo_anulacion           String?
+  observaciones              String?
+  osi                        String?
+  tercero_liquidado          Boolean                          @default(false)
+  creado_por_id              String?                          @db.Uuid
+  actualizado_por_id         String?                          @db.Uuid
+  liquidado_por_id           String?                          @db.Uuid
+  aprobado_por_id            String?                          @db.Uuid
+  fecha_aprobacion           DateTime?                        @db.Timestamptz(6)
+  fecha_facturacion          DateTime?                        @db.Timestamptz(6)
+  created_at                 DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                         @updatedAt @db.Timestamptz(6)
+  actualizado_por            usuarios?                        @relation("liq_serv_actualizado_por", fields: [actualizado_por_id], references: [id])
+  aprobado_por               usuarios?                        @relation("liq_serv_aprobado_por", fields: [aprobado_por_id], references: [id])
+  cliente                    clientes                         @relation(fields: [cliente_id], references: [id])
+  creado_por                 usuarios?                        @relation("liq_serv_creado_por", fields: [creado_por_id], references: [id])
+  liquidado_por              usuarios?                        @relation("liq_serv_liquidado_por", fields: [liquidado_por_id], references: [id])
+  items                      liquidacion_servicio_item[]
+  historial_estados          historial_estado_liquidacion[]
+  factura_items              factura_liquidacion_item[]
+
+  @@index([cliente_id])
+  @@index([mes, anio])
+  @@index([estado])
+}
+
+model liquidacion_servicio_item {
+  id                      String                    @id @default(uuid()) @db.Uuid
+  liquidacion_id          String                    @db.Uuid
+  servicio_id             String?                   @db.Uuid
+  recargo_planilla_id     String?                   @db.Uuid
+  tercero_id              String?                   @db.Uuid
+  placa                   String                    @db.VarChar(20)
+  fecha_inicial           DateTime                  @db.Date
+  fecha_final             DateTime                  @db.Date
+  recorrido               String                    @db.VarChar(500)
+  tipo_servicio           tipo_servicio_tarifa_enum
+  cantidad                Decimal                   @default(1) @db.Decimal(10, 2)
+  valor_unitario          Decimal                   @db.Decimal(12, 2)
+  subtotal                Decimal                   @db.Decimal(12, 2)
+  porcentaje_descuento    Decimal                   @default(0) @db.Decimal(5, 2)
+  valor_final             Decimal                   @db.Decimal(12, 2)
+  numero_planilla         String?                   @db.VarChar(50)
+  recargos_detalle        Json?
+  valor_recargos_total    Decimal                   @default(0) @db.Decimal(12, 2)
+  cantidad_pernoctes      Int                       @default(0)
+  valor_pernocte_unitario Decimal                   @default(0) @db.Decimal(12, 2)
+  valor_pernoctes_total   Decimal                   @default(0) @db.Decimal(12, 2)
+  orden                   Int                       @default(0)
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @updatedAt @db.Timestamptz(6)
+  liquidacion             liquidacion_servicio      @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+  tercero                 terceros?                 @relation("item_tercero", fields: [tercero_id], references: [id])
+
+  @@index([liquidacion_id])
+  @@index([servicio_id])
+  @@index([recargo_planilla_id])
+  @@index([tercero_id])
+}
+
+model historial_estado_liquidacion {
+  id               String               @id @default(uuid()) @db.Uuid
+  liquidacion_id   String               @db.Uuid
+  estado_anterior  String?              @db.VarChar(50)
+  estado_nuevo     String               @db.VarChar(50)
+  usuario_id       String               @db.Uuid
+  motivo           String?              @db.Text
+  created_at       DateTime             @default(now()) @db.Timestamptz(6)
+
+  liquidacion      liquidacion_servicio @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+  usuario          usuarios             @relation("historial_estado_liq_usuario", fields: [usuario_id], references: [id])
+
+  @@index([liquidacion_id])
+  @@index([created_at])
+}
+
+// ─── CONFIGURACIÓN LIQUIDADOR DE SERVICIOS ─────────────
+model configuracion_liquidacion_servicio {
+  id                    String   @id @default(uuid()) @db.Uuid
+  salario_basico        Decimal  @default(2358886) @db.Decimal(12, 2)
+  cargo                 String   @default("Conductor") @db.VarChar(100)
+  valor_hora_override   Decimal  @default(0) @db.Decimal(12, 4)
+  conductor_adicional   Decimal  @default(73693) @db.Decimal(12, 2)
+  pct_seg_social        Decimal  @default(22.96) @db.Decimal(5, 2)
+  pct_prestaciones      Decimal  @default(21.83) @db.Decimal(5, 2)
+  pct_admin             Decimal  @default(8) @db.Decimal(5, 2)
+  prueba_covid          Decimal  @default(0) @db.Decimal(12, 2)
+  activo                Boolean  @default(true)
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @updatedAt @db.Timestamptz(6)
+}
+
+// ─── FACTURACIÓN DE LIQUIDACIONES DE SERVICIO ─────────────
+
+model factura_liquidacion_servicio {
+  id                String                      @id @default(uuid()) @db.Uuid
+  numero_factura    String                      @unique @db.VarChar(50)
+  fecha_facturacion DateTime                    @default(now()) @db.Timestamptz(6)
+  observaciones     String?                     @db.Text
+  valor_total       Decimal                     @default(0) @db.Decimal(14, 2)
+  estado            estado_factura_liq_enum     @default(ACTIVA)
+  facturado_por_id  String                      @db.Uuid
+  anulado_por_id    String?                     @db.Uuid
+  motivo_anulacion  String?                     @db.Text
+  fecha_anulacion   DateTime?                   @db.Timestamptz(6)
+  created_at        DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime                    @updatedAt @db.Timestamptz(6)
+
+  facturado_por     usuarios                    @relation("factura_liq_facturado_por", fields: [facturado_por_id], references: [id])
+  anulado_por       usuarios?                   @relation("factura_liq_anulado_por", fields: [anulado_por_id], references: [id])
+  items             factura_liquidacion_item[]
+
+  @@index([numero_factura])
+  @@index([fecha_facturacion])
+  @@index([estado])
+  @@index([facturado_por_id])
+}
+
+model factura_liquidacion_item {
+  id                String                       @id @default(uuid()) @db.Uuid
+  factura_id        String                       @db.Uuid
+  liquidacion_id    String                       @db.Uuid
+  valor_liquidacion Decimal                      @db.Decimal(14, 2)
+  created_at        DateTime                     @default(now()) @db.Timestamptz(6)
+
+  factura           factura_liquidacion_servicio  @relation(fields: [factura_id], references: [id], onDelete: Cascade)
+  liquidacion       liquidacion_servicio          @relation(fields: [liquidacion_id], references: [id])
+
+  @@unique([factura_id, liquidacion_id])
+  @@index([factura_id])
+  @@index([liquidacion_id])
+}
+
+enum estado_factura_liq_enum {
+  ACTIVA
+  ANULADA
 }
