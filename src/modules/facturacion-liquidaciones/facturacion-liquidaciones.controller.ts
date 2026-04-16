@@ -98,4 +98,21 @@ export const FacturacionLiquidacionesController = {
       return reply.status(500).send({ error: error.message })
     }
   },
+
+  async eliminar(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as any
+      const result = await FacturacionLiquidacionesService.eliminar(id)
+      emitFacturacionLiquidacion('facturacion-anulada', { id })
+      return reply.send(result)
+    } catch (error: any) {
+      if (error.message.includes('no encontrada')) {
+        return reply.status(404).send({ error: error.message })
+      }
+      if (error.message.includes('No se puede eliminar')) {
+        return reply.status(409).send({ error: error.message })
+      }
+      return reply.status(500).send({ error: error.message })
+    }
+  },
 }

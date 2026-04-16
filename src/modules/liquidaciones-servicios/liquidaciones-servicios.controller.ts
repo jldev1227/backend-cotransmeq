@@ -57,6 +57,19 @@ export const LiquidacionesServiciosController = {
     }
   },
 
+  // ── CHECK CONSECUTIVO ──
+  async checkConsecutivo(req: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { consecutivo } = req.params as any
+      const { excludeId } = req.query as any
+      if (!consecutivo) return reply.status(400).send({ error: 'Se requiere consecutivo' })
+      const result = await LiquidacionesServiciosService.checkConsecutivo(consecutivo, excludeId)
+      return reply.send(result)
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message })
+    }
+  },
+
   // ── CRUD LIQUIDACIONES ──
 
   async crear(req: FastifyRequest, reply: FastifyReply) {

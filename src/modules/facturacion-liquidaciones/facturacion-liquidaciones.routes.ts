@@ -10,6 +10,7 @@ export async function facturacionLiquidacionesRoutes(app: FastifyInstance) {
   app.post('/facturacion-liquidaciones', FacturacionLiquidacionesController.crear)
   app.get('/facturacion-liquidaciones/:id', FacturacionLiquidacionesController.obtenerPorId)
   app.patch('/facturacion-liquidaciones/:id/anular', FacturacionLiquidacionesController.anular)
+  app.delete('/facturacion-liquidaciones/:id', FacturacionLiquidacionesController.eliminar)
 
   // Batch: info de facturas para liquidaciones
   app.post('/facturacion-liquidaciones/batch-info', FacturacionLiquidacionesController.batchFacturaInfo)

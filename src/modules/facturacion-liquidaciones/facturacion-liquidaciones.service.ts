@@ -342,4 +342,26 @@ export const FacturacionLiquidacionesService = {
     }
     return map
   },
+
+  /**
+   * Eliminar una factura ANULADA permanentemente.
+   */
+  async eliminar(id: string) {
+    const factura = await prisma.factura_liquidacion_servicio.findUnique({
+      where: { id },
+      select: { id: true, estado: true, numero_factura: true }
+    })
+
+    if (!factura) throw new Error('Factura no encontrada')
+    if (factura.estado === 'ACTIVA') {
+      throw new Error('No se puede eliminar una factura activa. Anúlela primero.')
+    }
+
+    await prisma.$transaction([
+      prisma.factura_liquidacion_item.deleteMany({ where: { factura_id: id } }),
+      prisma.factura_liquidacion_servicio.delete({ where: { id } }),
+    ])
+
+    return { message: `Factura ${factura.numero_factura} eliminada exitosamente` }
+  },
 }

@@ -583,6 +583,16 @@ export const LiquidacionesServiciosService = {
     };
   },
 
+  async checkConsecutivo(consecutivo: string, excludeId?: string) {
+    const existing = await prisma.liquidacion_servicio.findUnique({
+      where: { consecutivo },
+      select: { id: true },
+    });
+    if (!existing) return { available: true };
+    if (excludeId && existing.id === excludeId) return { available: true };
+    return { available: false };
+  },
+
   // ── CRUD LIQUIDACIONES ──
 
   async crear(data: CrearLiquidacionInput, userId: string) {
@@ -799,6 +809,22 @@ export const LiquidacionesServiciosService = {
   async eliminar(id: string) {
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
+
+    // Check if linked to any ACTIVE factura before attempting delete
+    const activeFacturas = await prisma.factura_liquidacion_item.count({
+      where: {
+        liquidacion_id: id,
+        factura: { estado: "ACTIVA" },
+      },
+    });
+    if (activeFacturas > 0) {
+      throw new Error("No se puede eliminar: esta liquidación tiene facturas activas asociadas. Anule la factura primero.");
+    }
+
+    // Also delete any factura_liquidacion_item refs from anulled facturas
+    await prisma.factura_liquidacion_item.deleteMany({
+      where: { liquidacion_id: id },
+    });
 
     await prisma.$transaction([
       prisma.liquidacion_servicio_item.deleteMany({

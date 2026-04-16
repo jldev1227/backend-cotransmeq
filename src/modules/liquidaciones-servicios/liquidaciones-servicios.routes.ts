@@ -24,6 +24,7 @@ export async function liquidacionesServiciosRoutes(app: FastifyInstance) {
   app.put('/liquidaciones-servicios/config-liquidador', LiquidacionesServiciosController.actualizarConfigLiquidador)
 
   // ── CRUD ──
+  app.get('/liquidaciones-servicios/check-consecutivo/:consecutivo', LiquidacionesServiciosController.checkConsecutivo)
   app.get('/liquidaciones-servicios', LiquidacionesServiciosController.listar)
   app.post('/liquidaciones-servicios', LiquidacionesServiciosController.crear)
   app.get('/liquidaciones-servicios/:id', LiquidacionesServiciosController.obtenerPorId)
