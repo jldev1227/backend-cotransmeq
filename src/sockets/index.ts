@@ -31,6 +31,20 @@ export function getIo() {
   return io
 }
 
+/** Emit a liquidacion-servicio event to all connected clients */
+export function emitLiquidacionServicio(event: 'liquidacion-servicio-created' | 'liquidacion-servicio-updated' | 'liquidacion-servicio-deleted', data: any) {
+  if (io) {
+    io.emit(event, data)
+  }
+}
+
+/** Emit a notification to all connected clients (filtered client-side by usuario_id) */
+export function emitNotificacion(data: any) {
+  if (io) {
+    io.emit('nueva-notificacion', data)
+  }
+}
+
 /** Emit a facturacion-liquidacion event to all connected clients */
 export function emitFacturacionLiquidacion(event: 'facturacion-created' | 'facturacion-anulada' | 'liquidacion-servicio-facturada', data: any) {
   if (io) {

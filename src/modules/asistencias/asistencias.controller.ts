@@ -199,6 +199,23 @@ export class AsistenciasController {
   }
 
   /**
+   * Eliminar respuestas individuales
+   */
+  static async eliminarRespuestas(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { ids } = request.body as { ids: string[] }
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return reply.status(400).send({ success: false, message: 'Se requiere un array de ids' })
+      }
+      const result = await AsistenciasService.eliminarRespuestas(ids)
+      return reply.status(200).send({ success: true, ...result })
+    } catch (error: any) {
+      request.log.error(error)
+      return reply.status(500).send({ success: false, message: error.message || 'Error al eliminar respuestas' })
+    }
+  }
+
+  /**
    * Crear una respuesta de asistencia (público)
    */
   static async crearRespuesta(request: FastifyRequest, reply: FastifyReply) {

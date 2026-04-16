@@ -147,6 +147,31 @@ export async function asistenciasRoutes(app: FastifyInstance) {
     }
   }, AsistenciasController.eliminar)
 
+  // Eliminar respuestas individuales
+  app.delete('/asistencias/respuestas', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Eliminar respuestas individuales de asistencia',
+      tags: ['asistencias'],
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' } }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            deleted: { type: 'number' }
+          }
+        }
+      }
+    }
+  }, AsistenciasController.eliminarRespuestas)
+
   // Obtener respuestas de un formulario
   app.get('/asistencias/formularios/:id/respuestas', {
     onRequest: authMiddleware,

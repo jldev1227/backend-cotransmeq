@@ -242,6 +242,16 @@ export class AsistenciasService {
   }
 
   /**
+   * Eliminar respuestas individuales de asistencia
+   */
+  static async eliminarRespuestas(ids: string[]) {
+    const result = await prisma.respuestas_asistencia.deleteMany({
+      where: { id: { in: ids } }
+    })
+    return { deleted: result.count }
+  }
+
+  /**
    * Verificar si un dispositivo ya respondió este formulario
    */
   static async verificarRespuestaExistente(formularioId: string, deviceFingerprint: string) {

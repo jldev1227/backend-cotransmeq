@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { LiquidacionesServiciosService } from './liquidaciones-servicios.service'
+import { emitLiquidacionServicio } from '../../sockets'
 
 export const LiquidacionesServiciosController = {
   // ── TARIFAS ──
@@ -77,6 +78,7 @@ export const LiquidacionesServiciosController = {
       const userId = (req as any).user?.id
       if (!userId) return reply.status(401).send({ error: 'Usuario no autenticado' })
       const liquidacion = await LiquidacionesServiciosService.crear(req.body as any, userId)
+      emitLiquidacionServicio('liquidacion-servicio-created', liquidacion)
       return reply.status(201).send(liquidacion)
     } catch (error: any) {
       return reply.status(400).send({ error: error.message })
@@ -107,6 +109,7 @@ export const LiquidacionesServiciosController = {
     try {
       const { id } = req.params as { id: string }
       const result = await LiquidacionesServiciosService.eliminar(id)
+      emitLiquidacionServicio('liquidacion-servicio-deleted', { id })
       return reply.send(result)
     } catch (error: any) {
       if (error.message.includes('no encontrada')) return reply.status(404).send({ error: error.message })
@@ -120,6 +123,7 @@ export const LiquidacionesServiciosController = {
       const userId = (req as any).user?.id
       if (!userId) return reply.status(401).send({ error: 'Usuario no autenticado' })
       const liquidacion = await LiquidacionesServiciosService.actualizar(id, req.body as any, userId)
+      emitLiquidacionServicio('liquidacion-servicio-updated', liquidacion)
       return reply.send(liquidacion)
     } catch (error: any) {
       return reply.status(400).send({ error: error.message })
@@ -133,6 +137,7 @@ export const LiquidacionesServiciosController = {
       const userId = (req as any).user?.id
       if (!userId) return reply.status(401).send({ error: 'Usuario no autenticado' })
       const result = await LiquidacionesServiciosService.cambiarEstado(id, estado, userId, motivo_anulacion)
+      emitLiquidacionServicio('liquidacion-servicio-updated', result)
       return reply.send(result)
     } catch (error: any) {
       return reply.status(400).send({ error: error.message })
