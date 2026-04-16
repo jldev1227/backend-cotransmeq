@@ -115,4 +115,27 @@ export const FacturacionLiquidacionesController = {
       return reply.status(500).send({ error: error.message })
     }
   },
+
+  async restaurar(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as any
+      const result = await FacturacionLiquidacionesService.restaurar(id)
+      emitFacturacionLiquidacion('facturacion-created', result)
+      return reply.send(result)
+    } catch (error: any) {
+      if (error.message.includes('no encontrada')) {
+        return reply.status(404).send({ error: error.message })
+      }
+      return reply.status(500).send({ error: error.message })
+    }
+  },
+
+  async listarEliminadas(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const result = await FacturacionLiquidacionesService.listarEliminadas(request.query as any)
+      return reply.send(result)
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message })
+    }
+  },
 }

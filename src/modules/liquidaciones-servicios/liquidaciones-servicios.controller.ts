@@ -185,6 +185,29 @@ export const LiquidacionesServiciosController = {
     }
   },
 
+  // ── SOFT DELETE: RESTAURAR Y LISTAR ELIMINADAS ──
+
+  async restaurar(req: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = req.params as { id: string }
+      const result = await LiquidacionesServiciosService.restaurar(id)
+      emitLiquidacionServicio('liquidacion-servicio-created', result)
+      return reply.send(result)
+    } catch (error: any) {
+      if (error.message.includes('no encontrada')) return reply.status(404).send({ error: error.message })
+      return reply.status(500).send({ error: error.message })
+    }
+  },
+
+  async listarEliminadas(req: FastifyRequest, reply: FastifyReply) {
+    try {
+      const result = await LiquidacionesServiciosService.listarEliminadas(req.query as any)
+      return reply.send(result)
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message })
+    }
+  },
+
   // ── CONFIGURACIÓN LIQUIDADOR DE SERVICIOS ──
 
   async obtenerConfigLiquidador(req: FastifyRequest, reply: FastifyReply) {

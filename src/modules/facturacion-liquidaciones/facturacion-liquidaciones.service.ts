@@ -33,9 +33,9 @@ export const FacturacionLiquidacionesService = {
       throw new Error('Debe seleccionar al menos una liquidación')
     }
 
-    // Verificar que el número de factura no exista
-    const existe = await prisma.factura_liquidacion_servicio.findUnique({
-      where: { numero_factura: numero_factura.trim() }
+    // Verificar que el número de factura no exista (entre no eliminadas)
+    const existe = await prisma.factura_liquidacion_servicio.findFirst({
+      where: { numero_factura: numero_factura.trim(), deleted_at: null }
     })
     if (existe) {
       throw new Error(`Ya existe una factura con el número "${numero_factura.trim()}"`)
@@ -146,7 +146,7 @@ export const FacturacionLiquidacionesService = {
     const limit = Number(filtros.limit) || 15
     const skip = (page - 1) * limit
 
-    const where: any = {}
+    const where: any = { deleted_at: null }
     if (filtros.estado) {
       where.estado = filtros.estado
     }
@@ -344,24 +344,81 @@ export const FacturacionLiquidacionesService = {
   },
 
   /**
-   * Eliminar una factura ANULADA permanentemente.
+   * Soft delete de una factura ANULADA.
    */
   async eliminar(id: string) {
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id },
-      select: { id: true, estado: true, numero_factura: true }
+      select: { id: true, estado: true, numero_factura: true, deleted_at: true }
     })
 
     if (!factura) throw new Error('Factura no encontrada')
+    if (factura.deleted_at) throw new Error('Esta factura ya fue eliminada')
     if (factura.estado === 'ACTIVA') {
       throw new Error('No se puede eliminar una factura activa. Anúlela primero.')
     }
 
-    await prisma.$transaction([
-      prisma.factura_liquidacion_item.deleteMany({ where: { factura_id: id } }),
-      prisma.factura_liquidacion_servicio.delete({ where: { id } }),
-    ])
+    await prisma.factura_liquidacion_servicio.update({
+      where: { id },
+      data: { deleted_at: new Date() },
+    })
 
     return { message: `Factura ${factura.numero_factura} eliminada exitosamente` }
+  },
+
+  async restaurar(id: string) {
+    const factura = await prisma.factura_liquidacion_servicio.findUnique({
+      where: { id },
+      select: { id: true, numero_factura: true, deleted_at: true }
+    })
+
+    if (!factura) throw new Error('Factura no encontrada')
+    if (!factura.deleted_at) throw new Error('Esta factura no está eliminada')
+
+    await prisma.factura_liquidacion_servicio.update({
+      where: { id },
+      data: { deleted_at: null },
+    })
+
+    return { message: `Factura ${factura.numero_factura} restaurada exitosamente` }
+  },
+
+  async listarEliminadas(filtros: FiltrosFacturas) {
+    const page = Number(filtros.page) || 1
+    const limit = Number(filtros.limit) || 15
+    const skip = (page - 1) * limit
+
+    const where: any = { deleted_at: { not: null } }
+    if (filtros.busqueda) {
+      where.OR = [
+        { numero_factura: { contains: filtros.busqueda, mode: 'insensitive' } },
+      ]
+    }
+
+    const [facturas, total] = await Promise.all([
+      prisma.factura_liquidacion_servicio.findMany({
+        where,
+        include: {
+          facturado_por: { select: { id: true, nombre: true, correo: true } },
+          anulado_por: { select: { id: true, nombre: true, correo: true } },
+          _count: { select: { items: true } },
+        },
+        orderBy: { deleted_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.factura_liquidacion_servicio.count({ where }),
+    ])
+
+    return {
+      facturas: facturas.map(f => ({
+        ...f,
+        valor_total: Number(f.valor_total),
+        total_liquidaciones: f._count.items,
+      })),
+      total,
+      totalPages: Math.ceil(total / limit),
+      page,
+    }
   },
 }

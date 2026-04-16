@@ -584,8 +584,8 @@ export const LiquidacionesServiciosService = {
   },
 
   async checkConsecutivo(consecutivo: string, excludeId?: string) {
-    const existing = await prisma.liquidacion_servicio.findUnique({
-      where: { consecutivo },
+    const existing = await prisma.liquidacion_servicio.findFirst({
+      where: { consecutivo, deleted_at: null },
       select: { id: true },
     });
     if (!existing) return { available: true };
@@ -702,7 +702,7 @@ export const LiquidacionesServiciosService = {
     const limit = Number(filtros.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { deleted_at: null };
     if (filtros.cliente_id) where.cliente_id = filtros.cliente_id;
     if (filtros.estado) where.estado = filtros.estado;
     if (filtros.mes) where.mes = filtros.mes;
@@ -809,31 +809,86 @@ export const LiquidacionesServiciosService = {
   async eliminar(id: string) {
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
+    if (liq.deleted_at) throw new Error("Esta liquidación ya fue eliminada");
 
     // Check if linked to any ACTIVE factura before attempting delete
     const activeFacturas = await prisma.factura_liquidacion_item.count({
       where: {
         liquidacion_id: id,
-        factura: { estado: "ACTIVA" },
+        factura: { estado: "ACTIVA", deleted_at: null },
       },
     });
     if (activeFacturas > 0) {
       throw new Error("No se puede eliminar: esta liquidación tiene facturas activas asociadas. Anule la factura primero.");
     }
 
-    // Also delete any factura_liquidacion_item refs from anulled facturas
-    await prisma.factura_liquidacion_item.deleteMany({
-      where: { liquidacion_id: id },
+    await prisma.liquidacion_servicio.update({
+      where: { id },
+      data: { deleted_at: new Date() },
     });
 
-    await prisma.$transaction([
-      prisma.liquidacion_servicio_item.deleteMany({
-        where: { liquidacion_id: id },
+    return { message: "Liquidación de servicio eliminada exitosamente" };
+  },
+
+  async restaurar(id: string) {
+    const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
+    if (!liq) throw new Error("Liquidación no encontrada");
+    if (!liq.deleted_at) throw new Error("Esta liquidación no está eliminada");
+
+    await prisma.liquidacion_servicio.update({
+      where: { id },
+      data: { deleted_at: null },
+    });
+
+    return { message: "Liquidación de servicio restaurada exitosamente" };
+  },
+
+  async listarEliminadas(filtros: FiltrosLiquidacionServicios) {
+    const page = Number(filtros.page) || 1;
+    const limit = Number(filtros.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = { deleted_at: { not: null } };
+    if (filtros.busqueda) {
+      where.OR = [
+        { consecutivo: { contains: filtros.busqueda, mode: "insensitive" } },
+        { cliente: { nombre: { contains: filtros.busqueda, mode: "insensitive" } } },
+      ];
+    }
+
+    const [liquidaciones, total] = await Promise.all([
+      prisma.liquidacion_servicio.findMany({
+        where,
+        include: {
+          cliente: { select: { id: true, nombre: true, nit: true } },
+          creado_por: { select: { id: true, nombre: true, correo: true } },
+          _count: { select: { items: true } },
+        },
+        orderBy: { deleted_at: "desc" },
+        skip,
+        take: limit,
       }),
-      prisma.liquidacion_servicio.delete({ where: { id } }),
+      prisma.liquidacion_servicio.count({ where }),
     ]);
 
-    return { message: "Liquidación de servicio eliminada exitosamente" };
+    return {
+      liquidaciones: liquidaciones.map((l) => ({
+        ...l,
+        valor_servicios: Number(l.valor_servicios),
+        valor_recargos: Number(l.valor_recargos),
+        valor_pernoctes: Number(l.valor_pernoctes),
+        subtotal: Number(l.subtotal),
+        porcentaje_iva: Number(l.porcentaje_iva),
+        valor_iva: Number(l.valor_iva),
+        total: Number(l.total),
+        valor_transporte_adicional: Number(l.valor_transporte_adicional),
+        valor_administracion_ta: Number(l.valor_administracion_ta),
+        total_items: l._count.items,
+      })),
+      total,
+      totalPages: Math.ceil(total / limit),
+      page,
+    };
   },
 
   async actualizar(id: string, data: CrearLiquidacionInput, userId: string) {
@@ -1179,7 +1234,7 @@ function computeTerceroLiquidado(recargosData: any): boolean {
 
 async function generarConsecutivo(anio: number): Promise<string> {
   const ultima = await prisma.liquidacion_servicio.findFirst({
-    where: { anio },
+    where: { anio, deleted_at: null },
     orderBy: { consecutivo: "desc" },
     select: { consecutivo: true },
   });

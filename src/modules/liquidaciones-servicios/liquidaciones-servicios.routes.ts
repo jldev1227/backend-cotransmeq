@@ -27,6 +27,10 @@ export async function liquidacionesServiciosRoutes(app: FastifyInstance) {
   app.get('/liquidaciones-servicios/check-consecutivo/:consecutivo', LiquidacionesServiciosController.checkConsecutivo)
   app.get('/liquidaciones-servicios', LiquidacionesServiciosController.listar)
   app.post('/liquidaciones-servicios', LiquidacionesServiciosController.crear)
+
+  // ── Soft delete: restaurar y eliminadas (antes de :id) ──
+  app.get('/liquidaciones-servicios/eliminadas', LiquidacionesServiciosController.listarEliminadas)
+
   app.get('/liquidaciones-servicios/:id', LiquidacionesServiciosController.obtenerPorId)
   app.put('/liquidaciones-servicios/:id', LiquidacionesServiciosController.actualizar)
   app.delete('/liquidaciones-servicios/:id', LiquidacionesServiciosController.eliminar)
@@ -34,4 +38,5 @@ export async function liquidacionesServiciosRoutes(app: FastifyInstance) {
   // ── Estado e historial ──
   app.patch('/liquidaciones-servicios/:id/estado', LiquidacionesServiciosController.cambiarEstado)
   app.get('/liquidaciones-servicios/:id/historial', LiquidacionesServiciosController.obtenerHistorial)
+  app.patch('/liquidaciones-servicios/:id/restaurar', LiquidacionesServiciosController.restaurar)
 }

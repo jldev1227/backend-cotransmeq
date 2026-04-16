@@ -1371,6 +1371,7 @@ model liquidacion_servicio {
   fecha_facturacion          DateTime?                        @db.Timestamptz(6)
   created_at                 DateTime                         @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                         @updatedAt @db.Timestamptz(6)
+  deleted_at                 DateTime?                        @db.Timestamptz(6)
   actualizado_por            usuarios?                        @relation("liq_serv_actualizado_por", fields: [actualizado_por_id], references: [id])
   aprobado_por               usuarios?                        @relation("liq_serv_aprobado_por", fields: [aprobado_por_id], references: [id])
   cliente                    clientes                         @relation(fields: [cliente_id], references: [id])
@@ -1383,6 +1384,7 @@ model liquidacion_servicio {
   @@index([cliente_id])
   @@index([mes, anio])
   @@index([estado])
+  @@index([deleted_at])
 }
 
 model liquidacion_servicio_item {
@@ -1468,6 +1470,7 @@ model factura_liquidacion_servicio {
   fecha_anulacion   DateTime?                   @db.Timestamptz(6)
   created_at        DateTime                    @default(now()) @db.Timestamptz(6)
   updated_at        DateTime                    @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?                   @db.Timestamptz(6)
 
   facturado_por     usuarios                    @relation("factura_liq_facturado_por", fields: [facturado_por_id], references: [id])
   anulado_por       usuarios?                   @relation("factura_liq_anulado_por", fields: [anulado_por_id], references: [id])
@@ -1477,6 +1480,7 @@ model factura_liquidacion_servicio {
   @@index([fecha_facturacion])
   @@index([estado])
   @@index([facturado_por_id])
+  @@index([deleted_at])
 }
 
 model factura_liquidacion_item {
