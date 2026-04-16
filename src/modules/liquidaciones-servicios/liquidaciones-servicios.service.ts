@@ -606,17 +606,17 @@ export const LiquidacionesServiciosService = {
 
       return {
         id: randomUUID(),
-        placa: item.placa,
+        placa: String(item.placa || "").slice(0, 20),
         fecha_inicial: new Date(item.fecha_inicial),
         fecha_final: new Date(item.fecha_final),
-        recorrido: item.recorrido,
+        recorrido: String(item.recorrido || "").slice(0, 500),
         tipo_servicio: item.tipo_servicio as any,
         cantidad: item.cantidad,
         valor_unitario: item.valor_unitario,
         subtotal,
         porcentaje_descuento: item.porcentaje_descuento || 0,
         valor_final: valorFinal,
-        numero_planilla: item.numero_planilla || null,
+        numero_planilla: item.numero_planilla ? String(item.numero_planilla).slice(0, 50) : null,
         servicio_id: item.servicio_id || null,
         recargo_planilla_id: item.recargo_planilla_id || null,
         valor_recargos_total: 0,
@@ -635,6 +635,20 @@ export const LiquidacionesServiciosService = {
     const porcentajeIva = data.porcentaje_iva || 0;
     const valorIva = (subtotal * porcentajeIva) / 100;
     const total = subtotal + valorIva;
+
+    // DEBUG: Log all string field lengths to find the "too long" column
+    // DEBUG: Log string field lengths
+    console.log('[LIQ-DEBUG] Creating liquidacion:', {
+      consecutivo, consecutivo_len: String(consecutivo).length,
+      obs_len: String(data.observaciones || '').length,
+      osi_len: String(data.osi || '').length,
+      items_count: itemsData.length,
+      items_fields: itemsData.map((it, i) => ({
+        i, placa: it.placa, placa_len: it.placa.length,
+        recorrido_len: it.recorrido.length, planilla: it.numero_planilla,
+        tipo: it.tipo_servicio
+      }))
+    });
 
     const liquidacion = await prisma.liquidacion_servicio.create({
       data: {
@@ -817,17 +831,17 @@ export const LiquidacionesServiciosService = {
 
       return {
         id: randomUUID(),
-        placa: item.placa,
+        placa: String(item.placa || "").slice(0, 20),
         fecha_inicial: new Date(item.fecha_inicial),
         fecha_final: new Date(item.fecha_final),
-        recorrido: item.recorrido,
+        recorrido: String(item.recorrido || "").slice(0, 500),
         tipo_servicio: item.tipo_servicio as any,
         cantidad: item.cantidad,
         valor_unitario: item.valor_unitario,
         subtotal,
         porcentaje_descuento: item.porcentaje_descuento || 0,
         valor_final: valorFinal,
-        numero_planilla: item.numero_planilla || null,
+        numero_planilla: item.numero_planilla ? String(item.numero_planilla).slice(0, 50) : null,
         servicio_id: item.servicio_id || null,
         recargo_planilla_id: item.recargo_planilla_id || null,
         valor_recargos_total: 0,
