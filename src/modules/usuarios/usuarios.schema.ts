@@ -11,3 +11,17 @@ export const createUsuarioSchema = z.object({
   permisos: permisosSchema,
   ultimoAcceso: z.string().datetime().optional()
 })
+
+export const updateUsuarioSchema = z.object({
+  nombre: z.string().min(2).optional(),
+  telefono: z.string().optional(),
+  correo: z.string().email().optional(),
+  role: z.string().optional(),
+  cargo: z.string().optional().nullable(),
+  area: z.array(z.enum(['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'])).optional(),
+  activo: z.boolean().optional(),
+})
+
+export const updatePermisosSchema = z.object({
+  permisos: z.record(z.boolean())
+})

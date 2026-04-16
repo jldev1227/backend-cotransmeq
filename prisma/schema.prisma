@@ -831,10 +831,14 @@ model usuarios {
   password                                                                    String                             @db.VarChar(255)
   telefono                                                                    String?                            @db.VarChar(255)
   role                                                                        enum_users_role?                   @default(usuario)
-  permisos                                                                    Json?                              @default("{\"admin\": false, \"flota\": false, \"nomina\": false}")
+  permisos                                                                    Json?                              @default("{\"flota\": false, \"nomina\": false, \"clientes\": false, \"recargos\": false, \"usuarios\": false, \"servicios\": false, \"asistencias\": false, \"conductores\": false, \"evaluaciones\": false, \"acciones-correctivas\": false, \"liquidador_terceros\": false}")
   ultimo_acceso                                                               DateTime?                          @db.Timestamptz(6)
   created_at                                                                  DateTime                           @db.Timestamptz(6)
   updated_at                                                                  DateTime                           @db.Timestamptz(6)
+  cargo                                                                       String?                            @db.VarChar(255)
+  area                                                                        String[]                           @default([]) @map("areas")
+  activo                                                                      Boolean                            @default(true)
+  firma_url                                                                   String?
   anticipos                                                                   anticipos[]
   bonificaciones                                                              bonificaciones[]
   conductores                                                                 conductores[]
@@ -871,10 +875,31 @@ model usuarios {
   historial_estado_liq                                                        historial_estado_liquidacion[]     @relation("historial_estado_liq_usuario")
   facturas_liq_facturado                                                      factura_liquidacion_servicio[]      @relation("factura_liq_facturado_por")
   facturas_liq_anulado                                                        factura_liquidacion_servicio[]      @relation("factura_liq_anulado_por")
+  sesiones                                                                    sesiones[]
 
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
   @@map("users")
+}
+
+model sesiones {
+  id             String    @id @default(uuid()) @db.Uuid
+  usuario_id     String    @db.Uuid
+  ip             String?   @db.VarChar(45)
+  user_agent     String?
+  token_hash     String?   @db.VarChar(64)
+  remember_me    Boolean   @default(false)
+  token_expiry   DateTime  @db.Timestamptz(6)
+  last_activity  DateTime  @default(now()) @db.Timestamptz(6)
+  is_active      Boolean   @default(true)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  closed_at      DateTime? @db.Timestamptz(6)
+
+  usuario        usuarios  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@index([usuario_id])
+  @@index([is_active])
+  @@index([token_hash])
 }
 
 model vehiculos {
@@ -1401,6 +1426,8 @@ model historial_estado_liquidacion {
   estado_nuevo     String               @db.VarChar(50)
   usuario_id       String               @db.Uuid
   motivo           String?              @db.Text
+  accion           String?              @default("cambio_estado") @db.VarChar(50)
+  snapshot         Json?
   created_at       DateTime             @default(now()) @db.Timestamptz(6)
 
   liquidacion      liquidacion_servicio @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)

@@ -29,6 +29,7 @@ import { conductorPortalRoutes } from './modules/conductor-portal/conductor-port
 import { tercerosRoutes } from './modules/terceros/terceros.routes'
 import { liquidacionesServiciosRoutes } from './modules/liquidaciones-servicios/liquidaciones-servicios.routes'
 import { facturacionLiquidacionesRoutes } from './modules/facturacion-liquidaciones/facturacion-liquidaciones.routes'
+import { sesionesRoutes } from './modules/sesiones/sesiones.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -91,6 +92,7 @@ export function buildApp() {
     app.register(tercerosRoutes, { prefix: '/api' })
     app.register(liquidacionesServiciosRoutes, { prefix: '/api' })
     app.register(facturacionLiquidacionesRoutes, { prefix: '/api' })
+    app.register(sesionesRoutes, { prefix: '/api' })
 
     // Rutas públicas (sin autenticación) - desprendibles de nómina
     app.register(desprendiblesPublicRoutes, { prefix: '/api' })
