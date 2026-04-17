@@ -28,6 +28,7 @@ import { documentosCompartidosRoutes } from './modules/documentos/documentos-com
 import { conductorPortalRoutes } from './modules/conductor-portal/conductor-portal.routes'
 import { tercerosRoutes } from './modules/terceros/terceros.routes'
 import { liquidacionesServiciosRoutes } from './modules/liquidaciones-servicios/liquidaciones-servicios.routes'
+import { liquidacionesTercerosRoutes } from './modules/liquidaciones-terceros/liquidaciones-terceros.routes'
 import { facturacionLiquidacionesRoutes } from './modules/facturacion-liquidaciones/facturacion-liquidaciones.routes'
 import { sesionesRoutes } from './modules/sesiones/sesiones.routes'
 
@@ -91,6 +92,7 @@ export function buildApp() {
     app.register(liquidacionesRoutes, { prefix: '/api' })
     app.register(tercerosRoutes, { prefix: '/api' })
     app.register(liquidacionesServiciosRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosRoutes, { prefix: '/api' })
     app.register(facturacionLiquidacionesRoutes, { prefix: '/api' })
     app.register(sesionesRoutes, { prefix: '/api' })
 

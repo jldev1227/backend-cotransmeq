@@ -55,6 +55,7 @@ export interface CrearLiquidacionInput {
   valor_transporte_adicional?: number;
   valor_recargos?: number;
   recargos_data?: any;
+  terceros_items?: any[];
 }
 
 export interface FiltrosLiquidacionServicios {
@@ -694,6 +695,18 @@ export const LiquidacionesServiciosService = {
     // Crear snapshot inicial
     await this._crearSnapshot(liquidacion.id, userId, 'creacion', null, 'BORRADOR');
 
+    // Guardar terceros_items si vienen en el payload
+    if (data.terceros_items && Array.isArray(data.terceros_items) && data.terceros_items.length > 0) {
+      const { LiquidacionesTercerosService } = await import('../liquidaciones-terceros/liquidaciones-terceros.service');
+      const createdItems = liquidacion.items;
+      const tercerosConItemId = data.terceros_items.map((t: any) => {
+        const srcIdx = t.src_index ?? 0;
+        const matchedItem = createdItems[srcIdx];
+        return { ...t, item_id: matchedItem?.id || null };
+      });
+      await LiquidacionesTercerosService.guardar(liquidacion.id, tercerosConItemId);
+    }
+
     return liquidacion;
   },
 
@@ -774,6 +787,10 @@ export const LiquidacionesServiciosService = {
         liquidado_por: { select: { id: true, nombre: true, correo: true } },
         aprobado_por: { select: { id: true, nombre: true, correo: true } },
         items: { orderBy: { orden: "asc" } },
+        terceros_items: {
+          orderBy: { orden: "asc" },
+          include: { tercero: { select: { id: true, nombre_completo: true, identificacion: true, tipo_persona: true } } },
+        },
       },
     });
 
@@ -802,6 +819,18 @@ export const LiquidacionesServiciosService = {
         valor_recargos_total: Number(item.valor_recargos_total),
         valor_pernocte_unitario: Number(item.valor_pernocte_unitario),
         valor_pernoctes_total: Number(item.valor_pernoctes_total),
+      })),
+      terceros_items: liquidacion.terceros_items.map((t) => ({
+        ...t,
+        valor_unitario: Number(t.valor_unitario),
+        cantidad: Number(t.cantidad),
+        total_facturado: Number(t.total_facturado),
+        porcentaje_admin: Number(t.porcentaje_admin),
+        valor_admin: Number(t.valor_admin),
+        valor_liquidar: Number(t.valor_liquidar),
+        ingreso_extra_global: Number(t.ingreso_extra_global),
+        ingresos_extra_aval: Number(t.ingresos_extra_aval),
+        ingreso_empresa: Number(t.ingreso_empresa),
       })),
     };
   },
@@ -985,6 +1014,18 @@ export const LiquidacionesServiciosService = {
 
     // Crear snapshot de edición
     await this._crearSnapshot(liquidacion.id, userId, 'edicion', liq.estado as string, liq.estado as string);
+
+    // Guardar terceros_items si vienen en el payload
+    if (data.terceros_items && Array.isArray(data.terceros_items)) {
+      const { LiquidacionesTercerosService } = await import('../liquidaciones-terceros/liquidaciones-terceros.service');
+      const createdItems = liquidacion.items;
+      const tercerosConItemId = data.terceros_items.map((t: any) => {
+        const srcIdx = t.src_index ?? 0;
+        const matchedItem = createdItems[srcIdx];
+        return { ...t, item_id: matchedItem?.id || null };
+      });
+      await LiquidacionesTercerosService.guardar(liquidacion.id, tercerosConItemId);
+    }
 
     return liquidacion;
   },
