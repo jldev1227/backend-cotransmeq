@@ -41,6 +41,7 @@ export const createRecargoSchema = z.object({
   servicio_destino_longitud: z.number().optional().nullable(),
   servicio_observaciones: z.string().optional().nullable(),
   servicio_proposito: z.enum(['personal', 'personal y herramienta', 'personal_y_herramienta']).optional().nullable(),
+  servicio_fecha_realizacion: z.string().optional().nullable(),
   
   // Estado del conductor
   estado_conductor: z.enum(['optimo', 'fatigado', 'regular', 'malo']).optional().nullable(),

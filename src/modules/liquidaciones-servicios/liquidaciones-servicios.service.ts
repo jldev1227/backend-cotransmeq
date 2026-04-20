@@ -66,6 +66,16 @@ export interface FiltrosLiquidacionServicios {
   mes?: number;
   anio?: number;
   busqueda?: string;
+  liquidador_id?: string;
+  sortBy?: string;
+  sortDir?: string;
+  // Column filters (comma-separated values)
+  consecutivos?: string;
+  estados?: string;
+  cliente_nombres?: string;
+  liquidador_nombres?: string;
+  periodos?: string; // "1-2026,2-2026" format
+  facturas?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -731,7 +741,108 @@ export const LiquidacionesServiciosService = {
       ];
     }
 
-    const [liquidaciones, total] = await Promise.all([
+    // Sorting
+    const sortableFields: Record<string, string> = {
+      consecutivo: 'consecutivo',
+      cliente: 'cliente.nombre',
+      periodo: 'anio',
+      estado: 'estado',
+      total: 'total',
+      items: 'total',
+      fecha: 'created_at',
+    };
+    let orderBy: any = { created_at: "desc" };
+    if (filtros.sortBy && sortableFields[filtros.sortBy]) {
+      const dir = filtros.sortDir === 'asc' ? 'asc' : 'desc';
+      const field = filtros.sortBy;
+      if (field === 'cliente') {
+        orderBy = { cliente: { nombre: dir } };
+      } else if (field === 'periodo') {
+        orderBy = [{ anio: dir }, { mes: dir }];
+      } else {
+        orderBy = { [sortableFields[field]]: dir };
+      }
+    }
+
+    // Filtro por liquidador
+    if (filtros.liquidador_id) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { liquidado_por_id: filtros.liquidador_id },
+            { creado_por_id: filtros.liquidador_id },
+          ],
+        },
+      ];
+    }
+
+    // ── Column filters: build individual conditions ──
+    const colConditions: Record<string, any> = {};
+
+    if (filtros.consecutivos) {
+      const vals = filtros.consecutivos.split(',').filter(Boolean);
+      if (vals.length) colConditions.consecutivos = { consecutivo: { in: vals } };
+    }
+    if (filtros.estados) {
+      const vals = filtros.estados.split(',').filter(Boolean);
+      if (vals.length) colConditions.estados = { estado: { in: vals } };
+    }
+    if (filtros.cliente_nombres) {
+      const vals = filtros.cliente_nombres.split(',').filter(Boolean);
+      if (vals.length) colConditions.cliente_nombres = { cliente: { nombre: { in: vals } } };
+    }
+    if (filtros.liquidador_nombres) {
+      const vals = filtros.liquidador_nombres.split(',').filter(Boolean);
+      if (vals.length) colConditions.liquidador_nombres = {
+        OR: [
+          { liquidado_por: { nombre: { in: vals } } },
+          { creado_por: { nombre: { in: vals } } },
+        ],
+      };
+    }
+    if (filtros.periodos) {
+      const pairs = filtros.periodos.split(',').filter(Boolean).map(p => {
+        const [m, a] = p.split('-');
+        return { mes: Number(m), anio: Number(a) };
+      }).filter(p => p.mes && p.anio);
+      if (pairs.length) colConditions.periodos = { OR: pairs.map(p => ({ mes: p.mes, anio: p.anio })) };
+    }
+    if (filtros.facturas) {
+      const vals = filtros.facturas.split(',').filter(Boolean);
+      if (vals.length) {
+        const items = await prisma.factura_liquidacion_item.findMany({
+          where: { factura: { numero_factura: { in: vals }, estado: 'ACTIVA', deleted_at: null } },
+          select: { liquidacion_id: true },
+          distinct: ['liquidacion_id'],
+        });
+        colConditions.facturas = { id: { in: items.map(i => i.liquidacion_id) } };
+      }
+    }
+
+    // Apply ALL column conditions to main where
+    const allColKeys = Object.keys(colConditions);
+    if (allColKeys.length) {
+      where.AND = [...(where.AND || []), ...allColKeys.map(k => colConditions[k])];
+    }
+
+    // Helper: build where excluding one specific column filter (for cascading dropdown options)
+    function whereExcluding(excludeKey: string) {
+      const otherConditions = allColKeys.filter(k => k !== excludeKey).map(k => colConditions[k]);
+      const base = { ...where };
+      const baseAnd = (where.AND || []).filter((c: any) => !allColKeys.map(k => colConditions[k]).includes(c));
+      base.AND = [...baseAnd, ...otherConditions];
+      if (!base.AND.length) delete base.AND;
+      return base;
+    }
+
+    const globalWhere = {
+      deleted_at: null as null,
+      ...(filtros.mes ? { mes: filtros.mes } : {}),
+      ...(filtros.anio ? { anio: filtros.anio } : {}),
+    };
+
+    const [liquidaciones, total, metadata, uniqueClients, uniqueLiquidadores, uniqueConsecutivos, uniquePeriodos, uniqueFacturas, uniqueEstados] = await Promise.all([
       prisma.liquidacion_servicio.findMany({
         where,
         include: {
@@ -741,12 +852,62 @@ export const LiquidacionesServiciosService = {
           aprobado_por: { select: { id: true, nombre: true, correo: true } },
           _count: { select: { items: true } },
         },
-        orderBy: { created_at: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),
       prisma.liquidacion_servicio.count({ where }),
+      prisma.liquidacion_servicio.groupBy({
+        by: ['estado'],
+        where: globalWhere,
+        _count: { id: true },
+        _sum: { total: true },
+      }),
+      prisma.liquidacion_servicio.findMany({
+        where: whereExcluding('cliente_nombres'),
+        select: { cliente: { select: { id: true, nombre: true } } },
+        distinct: ['cliente_id'],
+        orderBy: { cliente: { nombre: 'asc' } },
+      }),
+      prisma.liquidacion_servicio.findMany({
+        where: { ...whereExcluding('liquidador_nombres'), liquidado_por_id: { not: null } },
+        select: { liquidado_por: { select: { id: true, nombre: true } } },
+        distinct: ['liquidado_por_id'],
+      }),
+      prisma.liquidacion_servicio.findMany({
+        where: whereExcluding('consecutivos'),
+        select: { consecutivo: true },
+        distinct: ['consecutivo'],
+        orderBy: { consecutivo: 'asc' },
+      }),
+      prisma.liquidacion_servicio.groupBy({
+        by: ['mes', 'anio'],
+        where: whereExcluding('periodos'),
+        orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+      }),
+      prisma.factura_liquidacion_item.findMany({
+        where: {
+          liquidacion: whereExcluding('facturas'),
+          factura: { estado: 'ACTIVA', deleted_at: null },
+        },
+        select: { factura: { select: { numero_factura: true } } },
+        distinct: ['factura_id'],
+      }),
+      prisma.liquidacion_servicio.groupBy({
+        by: ['estado'],
+        where: whereExcluding('estados'),
+      }),
     ]);
+
+    const globalTotal = metadata.reduce((s, g) => s + Number(g._sum.total || 0), 0);
+    const globalCount = metadata.reduce((s, g) => s + g._count.id, 0);
+    const estadoCounts: Record<string, number> = {};
+    for (const g of metadata) {
+      estadoCounts[g.estado] = g._count.id;
+    }
+
+    const clientes = uniqueClients.map(c => c.cliente).filter(Boolean);
+    const liquidadores = uniqueLiquidadores.map(l => l.liquidado_por).filter(Boolean);
 
     return {
       liquidaciones: liquidaciones.map((l) => ({
@@ -765,6 +926,17 @@ export const LiquidacionesServiciosService = {
       total,
       totalPages: Math.ceil(total / limit),
       page,
+      metadata: {
+        globalTotal,
+        globalCount,
+        estadoCounts,
+        clientes,
+        liquidadores,
+        consecutivos: uniqueConsecutivos.map(c => c.consecutivo),
+        periodos: uniquePeriodos.map(p => ({ mes: p.mes, anio: p.anio })),
+        facturas: uniqueFacturas.map(f => f.factura?.numero_factura).filter(Boolean) as string[],
+        estados: uniqueEstados.map(e => e.estado),
+      },
     };
   },
 

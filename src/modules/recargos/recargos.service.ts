@@ -528,6 +528,7 @@ export const RecargosService = {
           proposito_servicio: this._normalizarProposito(data.servicio_proposito) as any,
           estado: estadoServicio as any,
           fecha_solicitud: now,
+          fecha_realizacion: data.servicio_fecha_realizacion ? new Date(data.servicio_fecha_realizacion) : undefined,
           valor: 0,
           created_at: now,
           updated_at: now,
@@ -783,6 +784,7 @@ export const RecargosService = {
         estado: estadoServicio as any,
         conductor_id: data.conductor_id || recargoExistente.conductor_id,
         vehiculo_id: data.vehiculo_id || recargoExistente.vehiculo_id,
+        fecha_realizacion: data.servicio_fecha_realizacion ? new Date(data.servicio_fecha_realizacion) : undefined,
         updated_at: new Date(),
       }
 
