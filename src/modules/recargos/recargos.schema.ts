@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from "zod";
 
 // Schema para día laboral
 export const diaLaboralSchema = z.object({
@@ -13,8 +13,8 @@ export const diaLaboralSchema = z.object({
   pernocte: z.boolean().default(false),
   disponibilidad: z.boolean().default(false),
   continua_siguiente_dia: z.boolean().default(false),
-  observaciones: z.string().optional().nullable()
-})
+  observaciones: z.string().optional().nullable(),
+});
 
 // Schema para crear recargo
 export const createRecargoSchema = z.object({
@@ -26,10 +26,10 @@ export const createRecargoSchema = z.object({
   año: z.number().int().min(2000).max(2100),
   observaciones: z.string().optional().nullable(),
   dias_laborales: z.array(diaLaboralSchema).optional().default([]),
-  
+
   // Relación con servicio
   servicio_id: z.string().uuid().optional().nullable(),
-  
+
   // Datos del servicio (para crear/editar servicio desde recargo)
   servicio_origen_id: z.string().uuid().optional().nullable(),
   servicio_destino_id: z.string().uuid().optional().nullable(),
@@ -40,18 +40,24 @@ export const createRecargoSchema = z.object({
   servicio_destino_latitud: z.number().optional().nullable(),
   servicio_destino_longitud: z.number().optional().nullable(),
   servicio_observaciones: z.string().optional().nullable(),
-  servicio_proposito: z.enum(['personal', 'personal y herramienta', 'personal_y_herramienta']).optional().nullable(),
+  servicio_proposito: z
+    .enum(["personal", "personal y herramienta", "personal_y_herramienta"])
+    .optional()
+    .nullable(),
   servicio_fecha_realizacion: z.string().optional().nullable(),
-  
+
   // Estado del conductor
-  estado_conductor: z.enum(['optimo', 'fatigado', 'regular', 'malo']).optional().nullable(),
-  
+  estado_conductor: z
+    .enum(["optimo", "fatigado", "regular", "malo"])
+    .optional()
+    .nullable(),
+
   // Condiciones de vía (tipo de terreno)
   via_trocha: z.boolean().default(false),
   via_afirmado: z.boolean().default(false),
   via_mixto: z.boolean().default(false),
   via_pavimentada: z.boolean().default(false),
-  
+
   // Riesgos de seguridad
   riesgo_desniveles: z.boolean().default(false),
   riesgo_deslizamientos: z.boolean().default(false),
@@ -59,65 +65,90 @@ export const createRecargoSchema = z.object({
   riesgo_animales: z.boolean().default(false),
   riesgo_peatones: z.boolean().default(false),
   riesgo_trafico_alto: z.boolean().default(false),
-  
+
   // Evaluación
-  fuente_consulta: z.enum(['conductor', 'gps', 'cliente', 'sistema']).optional().nullable(),
-  calificacion_servicio: z.enum(['excelente', 'bueno', 'regular', 'malo']).optional().nullable(),
-  
+  fuente_consulta: z
+    .enum(["conductor", "gps", "cliente", "sistema"])
+    .optional()
+    .nullable(),
+  calificacion_servicio: z
+    .enum(["excelente", "bueno", "regular", "malo"])
+    .optional()
+    .nullable(),
+
   // Métricas de tiempo
   tiempo_disponibilidad_horas: z.number().min(0).max(999).optional().nullable(),
   duracion_trayecto_horas: z.number().min(0).max(999).optional().nullable(),
-  numero_dias_servicio: z.number().int().min(1).max(31).optional().nullable()
-})
+  numero_dias_servicio: z.number().int().min(1).max(31).optional().nullable(),
+});
 
 // Schema para actualizar recargo
 export const updateRecargoSchema = createRecargoSchema.partial().extend({
-  estado: z.enum(['pendiente', 'liquidada', 'facturada', 'no_esta', 'encontrada', 'borrador', 'activo', 'completado', 'liquidado', 'cancelado']).optional()
-})
+  estado: z
+    .enum([
+      "pendiente",
+      "liquidada",
+      "facturada",
+      "no_esta",
+      "encontrada",
+      "borrador",
+      "activo",
+      "completado",
+      "liquidado",
+      "cancelado",
+    ])
+    .optional(),
+});
 
 // Schema para filtros de búsqueda
-export const buscarRecargosSchema = z.object({
-  mes: z.string().optional(),
-  año: z.string().optional(),
-  ano: z.string().optional(), // Alternativa sin ñ
-  conductor_id: z.string().uuid().optional(),
-  vehiculo_id: z.string().uuid().optional(),
-  empresa_id: z.string().uuid().optional(),
-  estado: z.string().optional(),
-  numero_planilla: z.string().optional(),
-  page: z.string().optional().default('1'),
-  limit: z.string().optional().default('50')
-}).transform((data) => {
-  // Si viene 'ano' sin ñ, usarlo como 'año'
-  if (data.ano && !data.año) {
-    data.año = data.ano
-  }
-  return data
-})
+export const buscarRecargosSchema = z
+  .object({
+    mes: z.string().optional(),
+    año: z.string().optional(),
+    ano: z.string().optional(), // Alternativa sin ñ
+    conductor_id: z.string().uuid().optional(),
+    vehiculo_id: z.string().uuid().optional(),
+    empresa_id: z.string().uuid().optional(),
+    estado: z.string().optional(),
+    numero_planilla: z.string().optional(),
+    eliminados: z
+      .string()
+      .optional()
+      .transform((val) => val === "true"),
+    page: z.string().optional().default("1"),
+    limit: z.string().optional().default("50"),
+  })
+  .transform((data) => {
+    // Si viene 'ano' sin ñ, usarlo como 'año'
+    if (data.ano && !data.año) {
+      data.año = data.ano;
+    }
+    return data;
+  });
 
 // Schema para liquidar recargo
 export const liquidarRecargoSchema = z.object({
-  observaciones: z.string().optional()
-})
+  observaciones: z.string().optional(),
+});
 
 // Schema para cambio de estado masivo
 export const cambiarEstadoMultipleSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1, 'Debe proporcionar al menos un ID'),
+  ids: z.array(z.string().uuid()).min(1, "Debe proporcionar al menos un ID"),
   estado: z.enum([
-    'pendiente',
-    'liquidada',
-    'facturada',
-    'no_esta',
-    'encontrada',
-    'borrador',
-    'activo',
-    'completado',
-    'liquidado',
-    'cancelado'
-  ])
-})
+    "pendiente",
+    "liquidada",
+    "facturada",
+    "no_esta",
+    "encontrada",
+    "borrador",
+    "activo",
+    "completado",
+    "liquidado",
+    "cancelado",
+  ]),
+});
 
-export type CreateRecargoDTO = z.infer<typeof createRecargoSchema>
-export type UpdateRecargoDTO = z.infer<typeof updateRecargoSchema>
-export type DiaLaboralDTO = z.infer<typeof diaLaboralSchema>
-export type BuscarRecargosDTO = z.infer<typeof buscarRecargosSchema>
+export type CreateRecargoDTO = z.infer<typeof createRecargoSchema>;
+export type UpdateRecargoDTO = z.infer<typeof updateRecargoSchema>;
+export type DiaLaboralDTO = z.infer<typeof diaLaboralSchema>;
+export type BuscarRecargosDTO = z.infer<typeof buscarRecargosSchema>;

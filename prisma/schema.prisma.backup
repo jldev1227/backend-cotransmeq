@@ -1,0 +1,454 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Usuario {
+  id             String    @id @default(uuid())
+  nombre         String
+  telefono       String?
+  correo         String    @unique
+  password       String
+  rol            Rol       @default(USER)  // ✅ esto ahora sí es válido
+  permisos       Json?
+  ultimoAcceso   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime? // Soft delete
+
+  // Relaciones
+  conductor      Conductor? // 1:1 con el perfil extendido de conductor
+
+  pernotesCreados           Pernote[]       @relation("PernoteCreador")
+  bonificacionesCreadas     Bonificacion[]  @relation("BonificacionCreador")
+  anticiposCreados          Anticipo[]      @relation("AnticipoCreador")
+  liquidacionesCreadas      Liquidacion[]   @relation("LiquidacionCreadaPor")
+  liquidacionesActualizadas Liquidacion[]   @relation("LiquidacionActualizadaPor")
+  liquidacionesLiquidadas   Liquidacion[]   @relation("LiquidacionLiquidadaPor")
+
+  @@map("usuarios")
+}
+
+model Municipio {
+  id                  String   @id @default(uuid())
+  codigo_departamento Int
+  nombre_departamento String
+  codigo_municipio    Int      @unique
+  nombre_municipio    String
+  tipo                TipoMunicipio
+  longitud            Decimal  @db.Decimal(10, 6)
+  latitud             Decimal  @db.Decimal(10, 6)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  serviciosOrigen     Servicio[] @relation("ServicioOrigen")
+  serviciosDestino    Servicio[] @relation("ServicioDestino")
+
+  @@map("municipios")
+}
+
+model Conductor {
+  id                     String   @id @default(uuid())
+  usuarioId              String   @unique  // vínculo 1:1 con Usuario
+  nombre                 String?
+  apellido               String?
+  tipo_identificacion    String   @default("CC")
+  numero_identificacion  String?
+  email                  String?  @unique
+  telefono               String?
+  fecha_nacimiento       DateTime?
+  genero                 String?
+  direccion              String?
+  fecha_ingreso          DateTime?
+  salario_base           Decimal? @db.Decimal(10, 2)
+  estado                 EstadoConductor @default(disponible)
+  eps                    String?
+  fondo_pension          String?
+  arl                    String?
+  termino_contrato       String?
+  fecha_terminacion      String?
+  licencia_conduccion    Json?
+  ultimo_acceso          DateTime?
+  sede_trabajo           SedeTrabajo?
+  tipo_sangre            TipoSangre?
+  permisos               Json?
+  foto_perfil            String?
+  creado_por_id          String?
+  actualizado_por_id     String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  deletedAt              DateTime?
+
+  // Relaciones
+  usuario      Usuario   @relation(fields: [usuarioId], references: [id]) // nueva relación
+  vehiculos    Vehiculo[]
+  servicios    Servicio[]
+  anticipos    Anticipo[]
+  liquidaciones Liquidacion[]
+
+  @@map("conductores")
+}
+
+model Vehiculo {
+  id                    String    @id @default(uuid())
+  placa                 String    @unique
+  marca                 String
+  linea                 String?
+  modelo                String
+  color                 String?
+  clase_vehiculo        String
+  tipo_carroceria       String?
+  combustible           String?
+  numero_motor          String?
+  vin                   String?
+  numero_serie          String?
+  numero_chasis         String?
+  propietario_nombre    String?
+  propietario_identificacion String?
+  kilometraje           Int?      @default(0)
+  estado                EstadoVehiculo? @default(DISPONIBLE)
+  fecha_matricula       String?
+  conductor_id          String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  conductor             Conductor?  @relation(fields: [conductor_id], references: [id])
+  servicios             Servicio[]
+  pernotes              Pernote[]
+  recargos              Recargo[]
+  bonificaciones        Bonificacion[]
+  liquidacionVehiculos  LiquidacionVehiculo[]
+  mantenimientos        Mantenimiento[]
+
+  @@map("vehiculos")
+}
+
+model Servicio {
+  id                  String   @id @default(uuid())
+  conductor_id        String? 
+  vehiculo_id         String?
+  cliente_id          String?
+  origen_id           String
+  destino_id          String
+  origen_especifico   String?
+  destino_especifico  String?
+  estado              EstadoServicio @default(solicitado)
+  proposito_servicio  PropositoServicio @default(personal)
+  fecha_solicitud     DateTime
+  fecha_realizacion   DateTime?
+  fecha_finalizacion  DateTime?
+  origen_latitud      Float?
+  origen_longitud     Float?
+  destino_latitud     Float?
+  destino_longitud    Float?
+  valor               Decimal        @db.Decimal(12, 2)
+  numero_planilla     String?
+  observaciones       String?
+  no_conformidades    String?        // Campo adicional de producción
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  deletedAt           DateTime?      // Soft delete (paranoid)
+
+  // Relaciones
+  conductor           Conductor?     @relation(fields: [conductor_id], references: [id])
+  vehiculo            Vehiculo?      @relation(fields: [vehiculo_id], references: [id])
+  cliente             Cliente?       @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+  origen              Municipio      @relation("ServicioOrigen", fields: [origen_id], references: [id])
+  destino             Municipio      @relation("ServicioDestino", fields: [destino_id], references: [id])
+
+  @@map("servicios")
+}
+
+model Cliente {
+  id             String     @id @default(uuid())
+  tipo           TipoCliente @default(EMPRESA)
+  nit            String?     @unique
+  nombre         String
+  representante  String?
+  cedula         String?
+  telefono       String?
+  direccion      String?
+  correo         String?     @unique
+  requiere_osi   Boolean     @default(false)
+  paga_recargos  Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  servicios      Servicio[]
+  bonificaciones Bonificacion[]
+  recargos       Recargo[]
+  pernotes       Pernote[]
+  mantenimientos Mantenimiento[]
+
+  @@map("clientes")
+}
+
+model Pernote {
+  id             String       @id @default(uuid())
+  cantidad       Int
+  valor          Decimal      @db.Decimal(10, 2)
+  fechas         Json
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  cliente_id     String?
+  cliente        Cliente?     @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+
+  vehiculo_id    String?
+  vehiculo       Vehiculo?    @relation(fields: [vehiculo_id], references: [id], onDelete: Cascade)
+
+  liquidacion_id String?
+  liquidacion    Liquidacion? @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+
+  creado_por_id  String?
+  creadoPor      Usuario?     @relation("PernoteCreador", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@map("pernotes")
+}
+
+model Recargo {
+  id             String       @id @default(uuid())
+  valor          Decimal      @db.Decimal(10, 2)
+  pag_cliente    Boolean?
+  mes            String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  vehiculo_id    String?
+  vehiculo       Vehiculo?    @relation(fields: [vehiculo_id], references: [id], onDelete: SetNull)
+
+  liquidacion_id String?
+  liquidacion    Liquidacion? @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+
+  cliente_id     String?
+  cliente        Cliente?     @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+
+  @@map("recargos")
+}
+
+model Bonificacion {
+  id              String       @id @default(uuid())
+  name            String
+  values          Json         @default("[]")     // Prisma maneja JSON nativamente
+  value           Decimal      @db.Decimal(10, 2)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  liquidacion_id  String?
+  liquidacion     Liquidacion? @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+
+  vehiculo_id     String?
+  vehiculo        Vehiculo?    @relation(fields: [vehiculo_id], references: [id], onDelete: SetNull)
+
+  creado_por_id   String?
+  creadoPor       Usuario?     @relation("BonificacionCreador", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  cliente_id      String?
+  cliente         Cliente?     @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+
+  @@map("bonificaciones")
+}
+
+model Anticipo {
+  id              String       @id @default(uuid())
+  valor           Decimal      @db.Decimal(10, 2)
+  fecha           DateTime     @default(now())
+  concepto        String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  liquidacion_id  String?
+  liquidacion     Liquidacion? @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+
+  conductor_id    String?
+  conductor       Conductor?   @relation(fields: [conductor_id], references: [id], onDelete: SetNull)
+
+  creado_por_id   String?
+  creadoPor       Usuario?     @relation("AnticipoCreador", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@map("anticipos")
+}
+
+model Liquidacion {
+  id                        String     @id @default(uuid())
+  periodoStart              DateTime
+  periodoEnd                DateTime
+  auxilioTransporte         Decimal    @default(0.00) @db.Decimal(10, 2)
+  sueldoTotal               Decimal    @default(0.00) @db.Decimal(10, 2)
+  salarioDevengado          Decimal    @default(0.00) @db.Decimal(10, 2)
+  totalPernotes             Decimal    @default(0.00) @db.Decimal(10, 2)
+  totalBonificaciones       Decimal    @default(0.00) @db.Decimal(10, 2)
+  totalRecargos             Decimal    @default(0.00) @db.Decimal(10, 2)
+  totalAnticipos            Decimal    @default(0.00) @db.Decimal(10, 2)
+  totalVacaciones           Decimal    @default(0.00) @db.Decimal(10, 2)
+  periodoStartVacaciones    DateTime?
+  periodoEndVacaciones      DateTime?
+  periodoStartIncapacidad   DateTime?
+  periodoEndIncapacidad     DateTime?
+  diasLaborados             Int        @default(0)
+  diasLaboradosVillanueva   Int        @default(0)
+  diasLaboradosAnual        Int        @default(0)
+  ajusteSalarial            Decimal    @default(0.00) @db.Decimal(10, 2)
+  ajusteParex               Decimal    @default(0.00) @db.Decimal(10, 2)
+  ajusteSalarialPorDia      Boolean    @default(false)
+  valorIncapacidad          Decimal    @default(0.00) @db.Decimal(10, 2)
+  salud                     Decimal    @default(0.00) @db.Decimal(10, 2)
+  pension                   Decimal    @default(0.00) @db.Decimal(10, 2)
+  cesantias                 Decimal    @default(0.00) @db.Decimal(10, 2)
+  interesCesantias          Decimal    @default(0.00) @db.Decimal(10, 2)
+  estado                    EstadoLiquidacion @default(PENDIENTE)
+  fechaLiquidacion          DateTime?
+  observaciones             String?
+  createdAt                 DateTime   @default(now())
+  updatedAt                 DateTime   @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  conductor_id              String?
+  conductor                 Conductor? @relation(fields: [conductor_id], references: [id], onDelete: SetNull)
+
+  creado_por_id             String?
+  creadoPor                 Usuario?   @relation("LiquidacionCreadaPor", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  actualizado_por_id        String?
+  actualizadoPor            Usuario?   @relation("LiquidacionActualizadaPor", fields: [actualizado_por_id], references: [id], onDelete: SetNull)
+
+  liquidado_por_id          String?
+  liquidadoPor              Usuario?   @relation("LiquidacionLiquidadaPor", fields: [liquidado_por_id], references: [id], onDelete: SetNull)
+
+  // Relaciones con otros módulos
+  anticipos       Anticipo[]
+  bonificaciones  Bonificacion[]
+  mantenimientos  Mantenimiento[]
+  recargos        Recargo[]
+  pernotes        Pernote[]
+  vehiculos       LiquidacionVehiculo[]
+
+  @@map("liquidaciones")
+}
+
+model LiquidacionVehiculo {
+  id              String        @id @default(uuid())
+  liquidacion_id  String
+  vehiculo_id     String
+
+  liquidacion     Liquidacion   @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+  vehiculo        Vehiculo      @relation(fields: [vehiculo_id], references: [id], onDelete: Cascade)
+
+  @@unique([liquidacion_id, vehiculo_id])
+  @@map("liquidacion_vehiculo")
+}
+
+model Mantenimiento {
+  id              String       @id @default(uuid())
+  values          Json         @default("[]")        // Prisma maneja JSON nativamente
+  value           Float
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt      DateTime?   // Soft delete (paranoid)
+
+  // Relaciones
+  vehiculo_id     String?
+  vehiculo        Vehiculo?    @relation(fields: [vehiculo_id], references: [id], onDelete: SetNull)
+
+  liquidacion_id  String?
+  liquidacion     Liquidacion? @relation(fields: [liquidacion_id], references: [id], onDelete: SetNull)
+
+  cliente_id      String?
+  cliente         Cliente?     @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+
+  @@map("mantenimientos")
+}
+
+
+// --------------------------------------------------------
+// ENUMS
+// --------------------------------------------------------
+
+enum Rol {
+  ADMIN
+  GESTOR
+  CONDUCTOR
+  USER
+}
+
+enum EstadoVehiculo {
+  DISPONIBLE
+  SERVICIO
+  MANTENIMIENTO
+  DESVINCULADO
+}
+
+enum EstadoConductor {
+  servicio
+  disponible
+  descanso
+  vacaciones
+  incapacidad
+  desvinculado
+}
+
+enum SedeTrabajo {
+  YOPAL
+  VILLANUEVA
+  TAURAMENA
+}
+
+enum TipoSangre {
+  A_plus
+  A_minus
+  B_plus
+  B_minus
+  AB_plus
+  AB_minus
+  O_plus
+  O_minus
+}
+
+enum EstadoServicio {
+  en_curso
+  pendiente
+  realizado
+  cancelado
+  planificado
+  solicitado
+  planilla_asignada
+  liquidado
+}
+
+enum PropositoServicio {
+  personal
+  personal_y_herramienta
+}
+
+enum TipoMunicipio {
+  Municipio
+  Isla
+  Area_no_municipalizada
+}
+
+enum TipoCliente {
+  EMPRESA
+  PERSONA
+}
+
+enum EstadoLiquidacion {
+  PENDIENTE
+  LIQUIDADO
+}
