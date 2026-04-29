@@ -80,15 +80,21 @@ export const LiquidacionesController = {
           liquidacion.firmas_desprendibles.map(async (firma: any) => {
             if (firma.firma_s3_key) {
               try {
-                const firmaBase64 = await getS3ObjectAsBase64(firma.firma_s3_key);
+                const firmaBase64 = await getS3ObjectAsBase64(
+                  firma.firma_s3_key,
+                );
                 return { ...firma, presignedUrl: firmaBase64 };
               } catch (error) {
-                console.error("Error descargando firma de S3:", firma.id, error);
+                console.error(
+                  "Error descargando firma de S3:",
+                  firma.id,
+                  error,
+                );
                 return firma;
               }
             }
             return firma;
-          })
+          }),
         );
         liquidacion.firmas_desprendibles = firmasConBase64;
       }
@@ -118,8 +124,13 @@ export const LiquidacionesController = {
   // GET /liquidaciones/analisis
   async obtenerAnalisis(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const liquidaciones = await LiquidacionesService.obtenerTodas();
+      const { page, limit } = request.query;
 
+      const liquidaciones = await LiquidacionesService.obtenerTodas({
+        page,
+        limit,
+      });
+      
       return reply.status(200).send({
         success: true,
         data: liquidaciones,
