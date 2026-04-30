@@ -4,19 +4,10 @@ import { randomUUID } from "crypto";
 
 // Constantes de cálculo
 const HORAS_LIMITE = {
-  JORNADA_NORMAL: 10.33, // 10 horas 20 minutos - extras SIEMPRE empiezan después de esto
-  JORNADA_FESTIVA: 7.33, // 7 horas 20 minutos - RD fijo para domingos/festivos (NO es umbral de extras)
-  INICIO_NOCTURNO: 19,
-  FIN_NOCTURNO: 6,
-};
-
-const PORCENTAJES_RECARGO = {
-  HE_DIURNA: 25,
-  HE_NOCTURNA: 75,
-  HE_FESTIVA_DIURNA: 105,
-  HE_FESTIVA_NOCTURNA: 155,
-  RECARGO_NOCTURNO: 35,
-  RECARGO_DOMINICAL: 80,
+    JORNADA_NORMAL: 10 + 20/60,   // 10.3333...
+    JORNADA_FESTIVA: 7 + 20/60,   // 7.3333...
+    INICIO_NOCTURNO: 19,
+    FIN_NOCTURNO: 6,
 };
 
 interface RecargosCalculados {
@@ -35,181 +26,136 @@ const ALMUERZO_FIN = 13;
 
 // Función para calcular recargos de un día
 function calcularRecargosDia(
-  hora_inicio: number,
-  hora_fin: number,
-  total_horas: number,
-  es_domingo_o_festivo: boolean,
+    hora_inicio: number,
+    hora_fin: number,
+    total_horas: number,
+    es_domingo_o_festivo: boolean,
+    excluirRNDF: boolean = false, // ✅ del doc 6
 ): RecargosCalculados {
-  console.log(
-    `📊 [CALC] Entrada: inicio=${hora_inicio}, fin=${hora_fin}, total=${total_horas}, domingo/festivo=${es_domingo_o_festivo}`,
-  );
+    let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0, rndf = 0;
 
-  let hed = 0,
-    hen = 0,
-    hefd = 0,
-    hefn = 0,
-    rn = 0,
-    rd = 0,
-    rndf = 0;
-
-  // Extras SIEMPRE empiezan después de JORNADA_NORMAL (10.33h)
-  const umbralExtras = HORAS_LIMITE.JORNADA_NORMAL;
-
-  // Función helper para verificar si una hora es nocturna (19:00-06:00)
-  function esNocturna(hora: number): boolean {
-    const h = hora % 24;
-    return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO;
-  }
-
-  // Descuento almuerzo: aplica SOLO en días festivos/domingos que cubran el rango 12-13
-  function esHoraAlmuerzo(hora: number): boolean {
-    const h = hora % 24;
-    return h >= ALMUERZO_INICIO && h < ALMUERZO_FIN;
-  }
-  const aplicaDescuentoAlmuerzo =
-    es_domingo_o_festivo &&
-    hora_fin > hora_inicio - (hora_inicio % 24) + ALMUERZO_FIN;
-
-  // Recorrer cada fracción de hora y clasificarla
-  let horaActual = hora_inicio;
-  let horasAcumuladas = 0;
-
-  while (horaActual < hora_fin) {
-    const siguienteHora = Math.min(horaActual + 0.5, hora_fin);
-    const fraccion = siguienteHora - horaActual;
-
-    // Saltar hora de almuerzo (12:00-13:00) si aplica
-    if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(horaActual)) {
-      horaActual = siguienteHora;
-      continue;
+    if (total_horas <= 0) {
+        return { hed, hen, hefd, hefn, rndf, rn, rd };
     }
 
-    const nocturna = esNocturna(horaActual);
-    const esExtra = horasAcumuladas >= umbralExtras;
+    const umbralExtras = HORAS_LIMITE.JORNADA_NORMAL;
 
+    function esNocturna(hora: number): boolean {
+        const h = hora % 24;
+        return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO;
+    }
+
+    function esHoraAlmuerzo(hora: number): boolean {
+        const h = hora % 24;
+        return h >= ALMUERZO_INICIO && h < ALMUERZO_FIN;
+    }
+
+    // ✅ Almuerzo del doc 7 — solo en festivos que cubran 12-13
+    const aplicaDescuentoAlmuerzo =
+        es_domingo_o_festivo &&
+        hora_inicio < ALMUERZO_FIN + Math.floor(hora_inicio / 24) * 24 + 12 &&
+        hora_fin > Math.floor(hora_inicio / 24) * 24 + ALMUERZO_FIN;
+
+    let horaActual = hora_inicio;
+    let horasAcumuladas = 0;
+
+    while (horaActual < hora_fin) {
+        const siguienteHora = Math.min(horaActual + 0.5, hora_fin);
+        const fraccion = siguienteHora - horaActual;
+
+        if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(horaActual)) {
+            horasAcumuladas += fraccion; // ✅ suma a acumuladas pero no genera recargo
+            horaActual = siguienteHora;
+            continue;
+        }
+
+        const nocturna = esNocturna(horaActual);
+        const esExtra = horasAcumuladas >= umbralExtras;
+
+        if (es_domingo_o_festivo) {
+            if (esExtra) {
+                if (nocturna) hefn += fraccion;
+                else hefd += fraccion;
+            } else {
+                const horasRestantes = umbralExtras - horasAcumuladas;
+                if (fraccion <= horasRestantes) {
+                    if (nocturna) rndf += fraccion;
+                    else rd += fraccion;
+                } else {
+                    const parteOrdinaria = horasRestantes;
+                    const parteExtra = fraccion - parteOrdinaria;
+                    if (nocturna) { rndf += parteOrdinaria; hefn += parteExtra; }
+                    else { rd += parteOrdinaria; hefd += parteExtra; }
+                }
+            }
+        } else {
+            if (esExtra) {
+                if (nocturna) hen += fraccion;
+                else hed += fraccion;
+            } else {
+                const horasRestantes = umbralExtras - horasAcumuladas;
+                if (fraccion <= horasRestantes) {
+                    if (nocturna) rn += fraccion;
+                } else {
+                    const parteOrdinaria = horasRestantes;
+                    const parteExtra = fraccion - parteOrdinaria;
+                    if (nocturna) { rn += parteOrdinaria; hen += parteExtra; }
+                    else { hed += parteExtra; }
+                }
+            }
+        }
+
+        horasAcumuladas += fraccion;
+        horaActual = siguienteHora;
+    }
+
+    // Post-procesamiento festivo — recalcula RD/RNDF con límite 19
     if (es_domingo_o_festivo) {
-      if (esExtra) {
-        // Horas extras en domingo/festivo (después de 10.33h)
-        if (nocturna) {
-          hefn += fraccion;
-        } else {
-          hefd += fraccion;
+        const INICIO_RNDF = 19;
+        let rndfRecalc = 0, rdRecalc = 0, hAcum = 0;
+        let h = hora_inicio;
+
+        while (h < hora_fin) {
+            const sig = Math.min(h + 0.5, hora_fin);
+            const frac = sig - h;
+
+            if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(h)) {
+                hAcum += frac; // ✅ suma igual que en bucle principal
+                h = sig;
+                continue;
+            }
+
+            if (hAcum < umbralExtras) {
+                const ordinaria = Math.min(frac, umbralExtras - hAcum);
+                const horaNorm = h % 24;
+                const esRNDF = horaNorm >= INICIO_RNDF || horaNorm < HORAS_LIMITE.FIN_NOCTURNO;
+                if (esRNDF) rndfRecalc += ordinaria;
+                else rdRecalc += ordinaria;
+            }
+
+            hAcum += frac;
+            h = sig;
         }
-      } else {
-        // Jornada ordinaria en domingo/festivo
-        const horasRestantes = umbralExtras - horasAcumuladas;
-        if (fraccion <= horasRestantes) {
-          if (nocturna) {
-            rndf += fraccion;
-          } else {
-            rd += fraccion;
-          }
+
+        if (!excluirRNDF) {
+            rndf = redondear(rndfRecalc);
+            // ✅ tope unificado: min(rdDiurno, 7.333 - rndf)
+            rd = redondear(Math.min(rdRecalc, HORAS_LIMITE.JORNADA_FESTIVA - rndfRecalc));
         } else {
-          // Parte ordinaria, parte extra
-          const parteOrdinaria = horasRestantes;
-          const parteExtra = fraccion - parteOrdinaria;
-          if (nocturna) {
-            rndf += parteOrdinaria;
-            hefn += parteExtra;
-          } else {
-            rd += parteOrdinaria;
-            hefd += parteExtra;
-          }
+            rndf = 0;
+            rd = redondear(Math.min(rdRecalc + rndfRecalc, HORAS_LIMITE.JORNADA_FESTIVA));
         }
-      }
-    } else {
-      // Día normal
-      if (esExtra) {
-        if (nocturna) {
-          hen += fraccion;
-        } else {
-          hed += fraccion;
-        }
-      } else {
-        const horasRestantes = umbralExtras - horasAcumuladas;
-        if (fraccion <= horasRestantes) {
-          if (nocturna) {
-            rn += fraccion;
-          }
-          // Diurna ordinaria en día normal = no genera recargo
-        } else {
-          const parteOrdinaria = horasRestantes;
-          const parteExtra = fraccion - parteOrdinaria;
-          if (nocturna) {
-            rn += parteOrdinaria;
-            hen += parteExtra;
-          } else {
-            hed += parteExtra;
-          }
-        }
-      }
     }
 
-    horasAcumuladas += fraccion;
-    horaActual = siguienteHora;
-  }
-
-  // Post-procesamiento para días festivos/dominicales:
-  // 1. RNDF = horas nocturnas ordinarias de MADRUGADA (antes de 6am) en festivo
-  // 2. RD = min(horas_ordinarias_festivas, 7.33) - RNDF
-  // 3. Las horas nocturnas ordinarias DESPUÉS de las 19:00 no generan RNDF
-  if (es_domingo_o_festivo) {
-    // Recalcular RNDF: solo madrugada (antes de 6am) ordinaria
-    let rndfRecalculado = 0;
-    let rdRecalculado = 0;
-    let h = hora_inicio;
-    let hAcum = 0;
-    while (h < hora_fin) {
-      const sig = Math.min(h + 0.5, hora_fin);
-      const frac = sig - h;
-
-      // Saltar almuerzo igual que en el bucle principal
-      if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(h)) {
-        h = sig;
-        continue;
-      }
-
-      const esOrdinaria = hAcum < HORAS_LIMITE.JORNADA_NORMAL;
-      const horaActualNorm = h % 24;
-      const esMadrugada = horaActualNorm < HORAS_LIMITE.FIN_NOCTURNO;
-
-      if (esOrdinaria) {
-        const ordinaria = Math.min(frac, HORAS_LIMITE.JORNADA_NORMAL - hAcum);
-        if (esMadrugada) {
-          rndfRecalculado += ordinaria;
-        } else {
-          rdRecalculado += ordinaria;
-        }
-      }
-      hAcum += frac;
-      h = sig;
-    }
-
-    rndf = Math.round(rndfRecalculado * 100) / 100;
-    const totalOrdinariasFestivas = rdRecalculado + rndfRecalculado;
-    if (totalOrdinariasFestivas >= HORAS_LIMITE.JORNADA_FESTIVA) {
-      rd = Math.max(
-        Math.round((HORAS_LIMITE.JORNADA_FESTIVA - rndf) * 100) / 100,
-        0,
-      );
-    } else {
-      rd = Math.round(rdRecalculado * 100) / 100;
-    }
-  }
-
-  const resultado = {
-    hed: Math.round(hed * 100) / 100,
-    hen: Math.round(hen * 100) / 100,
-    hefd: Math.round(hefd * 100) / 100,
-    hefn: Math.round(hefn * 100) / 100,
-    rndf: Math.round(rndf * 100) / 100,
-    rn: Math.round(rn * 100) / 100,
-    rd: Math.round(rd * 100) / 100,
-  };
-
-  console.log(`📊 [CALC] Resultado:`, resultado);
-
-  return resultado;
+    return {
+        hed: Math.round(hed * 100) / 100,
+        hen: Math.round(hen * 100) / 100,
+        hefd: Math.round(hefd * 100) / 100,
+        hefn: Math.round(hefn * 100) / 100,
+        rndf: Math.round(rndf * 100) / 100,
+        rn: Math.round(rn * 100) / 100,
+        rd: Math.round(rd * 100) / 100,
+    };
 }
 
 /**
@@ -286,6 +232,11 @@ function calcularRecargosConContinuacion(
   }
 
   return resultados;
+}
+
+export function redondear(numero: number, decimales = 2): number {
+  const factor = Math.pow(10, decimales);
+  return Math.round(numero * factor) / factor;
 }
 
 export const RecargosService = {

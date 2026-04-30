@@ -435,6 +435,7 @@ export const LiquidacionesService = {
         periodo_start_incapacidad: data.periodo_incapacidad_inicio || null,
         periodo_end_incapacidad: data.periodo_incapacidad_fin || null,
         conceptos_adicionales: data.conceptos_adicionales || null,
+        disponibilidad: data.disponibilidad || 0,
         observaciones: data.observaciones || null,
         estado: data.estado || "Pendiente",
         ...(data.estado === "Liquidado"
@@ -599,7 +600,7 @@ export const LiquidacionesService = {
       throw new Error("Liquidación no encontrada");
     }
 
-    await prisma.liquidaciones.update({
+   await prisma.liquidaciones.update({
       where: { id },
       data: {
         conductor_id: data.conductor_id,
@@ -631,6 +632,21 @@ export const LiquidacionesService = {
           ? 0
           : (data.auxilio_transporte ??
             Number(liquidacionExistente.auxilio_transporte)),
+        total_bonificaciones:
+          data.total_bonificaciones ??
+          Number(liquidacionExistente.total_bonificaciones),
+        total_pernotes:
+          data.total_pernotes ?? Number(liquidacionExistente.total_pernotes),
+        total_recargos:
+          data.total_recargos ?? Number(liquidacionExistente.total_recargos),
+        total_anticipos:
+          data.total_anticipos ?? Number(liquidacionExistente.total_anticipos),
+        total_vacaciones:
+          data.total_vacaciones ??
+          Number(liquidacionExistente.total_vacaciones),
+        valor_incapacidad:
+          data.valor_incapacidad ??
+          Number(liquidacionExistente.valor_incapacidad),
         conceptos_adicionales:
           data.conceptos_adicionales ??
           liquidacionExistente.conceptos_adicionales,
@@ -643,22 +659,31 @@ export const LiquidacionesService = {
         ajuste_salarial_por_dia:
           data.ajuste_por_dia_flag ??
           liquidacionExistente.ajuste_salarial_por_dia,
+        ajuste_parex: data.ajuste_parex
+          ? data.ajuste_parex_valor || 0
+          : Number(liquidacionExistente.ajuste_parex) || 0,
+        ajuste_recargos_config:
+          data.ajuste_recargos_config ??
+          (liquidacionExistente as any).ajuste_recargos_config ??
+          null,
+        ajuste_parex_recargos_completos:
+          data.ajuste_parex_recargos_completos ??
+          (liquidacionExistente as any).ajuste_parex_recargos_completos ??
+          false,
+        dias_ajuste_deducciones:
+          data.dias_ajuste_deducciones !== undefined
+            ? data.dias_ajuste_deducciones
+            : ((liquidacionExistente as any).dias_ajuste_deducciones ?? null),
+        disponibilidad:
+          data.disponibilidad ??
+          Number((liquidacionExistente as any).disponibilidad ?? 0),
         observaciones: data.observaciones ?? liquidacionExistente.observaciones,
-        // Estado de la liquidación
-        ...(data.estado
-          ? {
-              estado: data.estado,
-              ...(data.estado === "Liquidado"
-                ? {
-                    liquidado_por_id: userId,
-                    fecha_liquidacion: now,
-                  }
-                : {
-                    liquidado_por_id: null,
-                    fecha_liquidacion: null,
-                  }),
-            }
-          : {}),
+        estado:
+          data.estado === "Liquidado"
+            ? "Liquidado"
+            : data.estado === "Pendiente"
+              ? "Pendiente"
+              : liquidacionExistente.estado,
         actualizado_por_id: userId,
         updated_at: now,
       },
