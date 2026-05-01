@@ -4,6 +4,142 @@ import { getS3SignedUrl } from '../../config/aws'
 import { RecargosService } from '../recargos/recargos.service'
 import { randomUUID } from 'crypto'
 
+/**
+ * Obtener fotos de conductores en batch (1 sola query para todos).
+ * Retorna un Map<conductor_id, ruta_archivo>
+ */
+async function obtenerFotosConductoresBatch(
+  conductorIds: string[]
+): Promise<Map<string, string>> {
+  const fotoMap = new Map<string, string>()
+  if (conductorIds.length === 0) return fotoMap
+
+  try {
+    // 1. Traer conductores (para fallback)
+    const conductores = await prisma.conductores.findMany({
+      where: {
+        id: { in: conductorIds },
+      },
+      select: {
+        id: true,
+        foto_url: true,
+      },
+    })
+
+    // Inicializar mapa con fallback
+    for (const c of conductores) {
+      if (c.id) {
+        fotoMap.set(c.id, c.foto_url || '')
+      }
+    }
+
+    // 2. Traer fotos de perfil (más recientes primero)
+    const fotos = await prisma.documento.findMany({
+      where: {
+        conductor_id: { in: conductorIds },
+        categoria: 'FOTO_PERFIL',
+        estado: 'vigente',
+      },
+      select: {
+        conductor_id: true,
+        ruta_archivo: true,
+        created_at: true,
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    })
+
+    // 3. Sobrescribir con la foto más reciente si existe
+    for (const foto of fotos) {
+      if (
+        foto.conductor_id &&
+        foto.ruta_archivo &&
+        fotoMap.get(foto.conductor_id) === ''
+      ) {
+        fotoMap.set(foto.conductor_id, foto.ruta_archivo)
+      }
+    }
+  } catch (error) {
+    console.error(
+      'Error obteniendo fotos de conductores en batch:',
+      error
+    )
+  }
+
+  return fotoMap
+}
+
+/**
+ * Transformar un array de servicios en batch (eficiente: 1 query de fotos + URLs firmadas en paralelo).
+ */
+async function transformarServiciosBatch(servicios: any[]): Promise<any[]> {
+  if (!servicios || servicios.length === 0) return []
+
+  // 1. Recolectar IDs de conductores únicos
+  const conductorIds = [...new Set(
+    servicios
+      .map(s => s.conductores?.id)
+      .filter((id): id is string => !!id)
+  )]
+
+  // 2. Una sola query para obtener todas las fotos
+  const fotoMap = await obtenerFotosConductoresBatch(conductorIds)
+
+  // 3. Generar URLs firmadas en paralelo (sin queries a DB)
+  const signedUrlMap = new Map<string, string>()
+  const urlEntries = Array.from(fotoMap.entries())
+  if (urlEntries.length > 0) {
+    const signedUrls = await Promise.all(
+      urlEntries.map(([_, ruta]) => getS3SignedUrl(ruta, 3600).catch(() => null))
+    )
+    urlEntries.forEach(([conductorId], i) => {
+      if (signedUrls[i]) {
+        signedUrlMap.set(conductorId, signedUrls[i]!)
+      }
+    })
+  }
+
+  // 4. Transformar cada servicio (sin queries adicionales)
+  return servicios.map(servicio => transformarServicioSync(servicio, signedUrlMap))
+}
+
+/**
+ * Transformar un servicio individual con un mapa de fotos pre-cargadas (sin queries).
+ */
+function transformarServicioSync(servicio: any, signedUrlMap?: Map<string, string>) {
+  if (!servicio) return null
+
+  const servicioPlano = JSON.parse(JSON.stringify(servicio))
+
+  let conductor = servicioPlano.conductores || null
+  const cliente = servicioPlano.clientes || null
+  const vehiculo = servicioPlano.vehiculos || null
+  const origen = servicioPlano.municipios_servicio_origen_idTomunicipios || null
+  const destino = servicioPlano.municipios_servicio_destino_idTomunicipios || null
+
+  // Asignar foto firmada si está pre-cargada
+  if (conductor && conductor.id) {
+    conductor.foto_signed_url = signedUrlMap?.get(conductor.id) || null
+  }
+
+  delete servicioPlano.conductores
+  delete servicioPlano.clientes
+  delete servicioPlano.vehiculos
+  delete servicioPlano.municipios_servicio_origen_idTomunicipios
+  delete servicioPlano.municipios_servicio_destino_idTomunicipios
+
+  return {
+    ...servicioPlano,
+    conductor,
+    cliente,
+    vehiculo,
+    origen,
+    destino
+  }
+}
+
+
 // Helper para transformar servicios al formato esperado por el frontend
 async function transformarServicio(servicio: any) {
   if (!servicio) return null
