@@ -124,11 +124,12 @@ export const LiquidacionesController = {
   // GET /liquidaciones/analisis
   async obtenerAnalisis(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { page, limit } = request.query;
+      const { page, limit, noLimit } = request.query as any;
 
       const liquidaciones = await LiquidacionesService.obtenerTodas({
-        page,
-        limit,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        noLimit: noLimit === "true" || noLimit === true,
       });
       
       return reply.status(200).send({
