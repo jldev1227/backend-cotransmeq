@@ -596,6 +596,9 @@ model recargos {
   porcentaje_propietario Decimal?       @db.Decimal(5, 2)
   es_automatico          Boolean        @default(false)
   mes                    String?        @db.VarChar(255)
+  numero_planilla        String?        @db.VarChar(50)
+  incluir                Boolean        @default(true)
+  emisor                 String?        @db.VarChar(50)
   created_at             DateTime       @db.Timestamptz(6)
   empresa_id             String         @db.Uuid
   old_id                 Int?

@@ -431,19 +431,23 @@ model pernotes {
 }
 
 model recargos {
-  id             String         @id @db.Uuid
-  empresa_id     String         @db.Uuid
-  valor          Decimal        @db.Decimal(10, 2)
-  pag_cliente    Boolean?
-  mes            String?        @db.VarChar(255)
-  vehiculo_id    String?        @db.Uuid
-  created_at     DateTime       @db.Timestamptz(6)
-  updated_at     DateTime       @db.Timestamptz(6)
-  liquidacion_id String?        @db.Uuid
-  old_id         Int?
-  empresas       empresas       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
-  liquidaciones  liquidaciones? @relation(fields: [liquidacion_id], references: [id])
-  vehiculos      vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+  id                     String         @id @db.Uuid
+  empresa_id             String         @db.Uuid
+  valor                  Decimal        @db.Decimal(10, 2)
+  pag_cliente            Boolean?
+  porcentaje_propietario Decimal?       @db.Decimal(5, 2)
+  es_automatico          Boolean        @default(false)
+  mes                    String?        @db.VarChar(255)
+  numero_planilla        String?        @db.VarChar(50)
+  incluir                Boolean        @default(true)
+  emisor                 String?        @db.VarChar(50)
+  created_at             DateTime       @db.Timestamptz(6)
+  updated_at             DateTime       @db.Timestamptz(6)
+  liquidacion_id         String?        @db.Uuid
+  old_id                 Int?
+  empresas               empresas       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
+  liquidaciones          liquidaciones? @relation(fields: [liquidacion_id], references: [id])
+  vehiculos              vehiculos?     @relation(fields: [vehiculo_id], references: [id])
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

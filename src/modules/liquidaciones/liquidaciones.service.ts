@@ -537,6 +537,7 @@ export const LiquidacionesService = {
                 porcentaje_propietario: recargo.porcentaje_propietario ?? null,
                 es_automatico: false,
                 mes: recargo.mes || "",
+                emisor: recargo.emisor || null,
                 vehiculo_id: vehiculoId,
                 liquidacion_id: id,
                 created_at: now,
@@ -549,8 +550,11 @@ export const LiquidacionesService = {
     }
 
     // Recargos calculados desde planillas (recargos_preview)
-    if (data.recargos_preview && data.recargos_preview.length > 0) {
-      for (const grupo of data.recargos_preview) {
+    const recargosPreviewIncluidos = (data.recargos_preview || []).filter(
+      (grupo: any) => grupo.incluir !== false
+    );
+    if (recargosPreviewIncluidos.length > 0) {
+      for (const grupo of recargosPreviewIncluidos) {
         if (!grupo.empresa_id) continue;
         await prisma.recargos.create({
           data: {
@@ -561,6 +565,9 @@ export const LiquidacionesService = {
             porcentaje_propietario: grupo.porcentaje_propietario ?? null,
             es_automatico: true,
             mes: grupo.mes || "",
+            numero_planilla: grupo.numero_planilla || null,
+            incluir: true,
+            emisor: grupo.emisor || null,
             vehiculo_id: grupo.vehiculo_id || null,
             liquidacion_id: id,
             created_at: now,
@@ -825,6 +832,7 @@ export const LiquidacionesService = {
                 porcentaje_propietario: recargo.porcentaje_propietario ?? null,
                 es_automatico: false,
                 mes: recargo.mes || "",
+                emisor: recargo.emisor || null,
                 vehiculo_id: vehiculoId,
                 liquidacion_id: id,
                 created_at: now,
@@ -836,8 +844,11 @@ export const LiquidacionesService = {
       }
 
       // Recargos calculados desde planillas (recargos_preview)
-      if (data.recargos_preview && data.recargos_preview.length > 0) {
-        for (const grupo of data.recargos_preview) {
+      const recargosPreviewIncluidos = (data.recargos_preview || []).filter(
+        (grupo: any) => grupo.incluir !== false
+      );
+      if (recargosPreviewIncluidos.length > 0) {
+        for (const grupo of recargosPreviewIncluidos) {
           if (!grupo.empresa_id) continue;
           await prisma.recargos.create({
             data: {
@@ -848,6 +859,9 @@ export const LiquidacionesService = {
               porcentaje_propietario: grupo.porcentaje_propietario ?? null,
               es_automatico: true,
               mes: grupo.mes || "",
+              numero_planilla: grupo.numero_planilla || null,
+              incluir: true,
+              emisor: grupo.emisor || null,
               vehiculo_id: grupo.vehiculo_id || null,
               liquidacion_id: id,
               created_at: now,
