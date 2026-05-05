@@ -35,13 +35,17 @@ export const LiquidacionesService = {
     search?: string;
     page?: number;
     limit?: number;
+    noLimit?: boolean;
     sortBy?: string;
     sortOrder?: string;
     nomina_month?: string; // formato: YYYY-MM
   }) {
-    const page = filters?.page || 1;
-    const limit = filters?.limit ?? 20;
-    const skip = (page - 1) * limit;
+   const page = filters?.page || 1;
+
+    const noLimit = filters?.noLimit === true;
+
+    const limit = noLimit ? undefined : filters?.limit || 20;
+    const skip = noLimit ? undefined : (page - 1) * (limit || 20);
 
     const where: any = {};
 
@@ -600,7 +604,7 @@ export const LiquidacionesService = {
       throw new Error("Liquidación no encontrada");
     }
 
-   await prisma.liquidaciones.update({
+    await prisma.liquidaciones.update({
       where: { id },
       data: {
         conductor_id: data.conductor_id,
