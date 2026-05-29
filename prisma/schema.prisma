@@ -131,7 +131,7 @@ model conductores {
   fecha_nacimiento      DateTime?                      @db.Date
   genero                String?                        @db.VarChar(255)
   direccion             String?                        @db.VarChar(255)
-  fecha_ingreso         DateTime                       @db.Date
+  fecha_ingreso         DateTime?                       @db.Date
   salario_base          Decimal?                       @db.Decimal(10, 2)
   eps                   String?                        @db.VarChar(255)
   fondo_pension         String?                        @db.VarChar(255)
@@ -156,6 +156,7 @@ model conductores {
   creado_por_id         String?                        @db.Uuid
   actualizado_por_id    String?                        @db.Uuid
   oculto                Boolean                        @default(false)
+  nomina                 Boolean                        @default(false)
   anticipos             anticipos[]
   usuarios              usuarios?                      @relation(fields: [creado_por_id], references: [id])
   firmas_desprendibles  firmas_desprendibles[]

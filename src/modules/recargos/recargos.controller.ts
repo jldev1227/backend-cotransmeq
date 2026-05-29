@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { RecargosService } from './recargos.service'
+import { generarPDFReporteServicios, RecargosService } from "./recargos.service";
 import { z } from 'zod'
 import { 
   createRecargoSchema, 
@@ -370,6 +370,53 @@ export const RecargosController = {
         })
       } else {
         throw error
+      }
+    }
+  },
+
+  async reportePdf(
+    request: FastifyRequest<{ Params: RecargoParams }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const query = request.query as { mes: string; anio: string };
+      console.log(query, "QUERY")
+
+      // 1. Obtener datos
+      const recargos = await RecargosService.reporteServiciosporPlaca(query.mes, query.anio);
+
+
+      // Normalizar tipos para generar PDF: dias_laborales_planillas[].dia debe ser string o Date
+      const recargosForPdf = recargos.map((r: any) => ({
+        ...r,
+        dias_laborales_planillas: (r.dias_laborales_planillas || []).map((d: any) => ({
+          dia: String(d.dia),
+        })),
+      }));
+
+      // 2. Generar PDF en memoria
+      const pdfBuffer = await generarPDFReporteServicios(
+        recargosForPdf,
+        query.mes,
+        query.anio,
+      );
+
+      // 3. Enviar como descarga
+      const nombreArchivo = `Reporte_Servicios_${query.mes}_${query.anio}.pdf`;
+
+      reply
+        .header("Content-Type", "application/pdf")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${nombreArchivo}"`,
+        )
+        .header("Content-Length", pdfBuffer.length)
+        .send(pdfBuffer);
+    } catch (error) {
+      if (error instanceof Error) {
+        reply.status(400).send({ success: false, message: error.message });
+      } else {
+        throw error;
       }
     }
   }

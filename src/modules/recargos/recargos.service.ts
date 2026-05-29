@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prisma";
 import type { CreateRecargoDTO, UpdateRecargoDTO } from "./recargos.schema";
 import { randomUUID } from "crypto";
+import PDFDocument from "pdfkit";
 
 // Constantes de cálculo
 const HORAS_LIMITE = {
@@ -1372,4 +1373,403 @@ export const RecargosService = {
       estado,
     };
   },
+
+  async reporteServiciosporPlaca(mes: string, año: string) {
+    const recargos = await prisma.recargos_planillas.findMany({
+      where: {
+        deleted_at: null,
+        mes: parseInt(mes),
+        a_o: parseInt(año),
+        conductores: {
+          nomina: true, // 👈 filtro aquí
+        },
+      },
+      select: {
+        conductores: {
+          select: {
+            nombre: true,
+            apellido: true,
+            numero_identificacion: true,
+          },
+        },
+        vehiculos: {
+          select: { placa: true },
+        },
+        clientes: {
+          select: { nombre: true },
+        },
+        dias_laborales_planillas: {
+          where: { deleted_at: null },
+          orderBy: { dia: "asc" },
+          select: { dia: true },
+        },
+      },
+    });
+
+    console.log("Recargos", recargos)
+
+    return recargos;
+  },
 };
+
+interface RecargoRow {
+  conductores: {
+    nombre: string;
+    apellido: string;
+    numero_identificacion: string;
+  };
+  vehiculos: { placa: string };
+  clientes: { nombre: string };
+  dias_laborales_planillas: { dia: Date | string }[];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTES
+// ═══════════════════════════════════════════════════════════════
+
+const MESES: Record<number, string> = {
+  1: "Enero",
+  2: "Febrero",
+  3: "Marzo",
+  4: "Abril",
+  5: "Mayo",
+  6: "Junio",
+  7: "Julio",
+  8: "Agosto",
+  9: "Septiembre",
+  10: "Octubre",
+  11: "Noviembre",
+  12: "Diciembre",
+};
+
+const C = {
+  HEADER_BG: "#1E3A5F",
+  HEADER_TEXT: "#FFFFFF",
+  ROW_EVEN: "#EAF0FB",
+  ROW_ODD: "#FFFFFF",
+  BORDER: "#B0BEC5",
+  TOTAL_BG: "#D0E4F7",
+  TOTAL_TEXT: "#1E3A5F",
+  FOOTER: "#90A4AE",
+};
+
+// A4 en puntos
+const PAGE_W = 595.28;
+const PAGE_H = 841.89;
+const MARGIN = 36;
+const CONTENT_W = PAGE_W - MARGIN * 2; // 523.28
+
+// Columnas: Conductor | Placa | Servicios
+const COL_CONDUCTOR = 210;
+const COL_PLACA = 100;
+const COL_SERVICIOS = 63; // ~63
+const TABLE_W = COL_CONDUCTOR + COL_PLACA + COL_SERVICIOS; // 373 — ancho real de la tabla
+
+const ROW_H = 20;
+const TH_H = 22;
+const HEADER_H = 36; // banda compacta 2 líneas
+const TABLE_TOP = MARGIN + HEADER_H + 8;
+const FOOTER_Y = PAGE_H - MARGIN - 18;
+const USABLE_BOT = FOOTER_Y - 4;
+
+// ═══════════════════════════════════════════════════════════════
+// GENERADOR PDF
+// ═══════════════════════════════════════════════════════════════
+
+export function generarPDFReporteServicios(
+  recargos: RecargoRow[],
+  mes: string,
+  anio: string,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    // ── 1. Agrupación por conductor → placas ──────────────────
+    const mapaGrupos = new Map<
+      string,
+      { conductor: string; placas: { placa: string; servicios: number }[] }
+    >();
+
+    for (const r of recargos) {
+      const cedula = r.conductores.numero_identificacion;
+      const nombre = `${r.conductores.nombre} ${r.conductores.apellido}`;
+      const placa = r.vehiculos.placa;
+      const dias = r.dias_laborales_planillas.length;
+
+      if (!mapaGrupos.has(cedula)) {
+        mapaGrupos.set(cedula, { conductor: nombre, placas: [] });
+      }
+      const grupo = mapaGrupos.get(cedula)!;
+      const entry = grupo.placas.find((p) => p.placa === placa);
+      if (entry) {
+        entry.servicios += dias;
+      } else {
+        grupo.placas.push({ placa, servicios: dias });
+      }
+    }
+
+    const grupos = Array.from(mapaGrupos.values()).sort((a, b) =>
+      a.conductor.localeCompare(b.conductor, "es"),
+    );
+    grupos.forEach((g) =>
+      g.placas.sort((a, b) => a.placa.localeCompare(b.placa)),
+    );
+
+    const totalServicios = grupos.reduce(
+      (s, g) => s + g.placas.reduce((ps, p) => ps + p.servicios, 0),
+      0,
+    );
+
+    const mesNombre = MESES[parseInt(mes)] ?? mes;
+    const hoy = new Date().toLocaleDateString("es-CO", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+
+    // ── 2. Documento ───────────────────────────────────────────
+    const doc = new PDFDocument({
+      size: "A4",
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      bufferPages: true,
+      info: {
+        Title: `Reporte Servicios ${mesNombre} ${anio}`,
+        Author: "Sistema de Gestión",
+      },
+    });
+
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("error", reject);
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+
+    // ── 3. Helpers ─────────────────────────────────────────────
+
+    const drawHeader = () => {
+      doc.rect(0, 0, PAGE_W, HEADER_H).fill(C.HEADER_BG);
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(9.5)
+        .fillColor(C.HEADER_TEXT)
+        .text(
+          `REPORTE DE SERVICIOS POR PLACA Y CONDUCTOR  —  ${mesNombre.toUpperCase()} ${anio}`,
+          MARGIN,
+          9,
+          { width: CONTENT_W, align: "left", lineBreak: false },
+        );
+
+      doc
+        .font("Helvetica")
+        .fontSize(7.5)
+        .fillColor("#90CAF9")
+        .text(`Generado el ${hoy}`, MARGIN, 22, {
+          width: CONTENT_W,
+          align: "left",
+          lineBreak: false,
+        });
+    };
+
+    const drawTableHeader = (y: number): number => {
+      doc.rect(MARGIN, y, TABLE_W, TH_H).fill(C.HEADER_BG);
+
+      const cols = [
+        {
+          label: "CONDUCTOR",
+          x: MARGIN,
+          w: COL_CONDUCTOR,
+          align: "left" as const,
+        },
+        {
+          label: "PLACA",
+          x: MARGIN + COL_CONDUCTOR,
+          w: COL_PLACA,
+          align: "center" as const,
+        },
+        {
+          label: "SERVICIOS",
+          x: MARGIN + COL_CONDUCTOR + COL_PLACA,
+          w: COL_SERVICIOS,
+          align: "center" as const,
+        },
+      ];
+
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(C.HEADER_TEXT);
+      for (const col of cols) {
+        doc.text(col.label, col.x + 4, y + 7, {
+          width: col.w - 8,
+          align: col.align,
+          lineBreak: false,
+        });
+      }
+      return y + TH_H;
+    };
+
+    const SUB_H = 18; // alto del subheader de conductor
+
+    /** Subheader con nombre del conductor — ocupa toda la fila */
+    const drawConductorSubheader = (nombre: string, y: number) => {
+      doc.rect(MARGIN, y, TABLE_W, SUB_H).fill("#E8EEF7");
+      // Línea superior remarcada
+      doc
+        .moveTo(MARGIN, y)
+        .lineTo(MARGIN + TABLE_W, y)
+        .strokeColor("#1E3A5F")
+        .lineWidth(1)
+        .stroke();
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .fillColor("#1E3A5F")
+        .text(nombre.toUpperCase(), MARGIN + 6, y + 5, {
+          width: TABLE_W - 12,
+          align: "left",
+          lineBreak: false,
+        });
+    };
+
+    /** Fila de placa/servicios (sin columna conductor) */
+    const drawPlacaRow = (
+      placa: string,
+      servicios: number,
+      y: number,
+      idx: number,
+    ) => {
+      doc
+        .rect(MARGIN, y, TABLE_W, ROW_H)
+        .fill(idx % 2 === 0 ? C.ROW_ODD : C.ROW_EVEN);
+      doc.font("Helvetica").fontSize(8).fillColor("#263238");
+      // Celda conductor vacía (identación visual)
+      doc.text("", MARGIN + 4, y + 5, {
+        width: COL_CONDUCTOR - 8,
+        lineBreak: false,
+      });
+      doc.text(placa, MARGIN + COL_CONDUCTOR + 4, y + 5, {
+        width: COL_PLACA - 8,
+        align: "center",
+        lineBreak: false,
+      });
+      doc.text(
+        String(servicios),
+        MARGIN + COL_CONDUCTOR + COL_PLACA + 4,
+        y + 5,
+        { width: COL_SERVICIOS - 8, align: "center", lineBreak: false },
+      );
+      doc
+        .moveTo(MARGIN, y + ROW_H)
+        .lineTo(MARGIN + TABLE_W, y + ROW_H)
+        .strokeColor(C.BORDER)
+        .lineWidth(0.25)
+        .stroke();
+    };
+
+    const drawTotalRow = (y: number) => {
+      doc.rect(MARGIN, y, TABLE_W, ROW_H).fill(C.TOTAL_BG);
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(C.TOTAL_TEXT);
+      doc.text("TOTAL", MARGIN + 4, y + 5, {
+        width: COL_CONDUCTOR + COL_PLACA - 8,
+        align: "right",
+        lineBreak: false,
+      });
+      doc.text(
+        String(totalServicios),
+        MARGIN + COL_CONDUCTOR + COL_PLACA + 4,
+        y + 5,
+        { width: COL_SERVICIOS - 8, align: "center", lineBreak: false },
+      );
+    };
+
+    const drawTableBorder = (yTop: number, yBot: number) => {
+      doc
+        .rect(MARGIN, yTop, TABLE_W, yBot - yTop)
+        .strokeColor(C.BORDER)
+        .lineWidth(0.5)
+        .stroke();
+
+      for (const offset of [COL_CONDUCTOR, COL_CONDUCTOR + COL_PLACA]) {
+        doc
+          .moveTo(MARGIN + offset, yTop)
+          .lineTo(MARGIN + offset, yBot)
+          .strokeColor(C.BORDER)
+          .lineWidth(0.3)
+          .stroke();
+      }
+    };
+
+    const drawFooter = (pageNum: number, totalPages: number) => {
+      doc
+        .moveTo(MARGIN, FOOTER_Y)
+        .lineTo(MARGIN + CONTENT_W, FOOTER_Y)
+        .strokeColor(C.BORDER)
+        .lineWidth(0.4)
+        .stroke();
+
+      doc.font("Helvetica").fontSize(7).fillColor(C.FOOTER);
+      doc.text(
+        "Sistema de Gestión  •  Documento generado automáticamente",
+        MARGIN,
+        FOOTER_Y + 4,
+        { width: CONTENT_W * 0.7, align: "left", lineBreak: false },
+      );
+      doc.text(`Página ${pageNum} de ${totalPages}`, MARGIN, FOOTER_Y + 4, {
+        width: CONTENT_W,
+        align: "right",
+        lineBreak: false,
+      });
+    };
+
+    // ── 4. Renderizado ─────────────────────────────────────────
+    drawHeader();
+
+    let curY = TABLE_TOP;
+    let tableTop = curY;
+    curY = drawTableHeader(curY);
+    let pageNum = 1;
+    let rowIdx = 0; // para alternar color de filas globalmente
+
+    const checkPage = (needed: number) => {
+      if (curY + needed > USABLE_BOT) {
+        drawTableBorder(tableTop, curY);
+        doc.addPage();
+        pageNum++;
+        drawHeader();
+        tableTop = TABLE_TOP;
+        curY = drawTableHeader(tableTop);
+      }
+    };
+
+    for (let gi = 0; gi < grupos.length; gi++) {
+      const grupo = grupos[gi];
+      const isLast = gi === grupos.length - 1;
+
+      // Espacio mínimo: subheader + al menos 1 fila de placa (evitar huérfanos)
+      checkPage(SUB_H + ROW_H);
+
+      drawConductorSubheader(grupo.conductor, curY);
+      curY += SUB_H;
+
+      for (let pi = 0; pi < grupo.placas.length; pi++) {
+        const p = grupo.placas[pi];
+        const isLastPlaca = pi === grupo.placas.length - 1;
+        const spaceNeeded = ROW_H + (isLast && isLastPlaca ? ROW_H : 0);
+
+        checkPage(spaceNeeded);
+        drawPlacaRow(p.placa, p.servicios, curY, rowIdx++);
+        curY += ROW_H;
+      }
+    }
+
+    // Fila total global
+    checkPage(ROW_H);
+    drawTotalRow(curY);
+    curY += ROW_H;
+    drawTableBorder(tableTop, curY);
+
+    // Footers con página real
+    const totalPages = doc.bufferedPageRange().count;
+    for (let p = 0; p < totalPages; p++) {
+      doc.switchToPage(p);
+      drawFooter(p + 1, totalPages);
+    }
+
+    doc.end();
+  });
+}

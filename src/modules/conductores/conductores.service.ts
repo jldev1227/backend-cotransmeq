@@ -1,62 +1,67 @@
-import { prisma } from '../../config/prisma'
-import { getS3SignedUrl, uploadToS3, deleteFromS3 } from '../../config/aws'
-import { randomUUID } from 'crypto'
+import { prisma } from "../../config/prisma";
+import { getS3SignedUrl, uploadToS3, deleteFromS3 } from "../../config/aws";
+import { randomUUID } from "crypto";
 
 // Mapeo de valores display de tipo de sangre a enum keys de Prisma
 const TIPO_SANGRE_MAP: Record<string, string> = {
-  'A+': 'A_POSITIVO',
-  'A-': 'A_NEGATIVO',
-  'B+': 'B_POSITIVO',
-  'B-': 'B_NEGATIVO',
-  'AB+': 'AB_POSITIVO',
-  'AB-': 'AB_NEGATIVO',
-  'O+': 'O_POSITIVO',
-  'O-': 'O_NEGATIVO',
-}
+  "A+": "A_POSITIVO",
+  "A-": "A_NEGATIVO",
+  "B+": "B_POSITIVO",
+  "B-": "B_NEGATIVO",
+  "AB+": "AB_POSITIVO",
+  "AB-": "AB_NEGATIVO",
+  "O+": "O_POSITIVO",
+  "O-": "O_NEGATIVO",
+};
 
 function mapTipoSangre(value: string | null | undefined): string | null {
-  if (!value) return null
+  if (!value) return null;
   // Si ya es un enum key válido (e.g. "A_POSITIVO"), retornarlo tal cual
-  if (Object.values(TIPO_SANGRE_MAP).includes(value)) return value
+  if (Object.values(TIPO_SANGRE_MAP).includes(value)) return value;
   // Si es un valor display (e.g. "A+"), mapearlo
-  return TIPO_SANGRE_MAP[value] || null
+  return TIPO_SANGRE_MAP[value] || null;
 }
 
 export const ConductoresService = {
   // Obtener todos los conductores (sin soft deleted)
   async obtenerTodos(filters?: {
-    estado?: string
-    sede_trabajo?: string
-    search?: string
-    page?: number
-    limit?: number
+    estado?: string;
+    sede_trabajo?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
   }) {
-    const page = filters?.page || 1
-    const limit = filters?.limit || 1000  // ← Aumentado de 50 a 1000 para mostrar todos
-    const skip = (page - 1) * limit
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 1000; // ← Aumentado de 50 a 1000 para mostrar todos
+    const skip = (page - 1) * limit;
 
     const where: any = {
-      oculto: false  // ← FILTRAR OCULTOS POR DEFECTO
-    }
+      oculto: false, // ← FILTRAR OCULTOS POR DEFECTO
+    };
 
     // Filtro por estado
     if (filters?.estado) {
-      where.estado = filters.estado
+      where.estado = filters.estado;
     }
 
     // Filtro por sede
     if (filters?.sede_trabajo) {
-      where.sede_trabajo = filters.sede_trabajo
+      where.sede_trabajo = filters.sede_trabajo;
     }
 
     // Búsqueda por nombre, apellido o número de identificación
     if (filters?.search) {
       where.OR = [
-        { nombre: { contains: filters.search, mode: 'insensitive' } },
-        { apellido: { contains: filters.search, mode: 'insensitive' } },
-        { numero_identificacion: { contains: filters.search, mode: 'insensitive' } },
-        { email: { contains: filters.search, mode: 'insensitive' } }
-      ]
+        { nombre: { contains: filters.search, mode: "insensitive" } },
+        { apellido: { contains: filters.search, mode: "insensitive" } },
+        {
+          numero_identificacion: {
+            contains: filters.search,
+            mode: "insensitive",
+          },
+        },
+        { email: { contains: filters.search, mode: "insensitive" } },
+      ];
     }
 
     const [conductores, total] = await Promise.all([
@@ -87,48 +92,51 @@ export const ConductoresService = {
           sede_trabajo: true,
           tipo_sangre: true,
           created_at: true,
-          updated_at: true
+          updated_at: true,
         },
-        orderBy: { created_at: 'desc' },
+        orderBy: { created_at: "desc" },
         skip,
-        take: limit
+        take: limit,
       }),
-      prisma.conductores.count({ where })
-    ])
+      prisma.conductores.count({ where }),
+    ]);
 
     // Generar URLs firmadas de S3 para las fotos desde la tabla documento
     const conductoresConFotos = await Promise.all(
       conductores.map(async (conductor) => {
-        let foto_signed_url = null
-        
+        let foto_signed_url = null;
+
         try {
           // Buscar documento de tipo FOTO_PERFIL para el conductor
           const fotoDocumento = await prisma.documento.findFirst({
             where: {
               conductor_id: conductor.id,
-              categoria: 'FOTO_PERFIL',
-              estado: 'vigente' // Cambiado de 'ACTIVO' a 'vigente'
+              categoria: "FOTO_PERFIL",
+              estado: "vigente", // Cambiado de 'ACTIVO' a 'vigente'
             },
             orderBy: {
-              created_at: 'desc'
-            }
-          })
+              created_at: "desc",
+            },
+          });
 
           // Si existe el documento y tiene s3_key, generar URL firmada
           if (fotoDocumento?.s3_key) {
-            foto_signed_url = await getS3SignedUrl(fotoDocumento.s3_key)
-          } 
+            foto_signed_url = await getS3SignedUrl(fotoDocumento.s3_key);
+          }
           // Fallback al foto_url antiguo si existe
           else if (conductor.foto_url) {
-            foto_signed_url = await getS3SignedUrl(conductor.foto_url)
+            foto_signed_url = await getS3SignedUrl(conductor.foto_url);
           }
         } catch (error) {
-          console.error(`Error generando URL firmada para conductor ${conductor.id}:`, error)
+          console.error(
+            `Error generando URL firmada para conductor ${conductor.id}:`,
+            error,
+          );
         }
 
-        return { ...conductor, foto_signed_url }
-      })
-    )
+        return { ...conductor, foto_signed_url };
+      }),
+    );
 
     return {
       conductores: conductoresConFotos,
@@ -136,9 +144,9 @@ export const ConductoresService = {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
-      }
-    }
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   },
 
   // Obtener conductor por ID
@@ -152,54 +160,54 @@ export const ConductoresService = {
             placa: true,
             marca: true,
             modelo: true,
-            estado: true
-          }
+            estado: true,
+          },
         },
         servicio: {
           select: {
             id: true,
             fecha_solicitud: true,
             estado: true,
-            valor: true
+            valor: true,
           },
-          orderBy: { fecha_solicitud: 'desc' },
-          take: 10
-        }
-      }
-    })
+          orderBy: { fecha_solicitud: "desc" },
+          take: 10,
+        },
+      },
+    });
 
     if (!conductor) {
-      throw new Error('Conductor no encontrado')
+      throw new Error("Conductor no encontrado");
     }
 
     // Generar URL firmada para la foto desde la tabla documento
-    let foto_signed_url = null
+    let foto_signed_url = null;
     try {
       // Buscar documento de tipo FOTO_PERFIL para el conductor
       const fotoDocumento = await prisma.documento.findFirst({
         where: {
           conductor_id: conductor.id,
-          categoria: 'FOTO_PERFIL',
-          estado: 'vigente' // Cambiado de 'ACTIVO' a 'vigente'
+          categoria: "FOTO_PERFIL",
+          estado: "vigente", // Cambiado de 'ACTIVO' a 'vigente'
         },
         orderBy: {
-          created_at: 'desc'
-        }
-      })
+          created_at: "desc",
+        },
+      });
 
       // Si existe el documento y tiene s3_key, generar URL firmada
       if (fotoDocumento?.s3_key) {
-        foto_signed_url = await getS3SignedUrl(fotoDocumento.s3_key)
-      } 
+        foto_signed_url = await getS3SignedUrl(fotoDocumento.s3_key);
+      }
       // Fallback al foto_url antiguo si existe
       else if (conductor.foto_url) {
-        foto_signed_url = await getS3SignedUrl(conductor.foto_url)
+        foto_signed_url = await getS3SignedUrl(conductor.foto_url);
       }
     } catch (error) {
-      console.error('Error generando URL firmada:', error)
+      console.error("Error generando URL firmada:", error);
     }
 
-    return { ...conductor, foto_signed_url }
+    return { ...conductor, foto_signed_url };
   },
 
   // Crear conductor
@@ -207,45 +215,54 @@ export const ConductoresService = {
     // Solo validar duplicados si numero_identificacion tiene valor
     if (data.numero_identificacion) {
       const conductorExistente = await prisma.conductores.findUnique({
-        where: { numero_identificacion: data.numero_identificacion }
-      })
+        where: { numero_identificacion: data.numero_identificacion },
+      });
 
       if (conductorExistente) {
-        throw new Error('Ya existe un conductor con ese número de identificación')
+        throw new Error(
+          "Ya existe un conductor con ese número de identificación",
+        );
       }
     }
 
     if (data.email) {
       const emailExistente = await prisma.conductores.findUnique({
-        where: { email: data.email }
-      })
+        where: { email: data.email },
+      });
 
       if (emailExistente) {
-        throw new Error('Ya existe un conductor con ese email')
+        throw new Error("Ya existe un conductor con ese email");
       }
     }
 
     // Convertir fechas de string a Date
-    const fechaIngreso = data.fecha_ingreso ? new Date(data.fecha_ingreso) : new Date()
-    const vencimientoLicencia = data.vencimiento_licencia ? new Date(data.vencimiento_licencia) : null
-    const fechaNacimiento = data.fecha_nacimiento ? new Date(data.fecha_nacimiento) : null
+    // Convertir fechas de string a Date
+    const fechaIngreso = data.fecha_ingreso
+      ? new Date(data.fecha_ingreso)
+      : new Date();
+    const vencimientoLicencia = data.vencimiento_licencia
+      ? new Date(data.vencimiento_licencia)
+      : null;
+    const fechaNacimiento = data.fecha_nacimiento
+      ? new Date(data.fecha_nacimiento)
+      : null;
 
     const conductor = await prisma.conductores.create({
       data: {
         id: randomUUID(),
         nombre: data.nombre,
         apellido: data.apellido,
-        tipo_identificacion: data.tipo_identificacion || 'CC',
+        tipo_identificacion: data.tipo_identificacion || "CC",
         numero_identificacion: data.numero_identificacion,
         email: data.email || null,
         telefono: data.telefono || null,
         direccion: data.direccion || null,
         fecha_nacimiento: fechaNacimiento,
         genero: data.genero || null,
-        cargo: data.cargo || 'CONDUCTOR',
+        cargo: data.cargo || "CONDUCTOR",
         fecha_ingreso: fechaIngreso,
         salario_base: data.salario_base || null,
-        estado: data.estado || 'ACTIVO',
+        estado: data.estado || "ACTIVO",
         eps: data.eps || null,
         fondo_pension: data.fondo_pension || null,
         arl: data.arl || null,
@@ -256,70 +273,116 @@ export const ConductoresService = {
         tipo_sangre: mapTipoSangre(data.tipo_sangre) as any,
         creado_por_id,
         created_at: new Date(),
-        updated_at: new Date()
-      }
-    })
+        updated_at: new Date(),
+      },
+    });
 
-    return conductor
+    return conductor;
   },
 
   // Actualizar conductor
   async actualizar(id: string, data: any, actualizado_por_id?: string) {
     const conductorExistente = await prisma.conductores.findUnique({
-      where: { id }
-    })
+      where: { id },
+    });
 
     if (!conductorExistente) {
-      throw new Error('Conductor no encontrado')
+      throw new Error("Conductor no encontrado");
     }
 
     // Verificar unicidad de número de identificación
-    if (data.numero_identificacion && data.numero_identificacion !== conductorExistente.numero_identificacion) {
+    if (
+      data.numero_identificacion &&
+      data.numero_identificacion !== conductorExistente.numero_identificacion
+    ) {
       const duplicado = await prisma.conductores.findUnique({
-        where: { numero_identificacion: data.numero_identificacion }
-      })
+        where: { numero_identificacion: data.numero_identificacion },
+      });
 
       if (duplicado) {
-        throw new Error('Ya existe un conductor con ese número de identificación')
+        throw new Error(
+          "Ya existe un conductor con ese número de identificación",
+        );
       }
     }
 
     // Verificar unicidad de email
     if (data.email && data.email !== conductorExistente.email) {
       const duplicado = await prisma.conductores.findUnique({
-        where: { email: data.email }
-      })
+        where: { email: data.email },
+      });
 
       if (duplicado) {
-        throw new Error('Ya existe un conductor con ese email')
+        throw new Error("Ya existe un conductor con ese email");
       }
     }
 
     // Solo permitir campos que son columnas reales de la tabla conductores
     const allowedFields = [
-      'nombre', 'apellido', 'tipo_identificacion', 'numero_identificacion',
-      'email', 'telefono', 'fecha_nacimiento', 'genero', 'direccion',
-      'fecha_ingreso', 'salario_base', 'eps', 'fondo_pension', 'arl',
-      'termino_contrato', 'fecha_terminacion', 'licencia_conduccion',
-      'ultimo_acceso', 'permisos', 'cargo', 'categoria_licencia',
-      'foto_url', 'password', 'tipo_contrato', 'vencimiento_licencia',
-      'estado', 'sede_trabajo', 'tipo_sangre', 'oculto'
-    ]
+      "nombre",
+      "apellido",
+      "tipo_identificacion",
+      "numero_identificacion",
+      "email",
+      "telefono",
+      "fecha_nacimiento",
+      "genero",
+      "direccion",
+      "fecha_ingreso",
+      "salario_base",
+      "eps",
+      "fondo_pension",
+      "arl",
+      "termino_contrato",
+      "fecha_terminacion",
+      "licencia_conduccion",
+      "ultimo_acceso",
+      "permisos",
+      "cargo",
+      "categoria_licencia",
+      "foto_url",
+      "password",
+      "tipo_contrato",
+      "vencimiento_licencia",
+      "estado",
+      "sede_trabajo",
+      "tipo_sangre",
+      "oculto",
+    ];
 
-    const cleanData: any = {}
+    const cleanData: any = {};
+
     for (const field of allowedFields) {
-      if (field in data && data[field] !== undefined) {
-        // Para campos JSON, si viene null lo dejamos como undefined para que Prisma no lo envíe
-        if ((field === 'licencia_conduccion' || field === 'permisos') && data[field] === null) {
-          continue
-        }
-        // Mapear tipo_sangre de valor display (A+) a enum key (A_POSITIVO)
-        if (field === 'tipo_sangre') {
-          cleanData[field] = mapTipoSangre(data[field])
-        } else {
-          cleanData[field] = data[field]
-        }
+      if (!(field in data) || data[field] === undefined) {
+        continue;
       }
+
+      // Evitar enviar null en JSON
+      if (
+        (field === "licencia_conduccion" || field === "permisos") &&
+        data[field] === null
+      ) {
+        continue;
+      }
+
+      // Convertir fechas correctamente para Prisma
+      if (
+        [
+          "fecha_ingreso",
+          "fecha_nacimiento",
+          "fecha_terminacion",
+          "vencimiento_licencia",
+          "ultimo_acceso",
+        ].includes(field)
+      ) {
+        cleanData[field] = data[field]
+          ? new Date(`${data[field]}T12:00:00`)
+          : null;
+
+        continue;
+      }
+
+      cleanData[field] = data[field];
     }
 
     const conductor = await prisma.conductores.update({
@@ -327,21 +390,21 @@ export const ConductoresService = {
       data: {
         ...cleanData,
         actualizado_por_id,
-        updated_at: new Date()
-      }
-    })
+        updated_at: new Date(),
+      },
+    });
 
-    return conductor
+    return conductor;
   },
 
   // Actualizar solo el estado
   async actualizarEstado(id: string, estado: any, actualizado_por_id?: string) {
     const conductorExistente = await prisma.conductores.findUnique({
-      where: { id }
-    })
+      where: { id },
+    });
 
     if (!conductorExistente) {
-      throw new Error('Conductor no encontrado')
+      throw new Error("Conductor no encontrado");
     }
 
     const conductor = await prisma.conductores.update({
@@ -349,95 +412,95 @@ export const ConductoresService = {
       data: {
         estado: estado as any,
         actualizado_por_id,
-        updated_at: new Date()
-      }
-    })
+        updated_at: new Date(),
+      },
+    });
 
-    return conductor
+    return conductor;
   },
 
   // Soft delete (cambiar estado a DESVINCULADO o RETIRADO)
   async eliminar(id: string, actualizado_por_id?: string) {
     const conductorExistente = await prisma.conductores.findUnique({
-      where: { id }
-    })
+      where: { id },
+    });
 
     if (!conductorExistente) {
-      throw new Error('Conductor no encontrado')
+      throw new Error("Conductor no encontrado");
     }
 
     // Cambiar estado a RETIRADO en lugar de eliminar
     const conductor = await prisma.conductores.update({
       where: { id },
       data: {
-        estado: 'RETIRADO',
+        estado: "RETIRADO",
         actualizado_por_id,
-        updated_at: new Date()
-      }
-    })
+        updated_at: new Date(),
+      },
+    });
 
-    return conductor
+    return conductor;
   },
 
   // Subir foto del conductor
   async subirFoto(id: string, file: any) {
     const conductor = await prisma.conductores.findUnique({
-      where: { id }
-    })
+      where: { id },
+    });
 
     if (!conductor) {
-      throw new Error('Conductor no encontrado')
+      throw new Error("Conductor no encontrado");
     }
 
     // Eliminar foto anterior si existe
     if (conductor.foto_url) {
       try {
-        await deleteFromS3(conductor.foto_url)
+        await deleteFromS3(conductor.foto_url);
       } catch (error) {
-        console.error('Error eliminando foto anterior:', error)
+        console.error("Error eliminando foto anterior:", error);
       }
     }
 
     // Generar clave única para S3
-    const s3Key = `conductores/${id}/${Date.now()}-${file.originalname}`
+    const s3Key = `conductores/${id}/${Date.now()}-${file.originalname}`;
 
     // Subir archivo a S3
-    await uploadToS3(s3Key, file.buffer, file.mimetype)
+    await uploadToS3(s3Key, file.buffer, file.mimetype);
 
     // Actualizar URL en base de datos
     const conductorActualizado = await prisma.conductores.update({
       where: { id },
       data: {
         foto_url: s3Key,
-        updated_at: new Date()
-      }
-    })
+        updated_at: new Date(),
+      },
+    });
 
     // Obtener URL firmada
-    const fotoUrlFirmada = await getS3SignedUrl(s3Key)
+    const fotoUrlFirmada = await getS3SignedUrl(s3Key);
 
     return {
       ...conductorActualizado,
-      foto_url_firmada: fotoUrlFirmada
-    }
+      foto_url_firmada: fotoUrlFirmada,
+    };
   },
 
   // Eliminar foto del conductor
   async eliminarFoto(id: string) {
     const conductor = await prisma.conductores.findUnique({
-      where: { id }
-    })
+      where: { id },
+    });
 
     if (!conductor) {
-      throw new Error('Conductor no encontrado')
+      throw new Error("Conductor no encontrado");
     }
 
     if (conductor.foto_url) {
       // Eliminar de S3
       try {
-        await deleteFromS3(conductor.foto_url)
+        await deleteFromS3(conductor.foto_url);
       } catch (error) {
-        console.error('Error eliminando foto de S3:', error)
+        console.error("Error eliminando foto de S3:", error);
       }
 
       // Actualizar base de datos
@@ -445,35 +508,40 @@ export const ConductoresService = {
         where: { id },
         data: {
           foto_url: null,
-          updated_at: new Date()
-        }
-      })
+          updated_at: new Date(),
+        },
+      });
     }
 
-    return { message: 'Foto eliminada exitosamente' }
+    return { message: "Foto eliminada exitosamente" };
   },
 
   // Obtener conductores ocultos (solo admin)
   async obtenerOcultos(filters?: {
-    search?: string
-    page?: number
-    limit?: number
+    search?: string;
+    page?: number;
+    limit?: number;
   }) {
-    const page = filters?.page || 1
-    const limit = filters?.limit || 1000  // ← Aumentado de 50 a 1000
-    const skip = (page - 1) * limit
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 1000; // ← Aumentado de 50 a 1000
+    const skip = (page - 1) * limit;
 
     const where: any = {
-      oculto: true  // Solo los ocultos
-    }
+      oculto: true, // Solo los ocultos
+    };
 
     // Búsqueda
     if (filters?.search) {
       where.OR = [
-        { nombre: { contains: filters.search, mode: 'insensitive' } },
-        { apellido: { contains: filters.search, mode: 'insensitive' } },
-        { numero_identificacion: { contains: filters.search, mode: 'insensitive' } }
-      ]
+        { nombre: { contains: filters.search, mode: "insensitive" } },
+        { apellido: { contains: filters.search, mode: "insensitive" } },
+        {
+          numero_identificacion: {
+            contains: filters.search,
+            mode: "insensitive",
+          },
+        },
+      ];
     }
 
     const [conductores, total] = await Promise.all([
@@ -491,14 +559,14 @@ export const ConductoresService = {
           cargo: true,
           oculto: true,
           created_at: true,
-          updated_at: true
+          updated_at: true,
         },
-        orderBy: { nombre: 'asc' },
+        orderBy: { nombre: "asc" },
         skip,
-        take: limit
+        take: limit,
       }),
-      prisma.conductores.count({ where })
-    ])
+      prisma.conductores.count({ where }),
+    ]);
 
     return {
       data: conductores,
@@ -506,9 +574,9 @@ export const ConductoresService = {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
-      }
-    }
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   },
 
   // Cambiar estado oculto (solo admin)
@@ -517,14 +585,14 @@ export const ConductoresService = {
       where: { id },
       data: {
         oculto,
-        updated_at: new Date()
+        updated_at: new Date(),
       },
       select: {
         id: true,
         nombre: true,
         apellido: true,
-        oculto: true
-      }
-    })
-  }
-}
+        oculto: true,
+      },
+    });
+  },
+};
