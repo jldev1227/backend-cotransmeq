@@ -530,6 +530,7 @@ model liquidaciones {
   mantenimientos                                mantenimientos[]
   pernotes                                      pernotes[]
   recargos                                      recargos[]
+  mostrar_recargos                               Boolean                   @default(false)
 }
 
 model liquidaciones_servicios {
