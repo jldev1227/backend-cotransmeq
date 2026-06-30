@@ -162,6 +162,7 @@ model conductores {
   firmas_desprendibles  firmas_desprendibles[]
   documentos_compartidos documentos_compartidos[]
   liquidaciones         liquidaciones[]
+  primas                primas[]
   recargos_planillas    recargos_planillas[]
   servicio              servicio[]
   vehiculos             vehiculos[]
@@ -533,6 +534,35 @@ model liquidaciones {
   mostrar_recargos                               Boolean                   @default(false)
 }
 
+/// Primas de servicios independientes (desprendible separado de la liquidación)
+model primas {
+  id                  String        @id @default(uuid()) @db.Uuid
+  conductor_id        String        @db.Uuid
+  mes                 Int
+  anio                Int
+  prima               Decimal       @default(0) @db.Decimal(10, 2)
+  prima_pendiente     Decimal?      @db.Decimal(10, 2)
+  tiempo_trabajado_dias  Int?            // días laborados en el periodo
+  sueldo_basico          Decimal?        @db.Decimal(10, 2)
+  auxilio_transporte     Decimal?        @db.Decimal(10, 2)
+  sueldo_variable        Decimal?        @db.Decimal(10, 2)
+  total_base_liquidacion Decimal?        @db.Decimal(10, 2)
+  observaciones       String?
+  created_at          DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime      @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime?     @db.Timestamptz(6)
+  estado              enum_primas_estado @default(Pendiente)
+  creado_por_id       String?       @db.Uuid
+  actualizado_por_id  String?       @db.Uuid
+  conductores         conductores   @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+  users_primas_actualizado_por_idTousers usuarios? @relation("primas_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_primas_creado_por_idTousers      usuarios? @relation("primas_creado_por_idTousers", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([conductor_id, anio, mes], map: "idx_primas_conductor_periodo")
+  @@index([anio, mes], map: "idx_primas_periodo")
+  @@index([estado], map: "idx_primas_estado")
+}
+
 model liquidaciones_servicios {
   id                     String                             @id @db.Uuid
   consecutivo            String                             @unique @db.VarChar(255)
@@ -863,6 +893,8 @@ model usuarios {
   liquidaciones_liquidaciones_liquidado_por_idTousers                         liquidaciones[]                    @relation("liquidaciones_liquidado_por_idTousers")
   liquidaciones_servicios                                                     liquidaciones_servicios[]
   pernotes                                                                    pernotes[]
+  primas_primas_actualizado_por_idTousers                                     primas[]                          @relation("primas_actualizado_por_idTousers")
+  primas_primas_creado_por_idTousers                                          primas[]                          @relation("primas_creado_por_idTousers")
   recargos_planillas_recargos_planillas_actualizado_por_idTousers             recargos_planillas[]               @relation("recargos_planillas_actualizado_por_idTousers")
   recargos_planillas_recargos_planillas_creado_por_idTousers                  recargos_planillas[]               @relation("recargos_planillas_creado_por_idTousers")
   servicio_historicos                                                         servicio_historicos[]
@@ -1082,6 +1114,11 @@ enum enum_historial_recargos_planillas_accion {
 enum enum_liquidaciones_estado {
   Pendiente
   Liquidado
+}
+
+enum enum_primas_estado {
+  Pendiente
+  Pagado
 }
 
 enum enum_liquidaciones_servicio_estado {

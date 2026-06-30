@@ -245,7 +245,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         const result = liquidaciones.map((liq: any) => {
           const firma = liq.firmas_desprendibles?.[0]
           const yaFirmo = firma && firma.firma_url && firma.firma_url !== '' && firma.firma_url !== 'pending'
-          
+
           return {
             id: liq.id,
             periodo_inicio: liq.periodo_start,
@@ -260,9 +260,47 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             fecha_liquidacion: liq.fecha_liquidacion,
             created_at: liq.created_at,
             firmado: !!yaFirmo,
-            fecha_firma: yaFirmo ? firma.fecha_firma : null
+            fecha_firma: yaFirmo ? firma.fecha_firma : null,
+            prima_asociada: null
           }
         })
+
+        // Enriquecer con prima_asociada: una sola consulta al inicio para todas las liquidaciones
+        try {
+          if (liquidaciones.length > 0) {
+            const allPrimas = await prisma.primas.findMany({
+              where: { conductor_id: conductor.id, deleted_at: null },
+              select: { id: true, mes: true, anio: true, prima: true, prima_pendiente: true, estado: true }
+            })
+            for (const item of result as any[]) {
+              const liqOrig = liquidaciones.find((l: any) => l.id === item.id)
+              if (!liqOrig?.periodo_end) continue
+              const periodoFin = new Date(
+                liqOrig.periodo_end + (liqOrig.periodo_end.length === 10 ? 'T00:00:00' : '')
+              )
+              if (isNaN(periodoFin.getTime())) continue
+              const baseYear = periodoFin.getFullYear()
+              const baseMonth = periodoFin.getMonth() + 1
+              const candidatos: Array<{ anio: number; mes: number }> = []
+              for (let offset = -1; offset <= 1; offset++) {
+                const d = new Date(baseYear, baseMonth - 1 + offset, 1)
+                candidatos.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 })
+              }
+              for (const p of allPrimas) {
+                const match = candidatos.some((c) => c.anio === p.anio && c.mes === p.mes)
+                if (match) {
+                  item.prima_asociada = {
+                    id: p.id, mes: p.mes, anio: p.anio,
+                    prima: p.prima, prima_pendiente: p.prima_pendiente, estado: p.estado
+                  }
+                  break
+                }
+              }
+            }
+          }
+        } catch (e) {
+          request.log.warn({ error: e }, 'No se pudo enriquecer con prima_asociada')
+        }
 
         return reply.send({
           success: true,
@@ -275,6 +313,92 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           success: false,
           message: err.message || 'Error al listar desprendibles'
         })
+      }
+    })
+
+    // ─── Obtener prima con firma del desprendible del mismo periodo (reutilizada) ───
+    protectedApp.get('/conductor-portal/prima/:id', {
+      schema: {
+        description: 'Obtener prima con firma del desprendible del mismo periodo (reutilizada)',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const { id } = request.params
+
+        const prima = await prisma.primas.findFirst({
+          where: { id, conductor_id: conductor.id, deleted_at: null }
+        })
+
+        if (!prima) {
+          return reply.status(404).send({ success: false, message: 'Prima no encontrada' })
+        }
+
+        // Buscar firma de un desprendible del mismo conductor del mismo mes/año (±1 mes)
+        let firma: any = null
+        try {
+          const otrasFirmas = await prisma.firmas_desprendibles.findMany({
+            where: {
+              conductor_id: conductor.id,
+              firma_url: { not: '' },
+              NOT: { firma_url: 'pending' }
+            },
+            include: {
+              liquidaciones: { select: { id: true, periodo_start: true, periodo_end: true } }
+            }
+          })
+
+          const candidatos: Array<{ anio: number; mes: number }> = []
+          for (let offset = -1; offset <= 1; offset++) {
+            const d = new Date(prima.anio, prima.mes - 1 + offset, 1)
+            candidatos.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 })
+          }
+
+          for (const f of otrasFirmas) {
+            if (!f.liquidaciones?.periodo_end) continue
+            const fecha = new Date(
+              f.liquidaciones.periodo_end + (f.liquidaciones.periodo_end.length === 10 ? 'T00:00:00' : '')
+            )
+            if (isNaN(fecha.getTime())) continue
+            const match = candidatos.some(
+              (c) => c.anio === fecha.getFullYear() && c.mes === fecha.getMonth() + 1
+            )
+            if (!match) continue
+            try {
+              const presignedUrl = await getS3SignedUrl(f.firma_s3_key, 3600)
+              firma = {
+                presignedUrl,
+                fecha_firma: f.fecha_firma,
+                liquidacion_id: f.liquidacion_id
+              }
+              break
+            } catch {}
+          }
+        } catch (e) {
+          request.log.warn({ error: e }, 'No se pudo obtener firma para la prima')
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            prima: {
+              id: prima.id, conductor_id: prima.conductor_id,
+              mes: prima.mes, anio: prima.anio,
+              prima: prima.prima, prima_pendiente: prima.prima_pendiente,
+              estado: prima.estado, observaciones: prima.observaciones
+            },
+            firma
+          }
+        })
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error obteniendo prima')
+        return reply.status(500).send({ success: false, message: err.message || 'Error al obtener la prima' })
       }
     })
 

@@ -31,6 +31,7 @@ import { liquidacionesServiciosRoutes } from './modules/liquidaciones-servicios/
 import { liquidacionesTercerosRoutes } from './modules/liquidaciones-terceros/liquidaciones-terceros.routes'
 import { facturacionLiquidacionesRoutes } from './modules/facturacion-liquidaciones/facturacion-liquidaciones.routes'
 import { sesionesRoutes } from './modules/sesiones/sesiones.routes'
+import { primasRoutes } from './modules/primas/primas.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -95,6 +96,7 @@ export function buildApp() {
     app.register(liquidacionesTercerosRoutes, { prefix: '/api' })
     app.register(facturacionLiquidacionesRoutes, { prefix: '/api' })
     app.register(sesionesRoutes, { prefix: '/api' })
+    app.register(primasRoutes, { prefix: '/api' })
 
     // Rutas públicas (sin autenticación) - desprendibles de nómina
     app.register(desprendiblesPublicRoutes, { prefix: '/api' })
