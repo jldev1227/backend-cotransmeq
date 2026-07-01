@@ -102,6 +102,19 @@ export const PrimasService = {
                 email: true,
               },
             },
+            firmas_primas: {
+              where: { estado: "Activa" },
+              orderBy: { fecha_firma: "desc" },
+              take: 1,
+              select: {
+                id: true,
+                firma_url: true,
+                fecha_firma: true,
+                ip_address: true,
+                user_agent: true,
+                estado: true,
+              },
+            },
           },
           orderBy,
           take: limit,
@@ -156,6 +169,15 @@ export const PrimasService = {
               email: conductor.email,
             }
           : null,
+        // Mapeo firmas_primas -> firmas_desprendibles (forma esperada por frontend)
+        firmas_desprendibles: (p.firmas_primas || []).map((f) => ({
+          id: f.id,
+          firma_url: f.firma_url,
+          fecha_firma: f.fecha_firma,
+          ip_address: f.ip_address,
+          user_agent: f.user_agent,
+          estado: f.estado,
+        })),
       };
     });
 
@@ -193,6 +215,18 @@ export const PrimasService = {
             telefono: true,
             cargo: true,
             sede_trabajo: true,
+          },
+        },
+        firmas_primas: {
+          where: { estado: "Activa" },
+          orderBy: { fecha_firma: "desc" },
+          select: {
+            id: true,
+            firma_url: true,
+            fecha_firma: true,
+            ip_address: true,
+            user_agent: true,
+            estado: true,
           },
         },
         users_primas_creado_por_idTousers: {
@@ -268,6 +302,15 @@ export const PrimasService = {
             email: actualizado_por.correo,
           }
         : null,
+      // Mapeo firmas_primas -> firmas_desprendibles (forma esperada por frontend)
+      firmas_desprendibles: (prima.firmas_primas || []).map((f) => ({
+        id: f.id,
+        firma_url: f.firma_url,
+        fecha_firma: f.fecha_firma,
+        ip_address: f.ip_address,
+        user_agent: f.user_agent,
+        estado: f.estado,
+      })),
     };
   },
 
@@ -412,6 +455,19 @@ export const PrimasService = {
             email: true,
           },
         },
+        firmas_primas: {
+          where: { estado: "Activa" },
+          orderBy: { fecha_firma: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            firma_url: true,
+            fecha_firma: true,
+            ip_address: true,
+            user_agent: true,
+            estado: true,
+          },
+        },
       },
       orderBy: [{ anio: "desc" }, { mes: "desc" }],
     });
@@ -432,6 +488,15 @@ export const PrimasService = {
             email: p.conductores.email,
           }
         : null,
+      // Mapeo firmas_primas -> firmas_desprendibles (forma esperada por frontend)
+      firmas_desprendibles: (p.firmas_primas || []).map((f) => ({
+        id: f.id,
+        firma_url: f.firma_url,
+        fecha_firma: f.fecha_firma,
+        ip_address: f.ip_address,
+        user_agent: f.user_agent,
+        estado: f.estado,
+      })),
     }));
   },
 };
