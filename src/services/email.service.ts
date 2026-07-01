@@ -404,5 +404,120 @@ export const EmailService = {
       console.error('[EmailService] Error:', err)
       throw err
     }
+  },
+
+  async sendPrimaNotification({
+    to,
+    conductorNombre,
+    periodo,
+    monto,
+    portalLink
+  }: {
+    to: string
+    conductorNombre: string
+    periodo: string
+    monto: string
+    portalLink: string
+  }) {
+    const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/cotransmeq.png'
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background: linear-gradient(135deg, #EA580C 0%, #C2410C 100%); padding:32px 32px 24px 32px; text-align:center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td align="center" style="padding-bottom:16px;">
+                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center">
+                    <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;line-height:1.3;">
+                      💰 Tu Liquidación de Prima
+                    </h1>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="margin:0 0 8px 0;color:#475569;font-size:15px;line-height:1.5;">Hola,</p>
+              <p style="margin:0 0 24px 0;color:#0f172a;font-size:18px;font-weight:700;line-height:1.3;">${conductorNombre}</p>
+              <p style="margin:0 0 16px 0;color:#475569;font-size:15px;line-height:1.6;">
+                Tu <strong>prima de servicios</strong> correspondiente a <strong>${periodo}</strong> ya está disponible.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 20px 0;">
+                <tr>
+                  <td style="background-color:#FFF7ED;border-radius:10px;padding:16px 20px;">
+                    <p style="margin:0 0 4px 0;color:#9A3412;font-size:13px;font-weight:700;">VALOR PRIMA</p>
+                    <p style="margin:0;color:#EA580C;font-size:22px;font-weight:800;line-height:1.2;">${monto}</p>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td align="center">
+                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#EA580C;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                      💰 Ver Prima de Servicios →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:24px;">
+                <tr>
+                  <td style="background-color:#FFF7ED;border-radius:10px;padding:14px 18px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td width="28" valign="top" style="font-size:18px;">📋</td>
+                        <td style="color:#9A3412;font-size:13px;line-height:1.5;">
+                          Desde tu portal podrás <strong>ver, descargar y firmar</strong> el desprendible de tu prima.
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
+              <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
+                Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
+                Si tienes dudas, contacta al administrador.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+
+    try {
+      const data = await sendEmail({
+        from: 'Cotransmeq <noreply@transmeralda.com>',
+        to: [to],
+        subject: `💰 Tu Liquidación de Prima — ${periodo}`,
+        html
+      })
+      return data
+    } catch (err) {
+      console.error('[EmailService] Error enviando prima:', err)
+      throw err
+    }
   }
 }

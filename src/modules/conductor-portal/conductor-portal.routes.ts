@@ -5,7 +5,7 @@ import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
-import { getS3SignedUrl, uploadToS3 } from '../../config/aws'
+import { getS3SignedUrl, uploadToS3, getS3ObjectAsBase64 } from '../../config/aws'
 
 const TOKEN_VALIDITY_DAYS = 30
 
@@ -312,6 +312,269 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         return reply.status(500).send({
           success: false,
           message: err.message || 'Error al listar desprendibles'
+        })
+      }
+    })
+
+    // ─── Listar primas (entidad independiente) del conductor autenticado ───
+    protectedApp.get('/conductor-portal/primas', {
+      schema: {
+        description: 'Listar primas de servicios del conductor autenticado',
+        tags: ['conductor-portal']
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+
+        const primas = await prisma.primas.findMany({
+          where: {
+            conductor_id: conductor.id,
+            deleted_at: null
+          },
+          orderBy: [{ anio: 'desc' }, { mes: 'desc' }]
+        })
+
+        // Cargar firmas por separado (evita dependencia del include firmas_primas
+        // si el cliente Prisma aún no está regenerado)
+        const primaIds = primas.map((p) => p.id)
+        const firmas = primaIds.length
+          ? await prisma.firmas_primas.findMany({
+              where: {
+                prima_id: { in: primaIds },
+                estado: 'Activa',
+                firma_url: { not: '' },
+                NOT: { firma_url: 'pending' }
+              },
+              orderBy: { fecha_firma: 'desc' }
+            })
+          : []
+
+        const firmaPorPrima = new Map<string, { firmado: boolean; fecha_firma: Date | null }>()
+        for (const f of firmas) {
+          if (!firmaPorPrima.has(f.prima_id)) {
+            firmaPorPrima.set(f.prima_id, { firmado: true, fecha_firma: f.fecha_firma })
+          }
+        }
+
+        const data = primas.map((p) => {
+          const f = firmaPorPrima.get(p.id)
+          return {
+            id: p.id,
+            conductor_id: p.conductor_id,
+            mes: p.mes,
+            anio: p.anio,
+            prima: Number(p.prima) || 0,
+            prima_pendiente: p.prima_pendiente != null ? Number(p.prima_pendiente) : null,
+            tiempo_trabajado_dias: p.tiempo_trabajado_dias,
+            sueldo_basico: p.sueldo_basico != null ? Number(p.sueldo_basico) : null,
+            auxilio_transporte: p.auxilio_transporte != null ? Number(p.auxilio_transporte) : null,
+            sueldo_variable: p.sueldo_variable != null ? Number(p.sueldo_variable) : null,
+            total_base_liquidacion: p.total_base_liquidacion != null ? Number(p.total_base_liquidacion) : null,
+            estado: p.estado,
+            observaciones: p.observaciones,
+            created_at: p.created_at,
+            firmado: !!f?.firmado,
+            fecha_firma: f?.fecha_firma || null
+          }
+        })
+
+        return reply.send({ success: true, data, count: data.length })
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error listando primas')
+        return reply.status(500).send({ success: false, message: err.message || 'Error al listar primas' })
+      }
+    })
+
+    // ─── Firmar una prima desde el portal del conductor ───
+    protectedApp.post('/conductor-portal/primas/:id/firmar', {
+      schema: {
+        description: 'Firmar una prima desde el portal del conductor',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        },
+        body: {
+          type: 'object',
+          required: ['firma_base64'],
+          properties: {
+            firma_base64: { type: 'string', minLength: 100 }
+          }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const { id } = request.params
+        const { firma_base64 } = request.body as { firma_base64: string }
+
+        const prima = await prisma.primas.findFirst({
+          where: { id, conductor_id: conductor.id, deleted_at: null },
+          select: { id: true }
+        })
+        if (!prima) {
+          return reply.status(404).send({ success: false, message: 'Prima no encontrada' })
+        }
+
+        const firmaExistente = await prisma.firmas_primas.findUnique({
+          where: {
+            prima_id_conductor_id: {
+              prima_id: id,
+              conductor_id: conductor.id
+            }
+          }
+        })
+
+        if (firmaExistente && firmaExistente.firma_url && firmaExistente.firma_url !== '' && firmaExistente.firma_url !== 'pending') {
+          return reply.status(409).send({
+            success: false,
+            message: 'Esta prima ya fue firmada'
+          })
+        }
+
+        const base64Data = firma_base64.replace(/^data:image\/\w+;base64,/, '')
+        const buffer = Buffer.from(base64Data, 'base64')
+        if (buffer.length < 2000) {
+          return reply.status(400).send({
+            success: false,
+            message: 'La firma proporcionada no es válida. Debe ser una firma legible.'
+          })
+        }
+
+        const firmaId = require('crypto').randomUUID()
+        const s3Key = `firmas_primas/${id}/${conductor.id}/${firmaId}.png`
+        await uploadToS3(s3Key, buffer, 'image/png')
+
+        const ipAddress = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip || '0.0.0.0'
+        const userAgent = request.headers['user-agent'] || ''
+        const now = new Date()
+
+        if (firmaExistente) {
+          await prisma.firmas_primas.update({
+            where: { id: firmaExistente.id },
+            data: {
+              firma_url: s3Key,
+              firma_s3_key: s3Key,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              fecha_firma: now,
+              updated_at: now
+            }
+          })
+        } else {
+          await prisma.firmas_primas.create({
+            data: {
+              id: firmaId,
+              prima_id: id,
+              conductor_id: conductor.id,
+              firma_url: s3Key,
+              firma_s3_key: s3Key,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              fecha_firma: now,
+              estado: 'Activa',
+              created_at: now,
+              updated_at: now
+            }
+          })
+        }
+
+        return reply.send({
+          success: true,
+          message: 'Firma de prima registrada exitosamente',
+          data: {
+            firmado: true,
+            fecha_firma: now.toISOString()
+          }
+        })
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error firmando prima desde portal')
+        return reply.status(500).send({
+          success: false,
+          message: err.message || 'Error al registrar firma de prima'
+        })
+      }
+    })
+
+    // ─── Obtener prima enriquecida con firma (base64) para PDF del portal ───
+    protectedApp.get('/conductor-portal/primas/:id/enriquecida', {
+      schema: {
+        description: 'Obtener prima + firma en base64. La firma es OBLIGATORIA para que el portal muestre el PDF.',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const { id } = request.params
+
+        const prima = await prisma.primas.findFirst({
+          where: { id, conductor_id: conductor.id, deleted_at: null }
+        })
+
+        if (!prima) {
+          return reply.status(404).send({ success: false, message: 'Prima no encontrada' })
+        }
+
+        // Adjuntar datos del conductor (para que el PDF muestre nombre/cédula)
+        const conductorData = await prisma.conductores.findUnique({
+          where: { id: conductor.id },
+          select: { id: true, nombre: true, apellido: true, numero_identificacion: true, email: true }
+        })
+        ;(prima as any).conductores = conductorData
+
+        // Buscar firma propia de la prima
+        const firmaPropia = await prisma.firmas_primas.findFirst({
+          where: {
+            prima_id: id,
+            conductor_id: conductor.id,
+            firma_url: { not: '' },
+            NOT: { firma_url: 'pending' }
+          },
+          orderBy: { fecha_firma: 'desc' }
+        })
+
+        // Descargamos la firma como base64 desde el backend para evitar
+        // problemas de CORS al hacer fetch al presignedUrl desde el navegador
+        // del conductor (el portal corre en otro origen).
+        let firmaPresigned: string | null = null
+        let firmaBase64: string | null = null
+        if (firmaPropia?.firma_s3_key) {
+          try {
+            firmaPresigned = await getS3SignedUrl(firmaPropia.firma_s3_key, 3600)
+          } catch (e) {
+            request.log.warn({ error: e }, 'No se pudo generar presignedUrl de la firma de la prima')
+          }
+          try {
+            firmaBase64 = await getS3ObjectAsBase64(firmaPropia.firma_s3_key)
+          } catch (e) {
+            request.log.warn({ error: e }, 'No se pudo descargar la firma como base64')
+          }
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            prima,
+            firma: firmaPropia
+              ? {
+                  presignedUrl: firmaPresigned,
+                  base64: firmaBase64,
+                  fecha_firma: firmaPropia.fecha_firma
+                }
+              : null
+          }
+        })
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error obteniendo prima enriquecida')
+        return reply.status(500).send({
+          success: false,
+          message: err.message || 'Error al obtener la prima'
         })
       }
     })
