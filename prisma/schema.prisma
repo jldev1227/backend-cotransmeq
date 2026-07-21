@@ -150,7 +150,7 @@ model conductores {
   updated_at            DateTime                       @db.Timestamptz(6)
   vencimiento_licencia  DateTime?                      @db.Date
   id                    String                         @id @db.Uuid
-  estado                enum_conductores_estado        @default(ACTIVO)
+  estado                enum_conductores_estado        @default(activo)
   sede_trabajo          enum_conductores_sede_trabajo?
   tipo_sangre           tipo_sangre_enum?
   creado_por_id         String?                        @db.Uuid
@@ -987,7 +987,7 @@ model vehiculos {
   updated_at                 DateTime               @db.Timestamptz(6)
   deleted_at                 DateTime?              @db.Timestamptz(6)
   id                         String                 @id @db.Uuid
-  estado                     enum_vehiculos_estado  @default(DISPONIBLE)
+  estado                     enum_vehiculos_estado  @default(disponible)
   conductor_id               String?                @db.Uuid
   oculto                     Boolean                @default(false)
   bonificaciones             bonificaciones[]
@@ -1052,12 +1052,13 @@ model respuestas_asistencia {
 }
 
 enum enum_conductores_estado {
-  ACTIVO
-  INACTIVO
-  SUSPENDIDO
-  RETIRADO
-  servicio
+  activo
+  inactivo
+  suspendido
+  retirado
   disponible
+  programado
+  servicio
   descanso
   vacaciones
   incapacidad
@@ -1238,15 +1239,12 @@ enum enum_users_role {
 }
 
 enum enum_vehiculos_estado {
-  DISPONIBLE
-  NO_DISPONIBLE @map("NO DISPONIBLE")
-  SERVICIO
-  MANTENIMIENTO
-  INACTIVO
-  DESVINCULADO
-  activo
-  inactivo
+  disponible
+  programado
+  servicio
   mantenimiento
+  inactivo
+  desvinculado
 }
 
 enum tipo_sangre_enum {
