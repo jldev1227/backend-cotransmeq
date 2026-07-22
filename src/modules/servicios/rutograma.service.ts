@@ -788,11 +788,11 @@ export class RutogramaService {
         doc.image(logoPath, marginL + 8, y + 6, { width: 140, height: 42 })
       } else {
         doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-          .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
+          .text('COTRANSMEQ S.A.S', marginL + 8, y + 18)
       }
     } catch {
       doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-        .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
+        .text('COTRANSMEQ S.A.S', marginL + 8, y + 18)
     }
 
     // Línea divisora vertical

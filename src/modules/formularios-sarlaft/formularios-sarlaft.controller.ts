@@ -27,7 +27,7 @@ export const FormulariosSarlaftController = {
         'Ley 1581 de 2012',
         'Decreto 1377 de 2013'
       ],
-      empresa: 'TRANSMERALDA S.A.S.'
+      empresa: 'COTRANSMEQ S.A.S.'
     })
   },
 

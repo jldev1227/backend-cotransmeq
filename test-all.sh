@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 echo -e "${CYAN}"
 echo "╔════════════════════════════════════════════════════════════════════════════╗"
 echo "║                                                                            ║"
-echo "║              🚀 TRANSMERALDA - Test Suite Completo 🚀                     ║"
+echo "║              🚀 COTRANSMEQ - Test Suite Completo 🚀                     ║"
 echo "║                                                                            ║"
 echo "║                    Tests de CRUDs - API Backend                            ║"
 echo "║                                                                            ║"

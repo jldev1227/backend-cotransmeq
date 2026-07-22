@@ -286,7 +286,7 @@ export class ConciliacionTercerosService {
       numPlanilla: findCol(['PLANILLA', '# PLANILLA']),
       ingresosExtraGlobal: findCol(['INGRES EXTRA GLOBAL', 'INGRESOS EXTRA GLOBAL']),
       ingresosExtraAval: findCol(['INGRESOS EXTRA AVAL', 'EXTRA AVAL']),
-      ingresoTransmeralda: findCol(['INGRESO TRANSMERALDA']),
+      ingresoTransmeralda: findCol(['INGRESO COTRANSMEQ']),
       numFactura: findCol(['FACTURA', '# FACTURA']),
       liquidado: findCol(['LIQUIDADO']),
       ordenCompra: findCol(['ORDEN DE COMPRA', 'ORDEN COMPRA']),

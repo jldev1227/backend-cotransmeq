@@ -1342,7 +1342,7 @@ export class EvaluacionPDFGeneratorService {
         .fontSize(9)
         .font("Roboto-Bold")
         .fillColor(BLACK)
-        .text("TRANSMERALDA S.A.S", col1X + 5, startY + headerH / 2 - 6, {
+        .text("COTRANSMEQ S.A.S", col1X + 5, startY + headerH / 2 - 6, {
           width: col1W - 10,
           align: "center",
           lineBreak: false,

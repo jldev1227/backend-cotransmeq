@@ -256,7 +256,7 @@ export class PDFGeneratorSNCService {
             doc.image(logoPath, leftX, yPos, { width: 130, height: 36 })
           }
         } catch {
-          doc.fontSize(14).font('Helvetica-Bold').text('TRANSMERALDA S.A.S', leftX, yPos)
+          doc.fontSize(14).font('Helvetica-Bold').text('COTRANSMEQ S.A.S', leftX, yPos)
         }
 
         // Título centrado

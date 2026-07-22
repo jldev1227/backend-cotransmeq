@@ -211,7 +211,7 @@ const FORMULARIO_PERSONAL: FormularioDefinicion = {
         {
           id: 'PER-DEC-04-3',
           pregunta:
-            '3. Me comprometo a informar a TRANSMERALDA S.A.S. cualquier cambio relevante en la naturaleza, volumen o frecuencia de estas operaciones.',
+            '3. Me comprometo a informar a COTRANSMEQ S.A.S. cualquier cambio relevante en la naturaleza, volumen o frecuencia de estas operaciones.',
           tipo_respuesta: 'declaracion_informativa',
           modo_respuesta: 'Texto declarativo (condicional si DEC-04 = Sí)',
           opciones: null,
@@ -220,7 +220,7 @@ const FORMULARIO_PERSONAL: FormularioDefinicion = {
         },
         {
           id: 'PER-DEC-04-4',
-          pregunta: '4. Autorizo a TRANSMERALDA S.A.S. a verificar la información aquí suministrada.',
+          pregunta: '4. Autorizo a COTRANSMEQ S.A.S. a verificar la información aquí suministrada.',
           tipo_respuesta: 'seleccion_unica',
           modo_respuesta: 'Selección única (condicional si DEC-04 = Sí)',
           opciones: ['Sí', 'No'],
@@ -374,7 +374,7 @@ const FORMULARIO_ACCIONISTAS: FormularioDefinicion = {
         },
         {
           id: 'ACC-DEC-04-3',
-          pregunta: '3. Me comprometo a informar a TRANSMERALDA S.A.S. cualquier cambio relevante en la naturaleza, volumen o frecuencia de estas operaciones.',
+          pregunta: '3. Me comprometo a informar a COTRANSMEQ S.A.S. cualquier cambio relevante en la naturaleza, volumen o frecuencia de estas operaciones.',
           tipo_respuesta: 'declaracion_informativa',
           modo_respuesta: 'Texto declarativo (condicional si DEC-04 = Sí)',
           opciones: null,
@@ -383,7 +383,7 @@ const FORMULARIO_ACCIONISTAS: FormularioDefinicion = {
         },
         {
           id: 'ACC-DEC-04-4',
-          pregunta: '4. Autorizo a TRANSMERALDA S.A.S. a verificar la información aquí suministrada.',
+          pregunta: '4. Autorizo a COTRANSMEQ S.A.S. a verificar la información aquí suministrada.',
           tipo_respuesta: 'seleccion_unica',
           modo_respuesta: 'Selección única (condicional si DEC-04 = Sí)',
           opciones: ['Sí', 'No'],
@@ -648,7 +648,7 @@ const FORMULARIO_CLIENTE_PROVEEDOR: FormularioDefinicion = {
         },
         {
           id: 'CLI-DEC-04-3',
-          pregunta: '3. Me comprometo a informar a TRANSMERALDA S.A.S. cualquier cambio relevante en la naturaleza, volumen o frecuencia de estas operaciones.',
+          pregunta: '3. Me comprometo a informar a COTRANSMEQ S.A.S. cualquier cambio relevante en la naturaleza, volumen o frecuencia de estas operaciones.',
           tipo_respuesta: 'declaracion_informativa',
           modo_respuesta: 'Texto declarativo (condicional si DEC-04 = Sí)',
           opciones: null,
@@ -657,7 +657,7 @@ const FORMULARIO_CLIENTE_PROVEEDOR: FormularioDefinicion = {
         },
         {
           id: 'CLI-DEC-04-4',
-          pregunta: '4. Autorizo a TRANSMERALDA S.A.S. a verificar la información aquí suministrada.',
+          pregunta: '4. Autorizo a COTRANSMEQ S.A.S. a verificar la información aquí suministrada.',
           tipo_respuesta: 'seleccion_unica',
           modo_respuesta: 'Selección única (condicional si DEC-04 = Sí)',
           opciones: ['Sí', 'No'],
@@ -800,19 +800,19 @@ export const TIPOS_FORMULARIO: Array<{
     codigo: 'GC-FR-04',
     tipo: 'cliente_proveedor',
     titulo: 'Cliente / Proveedor',
-    descripcion: 'Para personas naturales o jurídicas que contratan servicios de transporte con TRANSMERALDA S.A.S.'
+    descripcion: 'Para personas naturales o jurídicas que contratan servicios de transporte con COTRANSMEQ S.A.S.'
   },
   {
     codigo: 'GC-FR-05',
     tipo: 'accionistas',
     titulo: 'Accionistas',
-    descripcion: 'Para socios o accionistas de TRANSMERALDA S.A.S. Incluye composición accionaria y beneficiario final.'
+    descripcion: 'Para socios o accionistas de COTRANSMEQ S.A.S. Incluye composición accionaria y beneficiario final.'
   },
   {
     codigo: 'GC-FR-06',
     tipo: 'personal',
     titulo: 'Vinculación de Personal',
-    descripcion: 'Para candidatos a vincularse como empleados de TRANSMERALDA S.A.S.'
+    descripcion: 'Para candidatos a vincularse como empleados de COTRANSMEQ S.A.S.'
   }
 ]
 

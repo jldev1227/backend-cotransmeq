@@ -333,7 +333,7 @@ export class InduccionesController {
 
   <!-- Declaración -->
   <div class="declaration">
-    <strong>Declaro</strong> que TRANSMERALDA S.A.S. me suministró la información indicada en esta lista,
+    <strong>Declaro</strong> que COTRANSMEQ S.A.S. me suministró la información indicada en esta lista,
     que la he leído y comprendido, y que me comprometo a cumplir las normas durante mi permanencia en sus instalaciones.
   </div>
 

@@ -988,7 +988,7 @@ export const LiquidacionesTercerosDescuentosService = {
         const valorLiq = a.valor_liquidar != null ? toNumber(a.valor_liquidar) : vUnit * cant;
         return {
           id: a.id || randomUUID(),
-          cliente: a.cliente || 'TRANSMERALDA',
+          cliente: a.cliente || 'COTRANSMEQ',
           placa: a.placa || placa,
           tercero_nombre: a.tercero_nombre || '',
           recorrido: a.recorrido || '',

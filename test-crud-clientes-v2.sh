@@ -17,7 +17,7 @@ EMPRESA_ID=""
 PERSONA_ID=""
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║      TEST CRUD CLIENTES - TRANSMERALDA API v2.0         ║${NC}"
+echo -e "${BLUE}║      TEST CRUD CLIENTES - COTRANSMEQ API v2.0         ║${NC}"
 echo -e "${BLUE}║         Con Filtros Tipo y Paginación Mejorada          ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""

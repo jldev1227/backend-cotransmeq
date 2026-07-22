@@ -70,7 +70,7 @@ export class PDFGeneratorService {
             doc
               .fontSize(20)
               .font('Helvetica-Bold')
-              .text('TRANSMERALDA S.A.S', 40, 40)
+              .text('COTRANSMEQ S.A.S', 40, 40)
           }
         } catch (error) {
           console.error('Error loading logo:', error)
@@ -78,7 +78,7 @@ export class PDFGeneratorService {
           doc
             .fontSize(20)
             .font('Helvetica-Bold')
-            .text('TRANSMERALDA S.A.S', 40, 40)
+            .text('COTRANSMEQ S.A.S', 40, 40)
         }
 
         // Título centrado

@@ -301,7 +301,7 @@ export const FormulariosSarlaftService = {
         codigo_formulario: registro.codigo_formulario,
         nombre_completo: registro.nombre_completo,
         documentos_adjuntos: archivosSubidosPorTipo.size,
-        mensaje: 'Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de TRANSMERALDA S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.'
+        mensaje: 'Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de COTRANSMEQ S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.'
       }
     } catch (err) {
       // Si algo falla después de subir archivos a S3, los limpiamos
@@ -561,7 +561,7 @@ export const FormulariosSarlaftService = {
       </p>
 
       <div class="footer">
-        TRANSMERALDA S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
+        COTRANSMEQ S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
         Resolución 2328 de 2025 · Resolución 14673 de 2025 · Ley 1581 de 2012
       </div>
     </div>
