@@ -31,12 +31,49 @@ const respuestaRegistroSchema = z.object({
 });
 
 export const EvaluacionesController = {
-  async list(req: FastifyRequest, res: FastifyReply) {
-    const evaluaciones = await prisma.evaluacion.findMany({
-      orderBy: { created_at: "desc" },
-      include: { preguntas: { include: { opciones: true } } },
+  async list(req: FastifyRequest<{ Querystring: {
+      page?: string;
+      limit?: string;
+      search?: string;
+      sortBy?: 'titulo' | 'created_at';
+      sortOrder?: 'asc' | 'desc';
+    } }>, res: FastifyReply) {
+    const page = Math.max(1, parseInt(req.query.page || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '10')));
+    const search = req.query.search || '';
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = req.query.sortOrder || 'desc';
+
+    const where: any = { deleted_at: null };
+
+    if (search) {
+      where.OR = [
+        { titulo: { contains: search, mode: 'insensitive' } },
+        { descripcion: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [total, evaluaciones] = await Promise.all([
+      prisma.evaluacion.count({ where }),
+      prisma.evaluacion.findMany({
+        where,
+        include: { preguntas: { include: { opciones: true } } },
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * limit,
+        take: limit
+      })
+    ]);
+
+    return res.send({
+      success: true,
+      data: evaluaciones,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     });
-    return res.send({ success: true, data: evaluaciones });
   },
 
   async findById(
@@ -198,7 +235,10 @@ export const EvaluacionesController = {
     res: FastifyReply,
   ) {
     const { id } = req.params;
-    await prisma.evaluacion.delete({ where: { id } });
+    await prisma.evaluacion.update({
+      where: { id },
+      data: { deleted_at: new Date() }
+    });
     return res.send({ success: true });
   },
 

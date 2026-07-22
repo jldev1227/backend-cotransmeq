@@ -30,7 +30,7 @@ export const createRecargoSchema = z.object({
   // Relación con servicio
   servicio_id: z.string().uuid().optional().nullable(),
 
-  // Datos del servicio (para crear/editar servicio desde recargo)
+  // Campos para crear/actualizar servicio asociado (opcionales)
   servicio_origen_id: z.string().uuid().optional().nullable(),
   servicio_destino_id: z.string().uuid().optional().nullable(),
   servicio_origen_especifico: z.string().optional().nullable(),
@@ -85,18 +85,7 @@ export const createRecargoSchema = z.object({
 // Schema para actualizar recargo
 export const updateRecargoSchema = createRecargoSchema.partial().extend({
   estado: z
-    .enum([
-      "pendiente",
-      "liquidada",
-      "facturada",
-      "no_esta",
-      "encontrada",
-      "borrador",
-      "activo",
-      "completado",
-      "liquidado",
-      "cancelado",
-    ])
+    .enum(["pendiente", "liquidada", "facturada", "encontrada", "no_esta"])
     .optional(),
 });
 
@@ -116,7 +105,7 @@ export const buscarRecargosSchema = z
       .optional()
       .transform((val) => val === "true"),
     page: z.string().optional().default("1"),
-    limit: z.string().optional().default("50"),
+    limit: z.string().optional().default("10000"),
   })
   .transform((data) => {
     // Si viene 'ano' sin ñ, usarlo como 'año'

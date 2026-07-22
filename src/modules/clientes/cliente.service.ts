@@ -431,5 +431,31 @@ export const ClientesService = {
         }
       }
     });
-  }
+  },
+
+  // Operaciones masivas: Ocultar/Mostrar
+  async cambiarOcultoMasivo(ids: string[], oculto: boolean) {
+    return prisma.clientes.updateMany({
+      where: {
+        id: { in: ids },
+      },
+      data: {
+        oculto,
+        updatedAt: new Date(),
+      },
+    });
+  },
+
+  // Operaciones masivas: Soft Delete
+  async eliminarMasivo(ids: string[]) {
+    return prisma.clientes.updateMany({
+      where: {
+        id: { in: ids },
+      },
+      data: {
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+  },
 };

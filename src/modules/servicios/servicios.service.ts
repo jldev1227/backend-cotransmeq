@@ -3,6 +3,7 @@ import { CreateServicioInput, UpdateServicioInput, CambiarEstadoInput, AsignarPl
 import { getS3SignedUrl } from '../../config/aws'
 import { RecargosService } from '../recargos/recargos.service'
 import { randomUUID } from 'crypto'
+import { aplicarEfectosColaterales, ServicioEstado } from './servicios.estados'
 
 /**
  * Obtener fotos de conductores en batch (1 sola query para todos).
@@ -139,77 +140,47 @@ function transformarServicioSync(servicio: any, signedUrlMap?: Map<string, strin
   }
 }
 
-
-// Helper para transformar servicios al formato esperado por el frontend
+/**
+ * Helper para transformar un servicio individual (para endpoints que devuelven 1 solo servicio).
+ * Hace 1 query de foto + 1 URL firmada.
+ */
 async function transformarServicio(servicio: any) {
-  if (!servicio) return null
+  if (!servicio) {
+    return null
+  }
   
-  // Convertir a JSON y parsear de nuevo para limpiar propiedades no enumerables de Prisma
   const servicioPlano = JSON.parse(JSON.stringify(servicio))
   
-  // Extraer las relaciones con nombres simplificados
   let conductor = servicioPlano.conductores || null
   const cliente = servicioPlano.clientes || null
   const vehiculo = servicioPlano.vehiculos || null
-  
-  // Preservar TODAS las propiedades de los municipios (incluyendo latitud y longitud)
   const origen = servicioPlano.municipios_servicio_origen_idTomunicipios || null
   const destino = servicioPlano.municipios_servicio_destino_idTomunicipios || null
-  
-  console.log('🔄 [TRANSFORM] Transformando servicio:', {
-    servicio_id: servicioPlano.id,
-    origen_municipio: origen ? {
-      nombre: origen.nombre_municipio,
-      lat: origen.latitud,
-      lng: origen.longitud
-    } : null,
-    destino_municipio: destino ? {
-      nombre: destino.nombre_municipio,
-      lat: destino.latitud,
-      lng: destino.longitud
-    } : null
-  })
   
   // Si hay conductor, obtener su foto desde la tabla documento
   if (conductor && conductor.id) {
     try {
-      // Primero intentar con foto_url directa del conductor
-      if (conductor.foto_url) {
-        console.log('🖼️ [TRANSFORM] Generando URL firmada para foto_url:', conductor.foto_url)
-        conductor.foto_signed_url = await getS3SignedUrl(conductor.foto_url, 3600) // URL válida por 1 hora
-        console.log('✅ [TRANSFORM] URL firmada generada:', conductor.foto_signed_url)
+      const fotoDocumento = await prisma.documento.findFirst({
+        where: {
+          conductor_id: conductor.id,
+          categoria: 'FOTO_PERFIL',
+          estado: 'vigente'
+        },
+        select: { ruta_archivo: true },
+        orderBy: { created_at: 'desc' }
+      })
+      
+      if (fotoDocumento && fotoDocumento.ruta_archivo) {
+        conductor.foto_signed_url = await getS3SignedUrl(fotoDocumento.ruta_archivo, 3600)
       } else {
-        // Si no hay foto_url, buscar foto de perfil en la tabla documento
-        const fotoDocumento = await prisma.documento.findFirst({
-          where: {
-            conductor_id: conductor.id,
-            categoria: 'FOTO_PERFIL',
-            estado: 'vigente'
-          },
-          select: {
-            ruta_archivo: true
-          },
-          orderBy: {
-            created_at: 'desc' // La más reciente
-          }
-        })
-        
-        if (fotoDocumento && fotoDocumento.ruta_archivo) {
-          console.log('🖼️ [TRANSFORM] Generando URL firmada desde documento:', fotoDocumento.ruta_archivo)
-          // Generar URL firmada desde S3
-          conductor.foto_signed_url = await getS3SignedUrl(fotoDocumento.ruta_archivo, 3600) // URL válida por 1 hora
-          console.log('✅ [TRANSFORM] URL firmada generada desde documento:', conductor.foto_signed_url)
-        } else {
-          conductor.foto_signed_url = null
-        }
+        conductor.foto_signed_url = null
       }
     } catch (error) {
-      console.error('❌ [TRANSFORM] Error obteniendo foto del conductor:', error)
+      console.error('Error obteniendo foto del conductor:', error)
       conductor.foto_signed_url = null
     }
   }
   
-  // Eliminar las propiedades de relaciones originales
   delete servicioPlano.conductores
   delete servicioPlano.clientes
   delete servicioPlano.vehiculos
@@ -238,78 +209,99 @@ function normalizarProposito(proposito: string | undefined): any {
 
 export const ServiciosService = {
   async create(data: CreateServicioInput, userId?: string) {
-    const servicio = await prisma.servicio.create({
-      data: {
-        conductor_id: data.conductor_id,
-        vehiculo_id: data.vehiculo_id,
-        cliente_id: data.cliente_id,
-        origen_id: data.origen_id,
-        destino_id: data.destino_id,
-        origen_especifico: data.origen_especifico || '',
-        destino_especifico: data.destino_especifico || '',
-        estado: data.estado as any,
-        proposito_servicio: normalizarProposito(data.proposito_servicio) as any,
-        fecha_solicitud: new Date(data.fecha_solicitud),
-      fecha_realizacion: data.fecha_realizacion ? new Date(data.fecha_realizacion) : undefined,
-      fecha_finalizacion: data.fecha_finalizacion ? new Date(data.fecha_finalizacion) : undefined,
-      origen_latitud: data.origen_latitud,
-      origen_longitud: data.origen_longitud,
-      destino_latitud: data.destino_latitud,
-      destino_longitud: data.destino_longitud,
-      valor: data.valor ?? 0,
-      numero_planilla: data.numero_planilla,
-      observaciones: data.observaciones,
-      },
-      include: {
-        conductores: {
-          select: {
-            id: true,
-            nombre: true,
-            apellido: true,
-            telefono: true,
-            estado: true,
-            foto_url: true,
-            numero_identificacion: true
-          }
+    const estadoInicial: ServicioEstado = (data.estado as ServicioEstado) || 'solicitado'
+
+    const servicio = await prisma.$transaction(async (tx) => {
+      const created = await tx.servicio.create({
+        data: {
+          conductor_id: data.conductor_id,
+          vehiculo_id: data.vehiculo_id,
+          cliente_id: data.cliente_id,
+          origen_id: data.origen_id,
+          destino_id: data.destino_id,
+          origen_especifico: data.origen_especifico || '',
+          destino_especifico: data.destino_especifico || '',
+          estado: estadoInicial as any,
+          proposito_servicio: normalizarProposito(data.proposito_servicio) as any,
+          fecha_solicitud: new Date(data.fecha_solicitud),
+          fecha_realizacion: data.fecha_realizacion ? new Date(data.fecha_realizacion) : undefined,
+          fecha_finalizacion: data.fecha_finalizacion ? new Date(data.fecha_finalizacion) : undefined,
+          origen_latitud: data.origen_latitud,
+          origen_longitud: data.origen_longitud,
+          destino_latitud: data.destino_latitud,
+          destino_longitud: data.destino_longitud,
+          valor: data.valor ?? 0,
+          numero_planilla: data.numero_planilla,
+          observaciones: data.observaciones,
         },
-        vehiculos: {
-          select: {
-            id: true,
-            placa: true,
-            marca: true,
-            modelo: true,
-            estado: true
-          }
-        },
-        clientes: {
-          select: {
-            id: true,
-            nombre: true,
-            nit: true,
-            telefono: true
-          }
-        },
-        municipios_servicio_origen_idTomunicipios: {
-          select: {
-            id: true,
-            nombre_municipio: true,
-            nombre_departamento: true,
-            codigo_municipio: true,
-            latitud: true,
-            longitud: true
-          }
-        },
-        municipios_servicio_destino_idTomunicipios: {
-          select: {
-            id: true,
-            nombre_municipio: true,
-            nombre_departamento: true,
-            codigo_municipio: true,
-            latitud: true,
-            longitud: true
+        include: {
+          conductores: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              estado: true,
+              foto_url: true,
+              numero_identificacion: true
+            }
+          },
+          vehiculos: {
+            select: {
+              id: true,
+              placa: true,
+              marca: true,
+              modelo: true,
+              estado: true
+            }
+          },
+          clientes: {
+            select: {
+              id: true,
+              nombre: true,
+              nit: true,
+              telefono: true
+            }
+          },
+          municipios_servicio_origen_idTomunicipios: {
+            select: {
+              id: true,
+              nombre_municipio: true,
+              nombre_departamento: true,
+              codigo_municipio: true,
+              latitud: true,
+              longitud: true
+            }
+          },
+          municipios_servicio_destino_idTomunicipios: {
+            select: {
+              id: true,
+              nombre_municipio: true,
+              nombre_departamento: true,
+              codigo_municipio: true,
+              latitud: true,
+              longitud: true
+            }
           }
         }
+      })
+
+      // Aplicar efectos colaterales: si el servicio se crea en planificado o en_curso
+      // y trae conductor/vehículo asignados, marcarlos como programado/servicio.
+      if (estadoInicial !== 'solicitado' && estadoInicial !== 'pendiente' && estadoInicial !== 'cancelado') {
+        await aplicarEfectosColaterales({
+          servicioId: created.id,
+          estadoAnterior: 'solicitado',
+          estadoNuevo: estadoInicial,
+          conductorIdAnterior: null,
+          conductorIdNuevo: created.conductor_id,
+          vehiculoIdAnterior: null,
+          vehiculoIdNuevo: created.vehiculo_id,
+          tx
+        })
       }
+
+      return created
     })
     
     // Auto-crear recargo si hay fecha de realización
@@ -347,7 +339,7 @@ export const ServiciosService = {
       }
     }
     
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
   async list(
@@ -406,12 +398,6 @@ export const ServiciosService = {
       }
       
       where[campoFecha] = rangoFecha
-      console.log(`📅 Filtro de fechas aplicado:`, {
-        campoFecha,
-        filters_recibidos: { fecha_desde: filters.fecha_desde, fecha_hasta: filters.fecha_hasta, campo_fecha: filters.campo_fecha },
-        rangoFecha,
-        where_completo: JSON.stringify(where, null, 2)
-      })
     }
     
     if (filters?.search) {
@@ -439,8 +425,6 @@ export const ServiciosService = {
         { municipios_servicio_destino_idTomunicipios: { nombre_municipio: { contains: filters.search, mode: 'insensitive' } } },
         { municipios_servicio_destino_idTomunicipios: { nombre_departamento: { contains: filters.search, mode: 'insensitive' } } }
       ]
-      
-      console.log('🔍 Búsqueda aplicada en múltiples campos:', filters.search)
     }
     
     // Construir ordenamiento
@@ -459,9 +443,6 @@ export const ServiciosService = {
     } else {
       orderBy.created_at = 'desc'
     }
-    
-    console.log('🔍 Query Prisma - where:', JSON.stringify(where, null, 2))
-    console.log('🔍 Query Prisma - orderBy:', JSON.stringify(orderBy, null, 2))
     
     // Obtener servicios
     const servicios = await prisma.servicio.findMany({
@@ -509,6 +490,42 @@ export const ServiciosService = {
             nombre_municipio: true,
             nombre_departamento: true,
             codigo_municipio: true
+          }
+        },
+        recargos_planillas: {
+          select: {
+            id: true,
+            numero_planilla: true,
+            mes: true,
+            a_o: true,
+            total_dias_laborados: true,
+            total_horas_trabajadas: true,
+            estado: true,
+            estado_conductor: true,
+            via_trocha: true,
+            via_afirmado: true,
+            via_mixto: true,
+            via_pavimentada: true,
+            riesgo_desniveles: true,
+            riesgo_deslizamientos: true,
+            riesgo_sin_senalizacion: true,
+            riesgo_animales: true,
+            riesgo_peatones: true,
+            riesgo_trafico_alto: true,
+            fuente_consulta: true,
+            calificacion_servicio: true,
+            tiempo_disponibilidad_horas: true,
+            duracion_trayecto_horas: true,
+            numero_dias_servicio: true,
+            dias_laborales_planillas: {
+              where: { deleted_at: null },
+              orderBy: { dia: 'asc' },
+              select: {
+                dia: true,
+                kilometraje_inicial: true,
+                kilometraje_final: true
+              }
+            }
           }
         }
       },
@@ -565,8 +582,6 @@ export const ServiciosService = {
         else if (estado === 'cancelado') stats.cancelado = count
         else if (estado === 'liquidado') stats.liquidado = count
       })
-      
-      console.log('📊 Stats calculadas con filtros:', stats)
     } catch (error) {
       console.error('❌ Error calculando stats con filtros:', error)
       // Si falla el groupBy (por ejemplo con relaciones complejas), calcular manualmente
@@ -581,8 +596,8 @@ export const ServiciosService = {
       }
     }
 
-    // Transformar los datos para que coincidan con el frontend
-    const serviciosTransformados = await Promise.all(servicios.map(s => transformarServicio(s)))
+    // Transformar los datos en batch (1 sola query de fotos para todos los conductores)
+    const serviciosTransformados = await transformarServiciosBatch(servicios)
 
     return {
       servicios: serviciosTransformados,
@@ -720,10 +735,10 @@ export const ServiciosService = {
       }
     })
     
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
-  async update(id: string, data: UpdateServicioInput) {
+  async update(id: string, data: UpdateServicioInput, userId?: string) {
     const updateData: any = { ...data }
     
     if (data.fecha_solicitud) {
@@ -741,120 +756,197 @@ export const ServiciosService = {
       updateData.proposito_servicio = normalizarProposito(data.proposito_servicio)
     }
 
-    // Obtener el servicio actual antes de actualizar
-    const servicioActual = await prisma.servicio.findUnique({
-      where: { id },
-      include: {
-        recargos_planillas: {
-          where: {
-            deleted_at: null
+    const servicio = await prisma.$transaction(async (tx) => {
+      // Obtener estado anterior con sus recursos asignados
+      const anterior = await tx.servicio.findUnique({
+        where: { id },
+        select: {
+          estado: true,
+          conductor_id: true,
+          vehiculo_id: true
+        }
+      })
+
+      if (!anterior) {
+        throw new Error('Servicio no encontrado')
+      }
+
+      const estadoAnterior = anterior.estado as ServicioEstado
+      const estadoNuevo: ServicioEstado = (data.estado as ServicioEstado) || estadoAnterior
+
+      const updated = await tx.servicio.update({
+        where: { id },
+        data: updateData,
+        include: {
+          conductores: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              foto_url: true,
+              numero_identificacion: true
+            }
           },
-          select: {
-            id: true
+          vehiculos: {
+            select: {
+              id: true,
+              placa: true,
+              marca: true,
+              modelo: true
+            }
+          },
+          clientes: {
+            select: {
+              id: true,
+              nombre: true,
+              nit: true
+            }
+          },
+          municipios_servicio_origen_idTomunicipios: {
+            select: {
+              id: true,
+              nombre_municipio: true,
+              nombre_departamento: true,
+              codigo_municipio: true
+            }
+          },
+          municipios_servicio_destino_idTomunicipios: {
+            select: {
+              id: true,
+              nombre_municipio: true,
+              nombre_departamento: true,
+              codigo_municipio: true
+            }
           }
         }
-      }
-    })
+      })
 
-    if (!servicioActual) {
-      throw new Error('Servicio no encontrado')
-    }
+      // Aplicar efectos colaterales si cambió el estado o los recursos
+      const cambioEstado = estadoAnterior !== estadoNuevo
+      const cambioConductor = anterior.conductor_id !== updated.conductor_id
+      const cambioVehiculo = anterior.vehiculo_id !== updated.vehiculo_id
 
-    const servicio = await prisma.servicio.update({
-      where: { id },
-      data: updateData,
-      include: {
-        conductores: {
-          select: {
-            id: true,
-            nombre: true,
-            apellido: true,
-            telefono: true,
-            foto_url: true,
-            numero_identificacion: true
-          }
-        },
-        vehiculos: {
-          select: {
-            id: true,
-            placa: true,
-            marca: true,
-            modelo: true
-          }
-        },
-        clientes: {
-          select: {
-            id: true,
-            nombre: true,
-            nit: true
-          }
-        },
-        municipios_servicio_origen_idTomunicipios: {
-          select: {
-            id: true,
-            nombre_municipio: true,
-            nombre_departamento: true,
-            codigo_municipio: true
-          }
-        },
-        municipios_servicio_destino_idTomunicipios: {
-          select: {
-            id: true,
-            nombre_municipio: true,
-            nombre_departamento: true,
-            codigo_municipio: true
-          }
-        }
+      if (cambioEstado || cambioConductor || cambioVehiculo) {
+        await aplicarEfectosColaterales({
+          servicioId: id,
+          estadoAnterior,
+          estadoNuevo,
+          conductorIdAnterior: anterior.conductor_id,
+          conductorIdNuevo: updated.conductor_id,
+          vehiculoIdAnterior: anterior.vehiculo_id,
+          vehiculoIdNuevo: updated.vehiculo_id,
+          tx
+        })
       }
+
+      return updated
     })
     
-    // Verificar si se agregó conductor y/o vehículo, y si hay fecha de realización
-    const conductorAgregado = !servicioActual.conductor_id && data.conductor_id
-    const vehiculoAgregado = !servicioActual.vehiculo_id && data.vehiculo_id
-    const tieneFechaRealizacion = data.fecha_realizacion || servicioActual.fecha_realizacion
-    const noTieneRecargos = servicioActual.recargos_planillas.length === 0
-
-    // Si se agregó conductor o vehículo, hay fecha de realización, y no tiene recargos, crear recargo automáticamente
-    if ((conductorAgregado || vehiculoAgregado) && tieneFechaRealizacion && noTieneRecargos) {
+    // Auto-crear recargo si se cumplen las condiciones
+    // 1. Tiene fecha de realización
+    // 2. Tiene conductor asignado
+    // 3. Tiene vehículo asignado
+    // 4. Aún no tiene recargo asociado
+    if (data.fecha_realizacion && servicio.conductor_id && servicio.vehiculo_id) {
       try {
-        const fechaRealizacion = data.fecha_realizacion 
-          ? new Date(data.fecha_realizacion) 
-          : new Date(servicioActual.fecha_realizacion!)
-        
-        const mes = fechaRealizacion.getMonth() + 1
-        const año = fechaRealizacion.getFullYear()
-        
-        console.log('🔄 [AUTO-RECARGO-UPDATE] Creando recargo automático al actualizar servicio:', {
-          servicio_id: servicio.id,
-          conductor_agregado: conductorAgregado,
-          vehiculo_agregado: vehiculoAgregado,
-          conductor_id: data.conductor_id || servicioActual.conductor_id,
-          vehiculo_id: data.vehiculo_id || servicioActual.vehiculo_id,
-          numero_planilla: data.numero_planilla || servicioActual.numero_planilla,
-          mes,
-          año
+        // Verificar si ya existe un recargo para este servicio
+        const recargoExistente = await prisma.recargos_planillas.findFirst({
+          where: {
+            servicio_id: servicio.id,
+            deleted_at: null
+          }
         })
         
-        await RecargosService.create({
-          conductor_id: data.conductor_id || servicioActual.conductor_id,
-          vehiculo_id: data.vehiculo_id || servicioActual.vehiculo_id,
-          empresa_id: servicio.cliente_id,
-          numero_planilla: data.numero_planilla || servicioActual.numero_planilla || undefined,
-          mes,
-          año,
-          servicio_id: servicio.id,
-          observaciones: `Recargo creado automáticamente al agregar ${conductorAgregado && vehiculoAgregado ? 'conductor y vehículo' : conductorAgregado ? 'conductor' : 'vehículo'} al servicio ${data.numero_planilla || servicioActual.numero_planilla || servicio.id}`,
-          dias_laborales: []
-        })
-        
-        console.log('✅ [AUTO-RECARGO-UPDATE] Recargo creado exitosamente')
+        if (!recargoExistente) {
+          const fechaRealizacion = new Date(data.fecha_realizacion)
+          const mes = fechaRealizacion.getMonth() + 1
+          const año = fechaRealizacion.getFullYear()
+          
+          console.log('🔄 [AUTO-RECARGO UPDATE] Creando recargo automático al editar servicio:', {
+            servicio_id: servicio.id,
+            numero_planilla: servicio.numero_planilla,
+            mes,
+            año,
+            conductor_id: servicio.conductor_id,
+            vehiculo_id: servicio.vehiculo_id
+          })
+          
+          await RecargosService.create({
+            conductor_id: servicio.conductor_id,
+            vehiculo_id: servicio.vehiculo_id,
+            empresa_id: servicio.cliente_id,
+            numero_planilla: servicio.numero_planilla || undefined,
+            mes,
+            año,
+            servicio_id: servicio.id,
+            observaciones: `Recargo creado automáticamente al editar servicio ${servicio.numero_planilla || servicio.id}`,
+            dias_laborales: []
+          }, userId)
+          
+          console.log('✅ [AUTO-RECARGO UPDATE] Recargo creado exitosamente')
+        } else {
+          console.log('ℹ️ [AUTO-RECARGO UPDATE] El servicio ya tiene un recargo asociado')
+          
+          // Si el recargo existe, actualizar sus campos si cambiaron
+          const camposActualizados: any = {}
+          let huboActualizacion = false
+          
+          if (data.conductor_id && recargoExistente.conductor_id !== servicio.conductor_id) {
+            camposActualizados.conductor_id = servicio.conductor_id
+            huboActualizacion = true
+            console.log('📝 [AUTO-RECARGO UPDATE] Actualizando conductor en recargo')
+          }
+          
+          if (data.vehiculo_id && recargoExistente.vehiculo_id !== servicio.vehiculo_id) {
+            camposActualizados.vehiculo_id = servicio.vehiculo_id
+            huboActualizacion = true
+            console.log('📝 [AUTO-RECARGO UPDATE] Actualizando vehículo en recargo')
+          }
+          
+          if (data.cliente_id && recargoExistente.empresa_id !== servicio.cliente_id) {
+            camposActualizados.empresa_id = servicio.cliente_id
+            huboActualizacion = true
+            console.log('📝 [AUTO-RECARGO UPDATE] Actualizando empresa en recargo')
+          }
+          
+          // Si cambió la fecha de realización, actualizar mes y año
+          if (data.fecha_realizacion) {
+            const fechaRealizacion = new Date(data.fecha_realizacion)
+            const nuevoMes = fechaRealizacion.getMonth() + 1
+            const nuevoAño = fechaRealizacion.getFullYear()
+            
+            if (recargoExistente.mes !== nuevoMes || recargoExistente.a_o !== nuevoAño) {
+              camposActualizados.mes = nuevoMes
+              camposActualizados.a_o = nuevoAño
+              huboActualizacion = true
+              console.log('📝 [AUTO-RECARGO UPDATE] Actualizando mes/año en recargo')
+            }
+          }
+          
+          if (huboActualizacion) {
+            // Agregar campos de auditoría
+            camposActualizados.actualizado_por_id = userId
+            camposActualizados.version = { increment: 1 }
+            
+            await prisma.recargos_planillas.update({
+              where: { id: recargoExistente.id },
+              data: camposActualizados
+            })
+            
+            console.log('✅ [AUTO-RECARGO UPDATE] Recargo actualizado exitosamente:', {
+              recargo_id: recargoExistente.id,
+              campos_actualizados: Object.keys(camposActualizados).filter(k => k !== 'actualizado_por_id' && k !== 'version')
+            })
+          }
+        }
       } catch (error) {
-        console.error('❌ [AUTO-RECARGO-UPDATE] Error creando recargo automático:', error)
+        console.error('❌ [AUTO-RECARGO UPDATE] Error en auto-recargo:', error)
         // No lanzar error para no interrumpir la actualización del servicio
       }
     }
     
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
   async delete(id: string) {
@@ -894,39 +986,110 @@ export const ServiciosService = {
       updateData.fecha_realizacion = new Date()
     }
 
-    const servicio = await prisma.servicio.update({
-      where: { id },
-      data: updateData,
-      include: {
-        conductores: true,
-        vehiculos: true,
-        clientes: true,
-        municipios_servicio_origen_idTomunicipios: true,
-        municipios_servicio_destino_idTomunicipios: true
+    const servicio = await prisma.$transaction(async (tx) => {
+      const anterior = await tx.servicio.findUnique({
+        where: { id },
+        select: { estado: true, conductor_id: true, vehiculo_id: true }
+      })
+
+      if (!anterior) {
+        throw new Error('Servicio no encontrado')
       }
+
+      const estadoAnterior = anterior.estado as ServicioEstado
+      const estadoNuevo = data.estado as ServicioEstado
+
+      // Para transición a cancelado desde planilla_asignada o liquidado: bloquear
+      // La FSM ya valida esto, pero queremos un error claro para el cliente
+      if (estadoAnterior === estadoNuevo) {
+        // No-op, no aplicar efectos
+        const current = await tx.servicio.findUnique({
+          where: { id },
+          include: {
+            conductores: true,
+            vehiculos: true,
+            clientes: true,
+            municipios_servicio_origen_idTomunicipios: true,
+            municipios_servicio_destino_idTomunicipios: true
+          }
+        })
+        return current
+      }
+
+      const updated = await tx.servicio.update({
+        where: { id },
+        data: updateData,
+        include: {
+          conductores: true,
+          vehiculos: true,
+          clientes: true,
+          municipios_servicio_origen_idTomunicipios: true,
+          municipios_servicio_destino_idTomunicipios: true
+        }
+      })
+
+      await aplicarEfectosColaterales({
+        servicioId: id,
+        estadoAnterior,
+        estadoNuevo,
+        conductorIdAnterior: anterior.conductor_id,
+        conductorIdNuevo: updated.conductor_id,
+        vehiculoIdAnterior: anterior.vehiculo_id,
+        vehiculoIdNuevo: updated.vehiculo_id,
+        tx
+      })
+
+      return updated
     })
     
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
   async cancelar(id: string, observaciones?: string) {
-    const servicio = await prisma.servicio.update({
-      where: { id },
-      data: {
-        estado: 'cancelado',
-        observaciones: observaciones || 'Servicio cancelado',
-        fecha_finalizacion: new Date()
-      },
-      include: {
-        conductores: true,
-        vehiculos: true,
-        clientes: true,
-        municipios_servicio_origen_idTomunicipios: true,
-        municipios_servicio_destino_idTomunicipios: true
+    const servicio = await prisma.$transaction(async (tx) => {
+      const anterior = await tx.servicio.findUnique({
+        where: { id },
+        select: { estado: true, conductor_id: true, vehiculo_id: true }
+      })
+
+      if (!anterior) {
+        throw new Error('Servicio no encontrado')
       }
+
+      const estadoAnterior = anterior.estado as ServicioEstado
+      const estadoNuevo: ServicioEstado = 'cancelado'
+
+      const updated = await tx.servicio.update({
+        where: { id },
+        data: {
+          estado: 'cancelado',
+          observaciones: observaciones || 'Servicio cancelado',
+          fecha_finalizacion: new Date()
+        },
+        include: {
+          conductores: true,
+          vehiculos: true,
+          clientes: true,
+          municipios_servicio_origen_idTomunicipios: true,
+          municipios_servicio_destino_idTomunicipios: true
+        }
+      })
+
+      await aplicarEfectosColaterales({
+        servicioId: id,
+        estadoAnterior,
+        estadoNuevo,
+        conductorIdAnterior: anterior.conductor_id,
+        conductorIdNuevo: updated.conductor_id,
+        vehiculoIdAnterior: anterior.vehiculo_id,
+        vehiculoIdNuevo: updated.vehiculo_id,
+        tx
+      })
+
+      return updated
     })
     
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
   async asignarNumeroPlanilla(id: string, data: AsignarPlanillaInput) {
@@ -944,7 +1107,7 @@ export const ServiciosService = {
       }
     })
     
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
   async buscar(filters: BuscarServiciosInput) {
@@ -1038,7 +1201,7 @@ export const ServiciosService = {
       prisma.servicio.count({ where })
     ])
 
-    const serviciosTransformados = servicios.map(transformarServicio)
+    const serviciosTransformados = await transformarServiciosBatch(servicios)
 
     return {
       servicios: serviciosTransformados,
@@ -1052,7 +1215,9 @@ export const ServiciosService = {
 
   // Métodos para obtener listas para filtros
   async obtenerConductores(search?: string) {
-    const where: any = {}
+    const where: any = {
+      oculto: false
+    }
 
     if (search && search.trim()) {
       where.OR = [
@@ -1068,7 +1233,9 @@ export const ServiciosService = {
         id: true,
         nombre: true,
         apellido: true,
+        tipo_identificacion: true,
         numero_identificacion: true,
+        telefono: true,
         estado: true
       },
       orderBy: [
@@ -1082,7 +1249,8 @@ export const ServiciosService = {
 
   async obtenerVehiculos(search?: string) {
     const where: any = {
-      deleted_at: null // Excluir vehículos eliminados
+      deleted_at: null,
+      oculto: false
     }
 
     if (search && search.trim()) {
@@ -1112,7 +1280,8 @@ export const ServiciosService = {
 
   async obtenerClientes(search?: string) {
     const where: any = {
-      deletedAt: null // Solo clientes activos
+      deletedAt: null,
+      oculto: false
     }
 
     if (search && search.trim()) {
@@ -1161,6 +1330,102 @@ export const ServiciosService = {
     if (!servicio) throw new Error('Token no encontrado')
     await prisma.servicio.update({ where: { id: servicio.id }, data: { share_token: null, share_token_expires_at: null }})
     return true
+  },
+
+  /**
+   * Obtener servicios para vista de calendario, filtrados por mes/año y campo de fecha.
+   * Devuelve los servicios completos con relaciones, sin paginar (el mes limita el rango).
+   */
+  async calendar(filters: {
+    mes: number
+    anio: number
+    campo_fecha: 'fecha_solicitud' | 'fecha_realizacion' | 'fecha_finalizacion'
+    estado?: string
+    conductor_id?: string
+    vehiculo_id?: string
+    cliente_id?: string
+  }) {
+    const { mes, anio, campo_fecha, estado, conductor_id, vehiculo_id, cliente_id } = filters
+
+    // Rango del mes completo: [inicio del mes 00:00, inicio del mes siguiente 00:00)
+    const fechaInicio = new Date(Date.UTC(anio, mes - 1, 1, 0, 0, 0, 0))
+    const fechaFin = new Date(Date.UTC(anio, mes, 1, 0, 0, 0, 0))
+
+    const where: any = {
+      [campo_fecha]: {
+        gte: fechaInicio,
+        lt: fechaFin
+      }
+    }
+
+    if (estado) where.estado = estado
+    if (conductor_id) where.conductor_id = conductor_id
+    if (vehiculo_id) where.vehiculo_id = vehiculo_id
+    if (cliente_id) where.cliente_id = cliente_id
+
+    const servicios = await prisma.servicio.findMany({
+      where,
+      include: {
+        conductores: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            telefono: true,
+            foto_url: true,
+            numero_identificacion: true
+          }
+        },
+        vehiculos: {
+          select: {
+            id: true,
+            placa: true,
+            marca: true,
+            modelo: true
+          }
+        },
+        clientes: {
+          select: {
+            id: true,
+            nombre: true,
+            nit: true
+          }
+        },
+        municipios_servicio_origen_idTomunicipios: {
+          select: {
+            id: true,
+            nombre_municipio: true,
+            nombre_departamento: true,
+            codigo_municipio: true
+          }
+        },
+        municipios_servicio_destino_idTomunicipios: {
+          select: {
+            id: true,
+            nombre_municipio: true,
+            nombre_departamento: true,
+            codigo_municipio: true
+          }
+        }
+      },
+      orderBy: {
+        [campo_fecha]: 'asc'
+      }
+    })
+
+    const serviciosTransformados = await transformarServiciosBatch(servicios)
+
+    return {
+      servicios: serviciosTransformados,
+      total: serviciosTransformados.length,
+      mes,
+      anio,
+      campo_fecha,
+      rango: {
+        desde: fechaInicio.toISOString(),
+        hasta: new Date(fechaFin.getTime() - 1).toISOString()
+      }
+    }
   },
 
   async obtenerPorShareToken(token: string) {
@@ -1220,6 +1485,6 @@ export const ServiciosService = {
     })
     if (!servicio) throw new Error('Enlace inválido o expirado')
     if (servicio.share_token_expires_at && new Date(servicio.share_token_expires_at) < new Date()) throw new Error('Este enlace ha expirado')
-    return await transformarServicio(servicio)
+    return (await transformarServiciosBatch([servicio]))[0] || null
   }
 }

@@ -1,4 +1,4 @@
-# Migración: Cotransmeq → Esquema de Transmeralda
+# Migración: Cotransmeq → Esquema de Cotransmeq
 
 **Fecha:** 2026-07-21
 **Origen (target):** `transmeralda/backend-nest/prisma/schema.prisma` (más completo y actual)
@@ -8,7 +8,7 @@
 
 ## 1. Resumen ejecutivo
 
-| Concepto                 | Transmeralda | Cotransmeq (antes) | Diferencia |
+| Concepto                 | Cotransmeq | Cotransmeq (antes) | Diferencia |
 |--------------------------|-------------:|-------------------:|-----------:|
 | Modelos                  | 86           | 54                 | +32        |
 | Enums                    | 45           | 29                 | +16        |
@@ -54,7 +54,7 @@ Estas decisiones se tomaron porque los datos de Cotransmeq no son 100% compatibl
 
 ### 4.1 `vehiculos.estado`: mapeo de `NO_DISPONIBLE`
 
-Cotransmeq tiene el valor `NO_DISPONIBLE` que **no existe** en Transmeralda. Se mapeó a `inactivo` (interpretación razonable). **Otras opciones posibles:** `disponible`, `mantenimiento`, o agregar `NO_DISPONIBLE` al nuevo enum.
+Cotransmeq tiene el valor `NO_DISPONIBLE` que **no existe** en Cotransmeq. Se mapeó a `inactivo` (interpretación razonable). **Otras opciones posibles:** `disponible`, `mantenimiento`, o agregar `NO_DISPONIBLE` al nuevo enum.
 
 ```sql
 UPDATE vehiculos SET estado = 'inactivo' WHERE estado = 'NO_DISPONIBLE';
@@ -116,7 +116,7 @@ SELECT MAX(horas)                  FROM detalles_recargos_dias;     -- debe ser 
 
 ### 4.5 `recargos_planillas.servicio_id`: cambio de `onDelete`
 
-Cotransmeq: `ON DELETE SET NULL`. Transmeralda: implícito `NO ACTION`. Si se elimina un `servicio` con `recargos_planillas` referenciándolo, ahora **bloqueará el borrado** del servicio en lugar de poner el FK a NULL.
+Cotransmeq: `ON DELETE SET NULL`. Cotransmeq: implícito `NO ACTION`. Si se elimina un `servicio` con `recargos_planillas` referenciándolo, ahora **bloqueará el borrado** del servicio en lugar de poner el FK a NULL.
 
 **Si necesitas mantener `SET NULL`**, edita la SECCIÓN 7.7 y elimina la línea que recrea la constraint.
 
@@ -261,7 +261,7 @@ pg_restore -d <dbname> <backup.dump>
 
 ## 9. Próximos pasos sugeridos
 
-1. **Reemplazar el `schema.prisma` de Cotransmeq** con el de Transmeralda (o unificar el código).
+1. **Reemplazar el `schema.prisma` de Cotransmeq** con el de Cotransmeq (o unificar el código).
 2. **Regenerar el cliente Prisma**: `npx prisma generate`.
 3. **Sincronizar el código de aplicación** (módulos, services, controllers) que use los nuevos modelos/enums.
 4. **Validar tipos generados** con `npx tsc --noEmit` en el backend.

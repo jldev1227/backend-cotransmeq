@@ -71,6 +71,10 @@ function serializeItem(item: any) {
 
 export const LiquidacionesTercerosService = {
 
+  /**
+   * Guardar (crear o reemplazar) los items de terceros de una liquidación.
+   * Se eliminan los existentes y se crean los nuevos en una transacción.
+   */
   async guardar(liquidacionId: string, items: ItemLiquidacionTerceroInput[]) {
     const itemsData = items.map((item, index) => {
       const c = calcItem(item);
@@ -113,6 +117,9 @@ export const LiquidacionesTercerosService = {
     return created.map(serializeItem);
   },
 
+  /**
+   * Obtener items de terceros de una liquidación específica.
+   */
   async obtenerPorLiquidacion(liquidacionId: string) {
     const items = await prisma.liquidacion_tercero.findMany({
       where: { liquidacion_id: liquidacionId },
@@ -125,6 +132,10 @@ export const LiquidacionesTercerosService = {
     return items.map(serializeItem);
   },
 
+  /**
+   * Historial: listar todos los items de terceros con filtros, agrupados o planos.
+   * Incluye datos de la liquidación padre (consecutivo, cliente, mes, año, estado, osi).
+   */
   async listarHistorial(filtros: FiltrosLiquidacionTerceros) {
     const page = Number(filtros.page) || 1;
     const limit = Number(filtros.limit) || 50;
@@ -201,6 +212,10 @@ export const LiquidacionesTercerosService = {
     };
   },
 
+  /**
+   * Migrar terceroRows del JSON recargos_data a la nueva tabla.
+   * Solo para liquidaciones que tienen terceroRows en recargos_data y no tienen registros en liquidacion_tercero.
+   */
   async migrarDesdeJSON() {
     const liquidaciones = await prisma.liquidacion_servicio.findMany({
       where: {
@@ -217,6 +232,7 @@ export const LiquidacionesTercerosService = {
       const rd = liq.recargos_data as any;
       if (!rd?.terceroRows || !Array.isArray(rd.terceroRows) || rd.terceroRows.length === 0) continue;
 
+      // Check if already migrated
       const existing = await prisma.liquidacion_tercero.count({ where: { liquidacion_id: liq.id } });
       if (existing > 0) continue;
 

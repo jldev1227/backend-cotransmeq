@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../../config/prisma";
 import { randomUUID } from "crypto";
+import { getS3ObjectAsBase64 } from "../../config/aws";
 
 export const PrimasService = {
   // Obtener todas las primas con paginación y filtros
@@ -102,17 +103,14 @@ export const PrimasService = {
                 email: true,
               },
             },
-            firmas_primas: {
-              where: { estado: "Activa" },
-              orderBy: { fecha_firma: "desc" },
-              take: 1,
+            _count: {
               select: {
-                id: true,
-                firma_url: true,
-                fecha_firma: true,
-                ip_address: true,
-                user_agent: true,
-                estado: true,
+                firmas_primas: {
+                  where: {
+                    firma_url: { not: '' },
+                    NOT: { firma_url: 'pending' },
+                  },
+                },
               },
             },
           },
@@ -132,8 +130,12 @@ export const PrimasService = {
     // Transformar los datos para el frontend
     const primasTransformadas = primas.map((p) => {
       const conductor = p.conductores;
+      const firmasCount = (p as any)._count?.firmas_primas ?? 0;
       return {
         ...p,
+        _count: undefined,
+        firmado: firmasCount > 0,
+        firmas_primas_count: firmasCount,
         prima: Number(p.prima),
         prima_pendiente:
           p.prima_pendiente !== null && p.prima_pendiente !== undefined
@@ -156,8 +158,7 @@ export const PrimasService = {
             ? Number(p.sueldo_variable)
             : null,
         total_base_liquidacion:
-          p.total_base_liquidacion !== null &&
-          p.total_base_liquidacion !== undefined
+          p.total_base_liquidacion !== null && p.total_base_liquidacion !== undefined
             ? Number(p.total_base_liquidacion)
             : null,
         conductor: conductor
@@ -169,15 +170,6 @@ export const PrimasService = {
               email: conductor.email,
             }
           : null,
-        // Mapeo firmas_primas -> firmas_desprendibles (forma esperada por frontend)
-        firmas_desprendibles: (p.firmas_primas || []).map((f) => ({
-          id: f.id,
-          firma_url: f.firma_url,
-          fecha_firma: f.fecha_firma,
-          ip_address: f.ip_address,
-          user_agent: f.user_agent,
-          estado: f.estado,
-        })),
       };
     });
 
@@ -217,18 +209,6 @@ export const PrimasService = {
             sede_trabajo: true,
           },
         },
-        firmas_primas: {
-          where: { estado: "Activa" },
-          orderBy: { fecha_firma: "desc" },
-          select: {
-            id: true,
-            firma_url: true,
-            fecha_firma: true,
-            ip_address: true,
-            user_agent: true,
-            estado: true,
-          },
-        },
         users_primas_creado_por_idTousers: {
           select: { id: true, nombre: true, correo: true },
         },
@@ -263,8 +243,7 @@ export const PrimasService = {
           ? Number(prima.sueldo_basico)
           : null,
       auxilio_transporte:
-        prima.auxilio_transporte !== null &&
-        prima.auxilio_transporte !== undefined
+        prima.auxilio_transporte !== null && prima.auxilio_transporte !== undefined
           ? Number(prima.auxilio_transporte)
           : null,
       sueldo_variable:
@@ -302,15 +281,6 @@ export const PrimasService = {
             email: actualizado_por.correo,
           }
         : null,
-      // Mapeo firmas_primas -> firmas_desprendibles (forma esperada por frontend)
-      firmas_desprendibles: (prima.firmas_primas || []).map((f) => ({
-        id: f.id,
-        firma_url: f.firma_url,
-        fecha_firma: f.fecha_firma,
-        ip_address: f.ip_address,
-        user_agent: f.user_agent,
-        estado: f.estado,
-      })),
     };
   },
 
@@ -369,6 +339,10 @@ export const PrimasService = {
       updateData.prima_pendiente =
         data.prima_pendiente !== null ? Number(data.prima_pendiente) : null;
     }
+    if (data.observaciones !== undefined) updateData.observaciones = data.observaciones;
+    if (data.estado !== undefined) {
+      updateData.estado = data.estado === "Pagado" ? "Pagado" : "Pendiente";
+    }
     if (data.tiempo_trabajado_dias !== undefined) {
       updateData.tiempo_trabajado_dias =
         data.tiempo_trabajado_dias !== null
@@ -381,7 +355,9 @@ export const PrimasService = {
     }
     if (data.auxilio_transporte !== undefined) {
       updateData.auxilio_transporte =
-        data.auxilio_transporte !== null ? Number(data.auxilio_transporte) : null;
+        data.auxilio_transporte !== null
+          ? Number(data.auxilio_transporte)
+          : null;
     }
     if (data.sueldo_variable !== undefined) {
       updateData.sueldo_variable =
@@ -392,10 +368,6 @@ export const PrimasService = {
         data.total_base_liquidacion !== null
           ? Number(data.total_base_liquidacion)
           : null;
-    }
-    if (data.observaciones !== undefined) updateData.observaciones = data.observaciones;
-    if (data.estado !== undefined) {
-      updateData.estado = data.estado === "Pagado" ? "Pagado" : "Pendiente";
     }
 
     await prisma.primas.update({
@@ -455,19 +427,6 @@ export const PrimasService = {
             email: true,
           },
         },
-        firmas_primas: {
-          where: { estado: "Activa" },
-          orderBy: { fecha_firma: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            firma_url: true,
-            fecha_firma: true,
-            ip_address: true,
-            user_agent: true,
-            estado: true,
-          },
-        },
       },
       orderBy: [{ anio: "desc" }, { mes: "desc" }],
     });
@@ -479,6 +438,26 @@ export const PrimasService = {
         p.prima_pendiente !== null && p.prima_pendiente !== undefined
           ? Number(p.prima_pendiente)
           : null,
+      tiempo_trabajado_dias:
+        p.tiempo_trabajado_dias !== null && p.tiempo_trabajado_dias !== undefined
+          ? Number(p.tiempo_trabajado_dias)
+          : null,
+      sueldo_basico:
+        p.sueldo_basico !== null && p.sueldo_basico !== undefined
+          ? Number(p.sueldo_basico)
+          : null,
+      auxilio_transporte:
+        p.auxilio_transporte !== null && p.auxilio_transporte !== undefined
+          ? Number(p.auxilio_transporte)
+          : null,
+      sueldo_variable:
+        p.sueldo_variable !== null && p.sueldo_variable !== undefined
+          ? Number(p.sueldo_variable)
+          : null,
+      total_base_liquidacion:
+        p.total_base_liquidacion !== null && p.total_base_liquidacion !== undefined
+          ? Number(p.total_base_liquidacion)
+          : null,
       conductor: p.conductores
         ? {
             id: p.conductores.id,
@@ -488,15 +467,96 @@ export const PrimasService = {
             email: p.conductores.email,
           }
         : null,
-      // Mapeo firmas_primas -> firmas_desprendibles (forma esperada por frontend)
-      firmas_desprendibles: (p.firmas_primas || []).map((f) => ({
-        id: f.id,
-        firma_url: f.firma_url,
-        fecha_firma: f.fecha_firma,
-        ip_address: f.ip_address,
-        user_agent: f.user_agent,
-        estado: f.estado,
-      })),
     }));
   },
+
+  /**
+   * Obtener firma de una prima para el dashboard de admin.
+   * Orden de prioridad:
+   *   1) Firma propia de la prima (firmas_primas)
+   *   2) Fallback: firma de desprendible del mismo conductor del mismo mes/año
+   *      (liquidaciones con periodo_end ±1 mes del mes/año de la prima)
+   *
+   * Devuelve la imagen como data URL base64 lista para incrustar en PDF.
+   */
+  async obtenerFirmaEnriquecida(id: string) {
+    const prima = await prisma.primas.findFirst({
+      where: { id, deleted_at: null }
+    });
+
+    if (!prima) {
+      throw new Error("Prima no encontrada");
+    }
+
+    // 1) Firma propia de la prima
+    const firmaPropia = await prisma.firmas_primas.findFirst({
+      where: {
+        prima_id: id,
+        firma_url: { not: "" },
+        NOT: { firma_url: "pending" }
+      },
+      orderBy: { fecha_firma: "desc" }
+    });
+
+    if (firmaPropia && firmaPropia.firma_s3_key) {
+      try {
+        const firmaBase64 = await getS3ObjectAsBase64(firmaPropia.firma_s3_key);
+        return {
+          presignedUrl: firmaBase64,
+          fecha_firma: firmaPropia.fecha_firma,
+          origen: "prima" as const,
+          liquidacion_id: null
+        };
+      } catch {
+        // Continuar al fallback si falla la lectura desde S3
+      }
+    }
+
+    // 2) Fallback: firma de desprendible del mismo mes/año (±1 mes)
+    const candidatos: Array<{ anio: number; mes: number }> = [];
+    for (let offset = -1; offset <= 1; offset++) {
+      const d = new Date(prima.anio, prima.mes - 1 + offset, 1);
+      candidatos.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 });
+    }
+
+    const otrasFirmas = await prisma.firmas_desprendibles.findMany({
+      where: {
+        conductor_id: prima.conductor_id,
+        firma_url: { not: "" },
+        NOT: { firma_url: "pending" }
+      },
+      include: {
+        liquidaciones: {
+          select: { id: true, periodo_start: true, periodo_end: true }
+        }
+      },
+      orderBy: { fecha_firma: "desc" }
+    });
+
+    for (const f of otrasFirmas) {
+      if (!f.liquidaciones?.periodo_end) continue;
+      const fecha = new Date(
+        f.liquidaciones.periodo_end +
+          (f.liquidaciones.periodo_end.length === 10 ? "T00:00:00" : "")
+      );
+      if (isNaN(fecha.getTime())) continue;
+      const match = candidatos.some(
+        (c) => c.anio === fecha.getFullYear() && c.mes === fecha.getMonth() + 1
+      );
+      if (!match) continue;
+      try {
+        const firmaBase64 = await getS3ObjectAsBase64(f.firma_s3_key);
+        return {
+          presignedUrl: firmaBase64,
+          fecha_firma: f.fecha_firma,
+          origen: "nomina" as const,
+          liquidacion_id: f.liquidacion_id
+        };
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
 };

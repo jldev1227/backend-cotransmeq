@@ -79,38 +79,78 @@ export class AsistenciasService {
   }
 
   /**
-   * Obtener todos los formularios de asistencia
+   * Obtener todos los formularios de asistencia con paginación
    */
-  static async obtenerTodos() {
-    const formularios = await prisma.formularios_asistencia.findMany({
-      include: {
-        creado_por: {
-          select: {
-            id: true,
-            nombre: true,
-            correo: true
+  static async obtenerTodos(params: {
+    page: number;
+    limit: number;
+    search?: string;
+    filterActivo?: 'all' | 'activo' | 'inactivo';
+    sortBy?: 'fecha' | 'tematica' | 'respuestas';
+    sortOrder?: 'asc' | 'desc';
+  }) {
+    const { page, limit, search, filterActivo, sortBy, sortOrder } = params;
+
+    const where: any = { deleted_at: null };
+
+    if (search) {
+      where.OR = [
+        { tematica: { contains: search, mode: 'insensitive' } },
+        { objetivo: { contains: search, mode: 'insensitive' } },
+        { tipo_evento: { contains: search, mode: 'insensitive' } },
+        { tipo_evento_otro: { contains: search, mode: 'insensitive' } },
+        { lugar_sede: { contains: search, mode: 'insensitive' } },
+        { nombre_instructor: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    if (filterActivo === 'activo') where.activo = true;
+    else if (filterActivo === 'inactivo') where.activo = false;
+
+    const orderBy: any = {};
+    if (sortBy === 'fecha') orderBy.fecha = sortOrder;
+    else if (sortBy === 'tematica') orderBy.tematica = sortOrder;
+    else orderBy.created_at = sortOrder;
+
+    const [total, formularios] = await Promise.all([
+      prisma.formularios_asistencia.count({ where }),
+      prisma.formularios_asistencia.findMany({
+        where,
+        include: {
+          creado_por: {
+            select: {
+              id: true,
+              nombre: true,
+              correo: true
+            }
+          },
+          _count: {
+            select: {
+              respuestas: true
+            }
           }
         },
-        _count: {
-          select: {
-            respuestas: true
-          }
-        }
-      },
-      orderBy: {
-        fecha: 'desc'
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit
+      })
+    ]);
+
+    return {
+      data: formularios.map(f => ({
+        ...f,
+        fecha: f.fecha.toISOString(),
+        created_at: f.created_at.toISOString(),
+        updated_at: f.updated_at.toISOString()
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
       }
-    })
-
-    // Serializar fechas a ISO strings
-    return formularios.map(f => ({
-      ...f,
-      fecha: f.fecha.toISOString(),
-      created_at: f.created_at.toISOString(),
-      updated_at: f.updated_at.toISOString()
-    }))
+    };
   }
-
   /**
    * Obtener un formulario por ID
    */
@@ -233,12 +273,13 @@ export class AsistenciasService {
   }
 
   /**
-   * Eliminar un formulario de asistencia (y todas sus respuestas por CASCADE)
+   * Eliminar un formulario de asistencia (soft delete)
    */
   static async eliminar(id: string) {
-    await prisma.formularios_asistencia.delete({
-      where: { id }
-    })
+    await prisma.formularios_asistencia.update({
+      where: { id },
+      data: { deleted_at: new Date() }
+    });
   }
 
   /**
@@ -319,6 +360,7 @@ export class AsistenciasService {
         numero_documento: data.numero_documento,
         cargo: data.cargo,
         numero_telefono: data.numero_telefono,
+        pertenece_comite: data.pertenece_comite ?? null,
         firma: data.firma,
         ip_address: ipAddress,
         user_agent: userAgent,
@@ -389,9 +431,75 @@ export class AsistenciasService {
         numero_documento: r.numero_documento,
         cargo: r.cargo,
         numero_telefono: r.numero_telefono,
+        pertenece_comite: r.pertenece_comite,
         fecha_respuesta: r.created_at.toISOString(),
         firma: r.firma // Incluir la firma en Base64
       }))
     }
+  }
+
+  /**
+   * Obtener todos los formularios con respuestas (sin paginar) para exportación masiva
+   */
+  static async obtenerTodosConRespuestas(filters?: { filterActivo?: 'all' | 'activo' | 'inactivo'; search?: string }) {
+    const where: any = { deleted_at: null }
+    if (filters?.search) {
+      where.OR = [
+        { tematica: { contains: filters.search, mode: 'insensitive' } },
+        { objetivo: { contains: filters.search, mode: 'insensitive' } },
+        { lugar_sede: { contains: filters.search, mode: 'insensitive' } },
+        { nombre_instructor: { contains: filters.search, mode: 'insensitive' } }
+      ]
+    }
+    if (filters?.filterActivo === 'activo') where.activo = true
+    else if (filters?.filterActivo === 'inactivo') where.activo = false
+
+    return prisma.formularios_asistencia.findMany({
+      where,
+      include: {
+        respuestas: { orderBy: { created_at: 'asc' } }
+      },
+      orderBy: { fecha: 'desc' }
+    })
+  }
+
+  /**
+   * Obtener formularios específicos por IDs (para exportación selectiva)
+   */
+  static async obtenerPorIds(ids: string[]) {
+    return prisma.formularios_asistencia.findMany({
+      where: {
+        id: { in: ids },
+        deleted_at: null
+      },
+      include: {
+        respuestas: { orderBy: { created_at: 'asc' } }
+      },
+      orderBy: { fecha: 'desc' }
+    })
+  }
+
+  /**
+   * Obtener solo los IDs de los formularios que coinciden con los filtros
+   */
+  static async obtenerIdsFiltrados(filters?: { filterActivo?: 'all' | 'activo' | 'inactivo'; search?: string }) {
+    const where: any = { deleted_at: null }
+    if (filters?.search) {
+      where.OR = [
+        { tematica: { contains: filters.search, mode: 'insensitive' } },
+        { objetivo: { contains: filters.search, mode: 'insensitive' } },
+        { lugar_sede: { contains: filters.search, mode: 'insensitive' } },
+        { nombre_instructor: { contains: filters.search, mode: 'insensitive' } }
+      ]
+    }
+    if (filters?.filterActivo === 'activo') where.activo = true
+    else if (filters?.filterActivo === 'inactivo') where.activo = false
+
+    const rows = await prisma.formularios_asistencia.findMany({
+      where,
+      select: { id: true },
+      orderBy: { fecha: 'desc' }
+    })
+    return rows.map(r => r.id)
   }
 }

@@ -13,8 +13,12 @@ export async function evaluacionesRoutes(app: FastifyInstance) {
   app.get('/evaluaciones/:id/resultados', EvaluacionesController.resultados);
   app.get('/evaluaciones/:id/verificar', EvaluacionesController.verificarDispositivo);
 
-  // Rutas para exportar PDF y ZIP
+  // Exportar resultados a PDF
   app.get('/evaluaciones/:id/exportar-pdf', EvaluacionesController.exportarPDF);
+
+  // Exportar resultado individual a PDF
   app.get('/evaluaciones/:id/resultados/:resultadoId/exportar-pdf', EvaluacionesController.exportarPDFIndividual);
+
+  // Exportar ZIP con todos los PDFs individuales
   app.get('/evaluaciones/:id/exportar-zip', EvaluacionesController.exportarZIP);
 }

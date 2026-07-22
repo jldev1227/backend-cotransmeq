@@ -1,37 +1,17 @@
 // @ts-nocheck
-import { randomUUID } from 'crypto'
-import { prisma } from '../../config/prisma'
-import { CreateVehiculoInput, UpdateVehiculoInput } from './vehiculos.schema'
+import { randomUUID } from "crypto";
+import { prisma } from "../../config/prisma";
+import { CreateVehiculoInput, UpdateVehiculoInput } from "./vehiculos.schema";
 
 export const VehiculosService = {
   async create(data: CreateVehiculoInput) {
     const now = new Date();
-    return prisma.vehiculos.create({ 
+    return prisma.vehiculos.create({
       data: {
         ...data,
         id: randomUUID(),
         created_at: now,
-        updated_at: now
-      },
-      include: {
-        conductores: {
-          select: {
-            id: true,
-            nombre: true,
-            apellido: true,
-            email: true,
-            telefono: true
-          }
-        }
-      }
-    })
-  },
-
-  async list() {
-    return prisma.vehiculos.findMany({
-      where: {
-        deleted_at: null, // Solo vehículos no eliminados
-        oculto: false // Excluir vehículos ocultos
+        updated_at: now,
       },
       include: {
         conductores: {
@@ -41,19 +21,38 @@ export const VehiculosService = {
             apellido: true,
             email: true,
             telefono: true,
-            estado: true
-          }
-        }
+          },
+        },
+      },
+    });
+  },
+
+  async list() {
+    return prisma.vehiculos.findMany({
+      where: {
+        deleted_at: null, // Solo vehículos no eliminados
+        oculto: false, // Excluir vehículos ocultos
+      },
+      include: {
+        conductores: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            email: true,
+            telefono: true,
+            estado: true,
+          },
+        },
       },
       orderBy: {
-        created_at: 'desc'
-      }
-    })
+        created_at: "desc",
+      },
+    });
   },
 
   async findById(id: string) {
-    console.log('🔍 [SERVICE] findById llamado con ID:', id)
-    const result = await prisma.vehiculos.findUnique({
+    return prisma.vehiculos.findUnique({
       where: { id },
       include: {
         conductores: {
@@ -63,8 +62,8 @@ export const VehiculosService = {
             apellido: true,
             email: true,
             telefono: true,
-            estado: true
-          }
+            estado: true,
+          },
         },
         servicio: {
           select: {
@@ -72,17 +71,11 @@ export const VehiculosService = {
             estado: true,
             fecha_solicitud: true,
             origen_especifico: true,
-            destino_especifico: true
+            destino_especifico: true,
           },
-          take: 10,
-          orderBy: {
-            created_at: 'desc'
-          }
-        }
-      }
-    })
-    console.log('📦 [SERVICE] Resultado de Prisma:', result)
-    return result
+        },
+      },
+    });
   },
 
   async update(id: string, data: UpdateVehiculoInput) {
@@ -96,11 +89,11 @@ export const VehiculosService = {
             nombre: true,
             apellido: true,
             email: true,
-            telefono: true
-          }
-        }
-      }
-    })
+            telefono: true,
+          },
+        },
+      },
+    });
   },
 
   async delete(id: string) {
@@ -108,9 +101,9 @@ export const VehiculosService = {
     return prisma.vehiculos.update({
       where: { id },
       data: {
-        deleted_at: new Date()
-      }
-    })
+        deleted_at: new Date(),
+      },
+    });
   },
 
   async restore(id: string) {
@@ -118,29 +111,7 @@ export const VehiculosService = {
     return prisma.vehiculos.update({
       where: { id },
       data: {
-        deleted_at: null
-      },
-      include: {
-        conductores: {
-          select: {
-            id: true,
-            nombre: true,
-            apellido: true,
-            email: true,
-            telefono: true
-          }
-        }
-      }
-    })
-  },
-
-  async listDeleted() {
-    // Listar solo vehículos eliminados
-    return prisma.vehiculos.findMany({
-      where: {
-        deleted_at: {
-          not: null
-        }
+        deleted_at: null,
       },
       include: {
         conductores: {
@@ -150,30 +121,52 @@ export const VehiculosService = {
             apellido: true,
             email: true,
             telefono: true,
-            estado: true
-          }
-        }
+          },
+        },
+      },
+    });
+  },
+
+  async listDeleted() {
+    // Listar solo vehículos eliminados
+    return prisma.vehiculos.findMany({
+      where: {
+        deleted_at: {
+          not: null,
+        },
+      },
+      include: {
+        conductores: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            email: true,
+            telefono: true,
+            estado: true,
+          },
+        },
       },
       orderBy: {
-        deleted_at: 'desc'
-      }
-    })
+        deleted_at: "desc",
+      },
+    });
   },
 
   async findByPlaca(placa: string) {
     return prisma.vehiculos.findUnique({
       where: { placa },
       include: {
-        conductores: true
-      }
-    })
+        conductores: true,
+      },
+    });
   },
 
   async listBasicos() {
     return prisma.vehiculos.findMany({
       where: {
         deleted_at: null,
-        oculto: false // Excluir vehículos ocultos
+        oculto: false, // Excluir vehículos ocultos
       },
       select: {
         id: true,
@@ -186,14 +179,14 @@ export const VehiculosService = {
           select: {
             id: true,
             nombre: true,
-            apellido: true
-          }
-        }
+            apellido: true,
+          },
+        },
       },
       orderBy: {
-        placa: 'asc'
-      }
-    })
+        placa: "asc",
+      },
+    });
   },
 
   /**
@@ -203,7 +196,7 @@ export const VehiculosService = {
     return prisma.vehiculos.findMany({
       where: {
         deleted_at: null,
-        oculto: true // Solo vehículos ocultos
+        oculto: true, // Solo vehículos ocultos
       },
       include: {
         conductores: {
@@ -213,26 +206,26 @@ export const VehiculosService = {
             apellido: true,
             email: true,
             telefono: true,
-            estado: true
-          }
-        }
+            estado: true,
+          },
+        },
       },
       orderBy: {
-        updated_at: 'desc'
-      }
-    })
+        updated_at: "desc",
+      },
+    });
   },
 
   /**
    * Cambiar estado de ocultamiento de un vehículo
    */
   async cambiarEstadoOculto(id: string, oculto: boolean) {
-    const now = new Date()
+    const now = new Date();
     return prisma.vehiculos.update({
       where: { id },
       data: {
         oculto,
-        updated_at: now
+        updated_at: now,
       },
       include: {
         conductores: {
@@ -241,10 +234,49 @@ export const VehiculosService = {
             nombre: true,
             apellido: true,
             email: true,
-            telefono: true
-          }
-        }
-      }
-    })
-  }
-}
+            telefono: true,
+          },
+        },
+      },
+    });
+  },
+
+  // Operaciones masivas: Ocultar/Mostrar
+  async cambiarOcultoMasivo(ids: string[], oculto: boolean) {
+    return prisma.vehiculos.updateMany({
+      where: {
+        id: { in: ids },
+      },
+      data: {
+        oculto,
+        updated_at: new Date(),
+      },
+    });
+  },
+
+  // Operaciones masivas: Soft Delete
+  async eliminarMasivo(ids: string[]) {
+    return prisma.vehiculos.updateMany({
+      where: {
+        id: { in: ids },
+      },
+      data: {
+        deleted_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+  },
+
+  // Operaciones masivas: Restaurar
+  async restaurarMasivo(ids: string[]) {
+    return prisma.vehiculos.updateMany({
+      where: {
+        id: { in: ids },
+      },
+      data: {
+        deleted_at: null,
+        updated_at: new Date(),
+      },
+    });
+  },
+};

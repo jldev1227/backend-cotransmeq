@@ -1,10 +1,16 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
+import { z } from 'zod'
 import { UsuariosService } from './usuarios.service'
 import { createUsuarioSchema, updatePermisosSchema, updateUsuarioSchema } from './usuarios.schema'
 import { uploadToS3, deleteFromS3, getS3SignedUrl } from '../../config/aws'
 import { prisma } from '../../config/prisma'
 import { SesionesService } from '../sesiones/sesiones.service'
-import { getIo } from '../../sockets'
+import { getIo, getOnlineUserIds } from '../../sockets'
+
+const setBonosPlanillaSchema = z.object({
+  userIds: z.array(z.string().uuid()).min(1, 'Debes seleccionar al menos un usuario'),
+  granted: z.boolean()
+})
 
 export const UsuariosController = {
   async create(request: FastifyRequest, reply: FastifyReply) {
@@ -33,6 +39,23 @@ export const UsuariosController = {
     const { permisos } = updatePermisosSchema.parse(request.body)
     const user = await UsuariosService.updatePermisos(id, permisos)
     reply.send(user)
+  },
+
+  // ─── BONO PLANILLA: otorgar / revocar permiso individual ─────
+  // POST /api/usuarios/permisos/bonos-planilla
+  //   body: { userIds: string[], granted: boolean }
+  // Solo accesible para administradores.
+  async setBonosPlanilla(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const data = setBonosPlanillaSchema.parse(request.body)
+      const updated = await UsuariosService.setBonosPlanilla(data.userIds, data.granted)
+      return reply.send({ success: true, updated, granted: data.granted })
+    } catch (err: any) {
+      if (err?.issues) {
+        return reply.status(400).send({ error: 'Datos inválidos', details: err.issues })
+      }
+      return reply.status(500).send({ error: err.message || 'Error al actualizar el permiso' })
+    }
   },
   async listConductoresBasicos(request: FastifyRequest, reply: FastifyReply) {
     const conductores = await UsuariosService.listConductoresBasicos()
@@ -122,5 +145,19 @@ export const UsuariosController = {
     })
 
     reply.send({ success: true })
-  }
+  },
+
+  async listConPresencia(_request: FastifyRequest, reply: FastifyReply) {
+    const users = await UsuariosService.list()
+    const onlineIds = new Set(getOnlineUserIds())
+    const result = users.map(u => ({
+      ...u,
+      en_linea: onlineIds.has(u.id),
+    }))
+    reply.send(result)
+  },
+
+  async getOnlineIds(_request: FastifyRequest, reply: FastifyReply) {
+    reply.send(getOnlineUserIds())
+  },
 }

@@ -263,4 +263,20 @@ export async function clientesRoutes(app: FastifyInstance) {
       }
     }
   }, ClientesController.cambiarEstadoOculto)
+
+  // Operaciones masivas para clientes
+  app.post('/clientes/masivo', {
+    schema: {
+      description: 'Realizar operaciones masivas sobre clientes',
+      tags: ['clientes'],
+      body: {
+        type: 'object',
+        required: ['ids', 'accion'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
+          accion: { type: 'string', enum: ['ocultar', 'mostrar', 'eliminar'] }
+        }
+      }
+    }
+  }, ClientesController.operacionesMasivas)
 }

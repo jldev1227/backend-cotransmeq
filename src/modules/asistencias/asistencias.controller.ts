@@ -7,6 +7,7 @@ import {
 } from './asistencias.schema'
 import { getIo } from '../../sockets'
 import * as XLSX from 'xlsx'
+import archiver from 'archiver'
 import { PDFGeneratorService } from './pdf-generator.service'
 
 export class AsistenciasController {
@@ -54,22 +55,38 @@ export class AsistenciasController {
   }
 
   /**
-   * Obtener todos los formularios
+   * Obtener todos los formularios con paginación
    */
   static async obtenerTodos(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const formularios = await AsistenciasService.obtenerTodos()
+      const query = request.query as any;
+      const page = Math.max(1, parseInt(query.page || '1'));
+      const limit = Math.min(100, Math.max(1, parseInt(query.limit || '10')));
+      const search = query.search || '';
+      const filterActivo = query.filterActivo as 'all' | 'activo' | 'inactivo' || 'all';
+      const sortBy = query.sortBy as 'fecha' | 'tematica' | 'respuestas' || 'fecha';
+      const sortOrder = query.sortOrder as 'asc' | 'desc' || 'desc';
+
+      const result = await AsistenciasService.obtenerTodos({
+        page,
+        limit,
+        search,
+        filterActivo,
+        sortBy,
+        sortOrder
+      });
 
       return reply.status(200).send({
         success: true,
-        data: formularios
-      })
+        data: result.data,
+        meta: result.meta
+      });
     } catch (error: any) {
-      request.log.error(error)
+      request.log.error(error);
       return reply.status(500).send({
         success: false,
         message: error.message || 'Error al obtener los formularios'
-      })
+      });
     }
   }
 
@@ -177,24 +194,24 @@ export class AsistenciasController {
   }
 
   /**
-   * Eliminar un formulario
+   * Eliminar un formulario (soft delete)
    */
   static async eliminar(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { id } = request.params as { id: string }
+      const { id } = request.params as { id: string };
 
-      await AsistenciasService.eliminar(id)
+      await AsistenciasService.eliminar(id);
 
       return reply.status(200).send({
         success: true,
         message: 'Formulario eliminado exitosamente'
-      })
+      });
     } catch (error: any) {
-      request.log.error(error)
+      request.log.error(error);
       return reply.status(500).send({
         success: false,
         message: error.message || 'Error al eliminar el formulario'
-      })
+      });
     }
   }
 
@@ -400,7 +417,11 @@ export class AsistenciasController {
         [''],
         ['Temática', data.formulario.tematica],
         ['Objetivo', data.formulario.objetivo || 'N/A'],
-        ['Fecha', new Date(data.formulario.fecha).toLocaleDateString('es-CO')],
+        ['Fecha', (() => {
+          const fechaStr = String(data.formulario.fecha).split('T')[0]
+          const [y, m, d] = fechaStr.split('-')
+          return `${d}/${m}/${y}`
+        })()],
         ['Hora Inicio', data.formulario.hora_inicio || 'N/A'],
         ['Hora Finalización', data.formulario.hora_finalizacion || 'N/A'],
         ['Duración (minutos)', data.formulario.duracion_minutos || 'N/A'],
@@ -482,6 +503,214 @@ export class AsistenciasController {
       return reply.status(500).send({
         success: false,
         message: error.message || 'Error al exportar el PDF'
+      })
+    }
+  }
+
+  /**
+   * Helper: generar ZIP con PDFs y emitir progreso por socket
+   */
+  private static async generarZipPDFs(
+    formularios: any[],
+    reply: FastifyReply,
+    jobId: string,
+    userId: string | undefined,
+    fileNamePrefix: string
+  ) {
+    if (formularios.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: 'No hay formularios para exportar'
+      })
+    }
+
+    reply.header('Content-Type', 'application/zip')
+    reply.header('Content-Disposition', `attachment; filename="${fileNamePrefix}_${new Date().toISOString().split('T')[0]}.zip"`)
+
+    const archive = archiver('zip', { zlib: { level: 6 } })
+
+    const emitProgress = (current: number, total: number, currentTematica: string) => {
+      try {
+        const io = getIo()
+        io.to(`user-${userId}`).emit('asistencias:export:progress', {
+          jobId,
+          current,
+          total,
+          currentTematica,
+          percent: Math.round((current / total) * 100)
+        })
+      } catch {
+        // socket no disponible
+      }
+    }
+
+    const emitDone = () => {
+      try {
+        const io = getIo()
+        io.to(`user-${userId}`).emit('asistencias:export:done', { jobId, total: formularios.length })
+      } catch {
+        // ignore
+      }
+    }
+
+    archive.on('end', () => emitDone())
+    archive.on('error', () => {
+      // best-effort, no request disponible aquí
+    })
+
+    emitProgress(0, formularios.length, '')
+
+    // Generar PDFs en background y agregarlos al ZIP
+    ;(async () => {
+      try {
+        const usedNames = new Set<string>()
+        for (let i = 0; i < formularios.length; i++) {
+          const f = formularios[i]
+          const data = {
+            formulario: {
+              tematica: f.tematica,
+              objetivo: f.objetivo,
+              fecha: f.fecha.toISOString(),
+              hora_inicio: f.hora_inicio,
+              hora_finalizacion: f.hora_finalizacion,
+              duracion_minutos: f.duracion_minutos,
+              tipo_evento: f.tipo_evento,
+              tipo_evento_otro: f.tipo_evento_otro,
+              lugar_sede: f.lugar_sede,
+              nombre_instructor: f.nombre_instructor,
+              observaciones: f.observaciones
+            },
+            respuestas: f.respuestas.map((r: any) => ({
+              nombre_completo: r.nombre_completo,
+              numero_documento: r.numero_documento,
+              cargo: r.cargo,
+              numero_telefono: r.numero_telefono,
+              pertenece_comite: r.pertenece_comite,
+              fecha_respuesta: r.created_at.toISOString(),
+              firma: r.firma
+            }))
+          }
+
+          const pdfBuffer = await PDFGeneratorService.generarPDFAsistencia(
+            data.formulario,
+            data.respuestas
+          )
+
+          let baseName = `${f.fecha.toISOString().split('T')[0]}_${f.tematica.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60)}`
+          let fileName = `${baseName}.pdf`
+          let counter = 2
+          while (usedNames.has(fileName)) {
+            fileName = `${baseName}_${counter}.pdf`
+            counter++
+          }
+          usedNames.add(fileName)
+
+          archive.append(pdfBuffer, { name: fileName })
+
+          emitProgress(i + 1, formularios.length, f.tematica)
+        }
+
+        await archive.finalize()
+      } catch (err: any) {
+        console.error('[generarZipPDFs] error:', err)
+        archive.abort()
+      }
+    })()
+
+    // Enviar el stream del ZIP directamente
+    return reply.send(archive)
+  }
+
+  /**
+   * Exportar TODAS las asistencias filtradas a un ZIP con PDFs individuales
+   */
+  static async exportarTodasPDFs(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const query = request.query as any
+      const filterActivo = query.filterActivo as 'all' | 'activo' | 'inactivo' | undefined
+      const search = query.search || undefined
+      const jobId = query.jobId || `all-${Date.now()}`
+      const userId = (request as any).user?.sub
+
+      const formularios = await AsistenciasService.obtenerTodosConRespuestas({ filterActivo, search })
+
+      return await AsistenciasController.generarZipPDFs(
+        formularios,
+        reply,
+        jobId,
+        userId,
+        'asistencias'
+      )
+    } catch (error: any) {
+      request.log.error(error)
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Error al exportar las asistencias'
+      })
+    }
+  }
+
+  /**
+   * Exportar formularios SELECCIONADOS (por ids) a un ZIP con PDFs individuales
+   */
+  static async exportarSeleccionadosPDFs(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const body = request.body as { ids: string[]; jobId?: string }
+      const userId = (request as any).user?.sub
+      const jobId = body.jobId || `sel-${Date.now()}`
+
+      if (!body.ids || !Array.isArray(body.ids) || body.ids.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Debes seleccionar al menos un formulario'
+        })
+      }
+
+      const formularios = await AsistenciasService.obtenerPorIds(body.ids)
+
+      if (formularios.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          message: 'No se encontraron los formularios seleccionados'
+        })
+      }
+
+      return await AsistenciasController.generarZipPDFs(
+        formularios,
+        reply,
+        jobId,
+        userId,
+        'asistencias_seleccionadas'
+      )
+    } catch (error: any) {
+      request.log.error(error)
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Error al exportar los formularios seleccionados'
+      })
+    }
+  }
+
+  /**
+   * Obtener solo los IDs filtrados (para selección masiva)
+   */
+  static async obtenerIdsFiltrados(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const query = request.query as any
+      const filterActivo = query.filterActivo as 'all' | 'activo' | 'inactivo' | undefined
+      const search = query.search || undefined
+
+      const ids = await AsistenciasService.obtenerIdsFiltrados({ filterActivo, search })
+
+      return reply.status(200).send({
+        success: true,
+        data: ids
+      })
+    } catch (error: any) {
+      request.log.error(error)
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Error al obtener los IDs'
       })
     }
   }

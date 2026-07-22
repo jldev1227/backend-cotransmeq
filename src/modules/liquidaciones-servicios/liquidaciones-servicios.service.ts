@@ -1,6 +1,27 @@
 // @ts-nocheck
 import { prisma } from "../../config/prisma";
 import { randomUUID } from "crypto";
+import ExcelJS from "exceljs";
+import path from "path";
+import fs from "fs";
+import { LiquidacionesTercerosService } from "../liquidaciones-terceros/liquidaciones-terceros.service";
+
+const MES_NOMBRE_A_NUM: Record<string, number> = {
+  ENERO: 1, FEBRERO: 2, MARZO: 3, ABRIL: 4, MAYO: 5, JUNIO: 6,
+  JULIO: 7, AGOSTO: 8, SEPTIEMBRE: 9, OCTUBRE: 10, NOVIEMBRE: 11, DICIEMBRE: 12,
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+  julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+  Enero: 1, Febrero: 2, Marzo: 3, Abril: 4, Mayo: 5, Junio: 6,
+  Julio: 7, Agosto: 8, Septiembre: 9, Octubre: 10, Noviembre: 11, Diciembre: 12,
+};
+
+function parseMes(value: string | number | undefined): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "number") return value;
+  const num = Number(value);
+  if (!isNaN(num)) return num;
+  return MES_NOMBRE_A_NUM[value];
+}
 
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
@@ -52,6 +73,7 @@ export interface CrearLiquidacionInput {
   porcentaje_iva?: number;
   observaciones?: string;
   osi?: string;
+  operadora?: string;
   valor_transporte_adicional?: number;
   valor_recargos?: number;
   recargos_data?: any;
@@ -66,6 +88,7 @@ export interface FiltrosLiquidacionServicios {
   mes?: number;
   anio?: number;
   busqueda?: string;
+  placa?: string;
   liquidador_id?: string;
   sortBy?: string;
   sortDir?: string;
@@ -76,6 +99,7 @@ export interface FiltrosLiquidacionServicios {
   liquidador_nombres?: string;
   periodos?: string; // "1-2026,2-2026" format
   facturas?: string;
+  placas?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -83,9 +107,15 @@ export interface FiltrosLiquidacionServicios {
 // ═══════════════════════════════════════════════════════════════
 
 export const LiquidacionesServiciosService = {
-
   // ── Helper: crear snapshot de una liquidación ──
-  async _crearSnapshot(liquidacionId: string, userId: string, accion: string, estadoAnterior?: string, estadoNuevo?: string, motivo?: string) {
+  async _crearSnapshot(
+    liquidacionId: string,
+    userId: string,
+    accion: string,
+    estadoAnterior?: string,
+    estadoNuevo?: string,
+    motivo?: string,
+  ) {
     const liq = await prisma.liquidacion_servicio.findUnique({
       where: { id: liquidacionId },
       include: {
@@ -94,7 +124,10 @@ export const LiquidacionesServiciosService = {
         actualizado_por: { select: { id: true, nombre: true } },
         liquidado_por: { select: { id: true, nombre: true } },
         aprobado_por: { select: { id: true, nombre: true } },
-        items: { orderBy: { orden: 'asc' }, include: { tercero: { select: { id: true, nombre_completo: true } } } },
+        items: {
+          orderBy: { orden: "asc" },
+          include: { tercero: { select: { id: true, nombre_completo: true } } },
+        },
       },
     });
     if (!liq) return;
@@ -109,12 +142,15 @@ export const LiquidacionesServiciosService = {
       valor_recargos: Number(liq.valor_recargos),
       valor_transporte_adicional: Number(liq.valor_transporte_adicional),
       valor_pernoctes: Number(liq.valor_pernoctes),
+      valor_unitario_pernoctes: Number(liq.valor_unitario_pernoctes),
+      cantidad_pernoctes: Number(liq.cantidad_pernoctes),
       subtotal: Number(liq.subtotal),
       porcentaje_iva: Number(liq.porcentaje_iva),
       valor_iva: Number(liq.valor_iva),
       total: Number(liq.total),
       observaciones: liq.observaciones,
       osi: liq.osi,
+      operadora: liq.operadora,
       tercero_liquidado: liq.tercero_liquidado,
       motivo_anulacion: liq.motivo_anulacion,
       creado_por: liq.creado_por,
@@ -123,7 +159,7 @@ export const LiquidacionesServiciosService = {
       aprobado_por: liq.aprobado_por,
       fecha_liquidacion: liq.fecha_liquidacion,
       fecha_aprobacion: liq.fecha_aprobacion,
-      items: liq.items.map(i => ({
+      items: liq.items.map((i) => ({
         placa: i.placa,
         recorrido: i.recorrido,
         tipo_servicio: i.tipo_servicio,
@@ -147,7 +183,7 @@ export const LiquidacionesServiciosService = {
       data: {
         liquidacion_id: liquidacionId,
         estado_anterior: estadoAnterior || null,
-        estado_nuevo: estadoNuevo || liq.estado as string,
+        estado_nuevo: estadoNuevo || (liq.estado as string),
         usuario_id: userId,
         motivo: motivo || null,
         accion,
@@ -459,11 +495,12 @@ export const LiquidacionesServiciosService = {
                 porcentaje,
                 es_hora_extra: tipo.es_hora_extra,
                 totalHoras: 0,
-                valorUnitario: (tipo.es_hora_extra || tipo.adicional)
-                  ? Math.round(
-                      valorHoraBase + (valorHoraBase * porcentaje) / 100,
-                    )
-                  : Math.round((valorHoraBase * porcentaje) / 100),
+                valorUnitario:
+                  tipo.es_hora_extra || tipo.adicional
+                    ? Math.round(
+                        valorHoraBase + (valorHoraBase * porcentaje) / 100,
+                      )
+                    : Math.round((valorHoraBase * porcentaje) / 100),
                 valorTotal: 0,
               };
             }
@@ -538,9 +575,6 @@ export const LiquidacionesServiciosService = {
         numero_planilla: numeroPlanilla,
         recargos_detalle: recargosDetalle,
         valor_recargos_total: valorRecargosTotal,
-        cantidad_pernoctes: cantidadPernoctes,
-        valor_pernocte_unitario: valorPernocteUnitario,
-        valor_pernoctes_total: valorPernotesTotal,
         conductor: servicio.conductores
           ? {
               nombre: `${servicio.conductores.nombre} ${servicio.conductores.apellido}`,
@@ -586,6 +620,8 @@ export const LiquidacionesServiciosService = {
         valor_servicios: Math.round(totalValorServicios),
         valor_recargos: Math.round(totalValorRecargos),
         valor_pernoctes: Math.round(totalPernoctes),
+        valor_unitario_pernoctes: Math.round(valor_unitario_pernoctes),
+        cantidad_pernoctes: Math.round(cantidad_pernoctes),
         subtotal: Math.round(subtotal),
         porcentaje_iva: porcentajeIva,
         valor_iva: Math.round(valorIva),
@@ -593,6 +629,8 @@ export const LiquidacionesServiciosService = {
       },
     };
   },
+
+  // ── CHECK CONSECUTIVO UNIQUE ──
 
   async checkConsecutivo(consecutivo: string, excludeId?: string) {
     const existing = await prisma.liquidacion_servicio.findFirst({
@@ -608,11 +646,11 @@ export const LiquidacionesServiciosService = {
 
   async crear(data: CrearLiquidacionInput, userId: string) {
     // Use provided consecutivo or generate one
-    const consecutivo = data.consecutivo || await generarConsecutivo(data.anio);
+    const consecutivo =
+      data.consecutivo || (await generarConsecutivo(data.anio));
 
     // Calcular totales de items
     let valorServicios = 0;
-    let valorPernoctes = 0;
 
     const itemsData = data.items.map((item, index) => {
       const subtotal = item.cantidad * item.valor_unitario;
@@ -620,30 +658,22 @@ export const LiquidacionesServiciosService = {
       const valorFinal = subtotal - descuento;
       valorServicios += valorFinal;
 
-      const cantPernoctes = item.cantidad_pernoctes || 0;
-      const valPernocteUnit = item.valor_pernocte_unitario || 0;
-      const valPernotesTotal = cantPernoctes * valPernocteUnit;
-      valorPernoctes += valPernotesTotal;
-
       return {
         id: randomUUID(),
-        placa: String(item.placa || "").slice(0, 20),
+        placa: item.placa,
         fecha_inicial: new Date(item.fecha_inicial),
         fecha_final: new Date(item.fecha_final),
-        recorrido: String(item.recorrido || "").slice(0, 500),
+        recorrido: item.recorrido,
         tipo_servicio: item.tipo_servicio as any,
         cantidad: item.cantidad,
         valor_unitario: item.valor_unitario,
         subtotal,
         porcentaje_descuento: item.porcentaje_descuento || 0,
         valor_final: valorFinal,
-        numero_planilla: item.numero_planilla ? String(item.numero_planilla).slice(0, 50) : null,
+        numero_planilla: item.numero_planilla || null,
         servicio_id: item.servicio_id || null,
         recargo_planilla_id: item.recargo_planilla_id || null,
         valor_recargos_total: 0,
-        cantidad_pernoctes: cantPernoctes,
-        valor_pernocte_unitario: valPernocteUnit,
-        valor_pernoctes_total: valPernotesTotal,
         orden: index,
         tercero_id: item.tercero_id || null,
       };
@@ -652,24 +682,14 @@ export const LiquidacionesServiciosService = {
     // Use valor_recargos from frontend (liqTotal from liquidador) if provided
     const valorRecargos = data.valor_recargos || 0;
     const valorTransporteAdicional = data.valor_transporte_adicional || 0;
-    const subtotal = valorServicios + valorTransporteAdicional + valorRecargos + valorPernoctes;
+    const subtotal =
+      valorServicios +
+      valorTransporteAdicional +
+      valorRecargos +
+      (data.valor_pernoctes || 0);
     const porcentajeIva = data.porcentaje_iva || 0;
     const valorIva = (subtotal * porcentajeIva) / 100;
     const total = subtotal + valorIva;
-
-    // DEBUG: Log all string field lengths to find the "too long" column
-    // DEBUG: Log string field lengths
-    console.log('[LIQ-DEBUG] Creating liquidacion:', {
-      consecutivo, consecutivo_len: String(consecutivo).length,
-      obs_len: String(data.observaciones || '').length,
-      osi_len: String(data.osi || '').length,
-      items_count: itemsData.length,
-      items_fields: itemsData.map((it, i) => ({
-        i, placa: it.placa, placa_len: it.placa.length,
-        recorrido_len: it.recorrido.length, planilla: it.numero_planilla,
-        tipo: it.tipo_servicio
-      }))
-    });
 
     const liquidacion = await prisma.liquidacion_servicio.create({
       data: {
@@ -677,12 +697,14 @@ export const LiquidacionesServiciosService = {
         cliente_id: data.cliente_id,
         mes: data.mes,
         anio: data.anio,
-        estado: 'BORRADOR' as any,
+        estado: "BORRADOR" as any,
         tercero_liquidado: computeTerceroLiquidado(data.recargos_data),
         valor_servicios: valorServicios,
         valor_recargos: valorRecargos,
         valor_transporte_adicional: valorTransporteAdicional,
-        valor_pernoctes: valorPernoctes,
+        valor_pernoctes: data.valor_pernoctes,
+        valor_unitario_pernoctes: data.valor_unitario_pernoctes,
+        cantidad_pernoctes: data.cantidad_pernoctes,
         subtotal,
         porcentaje_iva: porcentajeIva,
         valor_iva: valorIva,
@@ -690,6 +712,7 @@ export const LiquidacionesServiciosService = {
         recargos_data: data.recargos_data || undefined,
         observaciones: data.observaciones,
         osi: data.osi || null,
+        operadora: data.operadora || null,
         creado_por_id: userId,
         items: {
           createMany: { data: itemsData },
@@ -703,18 +726,31 @@ export const LiquidacionesServiciosService = {
     });
 
     // Crear snapshot inicial
-    await this._crearSnapshot(liquidacion.id, userId, 'creacion', null, 'BORRADOR');
+    await this._crearSnapshot(
+      liquidacion.id,
+      userId,
+      "creacion",
+      null,
+      "BORRADOR",
+    );
 
     // Guardar terceros_items si vienen en el payload
-    if (data.terceros_items && Array.isArray(data.terceros_items) && data.terceros_items.length > 0) {
-      const { LiquidacionesTercerosService } = await import('../liquidaciones-terceros/liquidaciones-terceros.service');
-      const createdItems = liquidacion.items;
+    if (
+      data.terceros_items &&
+      Array.isArray(data.terceros_items) &&
+      data.terceros_items.length > 0
+    ) {
+      // Resolver item_id a partir de src_index → orden del item de servicio
+      const createdItems = liquidacion.items; // ya vienen ordenados por orden
       const tercerosConItemId = data.terceros_items.map((t: any) => {
         const srcIdx = t.src_index ?? 0;
         const matchedItem = createdItems[srcIdx];
         return { ...t, item_id: matchedItem?.id || null };
       });
-      await LiquidacionesTercerosService.guardar(liquidacion.id, tercerosConItemId);
+      await LiquidacionesTercerosService.guardar(
+        liquidacion.id,
+        tercerosConItemId,
+      );
     }
 
     return liquidacion;
@@ -728,8 +764,8 @@ export const LiquidacionesServiciosService = {
     const where: any = { deleted_at: null };
     if (filtros.cliente_id) where.cliente_id = filtros.cliente_id;
     if (filtros.estado) where.estado = filtros.estado;
-    if (filtros.mes) where.mes = filtros.mes;
-    if (filtros.anio) where.anio = filtros.anio;
+    if (filtros.mes) where.mes = parseMes(filtros.mes);
+    if (filtros.anio) where.anio = Number(filtros.anio);
     if (filtros.busqueda) {
       where.OR = [
         { consecutivo: { contains: filtros.busqueda, mode: "insensitive" } },
@@ -738,26 +774,30 @@ export const LiquidacionesServiciosService = {
             nombre: { contains: filtros.busqueda, mode: "insensitive" },
           },
         },
+        { items: { some: { placa: { contains: filtros.busqueda, mode: "insensitive" } } } },
       ];
+    }
+    if (filtros.placa) {
+      where.items = { some: { placa: { contains: filtros.placa, mode: "insensitive" } } };
     }
 
     // Sorting
     const sortableFields: Record<string, string> = {
-      consecutivo: 'consecutivo',
-      cliente: 'cliente.nombre',
-      periodo: 'anio',
-      estado: 'estado',
-      total: 'total',
-      items: 'total',
-      fecha: 'created_at',
+      consecutivo: "consecutivo",
+      cliente: "cliente.nombre",
+      periodo: "anio",
+      estado: "estado",
+      total: "total",
+      items: "total", // will sort by _count below
+      fecha: "created_at",
     };
     let orderBy: any = { created_at: "desc" };
     if (filtros.sortBy && sortableFields[filtros.sortBy]) {
-      const dir = filtros.sortDir === 'asc' ? 'asc' : 'desc';
+      const dir = filtros.sortDir === "asc" ? "asc" : "desc";
       const field = filtros.sortBy;
-      if (field === 'cliente') {
+      if (field === "cliente") {
         orderBy = { cliente: { nombre: dir } };
-      } else if (field === 'periodo') {
+      } else if (field === "periodo") {
         orderBy = [{ anio: dir }, { mes: dir }];
       } else {
         orderBy = { [sortableFields[field]]: dir };
@@ -781,56 +821,87 @@ export const LiquidacionesServiciosService = {
     const colConditions: Record<string, any> = {};
 
     if (filtros.consecutivos) {
-      const vals = filtros.consecutivos.split(',').filter(Boolean);
-      if (vals.length) colConditions.consecutivos = { consecutivo: { in: vals } };
+      const vals = filtros.consecutivos.split(",").filter(Boolean);
+      if (vals.length)
+        colConditions.consecutivos = { consecutivo: { in: vals } };
     }
     if (filtros.estados) {
-      const vals = filtros.estados.split(',').filter(Boolean);
+      const vals = filtros.estados.split(",").filter(Boolean);
       if (vals.length) colConditions.estados = { estado: { in: vals } };
     }
     if (filtros.cliente_nombres) {
-      const vals = filtros.cliente_nombres.split(',').filter(Boolean);
-      if (vals.length) colConditions.cliente_nombres = { cliente: { nombre: { in: vals } } };
+      const vals = filtros.cliente_nombres.split(",").filter(Boolean);
+      if (vals.length)
+        colConditions.cliente_nombres = { cliente: { nombre: { in: vals } } };
     }
     if (filtros.liquidador_nombres) {
-      const vals = filtros.liquidador_nombres.split(',').filter(Boolean);
-      if (vals.length) colConditions.liquidador_nombres = {
-        OR: [
-          { liquidado_por: { nombre: { in: vals } } },
-          { creado_por: { nombre: { in: vals } } },
-        ],
-      };
+      const vals = filtros.liquidador_nombres.split(",").filter(Boolean);
+      if (vals.length)
+        colConditions.liquidador_nombres = {
+          OR: [
+            { liquidado_por: { nombre: { in: vals } } },
+            { creado_por: { nombre: { in: vals } } },
+          ],
+        };
     }
     if (filtros.periodos) {
-      const pairs = filtros.periodos.split(',').filter(Boolean).map(p => {
-        const [m, a] = p.split('-');
-        return { mes: Number(m), anio: Number(a) };
-      }).filter(p => p.mes && p.anio);
-      if (pairs.length) colConditions.periodos = { OR: pairs.map(p => ({ mes: p.mes, anio: p.anio })) };
+      const pairs = filtros.periodos
+        .split(",")
+        .filter(Boolean)
+        .map((p) => {
+          const [m, a] = p.split("-");
+          return { mes: Number(m), anio: Number(a) };
+        })
+        .filter((p) => p.mes && p.anio);
+      if (pairs.length)
+        colConditions.periodos = {
+          OR: pairs.map((p) => ({ mes: p.mes, anio: p.anio })),
+        };
     }
     if (filtros.facturas) {
-      const vals = filtros.facturas.split(',').filter(Boolean);
+      const vals = filtros.facturas.split(",").filter(Boolean);
       if (vals.length) {
         const items = await prisma.factura_liquidacion_item.findMany({
-          where: { factura: { numero_factura: { in: vals }, estado: 'ACTIVA', deleted_at: null } },
+          where: {
+            factura: {
+              numero_factura: { in: vals },
+              estado: "ACTIVA",
+              deleted_at: null,
+            },
+          },
           select: { liquidacion_id: true },
-          distinct: ['liquidacion_id'],
+          distinct: ["liquidacion_id"],
         });
-        colConditions.facturas = { id: { in: items.map(i => i.liquidacion_id) } };
+        colConditions.facturas = {
+          id: { in: items.map((i) => i.liquidacion_id) },
+        };
       }
+    }
+    if (filtros.placas) {
+      const vals = filtros.placas.split(",").filter(Boolean);
+      if (vals.length)
+        colConditions.placas = { items: { some: { placa: { in: vals } } } };
     }
 
     // Apply ALL column conditions to main where
     const allColKeys = Object.keys(colConditions);
     if (allColKeys.length) {
-      where.AND = [...(where.AND || []), ...allColKeys.map(k => colConditions[k])];
+      where.AND = [
+        ...(where.AND || []),
+        ...allColKeys.map((k) => colConditions[k]),
+      ];
     }
 
     // Helper: build where excluding one specific column filter (for cascading dropdown options)
     function whereExcluding(excludeKey: string) {
-      const otherConditions = allColKeys.filter(k => k !== excludeKey).map(k => colConditions[k]);
+      const otherConditions = allColKeys
+        .filter((k) => k !== excludeKey)
+        .map((k) => colConditions[k]);
       const base = { ...where };
-      const baseAnd = (where.AND || []).filter((c: any) => !allColKeys.map(k => colConditions[k]).includes(c));
+      // Rebuild AND without the excluded key's condition
+      const baseAnd = (where.AND || []).filter(
+        (c: any) => !allColKeys.map((k) => colConditions[k]).includes(c),
+      );
       base.AND = [...baseAnd, ...otherConditions];
       if (!base.AND.length) delete base.AND;
       return base;
@@ -838,11 +909,22 @@ export const LiquidacionesServiciosService = {
 
     const globalWhere = {
       deleted_at: null as null,
-      ...(filtros.mes ? { mes: filtros.mes } : {}),
-      ...(filtros.anio ? { anio: filtros.anio } : {}),
+      ...(filtros.mes ? { mes: parseMes(filtros.mes) } : {}),
+      ...(filtros.anio ? { anio: Number(filtros.anio) } : {}),
     };
 
-    const [liquidaciones, total, metadata, uniqueClients, uniqueLiquidadores, uniqueConsecutivos, uniquePeriodos, uniqueFacturas, uniqueEstados] = await Promise.all([
+    const [
+      liquidaciones,
+      total,
+      metadata,
+      uniqueClients,
+      uniqueLiquidadores,
+      uniqueConsecutivos,
+      uniquePeriodos,
+      uniqueFacturas,
+      uniqueEstados,
+      uniquePlacas,
+    ] = await Promise.all([
       prisma.liquidacion_servicio.findMany({
         where,
         include: {
@@ -851,63 +933,87 @@ export const LiquidacionesServiciosService = {
           liquidado_por: { select: { id: true, nombre: true, correo: true } },
           aprobado_por: { select: { id: true, nombre: true, correo: true } },
           _count: { select: { items: true } },
+          items: { select: { placa: true } },
         },
         orderBy,
         skip,
         take: limit,
       }),
       prisma.liquidacion_servicio.count({ where }),
+      // Global metadata (only filtered by mes/anio for stats cards)
       prisma.liquidacion_servicio.groupBy({
-        by: ['estado'],
+        by: ["estado"],
         where: globalWhere,
         _count: { id: true },
         _sum: { total: true },
       }),
+      // Unique clients (cascading: exclude own filter)
       prisma.liquidacion_servicio.findMany({
-        where: whereExcluding('cliente_nombres'),
+        where: whereExcluding("cliente_nombres"),
         select: { cliente: { select: { id: true, nombre: true } } },
-        distinct: ['cliente_id'],
-        orderBy: { cliente: { nombre: 'asc' } },
+        distinct: ["cliente_id"],
+        orderBy: { cliente: { nombre: "asc" } },
       }),
+      // Unique liquidadores (cascading: exclude own filter)
       prisma.liquidacion_servicio.findMany({
-        where: { ...whereExcluding('liquidador_nombres'), liquidado_por_id: { not: null } },
+        where: {
+          ...whereExcluding("liquidador_nombres"),
+          liquidado_por_id: { not: null },
+        },
         select: { liquidado_por: { select: { id: true, nombre: true } } },
-        distinct: ['liquidado_por_id'],
+        distinct: ["liquidado_por_id"],
       }),
+      // Unique consecutivos (cascading: exclude own filter)
       prisma.liquidacion_servicio.findMany({
-        where: whereExcluding('consecutivos'),
+        where: whereExcluding("consecutivos"),
         select: { consecutivo: true },
-        distinct: ['consecutivo'],
-        orderBy: { consecutivo: 'asc' },
+        distinct: ["consecutivo"],
+        orderBy: { consecutivo: "asc" },
       }),
+      // Unique periodos (cascading: exclude own filter)
       prisma.liquidacion_servicio.groupBy({
-        by: ['mes', 'anio'],
-        where: whereExcluding('periodos'),
-        orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+        by: ["mes", "anio"],
+        where: whereExcluding("periodos"),
+        orderBy: [{ anio: "desc" }, { mes: "desc" }],
       }),
+      // Unique factura numbers (cascading: exclude own filter)
       prisma.factura_liquidacion_item.findMany({
         where: {
-          liquidacion: whereExcluding('facturas'),
-          factura: { estado: 'ACTIVA', deleted_at: null },
+          liquidacion: whereExcluding("facturas"),
+          factura: { estado: "ACTIVA", deleted_at: null },
         },
         select: { factura: { select: { numero_factura: true } } },
-        distinct: ['factura_id'],
+        distinct: ["factura_id"],
       }),
+      // Unique estados (cascading: exclude own filter)
       prisma.liquidacion_servicio.groupBy({
-        by: ['estado'],
-        where: whereExcluding('estados'),
+        by: ["estado"],
+        where: whereExcluding("estados"),
+      }),
+      // Unique placas (cascading: exclude own filter, sorted A-Z)
+      prisma.liquidacion_servicio_item.findMany({
+        where: { liquidacion: whereExcluding("placas") },
+        select: { placa: true },
+        distinct: ["placa"],
+        orderBy: { placa: "asc" },
       }),
     ]);
 
-    const globalTotal = metadata.reduce((s, g) => s + Number(g._sum.total || 0), 0);
+    // Build metadata summary
+    const globalTotal = metadata.reduce(
+      (s, g) => s + Number(g._sum.total || 0),
+      0,
+    );
     const globalCount = metadata.reduce((s, g) => s + g._count.id, 0);
     const estadoCounts: Record<string, number> = {};
     for (const g of metadata) {
       estadoCounts[g.estado] = g._count.id;
     }
 
-    const clientes = uniqueClients.map(c => c.cliente).filter(Boolean);
-    const liquidadores = uniqueLiquidadores.map(l => l.liquidado_por).filter(Boolean);
+    const clientes = uniqueClients.map((c) => c.cliente).filter(Boolean);
+    const liquidadores = uniqueLiquidadores
+      .map((l) => l.liquidado_por)
+      .filter(Boolean);
 
     return {
       liquidaciones: liquidaciones.map((l) => ({
@@ -915,6 +1021,8 @@ export const LiquidacionesServiciosService = {
         valor_servicios: Number(l.valor_servicios),
         valor_recargos: Number(l.valor_recargos),
         valor_pernoctes: Number(l.valor_pernoctes),
+        valor_unitario_pernoctes: Number(l.valor_unitario_pernoctes),
+        cantidad_pernoctes: Number(l.cantidad_pernoctes),
         subtotal: Number(l.subtotal),
         porcentaje_iva: Number(l.porcentaje_iva),
         valor_iva: Number(l.valor_iva),
@@ -922,6 +1030,7 @@ export const LiquidacionesServiciosService = {
         valor_transporte_adicional: Number(l.valor_transporte_adicional),
         valor_administracion_ta: Number(l.valor_administracion_ta),
         total_items: l._count.items,
+        placas: [...new Set((l.items || []).map((i) => i.placa))],
       })),
       total,
       totalPages: Math.ceil(total / limit),
@@ -932,10 +1041,13 @@ export const LiquidacionesServiciosService = {
         estadoCounts,
         clientes,
         liquidadores,
-        consecutivos: uniqueConsecutivos.map(c => c.consecutivo),
-        periodos: uniquePeriodos.map(p => ({ mes: p.mes, anio: p.anio })),
-        facturas: uniqueFacturas.map(f => f.factura?.numero_factura).filter(Boolean) as string[],
-        estados: uniqueEstados.map(e => e.estado),
+        consecutivos: uniqueConsecutivos.map((c) => c.consecutivo),
+        periodos: uniquePeriodos.map((p) => ({ mes: p.mes, anio: p.anio })),
+        facturas: uniqueFacturas
+          .map((f) => f.factura?.numero_factura)
+          .filter(Boolean) as string[],
+        estados: uniqueEstados.map((e) => e.estado),
+        placas: uniquePlacas.map((p) => p.placa).filter(Boolean) as string[],
       },
     };
   },
@@ -961,7 +1073,16 @@ export const LiquidacionesServiciosService = {
         items: { orderBy: { orden: "asc" } },
         terceros_items: {
           orderBy: { orden: "asc" },
-          include: { tercero: { select: { id: true, nombre_completo: true, identificacion: true, tipo_persona: true } } },
+          include: {
+            tercero: {
+              select: {
+                id: true,
+                nombre_completo: true,
+                identificacion: true,
+                tipo_persona: true,
+              },
+            },
+          },
         },
       },
     });
@@ -973,6 +1094,8 @@ export const LiquidacionesServiciosService = {
       valor_servicios: Number(liquidacion.valor_servicios),
       valor_recargos: Number(liquidacion.valor_recargos),
       valor_pernoctes: Number(liquidacion.valor_pernoctes),
+      valor_unitario_pernoctes: Number(liquidacion.valor_unitario_pernoctes),
+      cantidad_pernoctes: Number(liquidacion.cantidad_pernoctes),
       subtotal: Number(liquidacion.subtotal),
       porcentaje_iva: Number(liquidacion.porcentaje_iva),
       valor_iva: Number(liquidacion.valor_iva),
@@ -1020,7 +1143,9 @@ export const LiquidacionesServiciosService = {
       },
     });
     if (activeFacturas > 0) {
-      throw new Error("No se puede eliminar: esta liquidación tiene facturas activas asociadas. Anule la factura primero.");
+      throw new Error(
+        "No se puede eliminar: esta liquidación tiene facturas activas asociadas. Anule la factura primero.",
+      );
     }
 
     await prisma.liquidacion_servicio.update({
@@ -1053,7 +1178,11 @@ export const LiquidacionesServiciosService = {
     if (filtros.busqueda) {
       where.OR = [
         { consecutivo: { contains: filtros.busqueda, mode: "insensitive" } },
-        { cliente: { nombre: { contains: filtros.busqueda, mode: "insensitive" } } },
+        {
+          cliente: {
+            nombre: { contains: filtros.busqueda, mode: "insensitive" },
+          },
+        },
       ];
     }
 
@@ -1064,6 +1193,7 @@ export const LiquidacionesServiciosService = {
           cliente: { select: { id: true, nombre: true, nit: true } },
           creado_por: { select: { id: true, nombre: true, correo: true } },
           _count: { select: { items: true } },
+          items: { select: { placa: true } },
         },
         orderBy: { deleted_at: "desc" },
         skip,
@@ -1078,6 +1208,8 @@ export const LiquidacionesServiciosService = {
         valor_servicios: Number(l.valor_servicios),
         valor_recargos: Number(l.valor_recargos),
         valor_pernoctes: Number(l.valor_pernoctes),
+        valor_unitario_pernoctes: Number(l.valor_unitario_pernoctes),
+        cantidad_pernoctes: Number(l.cantidad_pernoctes),
         subtotal: Number(l.subtotal),
         porcentaje_iva: Number(l.porcentaje_iva),
         valor_iva: Number(l.valor_iva),
@@ -1085,6 +1217,7 @@ export const LiquidacionesServiciosService = {
         valor_transporte_adicional: Number(l.valor_transporte_adicional),
         valor_administracion_ta: Number(l.valor_administracion_ta),
         total_items: l._count.items,
+        placas: [...new Set((l.items || []).map((i) => i.placa))],
       })),
       total,
       totalPages: Math.ceil(total / limit),
@@ -1096,9 +1229,12 @@ export const LiquidacionesServiciosService = {
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
 
+    console.log(data, "data que llega")
+
+    console.log(liq, "liq existente")
+
     // Calcular totales de items
     let valorServicios = 0;
-    let valorPernoctes = 0;
 
     const itemsData = data.items.map((item, index) => {
       const subtotal = item.cantidad * item.valor_unitario;
@@ -1106,30 +1242,22 @@ export const LiquidacionesServiciosService = {
       const valorFinal = subtotal - descuento;
       valorServicios += valorFinal;
 
-      const cantPernoctes = item.cantidad_pernoctes || 0;
-      const valPernocteUnit = item.valor_pernocte_unitario || 0;
-      const valPernotesTotal = cantPernoctes * valPernocteUnit;
-      valorPernoctes += valPernotesTotal;
-
       return {
         id: randomUUID(),
-        placa: String(item.placa || "").slice(0, 20),
+        placa: item.placa,
         fecha_inicial: new Date(item.fecha_inicial),
         fecha_final: new Date(item.fecha_final),
-        recorrido: String(item.recorrido || "").slice(0, 500),
+        recorrido: item.recorrido,
         tipo_servicio: item.tipo_servicio as any,
         cantidad: item.cantidad,
         valor_unitario: item.valor_unitario,
         subtotal,
         porcentaje_descuento: item.porcentaje_descuento || 0,
         valor_final: valorFinal,
-        numero_planilla: item.numero_planilla ? String(item.numero_planilla).slice(0, 50) : null,
+        numero_planilla: item.numero_planilla || null,
         servicio_id: item.servicio_id || null,
         recargo_planilla_id: item.recargo_planilla_id || null,
         valor_recargos_total: 0,
-        cantidad_pernoctes: cantPernoctes,
-        valor_pernocte_unitario: valPernocteUnit,
-        valor_pernoctes_total: valPernotesTotal,
         orden: index,
         tercero_id: item.tercero_id || null,
       };
@@ -1138,7 +1266,11 @@ export const LiquidacionesServiciosService = {
     // Use valor_recargos from frontend (liqTotal from liquidador) if provided
     const valorRecargos = data.valor_recargos || 0;
     const valorTransporteAdicional = data.valor_transporte_adicional || 0;
-    const subtotal = valorServicios + valorTransporteAdicional + valorRecargos + valorPernoctes;
+    const subtotal =
+      valorServicios +
+      valorTransporteAdicional +
+      valorRecargos +
+      (data.valor_pernoctes || 0);
     const porcentajeIva = data.porcentaje_iva || 0;
     const valorIva = (subtotal * porcentajeIva) / 100;
     const total = subtotal + valorIva;
@@ -1155,22 +1287,31 @@ export const LiquidacionesServiciosService = {
         where: { id },
         data: {
           consecutivo,
-          cliente_id: data.cliente_id,
+          cliente: {
+            connect: {
+              id: data.cliente_id,
+            },
+          },
           mes: data.mes,
           anio: data.anio,
           valor_servicios: valorServicios,
-          valor_recargos: valorRecargos,
+          valor_recargos: toDecimal(valorRecargos),
           valor_transporte_adicional: valorTransporteAdicional,
-          valor_pernoctes: valorPernoctes,
-          subtotal,
+          valor_pernoctes: data.valor_pernoctes || 0,
+          valor_unitario_pernoctes: data.valor_unitario_pernoctes || 0,
+          cantidad_pernoctes: data.cantidad_pernoctes || 0,
+          subtotal: toDecimal(subtotal),
           porcentaje_iva: porcentajeIva,
           valor_iva: valorIva,
-          total,
+          total: toDecimal(total),
           tercero_liquidado: computeTerceroLiquidado(data.recargos_data),
           recargos_data: data.recargos_data || undefined,
           observaciones: data.observaciones,
           osi: data.osi || null,
-          actualizado_por_id: userId,
+          operadora: data.operadora || null,
+          actualizado_por: {
+            connect: { id: userId },
+          },
           items: {
             createMany: { data: itemsData },
           },
@@ -1185,18 +1326,27 @@ export const LiquidacionesServiciosService = {
     ]);
 
     // Crear snapshot de edición
-    await this._crearSnapshot(liquidacion.id, userId, 'edicion', liq.estado as string, liq.estado as string);
+    await this._crearSnapshot(
+      liquidacion.id,
+      userId,
+      "edicion",
+      liq.estado as string,
+      liq.estado as string,
+    );
 
     // Guardar terceros_items si vienen en el payload
     if (data.terceros_items && Array.isArray(data.terceros_items)) {
-      const { LiquidacionesTercerosService } = await import('../liquidaciones-terceros/liquidaciones-terceros.service');
-      const createdItems = liquidacion.items;
+      // Resolver item_id a partir de src_index → orden del item de servicio
+      const createdItems = liquidacion.items; // ya vienen ordenados por orden
       const tercerosConItemId = data.terceros_items.map((t: any) => {
         const srcIdx = t.src_index ?? 0;
         const matchedItem = createdItems[srcIdx];
         return { ...t, item_id: matchedItem?.id || null };
       });
-      await LiquidacionesTercerosService.guardar(liquidacion.id, tercerosConItemId);
+      await LiquidacionesTercerosService.guardar(
+        liquidacion.id,
+        tercerosConItemId,
+      );
     }
 
     return liquidacion;
@@ -1213,29 +1363,29 @@ export const LiquidacionesServiciosService = {
       where: { id },
       select: { estado: true },
     });
-    if (!current) throw new Error('Liquidación no encontrada');
+    if (!current) throw new Error("Liquidación no encontrada");
     const estadoAnterior = current.estado;
 
     const data: any = {
       estado: estado as any,
       actualizado_por_id: userId,
     };
-    if (estado === 'LIQUIDADA') {
+    if (estado === "LIQUIDADA") {
       data.liquidado_por_id = userId;
       data.fecha_liquidacion = new Date();
     }
-    if (estado === 'APROBADA') {
+    if (estado === "APROBADA") {
       data.aprobado_por_id = userId;
       data.fecha_aprobacion = new Date();
     }
-    if (estado === 'BORRADOR') {
+    if (estado === "BORRADOR") {
       data.liquidado_por_id = null;
       data.aprobado_por_id = null;
       data.fecha_aprobacion = null;
     }
-    if (estado === 'ANULADA' && motivo_anulacion) {
+    if (estado === "ANULADA" && motivo_anulacion) {
       data.motivo_anulacion = motivo_anulacion;
-    } else if (estado !== 'ANULADA') {
+    } else if (estado !== "ANULADA") {
       data.motivo_anulacion = null;
     }
 
@@ -1252,7 +1402,14 @@ export const LiquidacionesServiciosService = {
     });
 
     // Crear snapshot con el nuevo estado
-    await this._crearSnapshot(id, userId, 'cambio_estado', estadoAnterior as string, estado, motivo_anulacion);
+    await this._crearSnapshot(
+      id,
+      userId,
+      "cambio_estado",
+      estadoAnterior as string,
+      estado,
+      motivo_anulacion,
+    );
 
     return result;
   },
@@ -1264,8 +1421,164 @@ export const LiquidacionesServiciosService = {
       include: {
         usuario: { select: { id: true, nombre: true, correo: true } },
       },
-      orderBy: { created_at: 'desc' },
+      orderBy: { created_at: "desc" },
     });
+  },
+
+  // ── Documento Excel de liquidacion - Hoja 1 ──
+  async obtenerCSV(liquidacionId: string) {
+    const liq = await prisma.liquidacion_servicio.findUnique({
+      where: { id: liquidacionId },
+      include: {
+        cliente: { select: { nombre: true, nit: true } },
+        items: { orderBy: { orden: "asc" } },
+      },
+    });
+
+    if (!liq) throw new Error("Liquidación no encontrada");
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Items Liquidación");
+
+    // 1. Agregar Logo
+    const logoPath = path.join(
+      process.cwd(),
+      "src/assets/transmeralda-logo.png",
+    );
+    if (fs.existsSync(logoPath)) {
+      const logo = workbook.addImage({
+        filename: logoPath,
+        extension: "png",
+      });
+      worksheet.addImage(logo, {
+        tl: { col: 0, row: 0 },
+        ext: { width: 150, height: 50 },
+      });
+    }
+
+    // 2. Información de Encabezado (empezando en fila 4 para dejar espacio al logo)
+    worksheet.mergeCells("A1:K3"); // Espacio para logo si se desea centrar o algo mas
+
+    const headerStartRow = 5;
+    worksheet.getCell(`A${headerStartRow}`).value = "CLIENTE:";
+    worksheet.getCell(`B${headerStartRow}`).value = liq.cliente.nombre;
+    worksheet.getCell(`A${headerStartRow + 1}`).value = "NIT:";
+    worksheet.getCell(`B${headerStartRow + 1}`).value = liq.cliente.nit;
+    worksheet.getCell(`A${headerStartRow + 2}`).value = "CONSECUTIVO:";
+    worksheet.getCell(`B${headerStartRow + 2}`).value = liq.consecutivo;
+    worksheet.getCell(`A${headerStartRow + 3}`).value = "PERIODO:";
+    worksheet.getCell(`B${headerStartRow + 3}`).value = `${liq.mes}/${liq.anio}`;
+
+    // Estilo negrita para etiquetas de encabezado
+    ["A5", "A6", "A7", "A8"].forEach((cell) => {
+      worksheet.getCell(cell).font = { bold: true };
+    });
+
+    // 3. Tabla de Items
+    const tableHeaderRow = 10;
+    const columns = [
+      { header: "PLACA", key: "placa", width: 12 },
+      { header: "FECHA INICIAL", key: "fecha_ini", width: 15 },
+      { header: "FECHA FINAL", key: "fecha_fin", width: 15 },
+      { header: "RECORRIDO", key: "recorrido", width: 45 },
+      { header: "TIPO SERVICIO", key: "tipo", width: 15 },
+      { header: "CANTIDAD", key: "cantidad", width: 10 },
+      { header: "VALOR UNITARIO", key: "v_unit", width: 18 },
+      { header: "SUBTOTAL", key: "subtotal", width: 18 },
+      { header: "DESC (%)", key: "desc", width: 10 },
+      { header: "VALOR FINAL", key: "v_final", width: 18 },
+      { header: "NRO. PLANILLA", key: "planilla", width: 15 },
+    ];
+
+    const headerRow = worksheet.getRow(tableHeaderRow);
+    columns.forEach((col, idx) => {
+      const cell = headerRow.getCell(idx + 1);
+      cell.value = col.header;
+      worksheet.getColumn(idx + 1).width = col.width;
+
+      // Estilo Emerald con texto blanco
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF059669" }, // Emerald 600
+      };
+      cell.font = {
+        color: { argb: "FFFFFFFF" },
+        bold: true,
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    });
+
+    // 4. Datos
+    liq.items.forEach((item, idx) => {
+      const row = worksheet.getRow(tableHeaderRow + 1 + idx);
+      row.values = [
+        item.placa,
+        item.fecha_inicial.toISOString().split("T")[0],
+        item.fecha_final.toISOString().split("T")[0],
+        item.recorrido,
+        item.tipo_servicio.replace("_", " "),
+        Number(item.cantidad),
+        Number(item.valor_unitario),
+        Number(item.subtotal),
+        Number(item.porcentaje_descuento),
+        Number(item.valor_final),
+        item.numero_planilla || "",
+      ];
+
+      // Formato COP y bordes
+      [7, 8, 10].forEach((colIdx) => {
+        row.getCell(colIdx).numFmt = '"$"#,##0;[Red]"-"$#,##0';
+      });
+
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
+        };
+      });
+    });
+
+    // 5. Totales
+    const lastDataRow = tableHeaderRow + liq.items.length;
+    const totalsRow = worksheet.getRow(lastDataRow + 2);
+    totalsRow.getCell(1).value = "TOTALES";
+    totalsRow.getCell(1).font = { bold: true };
+
+    totalsRow.getCell(6).value = liq.items.reduce(
+      (sum, i) => sum + Number(i.cantidad),
+      0,
+    );
+    totalsRow.getCell(8).value = liq.items.reduce(
+      (sum, i) => sum + Number(i.subtotal),
+      0,
+    );
+    totalsRow.getCell(10).value = liq.items.reduce(
+      (sum, i) => sum + Number(i.valor_final),
+      0,
+    );
+
+    [6, 8, 10].forEach((colIdx) => {
+      totalsRow.getCell(colIdx).font = { bold: true };
+      if (colIdx >= 8) {
+        totalsRow.getCell(colIdx).numFmt = '"$"#,##0;[Red]"-"$#,##0';
+      }
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    return {
+      buffer,
+      filename: `Liquidacion_${liq.consecutivo}.xlsx`,
+    };
   },
 
   // ── Estadísticas ──
@@ -1358,7 +1671,9 @@ export const LiquidacionesServiciosService = {
   // ── CONFIGURACIÓN LIQUIDADOR DE SERVICIOS ──
 
   async obtenerConfigLiquidador() {
-    let config = await prisma.configuracion_liquidacion_servicio.findFirst({ where: { activo: true } });
+    let config = await prisma.configuracion_liquidacion_servicio.findFirst({
+      where: { activo: true },
+    });
     if (!config) {
       config = await prisma.configuracion_liquidacion_servicio.create({
         data: {
@@ -1397,23 +1712,37 @@ export const LiquidacionesServiciosService = {
     pct_admin?: number;
     prueba_covid?: number;
   }) {
-    let config = await prisma.configuracion_liquidacion_servicio.findFirst({ where: { activo: true } });
+    let config = await prisma.configuracion_liquidacion_servicio.findFirst({
+      where: { activo: true },
+    });
     if (!config) {
       config = await prisma.configuracion_liquidacion_servicio.create({
-        data: { id: randomUUID(), ...data as any },
+        data: { id: randomUUID(), ...(data as any) },
       });
     } else {
       config = await prisma.configuracion_liquidacion_servicio.update({
         where: { id: config.id },
         data: {
-          ...(data.salario_basico !== undefined && { salario_basico: data.salario_basico }),
+          ...(data.salario_basico !== undefined && {
+            salario_basico: data.salario_basico,
+          }),
           ...(data.cargo !== undefined && { cargo: data.cargo }),
-          ...(data.valor_hora_override !== undefined && { valor_hora_override: data.valor_hora_override }),
-          ...(data.conductor_adicional !== undefined && { conductor_adicional: data.conductor_adicional }),
-          ...(data.pct_seg_social !== undefined && { pct_seg_social: data.pct_seg_social }),
-          ...(data.pct_prestaciones !== undefined && { pct_prestaciones: data.pct_prestaciones }),
+          ...(data.valor_hora_override !== undefined && {
+            valor_hora_override: data.valor_hora_override,
+          }),
+          ...(data.conductor_adicional !== undefined && {
+            conductor_adicional: data.conductor_adicional,
+          }),
+          ...(data.pct_seg_social !== undefined && {
+            pct_seg_social: data.pct_seg_social,
+          }),
+          ...(data.pct_prestaciones !== undefined && {
+            pct_prestaciones: data.pct_prestaciones,
+          }),
           ...(data.pct_admin !== undefined && { pct_admin: data.pct_admin }),
-          ...(data.prueba_covid !== undefined && { prueba_covid: data.prueba_covid }),
+          ...(data.prueba_covid !== undefined && {
+            prueba_covid: data.prueba_covid,
+          }),
         },
       });
     }
@@ -1444,6 +1773,8 @@ function computeTerceroLiquidado(recargosData: any): boolean {
     return totalRow > 0;
   });
 }
+
+const toDecimal = (n: number) => Number(n.toFixed(2));
 
 async function generarConsecutivo(anio: number): Promise<string> {
   const ultima = await prisma.liquidacion_servicio.findFirst({

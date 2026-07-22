@@ -14,6 +14,7 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       ...payload,
       id: payload.sub || payload.id,
       area: payload.area || null,
+      permisos: payload.permisos || {}
     }
   } catch (err) {
     return reply.status(401).send({ error: 'Invalid token' })

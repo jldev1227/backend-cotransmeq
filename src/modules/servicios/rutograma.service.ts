@@ -2,6 +2,8 @@ import PDFDocument from 'pdfkit'
 import * as path from 'path'
 import * as fs from 'fs'
 import { prisma } from '../../config/prisma'
+import { getS3SignedUrl } from '../../config/aws'
+import distracomLocations from '../../data/distracomlocations'
 
 interface FirmaData {
   nombre: string
@@ -38,15 +40,29 @@ interface RutogramaData {
   placa: string
   peajes: PeajeInfo[]
   paradasSeguras: ParadaSeguraInfo[]
+  distracomEstaciones: DistracomEstacion[]
   vias: ViasInfo
   riesgos: RiesgosInfo
-  routeGeometry: any | null
+  routeGeometry: any | null  // GeoJSON LineString from Mapbox Directions
 }
 
 interface PeajeInfo {
   nombre: string
   lat: number
   lon: number
+}
+
+interface DistracomEstacion {
+  nombre: string
+  direccion: string
+  ciudad: string
+  departamento: string
+  lat: number
+  lon: number
+  diesel: boolean
+  gasolina: boolean
+  hotel: boolean
+  lubricentro: boolean
 }
 
 interface ParadaSeguraInfo {
@@ -72,12 +88,12 @@ interface RiesgosInfo {
   traficoAlto: boolean
 }
 
-// Colores corporativos Cotransmeq (naranja)
+// Colores corporativos Cotransmeq
 const COLORS = {
-  primary: '#c2410c',       // Naranja oscuro
-  primaryLight: '#fff7ed',  // Naranja muy claro para fondos
-  accent: '#ea580c',        // Naranja medio
-  headerBg: '#c2410c',      // Fondo header
+  primary: '#0e6d36',       // Verde esmeralda oscuro
+  primaryLight: '#d4edda',  // Verde claro para fondos
+  accent: '#1a8c4e',        // Verde medio
+  headerBg: '#0e6d36',      // Fondo header
   headerText: '#ffffff',    // Texto header
   cellBorder: '#999999',
   black: '#000000',
@@ -85,13 +101,23 @@ const COLORS = {
   lightGray: '#f2f2f2',
   mediumGray: '#cccccc',
   darkGray: '#333333',
-  checkOrange: '#ea580c',
-  sectionBg: '#fff7ed',
+  checkGreen: '#0e6d36',
+  sectionBg: '#e8f5e9',
 }
 
 export class RutogramaService {
   private readonly OVERPASS_API = 'https://overpass-api.de/api/interpreter'
   private readonly MAPBOX_TOKEN = process.env.VITE_MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || ''
+  private readonly DISTRACOM_ICON_URL = process.env.DISTRACOM_ICON_URL
+    ?? 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/Surtidor.png'
+  private readonly DISTRACOM_DEPARTAMENTOS = [
+    'cundinamarca',
+    'bogotá', 'bogota',
+    'boyacá', 'boyaca',
+    'meta',
+    'casanare',
+    'vichada',
+  ]
 
   constructor() {
     if (!this.MAPBOX_TOKEN) {
@@ -127,16 +153,41 @@ export class RutogramaService {
       throw new Error('Servicio no encontrado')
     }
 
+    const origenMun = servicio.municipios_servicio_origen_idTomunicipios
+    const destinoMun = servicio.municipios_servicio_destino_idTomunicipios
+
+    // Coordenadas efectivas: servicio primero, si no existen usar las del municipio
+    // Number() convierte Decimal de Prisma a number nativo
+    const origenLat: number | null = servicio.origen_latitud != null
+      ? Number(servicio.origen_latitud)
+      : origenMun?.latitud != null ? Number(origenMun.latitud) : null
+    const origenLng: number | null = servicio.origen_longitud != null
+      ? Number(servicio.origen_longitud)
+      : origenMun?.longitud != null ? Number(origenMun.longitud) : null
+    const destinoLat: number | null = servicio.destino_latitud != null
+      ? Number(servicio.destino_latitud)
+      : destinoMun?.latitud != null ? Number(destinoMun.latitud) : null
+    const destinoLng: number | null = servicio.destino_longitud != null
+      ? Number(servicio.destino_longitud)
+      : destinoMun?.longitud != null ? Number(destinoMun.longitud) : null
+
+    if (!servicio.origen_latitud && origenMun?.latitud) {
+      console.log(`[RutogramaService] ℹ️ Origen sin coords → usando municipio "${origenMun.nombre_municipio}" (${origenMun.latitud}, ${origenMun.longitud})`)
+    }
+    if (!servicio.destino_latitud && destinoMun?.latitud) {
+      console.log(`[RutogramaService] ℹ️ Destino sin coords → usando municipio "${destinoMun.nombre_municipio}" (${destinoMun.latitud}, ${destinoMun.longitud})`)
+    }
+
     // 2. Calcular ruta con Mapbox (distancia y duración)
     let distanciaKm = 0
     let duracionHoras = 0
     let routeGeometry: any = null
 
-    if (this.MAPBOX_TOKEN && servicio.origen_longitud && servicio.origen_latitud && servicio.destino_longitud && servicio.destino_latitud) {
+    if (this.MAPBOX_TOKEN && origenLng && origenLat && destinoLng && destinoLat) {
       try {
         const routeData = await this.calcularRuta(
-          [servicio.origen_longitud, servicio.origen_latitud],
-          [servicio.destino_longitud, servicio.destino_latitud]
+          [origenLng, origenLat],
+          [destinoLng, destinoLat]
         )
         distanciaKm = routeData.distance / 1000
         duracionHoras = routeData.duration / 3600
@@ -149,6 +200,7 @@ export class RutogramaService {
     // 3. Obtener peajes cercanos a la ruta
     let peajes: PeajeInfo[] = []
     let paradasSeguras: ParadaSeguraInfo[] = []
+    let distracomEstaciones: DistracomEstacion[] = []
     if (routeGeometry) {
       try {
         peajes = await this.obtenerPeajes(routeGeometry)
@@ -160,10 +212,17 @@ export class RutogramaService {
       } catch (error) {
         console.warn('[RutogramaService] No se pudieron obtener paradas seguras:', error)
       }
+      try {
+        distracomEstaciones = this.obtenerEstacionesDistracom(routeGeometry)
+      } catch (error) {
+        console.warn('[RutogramaService] No se pudieron obtener estaciones Distracom:', error)
+      }
       console.log(`[RutogramaService] 📍 Peajes encontrados: ${peajes.length}`)
       peajes.forEach(p => console.log(`  🟠 ${p.nombre} → lat: ${p.lat}, lon: ${p.lon}`))
       console.log(`[RutogramaService] 📍 Paradas seguras encontradas: ${paradasSeguras.length}`)
       paradasSeguras.forEach(p => console.log(`  🔵 [${p.tipo}] ${p.nombre} → lat: ${p.lat}, lon: ${p.lon}`))
+      console.log(`[RutogramaService] ⛽ Estaciones Distracom cercanas: ${distracomEstaciones.length}`)
+      distracomEstaciones.forEach(e => console.log(`  🟢 ${e.nombre} (${e.ciudad}) → lat: ${e.lat}, lon: ${e.lon}`))
     }
 
     // 4. Extraer info de vías y riesgos de recargos_planillas
@@ -183,15 +242,36 @@ export class RutogramaService {
       traficoAlto: planilla?.riesgo_trafico_alto ?? false,
     }
 
-    const origenMun = servicio.municipios_servicio_origen_idTomunicipios
-    const destinoMun = servicio.municipios_servicio_destino_idTomunicipios
+    // 5. Obtener firmas de Jefe de Operaciones y HSEQ
+    const firmas: FirmaData[] = []
+    const firmantes = await prisma.usuarios.findMany({
+      where: {
+        cargo: { in: ['Jefe de Operaciones', 'Coordinadora HSEQ'] },
+        firma_url: { not: null }
+      },
+      select: { nombre: true, cargo: true, firma_url: true }
+    })
 
-    // 5. Firmas (el esquema Cotransmeq no tiene cargo/firma_url en usuarios,
-    //    se dejan recuadros vacíos para firma manual)
-    const firmas: FirmaData[] = [
-      { nombre: '', cargo: 'Jefe de Operaciones', imageBuffer: null },
-      { nombre: '', cargo: 'Coordinadora HSEQ', imageBuffer: null },
-    ]
+    for (const firmante of firmantes) {
+      let imageBuffer: Buffer | null = null
+      if (firmante.firma_url) {
+        try {
+          const signedUrl = await getS3SignedUrl(firmante.firma_url)
+          const response = await fetch(signedUrl)
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer()
+            imageBuffer = Buffer.from(arrayBuffer)
+          }
+        } catch (err) {
+          console.warn(`[RutogramaService] No se pudo descargar firma de ${firmante.nombre}:`, err)
+        }
+      }
+      firmas.push({
+        nombre: firmante.nombre,
+        cargo: firmante.cargo || '',
+        imageBuffer
+      })
+    }
 
     // 6. Generar PDF
     const pdfBuffer = await this.generarPDF({
@@ -202,15 +282,15 @@ export class RutogramaService {
         municipio: origenMun.nombre_municipio,
         departamento: origenMun.nombre_departamento,
         especifico: servicio.origen_especifico || '',
-        lat: servicio.origen_latitud || 0,
-        lng: servicio.origen_longitud || 0,
+        lat: origenLat ?? 0,
+        lng: origenLng ?? 0,
       },
       destino: {
         municipio: destinoMun.nombre_municipio,
         departamento: destinoMun.nombre_departamento,
         especifico: servicio.destino_especifico || '',
-        lat: servicio.destino_latitud || 0,
-        lng: servicio.destino_longitud || 0,
+        lat: destinoLat ?? 0,
+        lng: destinoLng ?? 0,
       },
       distanciaKm,
       duracionHoras,
@@ -227,12 +307,74 @@ export class RutogramaService {
       placa: servicio.vehiculos?.placa || 'N/A',
       peajes,
       paradasSeguras,
+      distracomEstaciones,
       vias,
       riesgos,
       routeGeometry: routeGeometry || null,
     }, firmas)
 
     return pdfBuffer
+  }
+
+  // ─── DISTRACOM STATIONS ──────────────────────────────────────
+
+  /**
+   * Filtra estaciones Distracom del JSON local:
+   * 1. Solo departamentos permitidos (Cundinamarca, Bogotá, Boyacá, Meta, Casanare, Vichada)
+   * 2. Solo las que estén a menos de ~50 km de algún punto de la ruta
+   */
+  private obtenerEstacionesDistracom(geometry: any): DistracomEstacion[] {
+    const coords: number[][] = geometry.coordinates
+
+    // Bounding box de la ruta + buffer ~0.5 grados (~55 km)
+    const lats = coords.map((c) => c[1])
+    const lngs = coords.map((c) => c[0])
+    const bbox = {
+      minLat: Math.min(...lats) - 0.5,
+      maxLat: Math.max(...lats) + 0.5,
+      minLng: Math.min(...lngs) - 0.5,
+      maxLng: Math.max(...lngs) + 0.5,
+    }
+
+    const estaciones: DistracomEstacion[] = []
+
+    for (const raw of distracomLocations as any[]) {
+      const depto = (raw.Departamento || '').toLowerCase().trim()
+      const lat: number = Number(raw.Latitud)
+      const lon: number = Number(raw.Longitud)
+
+      // 1. Filtrar por departamento permitido
+      if (!this.DISTRACOM_DEPARTAMENTOS.includes(depto)) continue
+
+      // 2. Filtrar por bounding box (barato)
+      if (lat < bbox.minLat || lat > bbox.maxLat || lon < bbox.minLng || lon > bbox.maxLng) continue
+
+      // 3. Verificar proximidad real (~50 km ≈ 0.45 grados)
+      const cercana = coords.some((c) => {
+        const dLat = Math.abs(lat - c[1])
+        const dLng = Math.abs(lon - c[0])
+        return dLat < 0.45 && dLng < 0.45
+      })
+      if (!cercana) continue
+
+      const servicios: string[] = (raw.Servicios || []).map((s: any) => s.Nombre?.toLowerCase() || '')
+
+      estaciones.push({
+        nombre: raw.NombreEstacion || 'Estación Distracom',
+        direccion: raw.Direccion || '',
+        ciudad: raw.Ciudad || '',
+        departamento: raw.Departamento || '',
+        lat,
+        lon,
+        diesel: (raw.DIESEL ?? 0) > 0,
+        gasolina: (raw.CORRIENTE ?? 0) > 0 || (raw.PREMIUM ?? 0) > 0,
+        hotel: raw.Hotel === true,
+        lubricentro: servicios.some((s) => s.includes('lubricentro')),
+      })
+    }
+
+    console.log(`[RutogramaService] ⛽ Distracom: ${estaciones.length} estaciones encontradas en ruta`)
+    return estaciones.slice(0, 6)
   }
 
   // ─── API HELPERS ──────────────────────────────────────────────
@@ -428,8 +570,8 @@ export class RutogramaService {
 
   /**
    * Fetch a static map image from Mapbox with markers:
-   * - A (orange) origin, B (red) destination
-   * - Peajes (yellow markers)
+   * - A (green) origin, B (red) destination
+   * - Peajes (orange markers)
    * - Restaurantes (blue), Estaciones de servicio (purple), Hospedajes (teal)
    */
   private async fetchMapImage(data: RutogramaData): Promise<Buffer | null> {
@@ -444,11 +586,11 @@ export class RutogramaService {
     }
 
     try {
-      // Markers: A (orange) for origin, B (red) for destination
-      const markerA = `pin-l-a+ea580c(${data.origen.lng.toFixed(5)},${data.origen.lat.toFixed(5)})`
+      // Markers: A (green) for origin, B (red) for destination
+      const markerA = `pin-l-a+0e6d36(${data.origen.lng.toFixed(5)},${data.origen.lat.toFixed(5)})`
       const markerB = `pin-l-b+d32f2f(${data.destino.lng.toFixed(5)},${data.destino.lat.toFixed(5)})`
 
-      // Peajes markers (yellow, small pin with P)
+      // Peajes markers (orange, small pin with P)
       const peajeMarkers = data.peajes.slice(0, 5).map(p =>
         `pin-s-p+f59e0b(${p.lon.toFixed(5)},${p.lat.toFixed(5)})`
       )
@@ -461,7 +603,13 @@ export class RutogramaService {
         return `pin-s-${letter}+${color}(${p.lon.toFixed(5)},${p.lat.toFixed(5)})`
       })
 
-      let allMarkers = [...peajeMarkers, ...paradaMarkers, markerA, markerB]
+      // Distracom markers — icono PNG público desde S3
+      const distracomIconEncoded = encodeURIComponent(this.DISTRACOM_ICON_URL)
+      const distracomMarkers = data.distracomEstaciones.slice(0, 6).map(e =>
+        `url-${distracomIconEncoded}(${e.lon.toFixed(5)},${e.lat.toFixed(5)})`
+      )
+
+      let allMarkers = [...peajeMarkers, ...paradaMarkers, ...distracomMarkers, markerA, markerB]
       let overlays = allMarkers.join(',')
 
       // Add route path if available
@@ -469,29 +617,29 @@ export class RutogramaService {
         const simplified = this.simplifyCoords(data.routeGeometry.coordinates, 100)
         const encoded = this.encodePolyline(simplified)
         const encodedURI = encodeURIComponent(encoded)
-        const pathOverlay = `path-4+ea580c-0.8(${encodedURI})`
+        const pathOverlay = `path-4+0e6d36-0.8(${encodedURI})`
         overlays = `${pathOverlay},${allMarkers.join(',')}`
       }
 
       // Check URL length - Mapbox limit is ~8192 chars
       let baseUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/1280x800@2x?padding=60,60,60,60&logo=false&attribution=false&access_token=${this.MAPBOX_TOKEN}`
 
-      // If URL too long, reduce polyline points or remove some markers
+      // Si URL muy larga: reducir polilínea y quitar paradas, conservar Distracom
       if (baseUrl.length > 8000) {
         console.warn(`[RutogramaService] URL too long (${baseUrl.length}), simplifying...`)
         if (data.routeGeometry?.coordinates) {
           const simplified = this.simplifyCoords(data.routeGeometry.coordinates, 60)
           const encoded = this.encodePolyline(simplified)
           const encodedURI = encodeURIComponent(encoded)
-          const pathOverlay = `path-4+ea580c-0.8(${encodedURI})`
-          // Keep only origin/destination + peajes, drop paradas
-          allMarkers = [...peajeMarkers.slice(0, 3), markerA, markerB]
+          const pathOverlay = `path-4+0e6d36-0.8(${encodedURI})`
+          // Conservar peajes + Distracom, quitar paradas seguras
+          allMarkers = [...peajeMarkers.slice(0, 3), ...distracomMarkers.slice(0, 3), markerA, markerB]
           overlays = `${pathOverlay},${allMarkers.join(',')}`
           baseUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/1280x800@2x?padding=60,60,60,60&logo=false&attribution=false&access_token=${this.MAPBOX_TOKEN}`
         }
       }
 
-      console.log(`[RutogramaService] Fetching map image (${baseUrl.length} chars, ${peajeMarkers.length} peajes, ${paradaMarkers.length} paradas)`)
+      console.log(`[RutogramaService] Fetching map image (${baseUrl.length} chars, ${peajeMarkers.length} peajes, ${paradaMarkers.length} paradas, ${distracomMarkers.length} distracom)`)
 
       const response = await fetch(baseUrl)
       if (!response.ok) {
@@ -509,13 +657,28 @@ export class RutogramaService {
     }
   }
 
+  /**
+   * Descarga el icono PNG de Distracom desde S3 para usarlo en la leyenda del PDF
+   */
+  private async fetchDistracomIcon(): Promise<Buffer | null> {
+    try {
+      const response = await fetch(this.DISTRACOM_ICON_URL)
+      if (!response.ok) return null
+      const arrayBuffer = await response.arrayBuffer()
+      return Buffer.from(arrayBuffer)
+    } catch (err) {
+      console.warn('[RutogramaService] No se pudo descargar icono Distracom:', err)
+      return null
+    }
+  }
+
   // ─── PDF GENERATION ──────────────────────────────────────────
 
   private getLogoPath(): string {
     const isDist = __dirname.includes('/dist/')
     return isDist
-      ? path.join(__dirname, '../../assets/cotransmeq-logo.png')
-      : path.join(__dirname, '../../assets/cotransmeq-logo.png')
+      ? path.join(__dirname, '../../assets/transmeralda-logo.png')
+      : path.join(__dirname, '../../assets/transmeralda-logo.png')
   }
 
   private getFontsDir(): string {
@@ -538,8 +701,11 @@ export class RutogramaService {
   }
 
   private async generarPDF(data: RutogramaData, firmas: FirmaData[]): Promise<Buffer> {
-    // Fetch map image before starting PDF generation
-    const mapImageBuffer = await this.fetchMapImage(data)
+    // Fetch map image y icono Distracom en paralelo antes de generar el PDF
+    const [mapImageBuffer, distracomIconBuffer] = await Promise.all([
+      this.fetchMapImage(data),
+      this.fetchDistracomIcon(),
+    ])
 
     return new Promise((resolve, reject) => {
       try {
@@ -589,7 +755,7 @@ export class RutogramaService {
         if (mapImageBuffer) {
           doc.addPage()
           y = this.renderHeader(doc, pageW, marginL, contentW, data)
-          this.renderSeccionMapa(doc, marginL, contentW, y, pageH, data, mapImageBuffer)
+          this.renderSeccionMapa(doc, marginL, contentW, y, pageH, data, mapImageBuffer, distracomIconBuffer)
         }
 
         doc.end()
@@ -622,11 +788,11 @@ export class RutogramaService {
         doc.image(logoPath, marginL + 8, y + 6, { width: 140, height: 42 })
       } else {
         doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-          .text('COTRANSMEQ S.A.S.', marginL + 8, y + 18)
+          .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
       }
     } catch {
       doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-        .text('COTRANSMEQ S.A.S.', marginL + 8, y + 18)
+        .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
     }
 
     // Línea divisora vertical
@@ -640,7 +806,7 @@ export class RutogramaService {
     doc.fontSize(7).font('Roboto').fillColor(COLORS.darkGray)
       .text('HOJA DE RUTA - CONTROL OPERACIONAL', col2X, y + 25, { width: col2W, align: 'center' })
     doc.fontSize(6).font('Roboto').fillColor(COLORS.darkGray)
-      .text('COOPERATIVA DE TRANSPORTADORES DE MAQUINARIA Y EQUIPO', col2X, y + 38, { width: col2W, align: 'center' })
+      .text('TRANSPORTES Y SERVICIOS ESMERALDA S.A.S', col2X, y + 38, { width: col2W, align: 'center' })
 
     // Línea divisora vertical
     doc.moveTo(col2X + col2W, y).lineTo(col2X + col2W, y + headerH).stroke()
@@ -945,7 +1111,8 @@ export class RutogramaService {
     startY: number,
     pageH: number,
     data: RutogramaData,
-    mapImageBuffer: Buffer
+    mapImageBuffer: Buffer,
+    distracomIconBuffer: Buffer | null
   ): void {
     let y = startY
 
@@ -976,13 +1143,13 @@ export class RutogramaService {
     y += infoRowH
 
     // Fila A - Origen
-    this.drawCell(doc, marginL, y, col1W, infoRowH, '  A', true, '#fff7ed')
+    this.drawCell(doc, marginL, y, col1W, infoRowH, '  A', true, '#e8f5e9')
     this.drawCell(doc, marginL + col1W, y, col2W, infoRowH, `${data.origen.municipio} (${data.origen.departamento})`)
     this.drawCell(doc, marginL + col1W + col2W, y, col3W, infoRowH, data.origen.especifico || 'No especificada')
     this.drawCell(doc, marginL + col1W + col2W + col3W, y, col4W, infoRowH, data.origen.lat.toFixed(5))
     this.drawCell(doc, marginL + col1W + col2W + col3W + col4W, y, col5W, infoRowH, data.origen.lng.toFixed(5))
-    // Orange dot for A
-    doc.circle(marginL + 10, y + infoRowH / 2, 4).fill(COLORS.accent)
+    // Green dot for A
+    doc.circle(marginL + 10, y + infoRowH / 2, 4).fill(COLORS.primary)
     doc.fontSize(5).font('Roboto-Bold').fillColor(COLORS.white)
       .text('A', marginL + 7.5, y + infoRowH / 2 - 3.5, { width: 6, align: 'center', lineBreak: false })
     y += infoRowH
@@ -1041,24 +1208,40 @@ export class RutogramaService {
     y += 4
 
     const legendItems = [
-      { color: '#ea580c', label: 'A  Origen', letter: 'A' },
-      { color: '#d32f2f', label: 'B  Destino', letter: 'B' },
-      { color: '#f59e0b', label: 'P  Peaje', letter: 'P' },
-      { color: '#2196f3', label: 'R  Restaurante', letter: 'R' },
-      { color: '#9c27b0', label: 'S  Est. Servicio', letter: 'S' },
-      { color: '#009688', label: 'H  Hospedaje', letter: 'H' },
+      { color: '#0e6d36', label: 'A  Origen',       letter: 'A', icon: null },
+      { color: '#d32f2f', label: 'B  Destino',      letter: 'B', icon: null },
+      { color: '#f59e0b', label: 'P  Peaje',         letter: 'P', icon: null },
+      { color: '#2196f3', label: 'R  Restaurante',   letter: 'R', icon: null },
+      { color: '#9c27b0', label: 'S  Est. Servicio', letter: 'S', icon: null },
+      { color: '#009688', label: 'H  Hospedaje',     letter: 'H', icon: null },
+      { color: '#1b5e20', label: 'D  Distracom',     letter: 'D', icon: distracomIconBuffer },
     ]
 
     const itemW = contentW / legendItems.length
     const dotR = 4
+    const iconSize = dotR * 2  // mismo tamaño que el círculo (8px)
 
     for (let i = 0; i < legendItems.length; i++) {
       const item = legendItems[i]
       const ix = marginL + i * itemW
-      // Dot
-      doc.circle(ix + 8, y + 5, dotR).fill(item.color)
-      doc.fontSize(4).font('Roboto-Bold').fillColor(COLORS.white)
-        .text(item.letter, ix + 8 - dotR, y + 5 - 3, { width: dotR * 2, align: 'center', lineBreak: false })
+
+      if (item.icon) {
+        // Icono PNG real (Distracom)
+        try {
+          doc.image(item.icon, ix + 4, y + 1, { width: iconSize, height: iconSize })
+        } catch {
+          // Fallback al círculo si falla la imagen
+          doc.circle(ix + 8, y + 5, dotR).fill(item.color)
+          doc.fontSize(4).font('Roboto-Bold').fillColor(COLORS.white)
+            .text(item.letter, ix + 8 - dotR, y + 5 - 3, { width: dotR * 2, align: 'center', lineBreak: false })
+        }
+      } else {
+        // Círculo de color estándar
+        doc.circle(ix + 8, y + 5, dotR).fill(item.color)
+        doc.fontSize(4).font('Roboto-Bold').fillColor(COLORS.white)
+          .text(item.letter, ix + 8 - dotR, y + 5 - 3, { width: dotR * 2, align: 'center', lineBreak: false })
+      }
+
       // Label
       doc.fontSize(6).font('Roboto').fillColor(COLORS.darkGray)
         .text(item.label, ix + 16, y + 2, { width: itemW - 20, lineBreak: false })
@@ -1066,7 +1249,7 @@ export class RutogramaService {
 
     y += 14
     doc.fontSize(5.5).font('Roboto').fillColor(COLORS.darkGray)
-      .text(`Mapa generado con Mapbox • ${data.peajes.length} peaje(s) y ${data.paradasSeguras.length} parada(s) segura(s) identificadas • Las rutas son aproximadas`,
+      .text(`Mapa generado con Mapbox • ${data.peajes.length} peaje(s), ${data.paradasSeguras.length} parada(s) segura(s) y ${data.distracomEstaciones.length} estación(es) Distracom identificadas • Las rutas son aproximadas`,
         marginL, y, { width: contentW, align: 'center', lineBreak: false })
   }
 
@@ -1132,9 +1315,9 @@ export class RutogramaService {
     doc.rect(boxX, boxY, boxSize, boxSize).lineWidth(0.8).strokeColor(COLORS.black).stroke()
 
     if (checked) {
-      // Draw checkmark in orange
+      // Draw checkmark
       doc.save()
-      doc.strokeColor(COLORS.checkOrange).lineWidth(1.5)
+      doc.strokeColor(COLORS.checkGreen).lineWidth(1.5)
       doc.moveTo(boxX + 2, boxY + boxSize / 2)
         .lineTo(boxX + boxSize / 2 - 1, boxY + boxSize - 2)
         .lineTo(boxX + boxSize - 2, boxY + 2)

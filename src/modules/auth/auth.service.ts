@@ -36,7 +36,17 @@ export const AuthService = {
     const tokenExpiry = new Date(Date.now() + (rememberMe ? 90 : 30) * 24 * 60 * 60 * 1000)
 
     const token = jwt.sign(
-      { sub: user.id, correo: user.correo, role: user.role, nombre: user.nombre, area: user.area },
+      {
+        sub: user.id,
+        correo: user.correo,
+        role: user.role,
+        nombre: user.nombre,
+        area: user.area,
+        // Permisos individuales (JSON) — se incluyen en el JWT para que
+        // los middlewares (ej. requireBonosPlanilla) puedan chequearlos
+        // sin un round-trip a la BD en cada request.
+        permisos: user.permisos || {}
+      },
       env.JWT_SECRET,
       { expiresIn }
     )

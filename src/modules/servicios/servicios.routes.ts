@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import { ServiciosController } from './servicios.controller'
+import { authMiddleware } from '../../middlewares/auth.middleware'
 
 export async function serviciosRoutes(app: FastifyInstance) {
-  
+
   // ⚠️ IMPORTANTE: Las rutas específicas DEBEN ir ANTES que las rutas con parámetros dinámicos
 
   // Rutas públicas (sin autenticación)
@@ -54,7 +55,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          estado: { type: 'string', enum: ['solicitado', 'asignado', 'en_curso', 'completado', 'cancelado'] },
+          estado: { type: 'string', enum: ['solicitado', 'planificado', 'en_curso', 'pendiente', 'realizado', 'planilla_asignada', 'liquidado', 'cancelado'] },
           conductor_id: { type: 'string', format: 'uuid' },
           vehiculo_id: { type: 'string', format: 'uuid' },
           cliente_id: { type: 'string', format: 'uuid' },
@@ -67,6 +68,27 @@ export async function serviciosRoutes(app: FastifyInstance) {
       }
     }
   }, ServiciosController.buscarServicios)
+
+  // Vista calendario (autenticada)
+  app.get('/servicios/calendar', {
+    preHandler: [authMiddleware],
+    schema: {
+      description: 'Obtener servicios para vista de calendario filtrados por mes/año',
+      tags: ['servicios'],
+      querystring: {
+        type: 'object',
+        properties: {
+          mes: { type: 'string', pattern: '^(0?[1-9]|1[0-2])$', description: 'Mes (1-12)' },
+          anio: { type: 'string', pattern: '^[0-9]{4}$', description: 'Año (4 dígitos)' },
+          campo_fecha: { type: 'string', enum: ['fecha_solicitud', 'fecha_realizacion', 'fecha_finalizacion'], description: 'Campo de fecha a usar (default: fecha_realizacion)' },
+          estado: { type: 'string', enum: ['solicitado', 'planificado', 'en_curso', 'pendiente', 'realizado', 'planilla_asignada', 'liquidado', 'cancelado'] },
+          conductor_id: { type: 'string', format: 'uuid' },
+          vehiculo_id: { type: 'string', format: 'uuid' },
+          cliente_id: { type: 'string', format: 'uuid' }
+        }
+      }
+    }
+  }, ServiciosController.obtenerCalendar)
 
   // Rutas para obtener listas para filtros
   app.get('/servicios/filtros/conductores', {
@@ -190,39 +212,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
     }
   }, ServiciosController.obtenerTodos)
 
-  app.get('/servicios/:id', {
-    schema: {
-      description: 'Obtener servicio por ID',
-      tags: ['servicios'],
-      params: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', format: 'uuid' }
-        }
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { 
-              type: 'object',
-              additionalProperties: true  // Permitir propiedades adicionales
-            }
-          }
-        },
-        404: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' }
-          }
-        }
-      }
-    }
-  }, ServiciosController.obtenerPorId)
-
-  // Ruta para generar rutograma en PDF
+  // Ruta para generar rutograma en PDF (DEBE ir ANTES de /:id)
   app.get('/servicios/:id/rutograma', {
     schema: {
       description: 'Generar rutograma en PDF para un servicio',
@@ -257,6 +247,38 @@ export async function serviciosRoutes(app: FastifyInstance) {
       }
     }
   }, ServiciosController.generarRutograma)
+
+  app.get('/servicios/:id', {
+    schema: {
+      description: 'Obtener servicio por ID',
+      tags: ['servicios'],
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { 
+              type: 'object',
+              additionalProperties: true  // Permitir propiedades adicionales
+            }
+          }
+        },
+        404: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' }
+          }
+        }
+      }
+    }
+  }, ServiciosController.obtenerPorId)
 
   // Rutas que requieren permisos de creación/edición
   app.post('/servicios', {
@@ -294,7 +316,10 @@ export async function serviciosRoutes(app: FastifyInstance) {
           properties: {
             success: { type: 'boolean' },
             message: { type: 'string' },
-            data: { type: 'object' }
+            data: {
+              type: 'object',
+              additionalProperties: true
+            }
           }
         }
       }
@@ -317,7 +342,10 @@ export async function serviciosRoutes(app: FastifyInstance) {
           properties: {
             success: { type: 'boolean' },
             message: { type: 'string' },
-            data: { type: 'object' }
+            data: {
+              type: 'object',
+              additionalProperties: true
+            }
           }
         }
       }
@@ -372,7 +400,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['estado'],
         properties: {
-          estado: { type: 'string', enum: ['solicitado', 'asignado', 'en_curso', 'completado', 'cancelado'] },
+          estado: { type: 'string', enum: ['solicitado', 'planificado', 'en_curso', 'pendiente', 'realizado', 'planilla_asignada', 'liquidado', 'cancelado'] },
           observaciones: { type: 'string' }
         }
       }

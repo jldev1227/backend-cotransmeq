@@ -22,6 +22,7 @@ interface RespuestaData {
   numero_documento: string
   cargo: string
   numero_telefono: string
+  pertenece_comite?: boolean
   fecha_respuesta: string
   firma?: string // Base64 de la imagen
 }
@@ -54,8 +55,8 @@ export class PDFGeneratorService {
           // In development (src folder), assets are at src/assets
           const isDist = __dirname.includes('/dist/')
           const logoPath = isDist 
-            ? path.join(__dirname, '../../assets/cotransmeq-logo.png')
-            : path.join(__dirname, '../../assets/cotransmeq-logo.png')
+            ? path.join(__dirname, '../../assets/transmeralda-logo.png')
+            : path.join(__dirname, '../../assets/transmeralda-logo.png')
           
           if (fs.existsSync(logoPath)) {
             // Logo en la esquina superior izquierda (reducido 14%)
@@ -138,11 +139,9 @@ export class PDFGeneratorService {
         else if (formulario.tipo_evento === 'divulgacion') tipoEventoLabel = 'DIVULGACIÓN'
         else if (formulario.tipo_evento === 'otro') tipoEventoLabel = formulario.tipo_evento_otro || 'OTRO'
 
-        const fechaFormato = new Date(formulario.fecha).toLocaleDateString('es-CO', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric'
-        })
+        const fechaStr = String(formulario.fecha).split('T')[0]
+        const [year, month, day] = fechaStr.split('-')
+        const fechaFormato = `${day}/${month}/${year}`
 
         const duracionTexto = formulario.duracion_minutos 
           ? `${Math.floor(formulario.duracion_minutos / 60)}H ${formulario.duracion_minutos % 60}M`
@@ -268,8 +267,8 @@ export class PDFGeneratorService {
 
         // Tabla de asistentes
         const tableTop = yPos
-        const tableHeaders = ['No.', 'NOMBRE COMPLETO', 'CÉDULA', 'CARGO / ROL', 'TELÉFONO', 'FIRMA']
-        const colWidths = [30, 200, 80, 140, 80, 180]
+        const tableHeaders = ['No.', 'NOMBRE COMPLETO', 'CÉDULA', 'CARGO / ROL', 'TELÉFONO', 'COMITÉ', 'FIRMA']
+        const colWidths = [30, 170, 70, 130, 70, 40, 150]
         const colPositions = [40]
 
         // Calcular posiciones de columnas
@@ -359,6 +358,19 @@ export class PDFGeneratorService {
             { width: colWidths[4], align: 'center' }
           )
 
+          // Pertenece a Comité - Centrado vertical y horizontal
+          const comiteText = respuesta.pertenece_comite === true 
+            ? 'SÍ' 
+            : respuesta.pertenece_comite === false 
+              ? 'NO' 
+              : '-'
+          doc.text(
+            comiteText,
+            colPositions[5],
+            yPos + (assistantRowHeight / 2) - 3,
+            { width: colWidths[5], align: 'center' }
+          )
+
           // Firma - Renderizar imagen Base64
           try {
             if (respuesta.firma && respuesta.firma.startsWith('data:image')) {
@@ -367,11 +379,11 @@ export class PDFGeneratorService {
               const imageBuffer = Buffer.from(base64Data, 'base64')
               
               // Calcular dimensiones para centrar y hacer zoom a la firma
-              const cellCenterX = colPositions[5] + (colWidths[5] / 2)
+              const cellCenterX = colPositions[6] + (colWidths[6] / 2)
               const cellCenterY = yPos + (assistantRowHeight / 2)
               
               // Aumentar el tamaño de la firma (35% más grande)
-              const firmaMaxWidth = (colWidths[5] - 8) * 1.35
+              const firmaMaxWidth = (colWidths[6] - 8) * 1.35
               const firmaMaxHeight = (assistantRowHeight - 4) * 1.35
               
               // Calcular posición para centrar la firma escalada
@@ -387,8 +399,8 @@ export class PDFGeneratorService {
             }
           } catch (error) {
             // Si hay error al renderizar la imagen, mostrar línea para firma
-            const firmaX = colPositions[5]
-            const firmaWidth = colWidths[5]
+            const firmaX = colPositions[6]
+            const firmaWidth = colWidths[6]
             const firmaY = yPos + (assistantRowHeight / 2)
             
             doc

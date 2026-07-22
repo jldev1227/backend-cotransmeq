@@ -5,6 +5,7 @@ import { CreateTerceroInput, UpdateTerceroInput } from './tercero.schema';
 
 export const TercerosService = {
   async create(data: CreateTerceroInput) {
+    // Verificar identificación duplicada si se proporciona
     if (data.identificacion) {
       const existing = await prisma.terceros.findFirst({
         where: { identificacion: data.identificacion, deleted_at: null },
@@ -48,6 +49,7 @@ export const TercerosService = {
       ];
     }
 
+    // Sorting
     const allowedSortFields = ['nombre_completo', 'identificacion', 'tipo_persona', 'regimen', 'telefono', 'correo'];
     const orderField = (sortBy && allowedSortFields.includes(sortBy)) ? sortBy : 'nombre_completo';
     const orderDir = sortOrder === 'desc' ? 'desc' : 'asc';
@@ -95,8 +97,10 @@ export const TercerosService = {
   },
 
   async update(id: string, data: UpdateTerceroInput) {
+    // Verificar que existe
     await this.findById(id);
 
+    // Verificar identificación duplicada si se cambia
     if (data.identificacion) {
       const existing = await prisma.terceros.findFirst({
         where: {
@@ -129,6 +133,10 @@ export const TercerosService = {
     });
   },
 
+  /**
+   * Búsqueda ligera para autocomplete (searchable select).
+   * Devuelve hasta 20 terceros con id, nombre_completo, identificacion, tipo_persona.
+   */
   async buscar(q: string) {
     const where: any = { deleted_at: null };
     if (q && q.trim().length > 0) {
@@ -151,6 +159,10 @@ export const TercerosService = {
     });
   },
 
+  /**
+   * Importar terceros desde la tabla de vehículos.
+   * Extrae propietario_nombre y propietario_identificacion únicos.
+   */
   async importarDesdeVehiculos() {
     const vehiculos = await prisma.vehiculos.findMany({
       where: {
@@ -175,6 +187,7 @@ export const TercerosService = {
         ? v.propietario_identificacion.trim()
         : null;
 
+      // Verificar si ya existe por identificación o nombre
       const where: any = { deleted_at: null };
       if (identificacion) {
         where.identificacion = identificacion;
@@ -193,12 +206,12 @@ export const TercerosService = {
           id: randomUUID(),
           nombre_completo: nombre,
           identificacion,
-          tipo_persona: 'PERSONA' as any,
+          tipo_persona: 'PERSONA',
         },
       });
       importados++;
     }
 
-    return { importados, duplicados, total: importados + duplicados };
+    return { importados, duplicados, total: vehiculos.length };
   },
 };

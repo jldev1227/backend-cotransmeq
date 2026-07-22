@@ -1,5 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { SesionesService } from './sesiones.service'
+import { emitToUser } from '../../sockets/index'
 
 export const SesionesController = {
   /** Listar todas las sesiones (admin) */
@@ -48,7 +49,6 @@ export const SesionesController = {
   /** Cerrar una sesión específica (admin) */
   async cerrarSesion(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string }
-    // Buscar la sesión para obtener el token_hash
     const { prisma } = require('../../config/prisma')
     const sesion = await prisma.sesiones.findUnique({ where: { id } })
     if (!sesion) return reply.status(404).send({ error: 'Sesión no encontrada' })
@@ -56,6 +56,7 @@ export const SesionesController = {
     if (sesion.token_hash) {
       await SesionesService.cerrar(sesion.token_hash)
     }
+    emitToUser(sesion.usuario_id, 'sesion-cerrada', { motivo: 'Un administrador cerró esta sesión.' })
     reply.send({ message: 'Sesión cerrada' })
   },
 
@@ -63,6 +64,7 @@ export const SesionesController = {
   async cerrarTodasUsuario(request: FastifyRequest, reply: FastifyReply) {
     const { usuarioId } = request.params as { usuarioId: string }
     const result = await SesionesService.cerrarTodas(usuarioId)
+    emitToUser(usuarioId, 'sesion-cerrada', { motivo: 'Un administrador cerró todas tus sesiones.' })
     reply.send({ message: `${result.count} sesiones cerradas` })
   },
 

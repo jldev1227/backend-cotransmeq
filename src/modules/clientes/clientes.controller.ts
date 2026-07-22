@@ -5,6 +5,7 @@ import {
   updateClienteSchema, 
   buscarClientesSchema 
 } from './cliente.schema'
+import { getIo } from '../../sockets'
 
 interface ClienteParams {
   id: string
@@ -223,16 +224,20 @@ export const ClientesController = {
 ,
 
   /**
-   * Obtener clientes ocultos (solo admin)
+   * Obtener clientes ocultos (solo admin o áreas autorizadas)
    */
   async obtenerOcultos(request: FastifyRequest, reply: FastifyReply) {
     try {
-      // Verificar que el usuario es administrador
+      // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
         return reply.status(403).send({
           success: false,
-          message: 'No autorizado. Solo administradores pueden ver clientes ocultos'
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ver clientes ocultos'
         })
       }
 
@@ -260,19 +265,23 @@ export const ClientesController = {
   },
 
   /**
-   * Cambiar estado de ocultamiento de un cliente (solo admin)
+   * Cambiar estado de ocultamiento de un cliente (solo admin o áreas autorizadas)
    */
   async cambiarEstadoOculto(request: FastifyRequest<{
     Params: { id: string }
     Body: { oculto: boolean }
   }>, reply: FastifyReply) {
     try {
-      // Verificar que el usuario es administrador
+      // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
         return reply.status(403).send({
           success: false,
-          message: 'No autorizado. Solo administradores pueden ocultar/mostrar clientes'
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ocultar/mostrar clientes'
         })
       }
 
@@ -290,13 +299,17 @@ export const ClientesController = {
       const cliente = await ClientesService.cambiarEstadoOculto(id, oculto)
 
       // Emitir evento de socket para actualización en tiempo real
-      const io = (request.server as any).io
-      if (io) {
-        io.emit('cliente:oculto', {
-          id: cliente.id,
-          oculto: cliente.oculto,
-          nombre: cliente.nombre
-        })
+      try {
+        const io = getIo()
+        if (io) {
+          io.emit('cliente:oculto', {
+            id: cliente.id,
+            oculto: cliente.oculto,
+            nombre: cliente.nombre
+          })
+        }
+      } catch (socketError) {
+        console.warn('No se pudo emitir evento socket individual clientes:', (socketError as any).message)
       }
 
       return reply.send({
@@ -318,6 +331,91 @@ export const ClientesController = {
         success: false,
         message: 'Error al cambiar estado de ocultamiento',
         error: error instanceof Error ? error.message : 'Error desconocido'
+      })
+    }
+  },
+
+  // POST /clientes/masivo
+  async operacionesMasivas(
+    request: FastifyRequest<{
+      Body: {
+        ids: string[]
+        accion: 'ocultar' | 'mostrar' | 'eliminar' | 'restaurar'
+      }
+    }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden realizar operaciones masivas.'
+        })
+      }
+
+      const { ids, accion } = request.body
+
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Se requieren IDs para la operación masiva'
+        })
+      }
+
+      let result
+      let message = ''
+
+      try {
+        switch (accion) {
+          case 'ocultar':
+            result = await ClientesService.cambiarOcultoMasivo(ids, true)
+            message = `${result?.count || 0} clientes ocultados`
+            break
+          case 'mostrar':
+            result = await ClientesService.cambiarOcultoMasivo(ids, false)
+            message = `${result?.count || 0} clientes visibles nuevamente`
+            break
+          case 'eliminar':
+            result = await ClientesService.eliminarMasivo(ids)
+            message = `${result?.count || 0} clientes movidos a la papelera`
+            break
+          default:
+            return reply.status(400).send({
+              success: false,
+              message: 'Acción no válida'
+            })
+        }
+      } catch (dbError: any) {
+        console.error('Error en DB durante operación masiva de clientes:', dbError)
+        throw dbError
+      }
+
+      // Emitir evento masivo de forma segura
+      try {
+        const io = getIo()
+        if (io) {
+          io.emit('clientes:actualizacion-masiva', { accion, count: result?.count || 0 })
+        }
+      } catch (socketError) {
+        console.warn('No se pudo emitir evento socket en operacion masiva clientes:', (socketError as any).message)
+      }
+
+      return reply.send({
+        success: true,
+        message,
+        data: result
+      })
+    } catch (error: any) {
+      console.error('Error general en operación masiva clientes:', error)
+      return reply.status(500).send({
+        success: false,
+        message: 'Error en operación masiva',
+        error: error.message
       })
     }
   }

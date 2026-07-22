@@ -73,9 +73,23 @@ export const createRespuestaAsistenciaSchema = z.object({
   numero_documento: z.string().min(1, 'El número de documento es requerido').max(50),
   cargo: z.string().min(1, 'El cargo es requerido').max(255),
   numero_telefono: z.string().min(1, 'El número de teléfono es requerido').max(20),
+  pertenece_comite: z.boolean().optional(),
+  nombre_comite: z.string().max(255).optional(),
   firma: z.string().min(1, 'La firma es requerida'), // Base64 de la imagen
   device_fingerprint: z.string().min(1, 'El fingerprint del dispositivo es requerido')
-})
+}).refine(
+  (data) => {
+    // Si pertenece_comite es true, nombre_comite debe estar presente
+    if (data.pertenece_comite === true && !data.nombre_comite) {
+      return false
+    }
+    return true
+  },
+  {
+    message: 'Debe especificar el comité al que pertenece',
+    path: ['nombre_comite']
+  }
+)
 
 export type CreateFormularioAsistenciaInput = z.infer<typeof createFormularioAsistenciaSchema>
 export type UpdateFormularioAsistenciaInput = z.infer<typeof updateFormularioAsistenciaSchema>

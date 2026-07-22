@@ -1,13 +1,44 @@
+import path from 'path'
+import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 import { logger } from '../utils/logger'
 
+// Cargar .env antes de leer DATABASE_URL (evita race al importar prisma antes que env.ts)
+dotenv.config({ path: path.resolve(process.cwd(), '.env') })
+
+function resolveDatabaseBaseUrl(): string {
+  let url = (process.env.DATABASE_URL || '').trim().replace(/^["']|["']$/g, '')
+
+  if (!url && process.env.DB_HOST) {
+    const user = encodeURIComponent(process.env.DB_USER || '')
+    const password = encodeURIComponent(process.env.DB_PASSWORD || '')
+    const host = process.env.DB_HOST
+    const port = process.env.DB_PORT || '5432'
+    const database = process.env.DB_NAME || 'postgres'
+    const params = new URLSearchParams({ schema: 'public' })
+    if (host.includes('azure.com')) {
+      params.set('sslmode', 'require')
+    }
+    url = `postgresql://${user}:${password}@${host}:${port}/${database}?${params.toString()}`
+  }
+
+  if (!url.startsWith('postgresql://') && !url.startsWith('postgres://')) {
+    throw new Error(
+      'DATABASE_URL inválida o vacía. Debe comenzar con postgresql:// (revise .env en la raíz del backend o use DB_HOST, DB_USER, DB_PASSWORD, DB_NAME).'
+    )
+  }
+
+  return url
+}
+
 // Construir URL con parámetros de connection pooling
 const getDatabaseUrl = () => {
-  const baseUrl = process.env.DATABASE_URL || ''
+  const baseUrl = resolveDatabaseBaseUrl()
   const poolParams = new URLSearchParams({
-    'connection_limit': '5',        // Máximo 5 conexiones (evita saturar PostgreSQL Azure)
-    'pool_timeout': '30',           // Esperar 30s antes de timeout
-    'connect_timeout': '10'         // Timeout de conexión inicial
+    connection_limit: '1',
+    pool_timeout: '30',
+    connect_timeout: '10',
+    pgbouncer: 'true'
   })
   return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${poolParams.toString()}`
 }

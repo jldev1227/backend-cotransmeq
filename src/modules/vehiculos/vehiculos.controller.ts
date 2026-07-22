@@ -14,41 +14,11 @@ export const VehiculosController = {
       const vehiculo = await VehiculosService.create(data)
       
       console.log('🚗 [VehiculosController] Vehículo creado:', vehiculo)
-      console.log('🚗 [VehiculosController] Tipo:', typeof vehiculo)
-      console.log('🚗 [VehiculosController] Keys:', Object.keys(vehiculo || {}))
-      
-      // Crear objeto plano con campos explícitos
-      const vehiculoResponse = {
-        id: vehiculo.id,
-        placa: vehiculo.placa,
-        marca: vehiculo.marca,
-        linea: vehiculo.linea,
-        modelo: vehiculo.modelo,
-        color: vehiculo.color,
-        clase_vehiculo: vehiculo.clase_vehiculo,
-        tipo_carroceria: vehiculo.tipo_carroceria,
-        combustible: vehiculo.combustible,
-        numero_motor: vehiculo.numero_motor,
-        vin: vehiculo.vin,
-        numero_serie: vehiculo.numero_serie,
-        numero_chasis: vehiculo.numero_chasis,
-        propietario_nombre: vehiculo.propietario_nombre,
-        propietario_identificacion: vehiculo.propietario_identificacion,
-        kilometraje: vehiculo.kilometraje,
-        fecha_matricula: vehiculo.fecha_matricula,
-        created_at: vehiculo.created_at?.toISOString(),
-        propietario_id: vehiculo.propietario_id,
-        updated_at: vehiculo.updated_at?.toISOString(),
-        estado: vehiculo.estado,
-        conductor_id: vehiculo.conductor_id
-      }
-      
-      console.log('🚗 [VehiculosController] Vehículo para respuesta:', vehiculoResponse)
       
       return reply.status(201).send({
         success: true,
         message: 'Vehículo creado exitosamente',
-        data: vehiculoResponse
+        data: vehiculo
       })
     } catch (error) {
       if (error instanceof Error && error.message.includes('Unique constraint')) {
@@ -72,74 +42,19 @@ export const VehiculosController = {
 
   async getById(request: FastifyRequest<{ Params: VehiculoParams }>, reply: FastifyReply) {
     const { id } = request.params
-    console.log('🔍 [VEHICULOS] Buscando vehículo con ID:', id)
-    
     const vehiculo = await VehiculosService.findById(id)
-    console.log('📦 [VEHICULOS] Resultado de findById:', vehiculo)
-    console.log('📦 [VEHICULOS] Tipo:', typeof vehiculo)
-    console.log('📦 [VEHICULOS] Keys:', Object.keys(vehiculo || {}))
     
     if (!vehiculo) {
-      console.log('❌ [VEHICULOS] Vehículo no encontrado')
       return reply.status(404).send({
         success: false,
         message: 'Vehículo no encontrado'
       })
     }
 
-    // Crear objeto plano con campos explícitos para evitar problemas de serialización
-    const vehiculoResponse = {
-      id: vehiculo.id,
-      placa: vehiculo.placa,
-      marca: vehiculo.marca,
-      linea: vehiculo.linea,
-      modelo: vehiculo.modelo,
-      color: vehiculo.color,
-      clase_vehiculo: vehiculo.clase_vehiculo,
-      tipo_carroceria: vehiculo.tipo_carroceria,
-      combustible: vehiculo.combustible,
-      numero_motor: vehiculo.numero_motor,
-      vin: vehiculo.vin,
-      numero_serie: vehiculo.numero_serie,
-      numero_chasis: vehiculo.numero_chasis,
-      propietario_nombre: vehiculo.propietario_nombre,
-      propietario_identificacion: vehiculo.propietario_identificacion,
-      kilometraje: vehiculo.kilometraje,
-      fecha_matricula: vehiculo.fecha_matricula,
-      created_at: vehiculo.created_at?.toISOString(),
-      updated_at: vehiculo.updated_at?.toISOString(),
-      deleted_at: vehiculo.deleted_at?.toISOString() || null,
-      estado: vehiculo.estado,
-      propietario_id: vehiculo.propietario_id,
-      conductor_id: vehiculo.conductor_id,
-      conductores: vehiculo.conductores ? {
-        id: vehiculo.conductores.id,
-        nombre: vehiculo.conductores.nombre,
-        apellido: vehiculo.conductores.apellido,
-        email: vehiculo.conductores.email,
-        telefono: vehiculo.conductores.telefono,
-        estado: vehiculo.conductores.estado
-      } : null,
-      servicio: vehiculo.servicio?.map(s => ({
-        id: s.id,
-        estado: s.estado,
-        fecha_solicitud: s.fecha_solicitud?.toISOString(),
-        origen_especifico: s.origen_especifico,
-        destino_especifico: s.destino_especifico
-      })) || []
-    }
-    
-    console.log('✅ [VEHICULOS] Vehículo mapeado para respuesta:', vehiculoResponse)
-    console.log('✅ [VEHICULOS] JSON.stringify test:', JSON.stringify(vehiculoResponse).substring(0, 200))
-
-    const responsePayload = {
+    reply.send({
       success: true,
-      data: vehiculoResponse
-    }
-    
-    console.log('📤 [VEHICULOS] Enviando payload:', JSON.stringify(responsePayload).substring(0, 300))
-
-    return responsePayload
+      data: vehiculo
+    })
   },
 
   async update(request: FastifyRequest<{ Params: VehiculoParams }>, reply: FastifyReply) {
@@ -148,20 +63,7 @@ export const VehiculosController = {
       const data = updateVehiculoSchema.parse(request.body)
       
       const vehiculo = await VehiculosService.update(id, data)
-      
-      // Emitir evento socket para actualización en tiempo real
-      try {
-        const io = getIo()
-        io.emit('vehiculo-actualizado', {
-          vehiculoId: id,
-          vehiculo: vehiculo
-        })
-        console.log('🔔 Socket event emitted: vehiculo-actualizado', id)
-      } catch (socketError) {
-        console.error('Error emitiendo socket event:', socketError)
-        // No fallar la request por error de socket
-      }
-      
+
       reply.send({
         success: true,
         message: 'Vehículo actualizado exitosamente',
@@ -236,16 +138,20 @@ export const VehiculosController = {
   },
 
   /**
-   * Obtener vehículos ocultos (solo admin)
+   * Obtener vehículos ocultos (solo admin o áreas autorizadas)
    */
   async obtenerOcultos(request: FastifyRequest, reply: FastifyReply) {
     try {
-      // Verificar que el usuario es administrador
+      // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
         return reply.status(403).send({
           success: false,
-          message: 'No autorizado. Solo administradores pueden ver vehículos ocultos'
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ver vehículos ocultos'
         })
       }
 
@@ -268,19 +174,23 @@ export const VehiculosController = {
   },
 
   /**
-   * Cambiar estado de ocultamiento de un vehículo (solo admin)
+   * Cambiar estado de ocultamiento de un vehículo (solo admin o áreas autorizadas)
    */
   async cambiarEstadoOculto(request: FastifyRequest<{
     Params: VehiculoParams
     Body: { oculto: boolean }
   }>, reply: FastifyReply) {
     try {
-      // Verificar que el usuario es administrador
+      // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
         return reply.status(403).send({
           success: false,
-          message: 'No autorizado. Solo administradores pueden ocultar/mostrar vehículos'
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ocultar/mostrar vehículos'
         })
       }
 
@@ -298,13 +208,17 @@ export const VehiculosController = {
       const vehiculo = await VehiculosService.cambiarEstadoOculto(id, oculto)
 
       // Emitir evento de socket para actualización en tiempo real
-      const io = (request.server as any).io
-      if (io) {
-        io.emit('vehiculo:oculto', {
-          id: vehiculo.id,
-          oculto: vehiculo.oculto,
-          placa: vehiculo.placa
-        })
+      try {
+        const io = getIo()
+        if (io) {
+          io.emit('vehiculo:oculto', {
+            id: vehiculo.id,
+            oculto: vehiculo.oculto,
+            placa: vehiculo.placa
+          })
+        }
+      } catch (socketError) {
+        console.warn('No se pudo emitir evento socket individual:', (socketError as any).message)
       }
 
       return reply.send({
@@ -326,6 +240,95 @@ export const VehiculosController = {
         success: false,
         message: 'Error al cambiar estado de ocultamiento',
         error: error instanceof Error ? error.message : 'Error desconocido'
+      })
+    }
+  },
+
+  // POST /vehiculos/masivo
+  async operacionesMasivas(
+    request: FastifyRequest<{
+      Body: {
+        ids: string[]
+        accion: 'ocultar' | 'mostrar' | 'eliminar' | 'restaurar'
+      }
+    }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden realizar operaciones masivas.'
+        })
+      }
+
+      const { ids, accion } = request.body
+
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Se requieren IDs para la operación masiva'
+        })
+      }
+
+      let result
+      let message = ''
+
+      try {
+        switch (accion) {
+          case 'ocultar':
+            result = await VehiculosService.cambiarOcultoMasivo(ids, true)
+            message = `${result?.count || 0} vehículos ocultados`
+            break
+          case 'mostrar':
+            result = await VehiculosService.cambiarOcultoMasivo(ids, false)
+            message = `${result?.count || 0} vehículos visibles nuevamente`
+            break
+          case 'eliminar':
+            result = await VehiculosService.eliminarMasivo(ids)
+            message = `${result?.count || 0} vehículos movidos a la papelera`
+            break
+          case 'restaurar':
+            result = await VehiculosService.restaurarMasivo(ids)
+            message = `${result?.count || 0} vehículos restaurados`
+            break
+          default:
+            return reply.status(400).send({
+              success: false,
+              message: 'Acción no válida'
+            })
+        }
+      } catch (dbError: any) {
+        console.error('Error en DB durante operación masiva de vehículos:', dbError)
+        throw dbError
+      }
+
+      // Emitir evento masivo de forma segura
+      try {
+        const io = getIo()
+        if (io) {
+          io.emit('vehiculos:actualizacion-masiva', { accion, count: result?.count || 0 })
+        }
+      } catch (socketError) {
+        console.warn('No se pudo emitir evento socket en operacion masiva vehiculos:', (socketError as any).message)
+      }
+
+      return reply.send({
+        success: true,
+        message,
+        data: result
+      })
+    } catch (error: any) {
+      console.error('Error general en operación masiva vehiculos:', error)
+      return reply.status(500).send({
+        success: false,
+        message: 'Error en operación masiva',
+        error: error.message
       })
     }
   }

@@ -1,11 +1,11 @@
 -- ============================================================
--- MIGRACIÓN: Cotransmeq -> Esquema de Transmeralda
+-- MIGRACIÓN: Cotransmeq -> Esquema de Cotransmeq
 -- Generado: 2026-07-21
 -- Fuente  : transmeralda/backend-nest/prisma/schema.prisma
 -- Destino : cotransmeq/backend-nest-main 2/prisma/schema.prisma
 --
 -- Esta migración aplica TODAS las diferencias del schema.prisma
--- de Transmeralda sobre la base de datos actual de Cotransmeq.
+-- de Cotransmeq sobre la base de datos actual de Cotransmeq.
 --
 -- EJECUCIÓN:
 --   - Automática:  npx prisma migrate deploy

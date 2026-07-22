@@ -59,14 +59,6 @@ export const ConductoresController = {
 
       const result = await ConductoresService.obtenerTodos(filters)
 
-      // Log para depuración: ver salario_base de cada conductor
-      console.log('📋 Conductores retornados:', result.conductores.map((c: any) => ({
-        id: c.id,
-        nombre: `${c.nombre} ${c.apellido || ''}`,
-        salario_base: c.salario_base,
-        tipo_salario: typeof c.salario_base
-      })))
-
       return reply.status(200).send({
         success: true,
         data: result.conductores,
@@ -377,12 +369,16 @@ export const ConductoresController = {
     reply: FastifyReply
   ) {
     try {
-      // Verificar que sea admin
+      // Verificar que sea admin o de las áreas autorizadas
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
         return reply.status(403).send({
           success: false,
-          message: 'No autorizado. Solo administradores pueden ver conductores ocultos.'
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ver conductores ocultos.'
         })
       }
 
@@ -416,12 +412,16 @@ export const ConductoresController = {
     reply: FastifyReply
   ) {
     try {
-      // Verificar que sea admin
+      // Verificar que sea admin o de las áreas autorizadas
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
         return reply.status(403).send({
           success: false,
-          message: 'No autorizado. Solo administradores pueden ocultar/mostrar conductores.'
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ocultar/mostrar conductores.'
         })
       }
 
@@ -430,9 +430,15 @@ export const ConductoresController = {
 
       const conductor = await ConductoresService.cambiarEstadoOculto(id, oculto)
 
-      // Emitir evento via socket para actualizar en tiempo real
-      const io = getIo()
-      io.emit('conductor:oculto', { id, oculto })
+      // Emitir evento via socket para actualizar en tiempo real de forma segura
+      try {
+        const io = getIo()
+        if (io) {
+          io.emit('conductor:oculto', { id, oculto })
+        }
+      } catch (socketError) {
+        console.warn('No se pudo emitir evento socket individual:', (socketError as any).message)
+      }
 
       return reply.send({
         success: true,
@@ -440,9 +446,240 @@ export const ConductoresController = {
         data: conductor
       })
     } catch (error: any) {
+      console.error('Error en cambiarEstadoOculto:', error)
       return reply.status(500).send({
         success: false,
         message: 'Error al cambiar estado de visibilidad',
+        error: error.message
+      })
+    }
+  },
+
+  // GET /conductores/papelera
+  async obtenerPapelera(
+    request: FastifyRequest<{ Querystring: ObtenerTodosQuery }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ver la papelera.'
+        })
+      }
+
+      const { page, limit, search } = request.query
+
+      const result = await ConductoresService.obtenerPapelera({
+        page: page ? parseInt(page) : undefined,
+        limit: limit ? parseInt(limit) : undefined,
+        search
+      })
+
+      return reply.send({
+        success: true,
+        ...result
+      })
+    } catch (error: any) {
+      return reply.status(500).send({
+        success: false,
+        message: 'Error al obtener papelera',
+        error: error.message
+      })
+    }
+  },
+
+  // PATCH /conductores/:id/restaurar
+  async restaurar(
+    request: FastifyRequest<{ Params: ConductorParams }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden restaurar conductores.'
+        })
+      }
+
+      const { id } = request.params
+      const actualizado_por_id = user.id
+
+      const conductor = await ConductoresService.restaurar(id, actualizado_por_id)
+
+      return reply.send({
+        success: true,
+        message: 'Conductor restaurado exitosamente',
+        data: conductor
+      })
+    } catch (error: any) {
+      return reply.status(500).send({
+        success: false,
+        message: 'Error al restaurar conductor',
+        error: error.message
+      })
+    }
+  },
+
+  // DELETE /conductores/:id/permanente
+  async eliminarPermanente(
+    request: FastifyRequest<{ Params: ConductorParams; Body: { forzar?: boolean } }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      if (!user || user.role !== 'admin') {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado. Solo administradores pueden eliminar permanentemente.'
+        })
+      }
+
+      const { id } = request.params
+      const { forzar } = (request.body as any) || {}
+
+      const resultado = await ConductoresService.eliminarPermanente(id, !!forzar)
+
+      return reply.send({
+        success: true,
+        message: 'Conductor eliminado permanentemente',
+        data: resultado
+      })
+    } catch (error: any) {
+      const status = error.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: error.message || 'Error al eliminar permanentemente',
+        bloqueantes: error.bloqueantes
+      })
+    }
+  },
+
+  // GET /conductores/:id/relaciones - Preview de relaciones para borrado permanente
+  async obtenerRelaciones(
+    request: FastifyRequest<{ Params: ConductorParams }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      if (!user || user.role !== 'admin') {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado.'
+        })
+      }
+
+      const { id } = request.params
+      const data = await ConductoresService.obtenerRelaciones(id)
+
+      return reply.send({
+        success: true,
+        data
+      })
+    } catch (error: any) {
+      const status = error.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: error.message || 'Error al obtener relaciones'
+      })
+    }
+  },
+
+  // POST /conductores/masivo
+  async operacionesMasivas(
+    request: FastifyRequest<{
+      Body: {
+        ids: string[]
+        accion: 'ocultar' | 'mostrar' | 'eliminar' | 'restaurar'
+      }
+    }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const user = (request as any).user
+      const isAuthorized = user?.role === 'admin' || 
+                          user?.area?.includes('operaciones') || 
+                          user?.area?.includes('talento_humano');
+
+      if (!isAuthorized) {
+        return reply.status(403).send({
+          success: false,
+          message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden realizar operaciones masivas.'
+        })
+      }
+
+      const { ids, accion } = request.body
+      const actualizado_por_id = user.id
+
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Se requiere una lista de IDs válida'
+        })
+      }
+
+      let result
+      let message = ''
+
+      try {
+        switch (accion) {
+          case 'ocultar':
+            result = await ConductoresService.cambiarOcultoMasivo(ids, true, actualizado_por_id)
+            message = `${result?.count || 0} conductores ocultados`
+            break
+          case 'mostrar':
+            result = await ConductoresService.cambiarOcultoMasivo(ids, false, actualizado_por_id)
+            message = `${result?.count || 0} conductores visibles nuevamente`
+            break
+          case 'eliminar':
+            result = await ConductoresService.eliminarMasivo(ids, actualizado_por_id)
+            message = `${result?.count || 0} conductores movidos a la papelera`
+            break
+          case 'restaurar':
+            result = await ConductoresService.restaurarMasivo(ids, actualizado_por_id)
+            message = `${result?.count || 0} conductores restaurados`
+            break
+          default:
+            return reply.status(400).send({
+              success: false,
+              message: 'Acción no válida'
+            })
+        }
+      } catch (dbError: any) {
+        console.error('Error en DB durante operación masiva:', dbError)
+        throw dbError // Re-lanzar para que lo capture el catch principal
+      }
+
+      // Emitir evento masivo de forma segura
+      try {
+        const io = getIo()
+        if (io) {
+          io.emit('conductores:actualizacion-masiva', { accion, count: result?.count || 0 })
+        }
+      } catch (socketError) {
+        console.warn('No se pudo emitir evento socket en operacion masiva:', (socketError as any).message)
+      }
+
+      return reply.send({
+        success: true,
+        message,
+        data: result
+      })
+    } catch (error: any) {
+      console.error('Error general en operación masiva:', error)
+      return reply.status(500).send({
+        success: false,
+        message: 'Error en operación masiva',
         error: error.message
       })
     }

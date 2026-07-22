@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const TipoPersonaEnum = z.enum(['PERSONA', 'EMPRESA']);
+export const TipoPersonaEnum = z.enum(['PERSONA', 'EMPRESA', 'PROPIETARIO_VEHICULO', 'PROVEEDOR']);
 export const RegimenEnum = z.enum([
   'SIMPLIFICADO',
   'COMUN',

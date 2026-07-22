@@ -61,6 +61,15 @@ export async function asistenciasRoutes(app: FastifyInstance) {
                 type: 'object',
                 additionalProperties: true
               }
+            },
+            meta: {
+              type: 'object',
+              properties: {
+                total: { type: 'number' },
+                page: { type: 'number' },
+                limit: { type: 'number' },
+                totalPages: { type: 'number' }
+              }
             }
           }
         }
@@ -220,11 +229,61 @@ export async function asistenciasRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         properties: {
-          id: { type: 'string', format: 'uuid' }
+          id: { type: 'string' }
         }
       }
     }
   }, AsistenciasController.exportarRespuestasPDF)
+
+  // Exportar TODAS las asistencias a un ZIP con PDFs individuales
+  // Obtener solo IDs filtrados (para selección masiva)
+  app.get('/asistencias/formularios/ids', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Obtener solo los IDs de los formularios filtrados',
+      tags: ['asistencias'],
+      querystring: {
+        type: 'object',
+        properties: {
+          filterActivo: { type: 'string', enum: ['all', 'activo', 'inactivo'] },
+          search: { type: 'string' }
+        }
+      }
+    }
+  }, AsistenciasController.obtenerIdsFiltrados)
+
+  app.get('/asistencias/formularios/exportar-todas-pdf', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Descargar todas las asistencias en un ZIP con PDFs individuales',
+      tags: ['asistencias'],
+      querystring: {
+        type: 'object',
+        properties: {
+          filterActivo: { type: 'string', enum: ['all', 'activo', 'inactivo'] },
+          search: { type: 'string' },
+          jobId: { type: 'string' }
+        }
+      }
+    }
+  }, AsistenciasController.exportarTodasPDFs)
+
+  // Exportar formularios SELECCIONADOS a un ZIP con PDFs individuales
+  app.post('/asistencias/formularios/exportar-seleccionados-pdf', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Descargar formularios seleccionados en un ZIP con PDFs individuales',
+      tags: ['asistencias'],
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string' } },
+          jobId: { type: 'string' }
+        }
+      }
+    }
+  }, AsistenciasController.exportarSeleccionadosPDFs)
 
   // ============================================
   // RUTAS PÚBLICAS (sin autenticación)

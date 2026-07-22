@@ -35,7 +35,7 @@ Genera una URL firmada con tiempo de expiración (15 minutos por defecto) para a
 {
   "success": true,
   "data": {
-    "url": "https://cotransmeq.s3.us-east-2.amazonaws.com/..."
+    "url": "https://transmeralda.s3.us-east-2.amazonaws.com/..."
   }
 }
 ```
@@ -48,7 +48,7 @@ Variables de entorno requeridas en `.env`:
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_REGION=us-east-2
-AWS_S3_BUCKET_NAME=cotransmeq
+AWS_S3_BUCKET_NAME=transmeralda
 ```
 
 ## Uso desde el Frontend

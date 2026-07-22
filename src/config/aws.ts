@@ -10,7 +10,7 @@ const s3Client = new S3Client({
   }
 })
 
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'cotransmeq'
+const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'transmeralda'
 
 /**
  * Genera una URL firmada para acceder a un objeto en S3

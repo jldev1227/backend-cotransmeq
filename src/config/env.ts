@@ -17,6 +17,21 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+  // Email de copia oculta (BCC) para copias de auditoría de notificaciones
+  // a conductores. Si está configurado, se añade como BCC en todos los
+  // emails de envío de desprendibles y primas.
+  NOTIF_BCC_EMAIL: z.string().optional(),
+
+  // AWS S3 — Certificados Tributarios
+  AWS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_S3_BUCKET_NAME: z.string().optional(),
+
+  // Cola de borradores de liquidaciones de terceros
+  BORRADOR_QUEUE_CONCURRENCY: z.string().transform(s => Number(s)).default('1'),
+  BORRADOR_QUEUE_MAX_SIZE: z.string().transform(s => Number(s)).default('10'),
+  BORRADOR_QUEUE_JOB_TTL_MS: z.string().transform(s => Number(s)).default('300000')
 })
 
 export const env = envSchema.parse(process.env)

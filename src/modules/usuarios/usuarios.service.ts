@@ -14,6 +14,9 @@ export const PERMISOS_DEFAULT: Record<string, boolean> = {
   evaluaciones: false,
   nomina: false,
   usuarios: false,
+  // Permiso individual (no por área): otorga o revoca un administrador
+  // desde la página de Usuarios → "Permiso de bonos — planilla de días laborados".
+  'bonos-planilla': false,
 }
 
 // Permisos de admin (todo habilitado)
@@ -28,6 +31,7 @@ export const PERMISOS_ADMIN: Record<string, boolean> = {
   evaluaciones: true,
   nomina: true,
   usuarios: true,
+  'bonos-planilla': true,
 }
 
 export const UsuariosService = {
@@ -121,6 +125,47 @@ export const UsuariosService = {
         updated_at: true,
       }
     })
+  },
+
+  /**
+   * Otorga o revoca el permiso INDIVIDUAL `bonos-planilla` a uno o
+   * varios usuarios. Este permiso es independiente del área: solo lo
+   * управan los administradores desde la página de Usuarios.
+   *
+   *  - Devuelve el array de usuarios actualizados.
+   *  - Si el usuario está deshabilitado, igual actualiza (un admin puede
+   *    preparar el acceso antes de habilitarlo).
+   */
+  async setBonosPlanilla(userIds: string[], granted: boolean) {
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return []
+    }
+
+    // Optimización: leer los permisos actuales en una sola query y
+    // mergear en JS para no perder otras claves (nomina, flota, etc.).
+    const usuarios = await prisma.usuarios.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, permisos: true }
+    })
+
+    const updates = await Promise.all(
+      usuarios.map(async (u) => {
+        const current = (u.permisos as Record<string, boolean> | null) || {}
+        const merged: Record<string, boolean> = { ...current, 'bonos-planilla': granted }
+        return prisma.usuarios.update({
+          where: { id: u.id },
+          data: { permisos: merged },
+          select: {
+            id: true,
+            nombre: true,
+            correo: true,
+            permisos: true
+          }
+        })
+      })
+    )
+
+    return updates
   },
   async listConductoresBasicos() {
     return prisma.usuarios.findMany({

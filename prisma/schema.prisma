@@ -157,6 +157,7 @@ model conductores {
   actualizado_por_id    String?                        @db.Uuid
   oculto                Boolean                        @default(false)
   nomina                 Boolean                        @default(false)
+  deleted_at            DateTime?                      @db.Timestamptz(6)
   anticipos             anticipos[]
   usuarios              usuarios?                      @relation(fields: [creado_por_id], references: [id])
   firmas_desprendibles  firmas_desprendibles[]
@@ -557,6 +558,9 @@ model liquidaciones {
   pernotes                                      pernotes[]
   recargos                                      recargos[]
   mostrar_recargos                               Boolean                   @default(false)
+  es_cotransmeq                                  Boolean                   @default(false)
+  descontar_salud_salario                        Boolean                   @default(false)
+  descontar_pension_salario                      Boolean                   @default(false)
 }
 
 /// Primas de servicios independientes (desprendible separado de la liquidación)
@@ -939,6 +943,7 @@ model usuarios {
   facturas_liq_facturado                                                      factura_liquidacion_servicio[]      @relation("factura_liq_facturado_por")
   facturas_liq_anulado                                                        factura_liquidacion_servicio[]      @relation("factura_liq_anulado_por")
   sesiones                                                                    sesiones[]
+  notificaciones                                                             notificacion[]
 
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
@@ -963,6 +968,24 @@ model sesiones {
   @@index([usuario_id])
   @@index([is_active])
   @@index([token_hash])
+}
+
+model notificacion {
+  id               String              @id @default(uuid()) @db.Uuid
+  usuario_id       String              @db.Uuid
+  tipo             enum_notificacion_tipo @default(GENERAL)
+  titulo           String              @db.VarChar(255)
+  mensaje          String
+  referencia_id    String?             @db.Uuid
+  referencia_tipo  String?             @db.VarChar(50)
+  leida            Boolean             @default(false)
+  created_at       DateTime            @default(now()) @db.Timestamptz(6)
+
+  usuario          usuarios            @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@index([usuario_id])
+  @@index([leida])
+  @@index([created_at(sort: Desc)])
 }
 
 model vehiculos {
@@ -1083,6 +1106,21 @@ enum enum_conductores_tipo_sangre {
   AB_NEGATIVO @map("AB-")
   O_POSITIVO  @map("O+")
   O_NEGATIVO  @map("O-")
+}
+
+enum enum_notificacion_tipo {
+  LIQUIDACION_ANULADA
+  LIQUIDACION_PENDIENTE
+  GENERAL
+  LIQUIDACION_CREADA
+  LIQUIDACION_ACTUALIZADA
+  ACTIVIDAD_PESV_ASIGNADA
+  ACTIVIDAD_PESV_ACTUALIZADA
+  ACTIVIDAD_PESV_VENCIDA
+  LIQUIDACION_FACTURADA
+  FACTURA_ANULADA
+  ACCION_CORRECTIVA_RECORDATORIO
+  ACCION_CORRECTIVA_VENCIDA
 }
 
 enum enum_configuraciones_liquidacion_tipo {
@@ -1372,10 +1410,13 @@ model terceros {
 // ═══════════════════════════════════════════════════════════════
 
 enum tipo_servicio_tarifa_enum {
-  HORA_24
-  HORA_12
-  HORA
-  KILOMETRO
+  TRANSPORTE_DE_PERSONAL_EN_CAMIONETA
+  TRANSPORTE_DE_PERSONAL_EN_BUSETA
+  TRANSPORTE_DE_PERSONAL_EN_MICROBUS
+  TRANSPORTE_DE_PERSONAL_EN_BUS
+  TRANSPORTE_ADICIONAL_HORA_ADICIONAL
+  TRANSPORTE_ADICIONAL_KM_ADICIONAL
+  TRANSPORTE_ADICIONAL_DISPONIBILIDAD
 }
 
 enum estado_liquidacion_servicio_enum {

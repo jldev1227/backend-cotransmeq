@@ -2,6 +2,8 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesService } from "./liquidaciones.service";
 import { getS3ObjectAsBase64 } from "../../config/aws";
+import { getIO } from '../../sockets'
+import { prisma } from '../../config/prisma'
 
 interface ObtenerTodasQuery {
   page?: string;
@@ -99,6 +101,76 @@ export const LiquidacionesController = {
         liquidacion.firmas_desprendibles = firmasConBase64;
       }
 
+      // Fallback: si no hay firma de desprendible, intentar firma de prima
+      // del mismo conductor del mismo mes/año (±1 mes del periodo_fin)
+      const tieneFirmaValida =
+        liquidacion.firmas_desprendibles?.some(
+          (f: any) => f.presignedUrl && f.firma_url !== 'pending' && f.firma_url !== '',
+        ) ?? false
+      if (!tieneFirmaValida && liquidacion.conductor_id && liquidacion.periodo_fin) {
+        try {
+          const fechaFin = new Date(
+            liquidacion.periodo_fin +
+              (liquidacion.periodo_fin.length === 10 ? 'T00:00:00' : ''),
+          )
+          if (!isNaN(fechaFin.getTime())) {
+            const candidatos: Array<{ anio: number; mes: number }> = []
+            for (let offset = -1; offset <= 1; offset++) {
+              const d = new Date(fechaFin.getFullYear(), fechaFin.getMonth() + offset, 1)
+              candidatos.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 })
+            }
+            const firmasPrimas = await prisma.firmas_primas.findMany({
+              where: {
+                conductor_id: liquidacion.conductor_id,
+                firma_url: { not: '' },
+                NOT: { firma_url: 'pending' },
+              },
+              orderBy: { fecha_firma: 'desc' },
+            })
+            // Traer primas por separado (evita dependencia de la relación en el cliente Prisma)
+            const primaIds = Array.from(new Set(firmasPrimas.map((f) => f.prima_id)))
+            const primasRelacionadas = primaIds.length
+              ? await prisma.primas.findMany({
+                  where: { id: { in: primaIds } },
+                  select: { id: true, anio: true, mes: true },
+                })
+              : []
+            const primaMap = new Map(primasRelacionadas.map((p) => [p.id, p]))
+            for (const fp of firmasPrimas) {
+              const primaRel = primaMap.get(fp.prima_id)
+              if (!primaRel) continue
+              const match = candidatos.some(
+                (c) => c.anio === primaRel.anio && c.mes === primaRel.mes,
+              )
+              if (!match) continue
+              try {
+                const firmaBase64 = await getS3ObjectAsBase64(fp.firma_s3_key)
+                liquidacion.firmas_desprendibles = [
+                  {
+                    id: fp.id,
+                    liquidacion_id: id,
+                    conductor_id: fp.conductor_id,
+                    firma_url: fp.firma_url,
+                    firma_s3_key: fp.firma_s3_key,
+                    fecha_firma: fp.fecha_firma,
+                    estado: fp.estado,
+                    presignedUrl: firmaBase64,
+                    // Marca virtual para que el frontend distinga el origen
+                    origen_fallback: 'prima',
+                    prima_origen_id: fp.prima_id,
+                  } as any,
+                ]
+                break
+              } catch (e) {
+                console.error('Error descargando firma de prima (fallback):', fp.id, e)
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error en fallback firma de prima:', e)
+        }
+      }
+
       return reply.status(200).send({
         success: true,
         data: liquidacion,
@@ -124,12 +196,12 @@ export const LiquidacionesController = {
   // GET /liquidaciones/analisis
   async obtenerAnalisis(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { page, limit, noLimit } = request.query as any;
+      const { page, limit, noLimit } = request.query;
 
       const liquidaciones = await LiquidacionesService.obtenerTodas({
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
-        noLimit: noLimit === "true" || noLimit === true,
+        noLimit: noLimit === "true",
       });
       
       return reply.status(200).send({
@@ -258,6 +330,56 @@ export const LiquidacionesController = {
     }
   },
 
+  // POST /liquidaciones/:id/recargos/:recargoId/revertir-override
+  // Revierte un override manual: borra el recargo manual que sobrescribe un
+  // automático y reactiva el automático original. Devuelve la liquidación
+  // actualizada.
+  async revertirOverrideRecargo(
+    request: FastifyRequest<{
+      Params: { id: string; recargoId: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { id, recargoId } = request.params;
+      const userId = (request as any).user?.id;
+
+      const liquidacion = await LiquidacionesService.revertirOverrideRecargo(
+        id,
+        recargoId,
+        userId,
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: liquidacion,
+        message: "Override revertido correctamente",
+      });
+    } catch (error: any) {
+      console.error("Error al revertir override de recargo:", error);
+
+      if (error.message?.includes("no encontrado")) {
+        return reply.status(404).send({
+          success: false,
+          message: error.message,
+        });
+      }
+
+      if (error.message?.includes("no es un override")) {
+        return reply.status(400).send({
+          success: false,
+          message: error.message,
+        });
+      }
+
+      return reply.status(500).send({
+        success: false,
+        message: "Error al revertir el override",
+        error: error.message,
+      });
+    }
+  },
+
   // GET /configuraciones-liquidacion
   async obtenerConfiguraciones(
     request: FastifyRequest<{
@@ -281,6 +403,30 @@ export const LiquidacionesController = {
       return reply.status(500).send({
         success: false,
         message: "Error al obtener configuraciones",
+        error: error.message,
+      });
+    }
+  },
+
+  // GET /configuraciones-liquidacion/activas
+  // Devuelve solo las configuraciones activas del año (por defecto
+  // el año actual). Pensada para el flujo de bonos de planilla: el
+  // frontend pinta una columna de checkbox por cada config activa.
+  async obtenerConfiguracionesActivas(
+    request: FastifyRequest<{ Querystring: { anio?: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const anio = request.query.anio
+        ? parseInt(request.query.anio)
+        : new Date().getFullYear();
+      const data = await LiquidacionesService.obtenerConfiguraciones(anio);
+      return reply.status(200).send({ success: true, data });
+    } catch (error: any) {
+      console.error("Error al obtener configuraciones activas:", error);
+      return reply.status(500).send({
+        success: false,
+        message: "Error al obtener configuraciones activas",
         error: error.message,
       });
     }
@@ -452,6 +598,26 @@ export const LiquidacionesController = {
     }
   },
 
+  // GET /empresas
+  async obtenerEmpresas(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const empresas = await LiquidacionesService.obtenerEmpresas();
+
+      return reply.status(200).send({
+        success: true,
+        data: empresas,
+      });
+    } catch (error: any) {
+      console.error("Error al obtener empresas:", error);
+      return reply.status(500).send({
+        success: false,
+        message: "Error al obtener empresas",
+        error: error.message,
+      });
+    }
+  },
+
+  // GET /liquidaciones/preview-recargos
   // GET /liquidaciones/preview-recargos
   async previewRecargos(
     request: FastifyRequest<{
@@ -491,22 +657,64 @@ export const LiquidacionesController = {
         error: error.message,
       });
     }
-  },
+    },
 
-  // GET /empresas
-  async obtenerEmpresas(request: FastifyRequest, reply: FastifyReply) {
+    // GET /api/liquidaciones/:id/pdf-desprendible - Descargar un desprendible individual en PDF
+    async downloadSinglePayslipPdf(
+    request: FastifyRequest<{ Params: LiquidacionParams }>,
+    reply: FastifyReply,
+    ) {
     try {
-      const empresas = await LiquidacionesService.obtenerEmpresas();
+    const { id } = request.params;
+    const { buffer, fileName } = await LiquidacionesService.generatePayslipPdfBuffer(id);
 
-      return reply.status(200).send({
-        success: true,
-        data: empresas,
-      });
+    reply.header("Content-Type", "application/pdf");
+    reply.header("Content-Disposition", `attachment; filename="${fileName}"`);
+    return reply.send(buffer);
     } catch (error: any) {
-      console.error("Error al obtener empresas:", error);
+    console.error("Error al descargar desprendible PDF:", error);
+    return reply.status(500).send({
+    success: false,
+    message: "Error al descargar desprendible PDF",
+    error: error.message,
+    });
+    }
+    },
+
+    // POST /liquidaciones/generate-payslips-zip
+    async generatePayslipsZip(
+    request: FastifyRequest<{ Body: { liquidationIds: string[], socketId?: string } }>,
+    reply: FastifyReply,
+  ) {
+    if (request.method !== 'POST') {
+      return reply.status(405).send({
+        success: false,
+        message: 'Method Not Allowed. Please use POST.',
+      });
+    }
+    try {
+      const { liquidationIds, socketId } = request.body as { liquidationIds: string[], socketId?: string };
+
+      	if (!liquidationIds || !Array.isArray(liquidationIds) || liquidationIds.length === 0) {
+      		return reply.status(400).send({
+      			success: false,
+      			message: "Se requiere una lista de IDs de liquidación para generar el ZIP.",
+      		});
+      }
+
+      const zipBuffer = await LiquidacionesService.generatePayslipsZip(liquidationIds, socketId); // Pass socketId to service
+
+      reply.header("Content-Type", "application/zip");
+      reply.header("Content-Disposition", "attachment; filename=\"payslips.zip\"");
+      return reply.send(zipBuffer);
+    } catch (error: any) {
+      console.error("Error al generar ZIP de desprendibles:", error);
+      if (socketId) {
+        getIO().to(socketId).emit('progress:error', { message: error.message });
+      }
       return reply.status(500).send({
         success: false,
-        message: "Error al obtener empresas",
+        message: "Error al generar ZIP de desprendibles",
         error: error.message,
       });
     }

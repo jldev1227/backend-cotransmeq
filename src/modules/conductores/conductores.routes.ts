@@ -10,6 +10,12 @@ export async function conductoresRoutes(app: FastifyInstance) {
   // IMPORTANTE: Esta ruta debe ir ANTES de /conductores/:id
   app.get('/conductores/ocultos', ConductoresController.obtenerOcultos)
 
+  // GET /api/conductores/papelera - Obtener conductores en la papelera (solo admin)
+  app.get('/conductores/papelera', ConductoresController.obtenerPapelera)
+
+  // POST /api/conductores/masivo - Operaciones masivas (ocultar, eliminar, restaurar)
+  app.post('/conductores/masivo', ConductoresController.operacionesMasivas)
+
   // GET /api/conductores - Obtener todos los conductores
   app.get('/conductores', ConductoresController.obtenerTodos)
 
@@ -27,6 +33,15 @@ export async function conductoresRoutes(app: FastifyInstance) {
 
   // PATCH /api/conductores/:id/ocultar - Ocultar/mostrar conductor (solo admin)
   app.patch('/conductores/:id/ocultar', ConductoresController.cambiarEstadoOculto)
+
+  // PATCH /api/conductores/:id/restaurar - Restaurar conductor de la papelera
+  app.patch('/conductores/:id/restaurar', ConductoresController.restaurar)
+
+  // DELETE /api/conductores/:id/permanente - Eliminar permanentemente
+  app.delete('/conductores/:id/permanente', ConductoresController.eliminarPermanente)
+
+  // GET /api/conductores/:id/relaciones - Preview de relaciones antes del borrado permanente
+  app.get('/conductores/:id/relaciones', ConductoresController.obtenerRelaciones)
 
   // DELETE /api/conductores/:id - Eliminar conductor (soft delete)
   app.delete('/conductores/:id', ConductoresController.eliminar)

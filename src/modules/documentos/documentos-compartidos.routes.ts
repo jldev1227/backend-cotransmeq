@@ -8,19 +8,17 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
   app.get('/desprendible/compartido/:token', async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
     try {
       const { token } = request.params
-  const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: true } })
+      const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: true } })
       if (!doc) return reply.status(404).send({ success: false, message: 'Enlace inválido' })
 
-      // check expiry
       if (doc.expires_at && new Date(doc.expires_at) < new Date()) {
         return reply.status(410).send({ success: false, message: 'Este enlace ha expirado' })
       }
 
-      // generate a short-lived presigned URL for viewing (1 hour)
       let presigned = ''
       try { presigned = await getS3SignedUrl(doc.s3_key, 3600) } catch (e) { /* ignore */ }
 
-  return reply.send({ success: true, data: { id: doc.id, token: doc.token, filename: doc.filename, original_name: doc.original_name, signed: doc.signed, presigned_url: presigned, expires_at: doc.expires_at, conductores: doc.conductores } })
+      return reply.send({ success: true, data: { id: doc.id, token: doc.token, filename: doc.filename, original_name: doc.original_name, signed: doc.signed, presigned_url: presigned, expires_at: doc.expires_at, conductores: doc.conductores } })
     } catch (error: any) {
       request.log.error({ error }, 'Error validating shared document token')
       return reply.status(500).send({ success: false, message: 'Error interno del servidor' })
@@ -48,9 +46,9 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
 
       const now = new Date()
 
-  const updated = await prisma.documentos_compartidos.update({ where: { token }, data: { signed: true, signature_s3_key: s3Key, signature_url: firmaUrl, ip_address: ipAddress, user_agent: userAgent, updated_at: now }, include: { conductores: true } })
+      const updated = await prisma.documentos_compartidos.update({ where: { token }, data: { signed: true, signature_s3_key: s3Key, signature_url: firmaUrl, ip_address: ipAddress, user_agent: userAgent, updated_at: now }, include: { conductores: true } })
 
-  return reply.send({ success: true, data: { document: updated, signature: { s3_key: s3Key, presignedUrl: firmaUrl } } })
+      return reply.send({ success: true, data: { document: updated, signature: { s3_key: s3Key, presignedUrl: firmaUrl } } })
     } catch (error: any) {
       request.log.error({ error }, 'Error registering signature for shared document')
       return reply.status(500).send({ success: false, message: error.message || 'Error al registrar firma' })
@@ -60,7 +58,7 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
   app.get('/desprendible/compartido/:token/datos', async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
     try {
       const { token } = request.params
-  const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: true } })
+      const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: true } })
       if (!doc) return reply.status(404).send({ success: false, message: 'Enlace inválido' })
       if (!doc.signed) return reply.status(403).send({ success: false, message: 'Debe firmar primero para acceder al documento' })
 
@@ -69,7 +67,7 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
       try { presigned = await getS3SignedUrl(doc.s3_key, 3600) } catch {}
       try { if (doc.signature_s3_key) presignedSignature = await getS3SignedUrl(doc.signature_s3_key, 3600) } catch {}
 
-  return reply.send({ success: true, data: { document: { ...doc, presigned_url: presigned }, signature: { presignedUrl: presignedSignature } } })
+      return reply.send({ success: true, data: { document: { ...doc, presigned_url: presigned }, signature: { presignedUrl: presignedSignature } } })
     } catch (error: any) {
       request.log.error({ error }, 'Error getting shared document data')
       return reply.status(500).send({ success: false, message: 'Error interno del servidor' })
@@ -79,3 +77,4 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
 }
 
 export default documentosCompartidosRoutes
+

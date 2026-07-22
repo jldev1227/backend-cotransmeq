@@ -60,8 +60,19 @@ export const buscarServiciosSchema = z.object({
   limit: z.number().int().positive().max(100).optional()
 })
 
+export const calendarQuerySchema = z.object({
+  mes: z.string().regex(/^(0?[1-9]|1[0-2])$/).transform(Number).optional(),
+  anio: z.string().regex(/^[0-9]{4}$/).transform(Number).optional(),
+  campo_fecha: z.enum(['fecha_solicitud', 'fecha_realizacion', 'fecha_finalizacion']).optional(),
+  estado: EstadoServicioEnum.optional(),
+  conductor_id: z.string().uuid().optional(),
+  vehiculo_id: z.string().uuid().optional(),
+  cliente_id: z.string().uuid().optional()
+})
+
 export type CreateServicioInput = z.infer<typeof createServicioSchema>
 export type UpdateServicioInput = z.infer<typeof updateServicioSchema>
 export type CambiarEstadoInput = z.infer<typeof cambiarEstadoSchema>
 export type AsignarPlanillaInput = z.infer<typeof asignarPlanillaSchema>
 export type BuscarServiciosInput = z.infer<typeof buscarServiciosSchema>
+export type CalendarQueryInput = z.infer<typeof calendarQuerySchema>

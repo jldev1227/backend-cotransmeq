@@ -2,15 +2,12 @@ import { z } from 'zod'
 
 // Enum para estado del vehículo - debe coincidir con enum_vehiculos_estado en Prisma
 const EstadoVehiculoEnum = z.enum([
-  'DISPONIBLE', 
-  'NO_DISPONIBLE',
-  'SERVICIO', 
-  'MANTENIMIENTO', 
-  'INACTIVO',
-  'DESVINCULADO',
-  'activo',
+  'disponible',
+  'programado',
+  'servicio',
+  'mantenimiento',
   'inactivo',
-  'mantenimiento'
+  'desvinculado'
 ])
 
 export const createVehiculoSchema = z.object({

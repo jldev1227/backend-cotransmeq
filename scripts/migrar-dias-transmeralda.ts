@@ -1,13 +1,13 @@
 /**
- * Script de Migración: Transmeralda → Cotransmeq
+ * Script de Migración: Cotransmeq → Cotransmeq
  * 
- * Migra los días de recargos de la base de datos de Transmeralda hacia Cotransmeq
+ * Migra los días de recargos de la base de datos de Cotransmeq hacia Cotransmeq
  * para los 9 conductores con liquidaciones pendientes (periodo Feb-Mar 2026).
  * 
  * Lógica:
  * 1. Conecta a ambas bases de datos
  * 2. Obtiene los días existentes en Cotransmeq para cada conductor (mes 2-3, año 2026)
- * 3. Obtiene los días en Transmeralda para los mismos conductores
+ * 3. Obtiene los días en Cotransmeq para los mismos conductores
  * 4. Identifica días FALTANTES comparando (conductor_id, mes, año, dia, hora_inicio, hora_fin)
  * 5. Para cada día faltante, crea la planilla (si no existe por numero_planilla) y el día con sus recargos recalculados
  * 
@@ -165,7 +165,7 @@ function makeDiaKey(d: DiaKey): string {
 // MAIN
 // ============================================================
 async function main() {
-  console.log('🚀 Iniciando migración Transmeralda → Cotransmeq')
+  console.log('🚀 Iniciando migración Cotransmeq → Cotransmeq')
   console.log('=' .repeat(70))
 
   const cotransmeq = new Client({ connectionString: COTRANSMEQ_URL })
@@ -175,7 +175,7 @@ async function main() {
     await cotransmeq.connect()
     console.log('✅ Conectado a Cotransmeq (Azure)')
     await transmeralda.connect()
-    console.log('✅ Conectado a Transmeralda (100.106.115.11)')
+    console.log('✅ Conectado a Cotransmeq (100.106.115.11)')
 
     // 1. Obtener días existentes en Cotransmeq
     console.log('\n📋 Paso 1: Obteniendo días existentes en Cotransmeq...')
@@ -203,8 +203,8 @@ async function main() {
     console.log(`   → ${cotransmeqDiasResult.rows.length} días existentes en Cotransmeq`)
     console.log(`   → ${existingKeys.size} claves únicas`)
 
-    // 2. Obtener días en Transmeralda
-    console.log('\n📋 Paso 2: Obteniendo días de Transmeralda...')
+    // 2. Obtener días en Cotransmeq
+    console.log('\n📋 Paso 2: Obteniendo días de Cotransmeq...')
     const transmeraldaDiasResult = await transmeralda.query(`
       SELECT rp.conductor_id, rp.mes, rp."año" as anio, rp.numero_planilla, rp.empresa_id, rp.vehiculo_id, rp.id as planilla_id,
         d.dia, d.hora_inicio, d.hora_fin, d.total_horas, d.es_festivo, d.es_domingo
@@ -216,7 +216,7 @@ async function main() {
       ORDER BY rp.conductor_id, rp.mes, d.dia, d.hora_inicio
     `, [CONDUCTOR_IDS])
 
-    console.log(`   → ${transmeraldaDiasResult.rows.length} días en Transmeralda`)
+    console.log(`   → ${transmeraldaDiasResult.rows.length} días en Cotransmeq`)
 
     // 3. Identificar días faltantes
     console.log('\n📋 Paso 3: Identificando días faltantes...')
@@ -285,11 +285,11 @@ async function main() {
       console.log(`   ${nombreMap[dia.conductor_id]?.padEnd(30)} | Mes ${dia.mes} Día ${String(dia.dia).padStart(2)} | ${dia.hora_inicio}-${dia.hora_fin} (${dia.total_horas}h) | ${esDomingoFestivo ? 'DOM/FEST' : 'NORMAL'} | Planilla: ${dia.numero_planilla || 'SIN'}`)
     }
 
-    // 4. Agrupar días faltantes por planilla de origen (Transmeralda)
-    //    Cada planilla de Transmeralda se migrará como una nueva planilla en Cotransmeq
+    // 4. Agrupar días faltantes por planilla de origen (Cotransmeq)
+    //    Cada planilla de Cotransmeq se migrará como una nueva planilla en Cotransmeq
     console.log('\n📋 Paso 4: Creando planillas y días en Cotransmeq...')
 
-    // Agrupar por planilla de Transmeralda
+    // Agrupar por planilla de Cotransmeq
     const porPlanilla = new Map<string, TransmeraldaDia[]>()
     for (const dia of diasFaltantes) {
       const planillaKey = dia.planilla_id
@@ -301,7 +301,7 @@ async function main() {
 
     console.log(`   → ${porPlanilla.size} planillas a crear/actualizar en Cotransmeq`)
 
-    // Verificar qué empresas de Transmeralda existen en Cotransmeq
+    // Verificar qué empresas de Cotransmeq existen en Cotransmeq
     const empresasTransmeralda = new Set<string>()
     for (const dia of diasFaltantes) {
       empresasTransmeralda.add(dia.empresa_id)

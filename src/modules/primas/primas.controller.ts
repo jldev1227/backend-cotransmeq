@@ -236,4 +236,37 @@ export const PrimasController = {
       });
     }
   },
+
+  // GET /primas/:id/firma-enriquecida
+  // Devuelve la firma de la prima (base64) con fallback a firma de nómina.
+  // Pensado para ser usado desde el dashboard de admin.
+  async obtenerFirmaEnriquecida(
+    request: FastifyRequest<{ Params: PrimasParams }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { id } = request.params;
+      const firma = await PrimasService.obtenerFirmaEnriquecida(id);
+
+      return reply.status(200).send({
+        success: true,
+        data: firma,
+      });
+    } catch (error: any) {
+      request.log.error("Error al obtener firma enriquecida de prima:", error);
+
+      if (error.message === "Prima no encontrada") {
+        return reply.status(404).send({
+          success: false,
+          message: "Prima no encontrada",
+        });
+      }
+
+      return reply.status(500).send({
+        success: false,
+        message: "Error al obtener la firma de la prima",
+        error: error.message,
+      });
+    }
+  },
 };

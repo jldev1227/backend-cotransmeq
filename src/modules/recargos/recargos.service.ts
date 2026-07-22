@@ -1,15 +1,24 @@
 import { prisma } from "../../config/prisma";
-import type { CreateRecargoDTO, UpdateRecargoDTO } from "./recargos.schema";
+import {
+  type CreateRecargoDTO,
+  type UpdateRecargoDTO,
+} from "./recargos.schema";
 import { randomUUID } from "crypto";
 import PDFDocument from "pdfkit";
 
+
 // Constantes de cálculo
 const HORAS_LIMITE = {
-    JORNADA_NORMAL: 10 + 20/60,   // 10.3333...
-    JORNADA_FESTIVA: 7 + 20/60,   // 7.3333...
-    INICIO_NOCTURNO: 19,
-    FIN_NOCTURNO: 6,
+  JORNADA_NORMAL: 10.33, // 10 horas 20 minutos - extras empiezan después de esto (día normal)
+  JORNADA_FESTIVA: 7.33, // 7 horas 20 minutos - RD fijo en domingos/festivos, extras después de esto
+  INICIO_NOCTURNO: 19, // 7pm
+  FIN_NOCTURNO: 6,
 };
+
+// Empresas que NO reconocen RNDF (Recargo Nocturno Dominical/Festivo)
+const EMPRESAS_SIN_RNDF = [
+  "cfb258a6-448c-4469-aa71-8eeafa4530ef", // PAREX RESOURCES (COLOMBIA) AG SUCURSAL
+];
 
 interface RecargosCalculados {
   hed: number;
@@ -21,142 +30,165 @@ interface RecargosCalculados {
   rd: number;
 }
 
-// Constantes de almuerzo
-const ALMUERZO_INICIO = 12;
-const ALMUERZO_FIN = 13;
-
 // Función para calcular recargos de un día
+// Lógica unificada: cada hora se clasifica como ordinaria vs extra, y nocturna vs diurna
+// - Jornada ordinaria domingo/festivo: nocturnas → RNDF, diurnas → RD
+// - Horas extras domingo/festivo: nocturnas → HEFN, diurnas → HEFD
+// - Jornada ordinaria día normal: nocturnas → RN, diurnas → sin recargo
+// - Horas extras día normal: nocturnas → HEN, diurnas → HED
 function calcularRecargosDia(
-    hora_inicio: number,
-    hora_fin: number,
-    total_horas: number,
-    es_domingo_o_festivo: boolean,
-    excluirRNDF: boolean = false, // ✅ del doc 6
+  hora_inicio: number,
+  hora_fin: number,
+  total_horas: number,
+  es_domingo_o_festivo: boolean,
+  excluirRNDF: boolean = false,
 ): RecargosCalculados {
-    let hed = 0, hen = 0, hefd = 0, hefn = 0, rn = 0, rd = 0, rndf = 0;
+  let hed = 0,
+    hen = 0,
+    hefd = 0,
+    hefn = 0,
+    rndf = 0,
+    rn = 0,
+    rd = 0;
 
-    if (total_horas <= 0) {
-        return { hed, hen, hefd, hefn, rndf, rn, rd };
-    }
+  if (total_horas <= 0) {
+    return { hed, hen, hefd, hefn, rndf, rn, rd };
+  }
 
-    const umbralExtras = HORAS_LIMITE.JORNADA_NORMAL;
+  // Determinar jornada ordinaria - extras SIEMPRE empiezan después de 10.33h
+  const jornadaOrdinaria = HORAS_LIMITE.JORNADA_NORMAL;
 
-    function esNocturna(hora: number): boolean {
-        const h = hora % 24;
-        return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO;
-    }
+  // Función helper para verificar si una hora es nocturna (19:00-06:00)
+  function esNocturna(hora: number): boolean {
+    const h = hora % 24;
+    return h >= HORAS_LIMITE.INICIO_NOCTURNO || h < HORAS_LIMITE.FIN_NOCTURNO;
+  }
 
-    function esHoraAlmuerzo(hora: number): boolean {
-        const h = hora % 24;
-        return h >= ALMUERZO_INICIO && h < ALMUERZO_FIN;
-    }
+  // Recorrer cada fracción de hora y clasificarla
+  let horaActual = hora_inicio;
+  let horasAcumuladas = 0;
 
-    // ✅ Almuerzo del doc 7 — solo en festivos que cubran 12-13
-    const aplicaDescuentoAlmuerzo =
-        es_domingo_o_festivo &&
-        hora_inicio < ALMUERZO_FIN + Math.floor(hora_inicio / 24) * 24 + 12 &&
-        hora_fin > Math.floor(hora_inicio / 24) * 24 + ALMUERZO_FIN;
+  while (horaActual < hora_fin) {
+    const siguienteHora = Math.min(horaActual + 0.5, hora_fin);
+    const fraccion = siguienteHora - horaActual;
+    const nocturna = esNocturna(horaActual);
+    const esExtra = horasAcumuladas >= jornadaOrdinaria;
 
-    let horaActual = hora_inicio;
-    let horasAcumuladas = 0;
-
-    while (horaActual < hora_fin) {
-        const siguienteHora = Math.min(horaActual + 0.5, hora_fin);
-        const fraccion = siguienteHora - horaActual;
-
-        if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(horaActual)) {
-            horasAcumuladas += fraccion; // ✅ suma a acumuladas pero no genera recargo
-            horaActual = siguienteHora;
-            continue;
-        }
-
-        const nocturna = esNocturna(horaActual);
-        const esExtra = horasAcumuladas >= umbralExtras;
-
-        if (es_domingo_o_festivo) {
-            if (esExtra) {
-                if (nocturna) hefn += fraccion;
-                else hefd += fraccion;
-            } else {
-                const horasRestantes = umbralExtras - horasAcumuladas;
-                if (fraccion <= horasRestantes) {
-                    if (nocturna) rndf += fraccion;
-                    else rd += fraccion;
-                } else {
-                    const parteOrdinaria = horasRestantes;
-                    const parteExtra = fraccion - parteOrdinaria;
-                    if (nocturna) { rndf += parteOrdinaria; hefn += parteExtra; }
-                    else { rd += parteOrdinaria; hefd += parteExtra; }
-                }
-            }
-        } else {
-            if (esExtra) {
-                if (nocturna) hen += fraccion;
-                else hed += fraccion;
-            } else {
-                const horasRestantes = umbralExtras - horasAcumuladas;
-                if (fraccion <= horasRestantes) {
-                    if (nocturna) rn += fraccion;
-                } else {
-                    const parteOrdinaria = horasRestantes;
-                    const parteExtra = fraccion - parteOrdinaria;
-                    if (nocturna) { rn += parteOrdinaria; hen += parteExtra; }
-                    else { hed += parteExtra; }
-                }
-            }
-        }
-
-        horasAcumuladas += fraccion;
-        horaActual = siguienteHora;
-    }
-
-    // Post-procesamiento festivo — recalcula RD/RNDF con límite 19
     if (es_domingo_o_festivo) {
-        const INICIO_RNDF = 19;
-        let rndfRecalc = 0, rdRecalc = 0, hAcum = 0;
-        let h = hora_inicio;
-
-        while (h < hora_fin) {
-            const sig = Math.min(h + 0.5, hora_fin);
-            const frac = sig - h;
-
-            if (aplicaDescuentoAlmuerzo && esHoraAlmuerzo(h)) {
-                hAcum += frac; // ✅ suma igual que en bucle principal
-                h = sig;
-                continue;
-            }
-
-            if (hAcum < umbralExtras) {
-                const ordinaria = Math.min(frac, umbralExtras - hAcum);
-                const horaNorm = h % 24;
-                const esRNDF = horaNorm >= INICIO_RNDF || horaNorm < HORAS_LIMITE.FIN_NOCTURNO;
-                if (esRNDF) rndfRecalc += ordinaria;
-                else rdRecalc += ordinaria;
-            }
-
-            hAcum += frac;
-            h = sig;
-        }
-
-        if (!excluirRNDF) {
-            rndf = redondear(rndfRecalc);
-            // ✅ tope unificado: min(rdDiurno, 7.333 - rndf)
-            rd = redondear(Math.min(rdRecalc, HORAS_LIMITE.JORNADA_FESTIVA - rndfRecalc));
+      if (esExtra) {
+        // Horas extras en domingo/festivo
+        if (nocturna) {
+          hefn += fraccion;
         } else {
-            rndf = 0;
-            rd = redondear(Math.min(rdRecalc + rndfRecalc, HORAS_LIMITE.JORNADA_FESTIVA));
+          hefd += fraccion;
         }
+      } else {
+        // Jornada ordinaria en domingo/festivo
+        const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas;
+        if (fraccion <= horasRestantesJornada) {
+          if (nocturna) {
+            rndf += fraccion;
+          } else {
+            rd += fraccion;
+          }
+        } else {
+          // Parte es jornada ordinaria, parte es extra
+          const parteOrdinaria = horasRestantesJornada;
+          const parteExtra = fraccion - parteOrdinaria;
+          if (nocturna) {
+            rndf += parteOrdinaria;
+            hefn += parteExtra;
+          } else {
+            rd += parteOrdinaria;
+            hefd += parteExtra;
+          }
+        }
+      }
+    } else {
+      // Día normal
+      if (esExtra) {
+        if (nocturna) {
+          hen += fraccion;
+        } else {
+          hed += fraccion;
+        }
+      } else {
+        const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas;
+        if (fraccion <= horasRestantesJornada) {
+          if (nocturna) {
+            rn += fraccion;
+          }
+          // Diurna ordinaria en día normal = no genera recargo
+        } else {
+          const parteOrdinaria = horasRestantesJornada;
+          const parteExtra = fraccion - parteOrdinaria;
+          if (nocturna) {
+            rn += parteOrdinaria;
+            hen += parteExtra;
+          } else {
+            hed += parteExtra;
+          }
+        }
+      }
     }
 
-    return {
-        hed: Math.round(hed * 100) / 100,
-        hen: Math.round(hen * 100) / 100,
-        hefd: Math.round(hefd * 100) / 100,
-        hefn: Math.round(hefn * 100) / 100,
-        rndf: Math.round(rndf * 100) / 100,
-        rn: Math.round(rn * 100) / 100,
-        rd: Math.round(rd * 100) / 100,
-    };
+    horasAcumuladas += fraccion;
+    horaActual = siguienteHora;
+  }
+
+  // En domingo/festivo:
+  // RNDF = TODAS las horas nocturnas del turno (ordinarias + extras)
+  // RD = 7.33 - RNDF (las nocturnas se restan del dominical)
+  // PAREX no reconoce RNDF, así que no se resta
+  // ✅ POR ESTO:
+  if (es_domingo_o_festivo) {
+    const INICIO_RNDF = 19;
+
+    let rdRecalc = 0;
+    let rndfRecalc = 0;
+    let horasAcum = 0;
+
+    let h = hora_inicio;
+    while (h < hora_fin) {
+      const sig = Math.min(h + 0.5, hora_fin);
+      const fraccion = sig - h;
+      const hora = h % 24;
+
+      if (horasAcum < jornadaOrdinaria) {
+        const aAgregar = Math.min(fraccion, jornadaOrdinaria - horasAcum);
+        const esRNDF = hora >= INICIO_RNDF || hora < HORAS_LIMITE.FIN_NOCTURNO;
+
+        if (esRNDF) rndfRecalc += aAgregar;
+        else rdRecalc += aAgregar;
+      }
+
+      horasAcum += fraccion;
+      h = sig;
+    }
+
+    if (!excluirRNDF) {
+      rndf = redondear(rndfRecalc);
+      rd = redondear(
+        Math.min(rdRecalc, HORAS_LIMITE.JORNADA_FESTIVA - rndfRecalc),
+      );
+    } else {
+      // PAREX: no reconoce RNDF, todo va a RD
+      rndf = 0;
+      rd = redondear(
+        Math.min(rdRecalc + rndfRecalc, HORAS_LIMITE.JORNADA_FESTIVA),
+      );
+    }
+  }
+
+  return {
+    hed: Math.round(hed * 100) / 100,
+    hen: Math.round(hen * 100) / 100,
+    hefd: Math.round(hefd * 100) / 100,
+    hefn: Math.round(hefn * 100) / 100,
+    rndf: Math.round(rndf * 100) / 100,
+    rn: Math.round(rn * 100) / 100,
+    rd: Math.round(rd * 100) / 100,
+  };
 }
 
 /**
@@ -235,6 +267,80 @@ function calcularRecargosConContinuacion(
   return resultados;
 }
 
+function buildBulkDias(
+  diasLaborales: any[],
+  recargoPlanillaId: string,
+  tiposMap: Map<string, string>,
+  userId: string | undefined,
+  now: Date,
+) {
+  const recargosMap = calcularRecargosConContinuacion(diasLaborales);
+ 
+  const diasRows: any[] = [];
+  const detallesRows: any[] = [];
+ 
+  for (let idx = 0; idx < diasLaborales.length; idx++) {
+    const dia = diasLaborales[idx];
+    const hora_inicio = dia.hora_inicio || 0;
+    const hora_fin = dia.hora_fin || 0;
+    const total_horas = dia.total_horas || 0;
+ 
+    const recargos = recargosMap.get(idx) ?? {
+      hed: 0, hen: 0, hefd: 0, hefn: 0, rndf: 0, rn: 0, rd: 0,
+    };
+ 
+    const diaId = randomUUID();
+ 
+    diasRows.push({
+      id: diaId,
+      recargo_planilla_id: recargoPlanillaId,
+      dia: dia.dia,
+      hora_inicio,
+      hora_fin,
+      total_horas,
+      horas_ordinarias: Math.min(total_horas, HORAS_LIMITE.JORNADA_NORMAL),
+      es_festivo: dia.es_festivo,
+      es_domingo: dia.es_domingo,
+      kilometraje_inicial: dia.kilometraje_inicial,
+      kilometraje_final: dia.kilometraje_final,
+      pernocte: dia.pernocte || false,
+      disponibilidad: dia.disponibilidad || false,
+      continua_siguiente_dia: dia.continua_siguiente_dia || false,
+      observaciones: dia.observaciones,
+      creado_por_id: userId,
+      created_at: now,
+      updated_at: now,
+    });
+ 
+    // Detalles de recargo para este día
+    const tiposConValor: Array<[string, number]> = [
+      ["HED", recargos.hed],
+      ["HEN", recargos.hen],
+      ["HEFD", recargos.hefd],
+      ["HEFN", recargos.hefn],
+      ["RN", recargos.rn],
+      ["RD", recargos.rd],
+      ["RNDF", recargos.rndf],
+    ];
+ 
+    for (const [codigo, horas] of tiposConValor) {
+      if (horas > 0 && tiposMap.has(codigo)) {
+        detallesRows.push({
+          id: randomUUID(),
+          dia_laboral_id: diaId,
+          tipo_recargo_id: tiposMap.get(codigo)!,
+          horas,
+          creado_por_id: userId,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    }
+  }
+ 
+  return { diasRows, detallesRows };
+}
+
 export function redondear(numero: number, decimales = 2): number {
   const factor = Math.pow(10, decimales);
   return Math.round(numero * factor) / factor;
@@ -246,7 +352,7 @@ export const RecargosService = {
     const skip = (page - 1) * limit;
 
     const where: any = {
-      deleted_at: null,
+      deleted_at: filters.eliminados ? { not: null } : null,
     };
 
     if (filters.mes) where.mes = parseInt(filters.mes);
@@ -292,7 +398,7 @@ export const RecargosService = {
             },
           },
           dias_laborales_planillas: {
-            where: { deleted_at: null },
+            where: { deleted_at: filters.eliminados ? { not: null } : null },
             select: {
               id: true,
               dia: true,
@@ -306,7 +412,10 @@ export const RecargosService = {
               kilometraje_inicial: true,
               kilometraje_final: true,
               detalles_recargos_dias: {
-                where: { deleted_at: null, activo: true },
+                where: {
+                  deleted_at: filters.eliminados ? { not: null } : null,
+                  activo: true,
+                },
                 include: {
                   tipos_recargos: {
                     select: {
@@ -348,39 +457,13 @@ export const RecargosService = {
         total_dias: 0,
       };
 
-      console.log(
-        `📊 [DEBUG] Calculando totales para recargo ID: ${recargo.id}`,
-      );
-      console.log(
-        `📊 [DEBUG] Días laborales: ${recargo.dias_laborales_planillas.length}`,
-      );
-
-      if (recargo.dias_laborales_planillas.length === 0) {
-        console.log(`⚠️ [DEBUG] Este recargo NO tiene días laborales!`);
-      }
-
       recargo.dias_laborales_planillas.forEach((dia) => {
-        // Excluir días marcados como disponible de los totales
-        if (dia.disponibilidad) return;
-
-        const horasDia = Number(dia.total_horas) || 0;
-        totales.total_horas += horasDia;
+        totales.total_horas += Number(dia.total_horas) || 0;
         totales.total_dias += 1;
-
-        console.log(
-          `📊 [DEBUG] Día ${dia.dia}: total_horas=${dia.total_horas}, parsed=${horasDia}`,
-        );
-        console.log(
-          `📊 [DEBUG] Detalles recargos: ${dia.detalles_recargos_dias.length}`,
-        );
 
         dia.detalles_recargos_dias.forEach((detalle) => {
           const codigo = detalle.tipos_recargos.codigo.toLowerCase();
           const horas = Number(detalle.horas) || 0;
-
-          console.log(
-            `📊 [DEBUG] Detalle: tipo=${codigo}, horas=${detalle.horas}, parsed=${horas}`,
-          );
 
           switch (codigo) {
             case "hed":
@@ -408,8 +491,6 @@ export const RecargosService = {
         });
       });
 
-      console.log(`📊 [DEBUG] Totales calculados:`, totales);
-
       // Mapear nombres de relaciones para que coincidan con el frontend
       return {
         ...recargo,
@@ -418,6 +499,7 @@ export const RecargosService = {
         vehiculo: recargo.vehiculos,
         empresa: recargo.clientes,
         dias_laborales: recargo.dias_laborales_planillas,
+        tiene_documento: !!recargo.planilla_s3key,
       };
     });
 
@@ -480,7 +562,13 @@ export const RecargosService = {
       throw new Error("Recargo no encontrado");
     }
 
-    return recargo;
+    return {
+      ...recargo,
+      conductor: recargo.conductores,
+      conductores: undefined, // opcional quitarlom
+      vehiculo: recargo.vehiculos,
+      vehiculos: undefined,
+    };
   },
 
   // Helper: Determinar estado del servicio basado en días laborales
@@ -508,10 +596,13 @@ export const RecargosService = {
     const incluyeHoy = dias.some((d) => d === hoyTime);
 
     if (maxDia < hoyTime) {
+      // Todos los días son anteriores a hoy → realizado
       return "realizado";
     } else if (incluyeHoy || (minDia <= hoyTime && maxDia >= hoyTime)) {
+      // Incluye el día actual o mezcla pasados y futuros → en_curso
       return "en_curso";
     } else {
+      // Solo días futuros → planificado
       return "planificado";
     }
   },
@@ -523,348 +614,175 @@ export const RecargosService = {
     return proposito;
   },
 
-  // Crear recargo con días laborales
+   
+  // ─────────────────────────────────────────────
+  // CREATE — optimizado
+  // ─────────────────────────────────────────────
   async create(data: CreateRecargoDTO, userId?: string) {
-    console.log("📊 [CREATE] Datos recibidos:", JSON.stringify(data, null, 2));
-    console.log(
-      "📊 [CREATE] Días laborales recibidos:",
-      data.dias_laborales?.length,
-    );
-
-    // Si hay datos de servicio, crear el servicio primero
-    let servicioId = data.servicio_id || null;
-    if (!servicioId && data.servicio_origen_id && data.servicio_destino_id) {
-      const estadoServicio = this._determinarEstadoServicio(
-        data.dias_laborales || [],
-        data.mes,
-        data.año,
-      );
-      const now = new Date();
-      const nuevoServicio = await prisma.servicio.create({
+    const now = new Date();
+   
+    // 1. Cargar tipos_recargo UNA sola vez (fuera de la tx porque es solo lectura)
+    const tiposRecargo = await prisma.tipos_recargos.findMany({ where: { activo: true } });
+    const tiposMap = new Map(tiposRecargo.map((t) => [t.codigo, t.id]));
+   
+    // 2. Todo en una sola transacción interactiva
+    const recargo = await prisma.$transaction(async (tx) => {
+   
+      // 2a. Crear servicio si hace falta (una sola escritura condicional)
+      let servicioId = data.servicio_id ?? null;
+      if (!servicioId && data.servicio_origen_id && data.servicio_destino_id) {
+        const estadoServicio = this._determinarEstadoServicio(
+          data.dias_laborales || [],
+          data.mes,
+          data.año,
+        );
+        const nuevoServicio = await tx.servicio.create({
+          data: {
+            id: randomUUID(),
+            cliente_id: data.empresa_id,
+            conductor_id: data.conductor_id,
+            vehiculo_id: data.vehiculo_id,
+            origen_id: data.servicio_origen_id,
+            destino_id: data.servicio_destino_id,
+            origen_especifico: data.servicio_origen_especifico || "",
+            destino_especifico: data.servicio_destino_especifico || "",
+            origen_latitud: data.servicio_origen_latitud,
+            origen_longitud: data.servicio_origen_longitud,
+            destino_latitud: data.servicio_destino_latitud,
+            destino_longitud: data.servicio_destino_longitud,
+            observaciones: data.servicio_observaciones,
+            proposito_servicio: this._normalizarProposito(data.servicio_proposito) as any,
+            estado: estadoServicio as any,
+            fecha_solicitud: now,
+            fecha_realizacion: data.servicio_fecha_realizacion
+              ? new Date(data.servicio_fecha_realizacion)
+              : undefined,
+            valor: 0,
+            created_at: now,
+            updated_at: now,
+          },
+        });
+        servicioId = nuevoServicio.id;
+      }
+   
+      // 2b. Crear el recargo principal
+      const recargoId = randomUUID();
+      await tx.recargos_planillas.create({
         data: {
-          id: randomUUID(),
-          cliente_id: data.empresa_id,
+          id: recargoId,
           conductor_id: data.conductor_id,
           vehiculo_id: data.vehiculo_id,
-          origen_id: data.servicio_origen_id,
-          destino_id: data.servicio_destino_id,
-          origen_especifico: data.servicio_origen_especifico || "",
-          destino_especifico: data.servicio_destino_especifico || "",
-          origen_latitud: data.servicio_origen_latitud,
-          origen_longitud: data.servicio_origen_longitud,
-          destino_latitud: data.servicio_destino_latitud,
-          destino_longitud: data.servicio_destino_longitud,
-          observaciones: data.servicio_observaciones,
-          proposito_servicio: this._normalizarProposito(
-            data.servicio_proposito,
-          ) as any,
-          estado: estadoServicio as any,
-          fecha_solicitud: now,
-          fecha_realizacion: data.servicio_fecha_realizacion
-            ? new Date(data.servicio_fecha_realizacion)
-            : undefined,
-          valor: 0,
+          empresa_id: data.empresa_id,
+          numero_planilla: data.numero_planilla,
+          mes: data.mes,
+          a_o: data.año,
+          observaciones: data.observaciones,
+          estado: "pendiente",
+          version: 1,
+          creado_por_id: userId,
           created_at: now,
           updated_at: now,
-        },
+          servicio_id: servicioId,
+          estado_conductor: data.estado_conductor as any,
+          via_trocha: data.via_trocha,
+          via_afirmado: data.via_afirmado,
+          via_mixto: data.via_mixto,
+          via_pavimentada: data.via_pavimentada,
+          riesgo_desniveles: data.riesgo_desniveles,
+          riesgo_deslizamientos: data.riesgo_deslizamientos,
+          riesgo_sin_senalizacion: data.riesgo_sin_senalizacion,
+          riesgo_animales: data.riesgo_animales,
+          riesgo_peatones: data.riesgo_peatones,
+          riesgo_trafico_alto: data.riesgo_trafico_alto,
+          fuente_consulta: data.fuente_consulta as any,
+          calificacion_servicio: data.calificacion_servicio as any,
+          tiempo_disponibilidad_horas: data.tiempo_disponibilidad_horas,
+          duracion_trayecto_horas: data.duracion_trayecto_horas,
+          numero_dias_servicio: data.numero_dias_servicio,
+        } as any,
       });
-      servicioId = nuevoServicio.id;
-    }
-
-    // Obtener tipos de recargo activos
-    const tiposRecargo = await prisma.tipos_recargos.findMany({
-      where: { activo: true },
+   
+      // 2c. Construir filas en memoria (sin I/O)
+      const { diasRows, detallesRows } = buildBulkDias(
+        data.dias_laborales || [],
+        recargoId,
+        tiposMap,
+        userId,
+        now,
+      );
+   
+      // 2d. Insertar días y detalles en solo 2 queries (createMany)
+      if (diasRows.length > 0) {
+        await tx.dias_laborales_planillas.createMany({ data: diasRows });
+      }
+      if (detallesRows.length > 0) {
+        await tx.detalles_recargos_dias.createMany({ data: detallesRows });
+      }
+   
+      return recargoId;
     });
-
-    const tiposMap = new Map(tiposRecargo.map((t) => [t.codigo, t.id]));
-    console.log(
-      "📊 [CREATE] Tipos de recargo disponibles:",
-      Array.from(tiposMap.keys()),
-    );
-
-    const now = new Date();
-
-    const recargo = await prisma.recargos_planillas.create({
-      data: {
-        id: randomUUID(), // Generar UUID para el ID
-        conductor_id: data.conductor_id,
-        vehiculo_id: data.vehiculo_id,
-        empresa_id: data.empresa_id,
-        numero_planilla: data.numero_planilla,
-        mes: data.mes,
-        a_o: data.año,
-        observaciones: data.observaciones,
-        estado: "pendiente",
-        version: 1,
-        creado_por_id: userId,
-        created_at: now,
-        updated_at: now,
-
-        // Nuevos campos de relación y condiciones
-        servicio_id: servicioId || data.servicio_id,
-        estado_conductor: data.estado_conductor as any,
-        via_trocha: data.via_trocha,
-        via_afirmado: data.via_afirmado,
-        via_mixto: data.via_mixto,
-        via_pavimentada: data.via_pavimentada,
-        riesgo_desniveles: data.riesgo_desniveles,
-        riesgo_deslizamientos: data.riesgo_deslizamientos,
-        riesgo_sin_senalizacion: data.riesgo_sin_senalizacion,
-        riesgo_animales: data.riesgo_animales,
-        riesgo_peatones: data.riesgo_peatones,
-        riesgo_trafico_alto: data.riesgo_trafico_alto,
-        fuente_consulta: data.fuente_consulta as any,
-        calificacion_servicio: data.calificacion_servicio as any,
-        tiempo_disponibilidad_horas: data.tiempo_disponibilidad_horas,
-        duracion_trayecto_horas: data.duracion_trayecto_horas,
-        numero_dias_servicio: data.numero_dias_servicio,
-
-        dias_laborales_planillas: {
-          // Cast to any because Prisma generated types for nested creates are strict
-          // and may require created_at/updated_at depending on schema defaults.
-          // The runtime shape is valid for creation; use `as any` to satisfy TS.
-          create: (() => {
-            // Pre-calcular recargos con lógica de continuación de días
-            const recargosMap = calcularRecargosConContinuacion(
-              data.dias_laborales || [],
-            );
-
-            return (data.dias_laborales || []).map(
-              (dia: any, index: number) => {
-                const hora_inicio = dia.hora_inicio || 0;
-                const hora_fin = dia.hora_fin || 0;
-                const total_horas = dia.total_horas || 0;
-
-                // Usar recargos pre-calculados (ya incluyen lógica de merge)
-                const recargos = recargosMap.get(index) || {
-                  hed: 0,
-                  hen: 0,
-                  hefd: 0,
-                  hefn: 0,
-                  rndf: 0,
-                  rn: 0,
-                  rd: 0,
-                };
-
-                console.log(
-                  `📊 [CREATE DEBUG] Día ${dia.dia}: hora_inicio=${hora_inicio}, hora_fin=${hora_fin}, total_horas=${total_horas}`,
-                );
-                console.log(`📊 [CREATE DEBUG] Recargos calculados:`, recargos);
-
-                return {
-                  id: randomUUID(), // Generar UUID para el día laboral
-                  dia: dia.dia,
-                  hora_inicio,
-                  hora_fin,
-                  total_horas,
-                  horas_ordinarias: Math.min(
-                    total_horas,
-                    HORAS_LIMITE.JORNADA_NORMAL,
-                  ),
-                  es_festivo: dia.es_festivo,
-                  es_domingo: dia.es_domingo,
-                  kilometraje_inicial: dia.kilometraje_inicial,
-                  kilometraje_final: dia.kilometraje_final,
-                  pernocte: dia.pernocte || false,
-                  disponibilidad: dia.disponibilidad,
-                  continua_siguiente_dia: dia.continua_siguiente_dia || false,
-                  observaciones: dia.observaciones,
-                  creado_por_id: userId,
-                  created_at: now,
-                  updated_at: now,
-                  detalles_recargos_dias: {
-                    create: [
-                      recargos.hed > 0 && tiposMap.has("HED")
-                        ? {
-                            id: randomUUID(), // Generar UUID para el detalle
-                            tipo_recargo_id: tiposMap.get("HED")!,
-                            horas: recargos.hed,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                      recargos.hen > 0 && tiposMap.has("HEN")
-                        ? {
-                            id: randomUUID(),
-                            tipo_recargo_id: tiposMap.get("HEN")!,
-                            horas: recargos.hen,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                      recargos.hefd > 0 && tiposMap.has("HEFD")
-                        ? {
-                            id: randomUUID(),
-                            tipo_recargo_id: tiposMap.get("HEFD")!,
-                            horas: recargos.hefd,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                      recargos.hefn > 0 && tiposMap.has("HEFN")
-                        ? {
-                            id: randomUUID(),
-                            tipo_recargo_id: tiposMap.get("HEFN")!,
-                            horas: recargos.hefn,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                      recargos.rn > 0 && tiposMap.has("RN")
-                        ? {
-                            id: randomUUID(),
-                            tipo_recargo_id: tiposMap.get("RN")!,
-                            horas: recargos.rn,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                      recargos.rd > 0 && tiposMap.has("RD")
-                        ? {
-                            id: randomUUID(),
-                            tipo_recargo_id: tiposMap.get("RD")!,
-                            horas: recargos.rd,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                      recargos.rndf > 0 && tiposMap.has("RNDF")
-                        ? {
-                            id: randomUUID(),
-                            tipo_recargo_id: tiposMap.get("RNDF")!,
-                            horas: recargos.rndf,
-                            creado_por_id: userId,
-                            created_at: now,
-                            updated_at: now,
-                          }
-                        : null,
-                    ].filter(Boolean),
-                  },
-                };
-              },
-            );
-          })() as any,
-        },
-      } as any,
-      include: {
-        conductores: true,
-        vehiculos: true,
-        clientes: true,
-        dias_laborales_planillas: {
-          include: {
-            detalles_recargos_dias: {
-              include: {
-                tipos_recargos: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // Actualizar totales del recargo
-    await this.actualizarTotales(recargo.id);
-
-    return this.findById(recargo.id);
+   
+    // 3. Actualizar totales (fuera de la tx para no bloquearla más)
+    await this.actualizarTotales(recargo);
+   
+    return this.findById(recargo);
   },
 
-  // Actualizar recargo
-  async update(id: string, data: UpdateRecargoDTO, userId?: string) {
-    // Obtener el recargo existente
-    const recargoExistente = await prisma.recargos_planillas.findUnique({
-      where: { id },
-      include: {
-        dias_laborales_planillas: {
-          include: {
-            detalles_recargos_dias: true,
-          },
-        },
-      },
-    });
-
-    if (!recargoExistente) {
-      throw new Error("Recargo no encontrado");
+  // ─────────────────────────────────────────────
+// UPDATE — optimizado
+// ─────────────────────────────────────────────
+async  update(id: string, data: UpdateRecargoDTO, userId?: string) {
+  const now = new Date();
+ 
+  // 1. Leer recargo existente + tipos_recargo en paralelo (2 queries simultáneos)
+  const [recargoExistente, tiposRecargo] = await Promise.all([
+    prisma.recargos_planillas.findUnique({ where: { id } }),
+    prisma.tipos_recargos.findMany({ where: { activo: true } }),
+  ]);
+ 
+  if (!recargoExistente) throw new Error("Recargo no encontrado");
+ 
+  const tiposMap = new Map(tiposRecargo.map((t) => [t.codigo, t.id]));
+ 
+  // 2. Construir updateData en memoria
+  const updateData: any = {
+    actualizado_por_id: userId,
+    version: { increment: 1 },
+    updated_at: now,
+  };
+ 
+  const camposEscalares: (keyof UpdateRecargoDTO)[] = [
+    "numero_planilla", "observaciones", "estado", "mes",
+    "conductor_id", "vehiculo_id", "empresa_id", "servicio_id",
+    "estado_conductor", "via_trocha", "via_afirmado", "via_mixto",
+    "via_pavimentada", "riesgo_desniveles", "riesgo_deslizamientos",
+    "riesgo_sin_senalizacion", "riesgo_animales", "riesgo_peatones",
+    "riesgo_trafico_alto", "fuente_consulta", "calificacion_servicio",
+    "tiempo_disponibilidad_horas", "duracion_trayecto_horas", "numero_dias_servicio",
+  ];
+ 
+  for (const campo of camposEscalares) {
+    if (data[campo] !== undefined) {
+      // año → a_o mapping especial
+      updateData[campo === "año" ? "a_o" : campo] = data[campo];
     }
-
-    // Construir objeto de actualización (sin relaciones ni dias_laborales)
-    const updateData: any = {
-      actualizado_por_id: userId,
-      version: { increment: 1 },
-      updated_at: new Date(),
-    };
-
-    // Actualizar campos básicos
-    if (data.numero_planilla !== undefined)
-      updateData.numero_planilla = data.numero_planilla;
-    if (data.observaciones !== undefined)
-      updateData.observaciones = data.observaciones;
-    if (data.estado !== undefined) updateData.estado = data.estado;
-    if (data.mes !== undefined) updateData.mes = data.mes;
-    if (data.año !== undefined) updateData.a_o = data.año;
-
-    // Actualizar relaciones (conductor, vehículo, empresa)
-    if (data.conductor_id !== undefined)
-      updateData.conductor_id = data.conductor_id;
-    if (data.vehiculo_id !== undefined)
-      updateData.vehiculo_id = data.vehiculo_id;
-    if (data.empresa_id !== undefined) updateData.empresa_id = data.empresa_id;
-
-    // Actualizar nuevos campos de condiciones y evaluación
-    if (data.servicio_id !== undefined)
-      updateData.servicio_id = data.servicio_id;
-    if (data.estado_conductor !== undefined)
-      updateData.estado_conductor = data.estado_conductor;
-    if (data.via_trocha !== undefined) updateData.via_trocha = data.via_trocha;
-    if (data.via_afirmado !== undefined)
-      updateData.via_afirmado = data.via_afirmado;
-    if (data.via_mixto !== undefined) updateData.via_mixto = data.via_mixto;
-    if (data.via_pavimentada !== undefined)
-      updateData.via_pavimentada = data.via_pavimentada;
-    if (data.riesgo_desniveles !== undefined)
-      updateData.riesgo_desniveles = data.riesgo_desniveles;
-    if (data.riesgo_deslizamientos !== undefined)
-      updateData.riesgo_deslizamientos = data.riesgo_deslizamientos;
-    if (data.riesgo_sin_senalizacion !== undefined)
-      updateData.riesgo_sin_senalizacion = data.riesgo_sin_senalizacion;
-    if (data.riesgo_animales !== undefined)
-      updateData.riesgo_animales = data.riesgo_animales;
-    if (data.riesgo_peatones !== undefined)
-      updateData.riesgo_peatones = data.riesgo_peatones;
-    if (data.riesgo_trafico_alto !== undefined)
-      updateData.riesgo_trafico_alto = data.riesgo_trafico_alto;
-    if (data.fuente_consulta !== undefined)
-      updateData.fuente_consulta = data.fuente_consulta;
-    if (data.calificacion_servicio !== undefined)
-      updateData.calificacion_servicio = data.calificacion_servicio;
-    if (data.tiempo_disponibilidad_horas !== undefined)
-      updateData.tiempo_disponibilidad_horas = data.tiempo_disponibilidad_horas;
-    if (data.duracion_trayecto_horas !== undefined)
-      updateData.duracion_trayecto_horas = data.duracion_trayecto_horas;
-    if (data.numero_dias_servicio !== undefined)
-      updateData.numero_dias_servicio = data.numero_dias_servicio;
-
-    // Manejar servicio asociado: crear nuevo o actualizar existente
-    const tieneServicioData =
-      data.servicio_origen_id && data.servicio_destino_id;
-    const mesRecargo = data.mes ?? recargoExistente.mes;
-    const añoRecargo = data.año ?? recargoExistente.a_o;
-
+  }
+  if (data.año !== undefined) updateData.a_o = data.año;
+ 
+  // 3. Transacción única para todo
+  await prisma.$transaction(async (tx) => {
+ 
+    // 3a. Servicio (crear o actualizar) — condicional
+    const tieneServicioData = data.servicio_origen_id && data.servicio_destino_id;
     if (tieneServicioData) {
-      const diasParaEstado = (data.dias_laborales || []).map((d) => ({
-        dia: d.dia,
-      }));
+      const mesRecargo = data.mes ?? recargoExistente.mes;
+      const añoRecargo = data.año ?? recargoExistente.a_o;
       const estadoServicio = this._determinarEstadoServicio(
-        diasParaEstado,
+        data.dias_laborales || [],
         mesRecargo,
         añoRecargo,
       );
-      const servicioUpdateData: any = {
+      const servicioData: any = {
         origen_id: data.servicio_origen_id,
         destino_id: data.servicio_destino_id,
         origen_especifico: data.servicio_origen_especifico || "",
@@ -874,190 +792,66 @@ export const RecargosService = {
         destino_latitud: data.servicio_destino_latitud,
         destino_longitud: data.servicio_destino_longitud,
         observaciones: data.servicio_observaciones,
-        proposito_servicio: this._normalizarProposito(
-          data.servicio_proposito,
-        ) as any,
+        proposito_servicio: this._normalizarProposito(data.servicio_proposito) as any,
         estado: estadoServicio as any,
         conductor_id: data.conductor_id || recargoExistente.conductor_id,
         vehiculo_id: data.vehiculo_id || recargoExistente.vehiculo_id,
         fecha_realizacion: data.servicio_fecha_realizacion
           ? new Date(data.servicio_fecha_realizacion)
           : undefined,
-        updated_at: new Date(),
+        updated_at: now,
       };
-
+ 
       if (recargoExistente.servicio_id) {
-        // Actualizar servicio existente
-        await prisma.servicio.update({
-          where: { id: recargoExistente.servicio_id },
-          data: servicioUpdateData,
-        });
+        await tx.servicio.update({ where: { id: recargoExistente.servicio_id }, data: servicioData });
       } else {
-        // Crear nuevo servicio
-        const nuevoServicio = await prisma.servicio.create({
+        const nuevoServicio = await tx.servicio.create({
           data: {
             id: randomUUID(),
             cliente_id: data.empresa_id || recargoExistente.empresa_id,
-            fecha_solicitud: new Date(),
+            fecha_solicitud: now,
             valor: 0,
-            created_at: new Date(),
-            ...servicioUpdateData,
+            created_at: now,
+            ...servicioData,
           },
         });
         updateData.servicio_id = nuevoServicio.id;
       }
     }
-
-    // Actualizar el recargo principal
-    await prisma.recargos_planillas.update({
-      where: { id },
-      data: updateData,
-    });
-
-    // Si hay días laborales para actualizar
+ 
+    // 3b. Actualizar recargo principal
+    await tx.recargos_planillas.update({ where: { id }, data: updateData });
+ 
+    // 3c. Días laborales — reemplazar en bulk
     if (data.dias_laborales && data.dias_laborales.length > 0) {
-      // Obtener tipos de recargo activos
-      const tiposRecargo = await prisma.tipos_recargos.findMany({
-        where: { activo: true },
-      });
-      const tiposMap = new Map(tiposRecargo.map((t) => [t.codigo, t.id]));
-      const now = new Date();
-
-      // Eliminar días laborales existentes (cascade eliminará detalles_recargos_dias)
-      await prisma.dias_laborales_planillas.deleteMany({
-        where: { recargo_planilla_id: id },
-      });
-
-      // Pre-calcular recargos con lógica de continuación de días
-      const recargosMap = calcularRecargosConContinuacion(data.dias_laborales);
-
-      // Crear nuevos días laborales con sus recargos
-      for (let idx = 0; idx < data.dias_laborales.length; idx++) {
-        const dia = data.dias_laborales[idx];
-        const hora_inicio = dia.hora_inicio || 0;
-        const hora_fin = dia.hora_fin || 0;
-        const total_horas = dia.total_horas || 0;
-
-        // Usar recargos pre-calculados (ya incluyen lógica de merge)
-        const recargos = recargosMap.get(idx) || {
-          hed: 0,
-          hen: 0,
-          hefd: 0,
-          hefn: 0,
-          rndf: 0,
-          rn: 0,
-          rd: 0,
-        };
-
-        // Crear día laboral con sus detalles de recargos
-        await prisma.dias_laborales_planillas.create({
-          data: {
-            id: randomUUID(),
-            recargo_planilla_id: id,
-            dia: dia.dia,
-            hora_inicio,
-            hora_fin,
-            total_horas,
-            horas_ordinarias: Math.min(
-              total_horas,
-              HORAS_LIMITE.JORNADA_NORMAL,
-            ),
-            es_festivo: dia.es_festivo,
-            es_domingo: dia.es_domingo,
-            kilometraje_inicial: dia.kilometraje_inicial,
-            kilometraje_final: dia.kilometraje_final,
-            pernocte: dia.pernocte || false,
-            disponibilidad: dia.disponibilidad || false,
-            continua_siguiente_dia: dia.continua_siguiente_dia || false,
-            observaciones: dia.observaciones,
-            creado_por_id: userId,
-            created_at: now,
-            updated_at: now,
-            detalles_recargos_dias: {
-              create: [
-                recargos.hed > 0 && tiposMap.has("HED")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("HED")!,
-                      horas: recargos.hed,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-                recargos.hen > 0 && tiposMap.has("HEN")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("HEN")!,
-                      horas: recargos.hen,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-                recargos.hefd > 0 && tiposMap.has("HEFD")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("HEFD")!,
-                      horas: recargos.hefd,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-                recargos.hefn > 0 && tiposMap.has("HEFN")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("HEFN")!,
-                      horas: recargos.hefn,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-                recargos.rn > 0 && tiposMap.has("RN")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("RN")!,
-                      horas: recargos.rn,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-                recargos.rd > 0 && tiposMap.has("RD")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("RD")!,
-                      horas: recargos.rd,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-                recargos.rndf > 0 && tiposMap.has("RNDF")
-                  ? {
-                      id: randomUUID(),
-                      tipo_recargo_id: tiposMap.get("RNDF")!,
-                      horas: recargos.rndf,
-                      creado_por_id: userId,
-                      created_at: now,
-                      updated_at: now,
-                    }
-                  : null,
-              ].filter(Boolean),
-            },
-          },
-        });
+      // DELETE existentes (cascade elimina detalles)
+      await tx.dias_laborales_planillas.deleteMany({ where: { recargo_planilla_id: id } });
+ 
+      // Construir filas en memoria
+      const { diasRows, detallesRows } = buildBulkDias(
+        data.dias_laborales,
+        id,
+        tiposMap,
+        userId,
+        now,
+      );
+ 
+      // 2 queries para insertar todo
+      if (diasRows.length > 0) {
+        await tx.dias_laborales_planillas.createMany({ data: diasRows });
       }
-
-      // Actualizar totales del recargo
-      await this.actualizarTotales(id);
+      if (detallesRows.length > 0) {
+        await tx.detalles_recargos_dias.createMany({ data: detallesRows });
+      }
     }
-
-    // Retornar el recargo actualizado con todas sus relaciones
-    return this.findById(id);
-  },
+  });
+ 
+  // 4. Totales fuera de la tx
+  await this.actualizarTotales(id);
+ 
+  return this.findById(id);
+},
+ 
 
   // Liquidar recargo
   async liquidar(id: string, userId?: string) {
@@ -1128,7 +922,6 @@ export const RecargosService = {
           select: {
             total_horas: true,
             horas_ordinarias: true,
-            disponibilidad: true,
           },
         },
       },
@@ -1136,16 +929,12 @@ export const RecargosService = {
 
     if (!recargo) return;
 
-    // Excluir días marcados como disponible de los totales
-    const diasNoDisponibles = recargo.dias_laborales_planillas.filter(
-      (dia) => !dia.disponibilidad,
-    );
-    const total_dias_laborados = diasNoDisponibles.length;
-    const total_horas_trabajadas = diasNoDisponibles.reduce(
+    const total_dias_laborados = recargo.dias_laborales_planillas.length;
+    const total_horas_trabajadas = recargo.dias_laborales_planillas.reduce(
       (sum, dia) => sum + Number(dia.total_horas),
       0,
     );
-    const total_horas_ordinarias = diasNoDisponibles.reduce(
+    const total_horas_ordinarias = recargo.dias_laborales_planillas.reduce(
       (sum, dia) => sum + Number(dia.horas_ordinarias),
       0,
     );
@@ -1335,6 +1124,150 @@ export const RecargosService = {
     };
   },
 
+  // Restaurar recargo (quitar soft delete)
+  async restored(id: string, userId?: string) {
+    const now = new Date();
+
+    // Verificar que el recargo existe y está eliminado
+    const recargo = await prisma.recargos_planillas.findFirst({
+      where: {
+        id,
+        deleted_at: {
+          not: null,
+        },
+      },
+    });
+
+    if (!recargo) {
+      throw new Error("Recargo no encontrado o ya está restaurado");
+    }
+
+    // Obtener IDs de días laborales eliminados del recargo
+    const diasLaboralesIds = (
+      await prisma.dias_laborales_planillas.findMany({
+        where: { recargo_planilla_id: id },
+        select: { id: true },
+      })
+    ).map((d) => d.id);
+
+    // Restaurar en cascada
+    await prisma.$transaction([
+      // Restaurar detalles de recargos
+      prisma.detalles_recargos_dias.updateMany({
+        where: {
+          dia_laboral_id: { in: diasLaboralesIds },
+          deleted_at: { not: null },
+        },
+        data: {
+          deleted_at: null,
+          actualizado_por_id: userId,
+          updated_at: now,
+        },
+      }),
+
+      // Restaurar días laborales
+      prisma.dias_laborales_planillas.updateMany({
+        where: {
+          recargo_planilla_id: id,
+          deleted_at: { not: null },
+        },
+        data: {
+          deleted_at: null,
+          actualizado_por_id: userId,
+          updated_at: now,
+        },
+      }),
+
+      // Restaurar recargo
+      prisma.recargos_planillas.update({
+        where: { id },
+        data: {
+          deleted_at: null,
+          actualizado_por_id: userId,
+          updated_at: now,
+        },
+      }),
+    ]);
+
+    return { success: true, message: "Recargo restaurado correctamente" };
+  },
+
+  // Restaurar múltiples recargos (quitar soft delete)
+  async restoredMany(ids: string[], userId?: string) {
+    const now = new Date();
+
+    // Verificar que todos los recargos existen y están eliminados
+    const recargos = await prisma.recargos_planillas.findMany({
+      where: {
+        id: { in: ids },
+        deleted_at: { not: null },
+      },
+      select: { id: true },
+    });
+
+    if (recargos.length === 0) {
+      throw new Error("No se encontraron recargos válidos para restaurar");
+    }
+
+    const validIds = recargos.map((r) => r.id);
+
+    // Obtener todos los IDs de días laborales
+    const diasLaboralesIds = (
+      await prisma.dias_laborales_planillas.findMany({
+        where: { recargo_planilla_id: { in: validIds } },
+        select: { id: true },
+      })
+    ).map((d) => d.id);
+
+    // Restaurar en cascada
+    await prisma.$transaction([
+      // Restaurar detalles de recargos
+      prisma.detalles_recargos_dias.updateMany({
+        where: {
+          dia_laboral_id: { in: diasLaboralesIds },
+          deleted_at: { not: null },
+        },
+        data: {
+          deleted_at: null,
+          actualizado_por_id: userId,
+          updated_at: now,
+        },
+      }),
+
+      // Restaurar días laborales
+      prisma.dias_laborales_planillas.updateMany({
+        where: {
+          recargo_planilla_id: { in: validIds },
+          deleted_at: { not: null },
+        },
+        data: {
+          deleted_at: null,
+          actualizado_por_id: userId,
+          updated_at: now,
+        },
+      }),
+
+      // Restaurar recargos
+      prisma.recargos_planillas.updateMany({
+        where: {
+          id: { in: validIds },
+          deleted_at: { not: null },
+        },
+        data: {
+          deleted_at: null,
+          actualizado_por_id: userId,
+          updated_at: now,
+        },
+      }),
+    ]);
+
+    return {
+      success: true,
+      message: `${validIds.length} recargo(s) restaurado(s) correctamente`,
+      restaurados: validIds.length,
+    };
+  },
+
   async cambiarEstadoMultiple(ids: string[], estado: string, userId?: string) {
     const now = new Date();
 
@@ -1406,12 +1339,9 @@ export const RecargosService = {
       },
     });
 
-    console.log("Recargos", recargos)
-
     return recargos;
   },
 };
-
 interface RecargoRow {
   conductores: {
     nombre: string;

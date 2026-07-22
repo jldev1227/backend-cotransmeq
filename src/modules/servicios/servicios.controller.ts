@@ -6,10 +6,11 @@ import {
   updateServicioSchema, 
   cambiarEstadoSchema, 
   asignarPlanillaSchema, 
-  buscarServiciosSchema 
+  buscarServiciosSchema,
+  calendarQuerySchema
 } from './servicios.schema'
 
-// Crear instancia del servicio de rutogramas
+// Instancia del servicio de rutogramas
 const rutogramaService = new RutogramaService()
 
 interface ServicioParams {
@@ -129,6 +130,40 @@ export const ServiciosController = {
     })
   },
 
+  async obtenerCalendar(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const rawQuery = request.query as any
+      const parsed = calendarQuerySchema.parse(rawQuery)
+
+      const now = new Date()
+      const mes = parsed.mes ?? (now.getMonth() + 1)
+      const anio = parsed.anio ?? now.getFullYear()
+      const campo_fecha = parsed.campo_fecha ?? 'fecha_realizacion'
+
+      const result = await ServiciosService.calendar({
+        mes,
+        anio,
+        campo_fecha,
+        estado: parsed.estado,
+        conductor_id: parsed.conductor_id,
+        vehiculo_id: parsed.vehiculo_id,
+        cliente_id: parsed.cliente_id
+      })
+
+      reply.send({
+        success: true,
+        data: result
+      })
+    } catch (error) {
+      console.error('Error en obtenerCalendar:', error)
+      reply.status(500).send({
+        success: false,
+        error: 'Error al obtener servicios para el calendario',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      })
+    }
+  },
+
   async obtenerPorId(request: FastifyRequest<{ Params: ServicioParams }>, reply: FastifyReply) {
     const { id } = request.params
     const servicio = await ServiciosService.findById(id)
@@ -150,8 +185,9 @@ export const ServiciosController = {
     try {
       const { id } = request.params
       const data = updateServicioSchema.parse(request.body)
+      const userId = (request as any).user?.id // Obtener ID del usuario autenticado
       
-      const servicio = await ServiciosService.update(id, data)
+      const servicio = await ServiciosService.update(id, data, userId)
       
       reply.send({
         success: true,
@@ -159,11 +195,19 @@ export const ServiciosController = {
         data: servicio
       })
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Record to update not found')) {
-        return reply.status(404).send({
-          success: false,
-          message: 'Servicio no encontrado'
-        })
+      if (error instanceof Error) {
+        if (error.message.includes('Record to update not found')) {
+          return reply.status(404).send({
+            success: false,
+            message: 'Servicio no encontrado'
+          })
+        }
+        if (error.message.startsWith('Transición inválida:')) {
+          return reply.status(409).send({
+            success: false,
+            message: error.message
+          })
+        }
       }
       throw error
     }
@@ -202,11 +246,19 @@ export const ServiciosController = {
         data: servicio
       })
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Record to update not found')) {
-        return reply.status(404).send({
-          success: false,
-          message: 'Servicio no encontrado'
-        })
+      if (error instanceof Error) {
+        if (error.message.includes('Record to update not found')) {
+          return reply.status(404).send({
+            success: false,
+            message: 'Servicio no encontrado'
+          })
+        }
+        if (error.message.startsWith('Transición inválida:')) {
+          return reply.status(409).send({
+            success: false,
+            message: error.message
+          })
+        }
       }
       throw error
     }
@@ -402,18 +454,22 @@ export const ServiciosController = {
   async generarRutograma(request: FastifyRequest<{ Params: ServicioParams }>, reply: FastifyReply) {
     try {
       const { id } = request.params
-      
-      // Generar el PDF
+
       const pdfBuffer = await rutogramaService.generarRutograma(id)
-      
-      // Configurar headers para descarga
+
       reply
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', `attachment; filename="rutograma-${id}.pdf"`)
         .send(pdfBuffer)
     } catch (error) {
       if (error instanceof Error) {
-        reply.status(400).send({
+        if (error.message === 'Servicio no encontrado') {
+          return reply.status(404).send({
+            success: false,
+            message: 'Servicio no encontrado'
+          })
+        }
+        return reply.status(400).send({
           success: false,
           message: error.message
         })

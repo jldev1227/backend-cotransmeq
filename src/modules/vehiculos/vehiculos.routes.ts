@@ -42,6 +42,21 @@ export async function vehiculosRoutes(app: FastifyInstance) {
     }
   }, VehiculosController.list)
 
+
+  // Obtener vehículo por ID
+  app.get('/vehiculos/:id', {
+    schema: {
+      description: 'Obtener vehículo por ID',
+      tags: ['vehiculos'],
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' }
+        }
+      }
+    }
+  }, VehiculosController.getById)
+
   // Listar vehículos ocultos (solo para administradores)
   // IMPORTANTE: Esta ruta debe ir ANTES de /vehiculos/:id
   app.get('/vehiculos/ocultos', {
@@ -94,7 +109,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
           propietario_identificacion: { type: 'string' },
           kilometraje: { type: 'number', minimum: 0 },
           capacidad_pasajeros: { type: 'number', minimum: 1 },
-          estado: { type: 'string', enum: ['DISPONIBLE', 'SERVICIO', 'MANTENIMIENTO', 'DESVINCULADO'] },
+          estado: { type: 'string', enum: ['disponible', 'programado', 'servicio', 'mantenimiento', 'inactivo', 'desvinculado'] },
           fecha_matricula: { type: 'string' },
           conductor_id: { type: 'string', format: 'uuid' }
         }
@@ -115,39 +130,6 @@ export async function vehiculosRoutes(app: FastifyInstance) {
     }
   }, VehiculosController.create)
 
-  // Obtener vehículo por ID
-  app.get('/vehiculos/:id', {
-    schema: {
-      description: 'Obtener vehículo por ID',
-      tags: ['vehiculos'],
-      params: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', format: 'uuid' }
-        }
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { 
-              type: 'object',
-              additionalProperties: true  // ¡PERMITIR TODAS LAS PROPIEDADES!
-            }
-          }
-        },
-        404: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' }
-          }
-        }
-      }
-    }
-  }, VehiculosController.getById)
-
   // Actualizar vehículo
   app.put('/vehiculos/:id', {
     schema: {
@@ -159,16 +141,6 @@ export async function vehiculosRoutes(app: FastifyInstance) {
           id: { type: 'string', format: 'uuid' }
         }
       },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' },
-            data: { type: 'object' }
-          }
-        }
-      }
     }
   }, VehiculosController.update)
 
@@ -281,4 +253,20 @@ export async function vehiculosRoutes(app: FastifyInstance) {
       }
     }
   }, VehiculosController.cambiarEstadoOculto)
+
+  // Operaciones masivas para vehículos
+  app.post('/vehiculos/masivo', {
+    schema: {
+      description: 'Realizar operaciones masivas sobre vehículos',
+      tags: ['vehiculos'],
+      body: {
+        type: 'object',
+        required: ['ids', 'accion'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
+          accion: { type: 'string', enum: ['ocultar', 'mostrar', 'eliminar', 'restaurar'] }
+        }
+      }
+    }
+  }, VehiculosController.operacionesMasivas)
 }
