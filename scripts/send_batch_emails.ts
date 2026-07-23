@@ -52,7 +52,7 @@ async function main() {
   for (const doc of docs) {
     try {
       // prepare logo
-      const logoPath = path.resolve(process.cwd(), 'email', 'logo.png');
+      const logoPath = path.resolve(process.cwd(), 'email', 'logo.webp');
       let logoDataUriOrUrl = '';
       if (fs.existsSync(logoPath)) {
         const buf = fs.readFileSync(logoPath);

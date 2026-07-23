@@ -14,7 +14,7 @@ async function loadTemplate() {
 
 function base64Logo() {
   try {
-    const logoPath = path.resolve(__dirname, '../public/assets/logo.png');
+    const logoPath = path.resolve(__dirname, '../public/assets/logo.webp');
     if (!fs.existsSync(logoPath)) return '';
     const data = fs.readFileSync(logoPath);
     const mime = 'image/png';

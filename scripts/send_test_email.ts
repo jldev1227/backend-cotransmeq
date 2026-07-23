@@ -35,7 +35,7 @@ async function main() {
   let html = fs.readFileSync(templatePath, 'utf-8');
 
   // Try to embed logo if exists locally; otherwise try S3 signed URL as fallback
-  const logoPath = path.resolve(process.cwd(), 'email', 'logo.png');
+  const logoPath = path.resolve(process.cwd(), 'email', 'logo.webp');
   let logoDataUriOrUrl = '';
   if (fs.existsSync(logoPath)) {
     const buf = fs.readFileSync(logoPath);

@@ -1443,7 +1443,7 @@ export const LiquidacionesServiciosService = {
     // 1. Agregar Logo
     const logoPath = path.join(
       process.cwd(),
-      "src/assets/transmeralda-logo.png",
+      "src/assets/transmeralda-logo.webp",
     );
     if (fs.existsSync(logoPath)) {
       const logo = workbook.addImage({

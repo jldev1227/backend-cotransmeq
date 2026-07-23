@@ -203,10 +203,40 @@ model registro_dia_laboral {
   updated_at       DateTime    @updatedAt @db.Timestamptz(6)
 
   conductor        conductores @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+  segmentos        registro_dia_laboral_segmento[]
 
   @@unique([conductor_id, fecha])
   @@index([conductor_id])
   @@index([fecha])
+}
+
+/// Tramo/segmento de un día laborado (cambio de cliente/vehículo dentro del mismo día)
+model registro_dia_laboral_segmento {
+  id                String              @id @default(uuid()) @db.Uuid
+  registro_dia_id   String              @db.Uuid
+  cliente_id        String?             @db.Uuid
+  cliente_nombre    String?             @db.VarChar(255)
+  vehiculo_id       String?             @db.Uuid
+  vehiculo_placa    String              @db.VarChar(20)
+  hora_inicio       String              @db.VarChar(10)
+  hora_fin          String              @db.VarChar(10)
+  horas_conducidas  Decimal             @default(0) @db.Decimal(4, 1)
+  km_inicial        Int?
+  km_final          Int?
+  pernocte          Boolean             @default(false)
+  orden             Int                 @default(1)
+  observaciones     String?             @db.Text
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @updatedAt @db.Timestamptz(6)
+
+  registro          registro_dia_laboral @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
+  cliente           clientes?            @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+  vehiculo          vehiculos?           @relation(fields: [vehiculo_id], references: [id], onDelete: SetNull)
+
+  @@index([registro_dia_id])
+  @@index([cliente_id])
+  @@index([vehiculo_id])
+  @@index([registro_dia_id, orden])
 }
 
 model configuracion_liquidador {
@@ -410,6 +440,7 @@ model clientes {
   servicio                 servicio[]
   tarifas_servicios        tarifas_servicios[]
   liquidacion_servicio     liquidacion_servicio[]
+  registro_dia_laboral_segmento registro_dia_laboral_segmento[]
 
   @@map("empresas")
 }
@@ -1021,6 +1052,7 @@ model vehiculos {
   recargos                   recargos[]
   recargos_planillas         recargos_planillas[]
   servicio                   servicio[]
+  registro_dia_laboral_segmento registro_dia_laboral_segmento[]
   conductores                conductores?           @relation(fields: [conductor_id], references: [id])
   usuarios                   usuarios?              @relation(fields: [propietario_id], references: [id])
 }

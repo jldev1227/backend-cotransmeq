@@ -677,8 +677,8 @@ export class RutogramaService {
   private getLogoPath(): string {
     const isDist = __dirname.includes('/dist/')
     return isDist
-      ? path.join(__dirname, '../../assets/transmeralda-logo.png')
-      : path.join(__dirname, '../../assets/transmeralda-logo.png')
+      ? path.join(__dirname, '../../assets/transmeralda-logo.webp')
+      : path.join(__dirname, '../../assets/transmeralda-logo.webp')
   }
 
   private getFontsDir(): string {

@@ -95,7 +95,7 @@ export const EmailService = {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
     const magicLink = `${frontendUrl}/public/dias-laborados?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
 
     const html = `
 <!DOCTYPE html>
@@ -113,15 +113,15 @@ export const EmailService = {
   </noscript>
   <![endif]-->
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f1f5f9;">
+<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
     <tr>
       <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
 
           <!-- Header con gradiente -->
           <tr>
-            <td style="background: linear-gradient(135deg, #059669 0%, #047857 100%); padding:32px 32px 24px 32px; text-align:center;">
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding:32px 32px 24px 32px; text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -157,13 +157,13 @@ export const EmailService = {
                 <tr>
                   <td align="center">
                     <!--[if mso]>
-                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${magicLink}" style="height:52px;v-text-anchor:middle;width:280px;" arcsize="12%" strokecolor="#059669" fillcolor="#059669">
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${magicLink}" style="height:52px;v-text-anchor:middle;width:280px;" arcsize="12%" strokecolor="#ea580c" fillcolor="#f97316">
                       <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">Ingresar al sistema →</center>
+                      <center style="color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:16px;font-weight:bold;">Ingresar al sistema →</center>
                     </v:roundrect>
                     <![endif]-->
                     <!--[if !mso]><!-->
-                    <a href="${magicLink}" target="_blank" style="display:inline-block;background-color:#059669;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;mso-hide:all;">
+                    <a href="${magicLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);mso-hide:all;">
                       Ingresar al sistema →
                     </a>
                     <!--<![endif]-->
@@ -174,11 +174,11 @@ export const EmailService = {
               <!-- Info de expiración -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#f0fdf4;border-radius:10px;padding:16px 20px;">
+                  <td style="background:linear-gradient(135deg,rgba(22,101,52,0.04),rgba(22,101,52,0.08));border:1px solid rgba(22,101,52,0.15);border-radius:12px;padding:16px 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:18px;">🔒</td>
-                        <td style="color:#065f46;font-size:13px;line-height:1.5;">
+                        <td style="color:#166534;font-size:13px;line-height:1.5;">
                           Este enlace es válido por <strong>30 días</strong>. Después de ese período deberás solicitar un nuevo acceso.
                         </td>
                       </tr>
@@ -192,14 +192,14 @@ export const EmailService = {
                 Si el botón no funciona, copia y pega este enlace en tu navegador:
               </p>
               <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${magicLink}" style="color:#059669;font-size:12px;text-decoration:underline;">${magicLink}</a>
+                <a href="${magicLink}" style="color:#f97316;font-size:12px;text-decoration:underline;">${magicLink}</a>
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
+            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
               <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
                 Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
                 Si no solicitaste este acceso, puedes ignorar este mensaje.
@@ -215,6 +215,7 @@ export const EmailService = {
 </html>`
 
     try {
+      // Sin bcc intencionalmente: es un access link con token personal
       const data = await sendEmail({
         from: 'Cotransmeq <noreply@transmeralda.com>',
         to: [to],
@@ -233,7 +234,7 @@ export const EmailService = {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
     const portalLink = `${frontendUrl}/public/portal?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
 
     const html = `
 <!DOCTYPE html>
@@ -242,15 +243,15 @@ export const EmailService = {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f1f5f9;">
+<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
     <tr>
       <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
 
           <!-- Header con gradiente -->
           <tr>
-            <td style="background: linear-gradient(135deg, #059669 0%, #047857 100%); padding:32px 32px 24px 32px; text-align:center;">
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding:32px 32px 24px 32px; text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -285,7 +286,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#059669;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                    <a href="${portalLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);">
                       Ingresar al Portal →
                     </a>
                   </td>
@@ -295,10 +296,10 @@ export const EmailService = {
               <!-- Qué puedes hacer -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#f0fdf4;border-radius:10px;padding:16px 20px;">
-                    <p style="margin:0 0 8px 0;color:#065f46;font-size:14px;font-weight:700;">📋 Desde tu portal puedes:</p>
-                    <p style="margin:0 0 4px 0;color:#065f46;font-size:13px;">📄 Ver y descargar tus desprendibles de nómina</p>
-                    <p style="margin:0;color:#065f46;font-size:13px;">📅 Registrar tu actividad diaria (días laborados)</p>
+                  <td style="background:linear-gradient(135deg,rgba(249,115,22,0.04),rgba(249,115,22,0.08));border:1px solid rgba(249,115,22,0.15);border-radius:12px;padding:16px 20px;">
+                    <p style="margin:0 0 8px 0;color:#ea580c;font-size:14px;font-weight:700;">📋 Desde tu portal puedes:</p>
+                    <p style="margin:0 0 4px 0;color:#0f172a;font-size:13px;">📄 Ver y descargar tus desprendibles de nómina</p>
+                    <p style="margin:0;color:#0f172a;font-size:13px;">📅 Registrar tu actividad diaria (días laborados)</p>
                   </td>
                 </tr>
               </table>
@@ -306,11 +307,11 @@ export const EmailService = {
               <!-- Info de expiración -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:16px;">
                 <tr>
-                  <td style="background-color:#f0fdf4;border-radius:10px;padding:12px 20px;">
+                  <td style="background:linear-gradient(135deg,rgba(22,101,52,0.04),rgba(22,101,52,0.08));border:1px solid rgba(22,101,52,0.15);border-radius:12px;padding:12px 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:18px;">🔒</td>
-                        <td style="color:#065f46;font-size:13px;line-height:1.5;">
+                        <td style="color:#166534;font-size:13px;line-height:1.5;">
                           Este enlace es válido por <strong>30 días</strong>. Después deberás solicitar un nuevo acceso.
                         </td>
                       </tr>
@@ -324,14 +325,14 @@ export const EmailService = {
                 Si el botón no funciona, copia y pega este enlace:
               </p>
               <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${portalLink}" style="color:#059669;font-size:12px;text-decoration:underline;">${portalLink}</a>
+                <a href="${portalLink}" style="color:#f97316;font-size:12px;text-decoration:underline;">${portalLink}</a>
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
+            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
               <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
                 Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
                 Si no solicitaste este acceso, puedes ignorar este mensaje.
@@ -347,6 +348,7 @@ export const EmailService = {
 </html>`
 
     try {
+      // Sin bcc intencionalmente: es un access link con token personal
       const data = await sendEmail({
         from: 'Cotransmeq <noreply@transmeralda.com>',
         to: [to],
@@ -374,7 +376,7 @@ export const EmailService = {
   }) {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
     const inviteLink = `${frontendUrl}/invite/${token}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
     const areaLabels: Record<string, string> = {
       administracion: 'Administración',
       operaciones: 'Operaciones',
@@ -392,15 +394,15 @@ export const EmailService = {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f1f5f9;">
+<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
     <tr>
       <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
 
           <!-- Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#059669 0%,#047857 100%);padding:32px 32px 24px 32px;text-align:center;">
+            <td style="background:linear-gradient(135deg,#f97316 0%,#ea580c 100%);padding:32px 32px 24px 32px;text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -428,9 +430,9 @@ export const EmailService = {
               <!-- Info área -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:28px;">
                 <tr>
-                  <td style="background-color:#f0fdf4;border-radius:10px;padding:16px 20px;">
-                    <p style="margin:0 0 6px 0;color:#065f46;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">Área asignada</p>
-                    <p style="margin:0;color:#065f46;font-size:15px;font-weight:600;">${areasText || 'Por definir'}</p>
+                  <td style="background:linear-gradient(135deg,rgba(22,101,52,0.04),rgba(22,101,52,0.08));border:1px solid rgba(22,101,52,0.15);border-radius:12px;padding:16px 20px;">
+                    <p style="margin:0 0 6px 0;color:#166534;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">Área asignada</p>
+                    <p style="margin:0;color:#166534;font-size:15px;font-weight:600;">${areasText || 'Por definir'}</p>
                   </td>
                 </tr>
               </table>
@@ -443,7 +445,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <a href="${inviteLink}" target="_blank" style="display:inline-block;background-color:#059669;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                    <a href="${inviteLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);">
                       Aceptar invitación →
                     </a>
                   </td>
@@ -453,11 +455,11 @@ export const EmailService = {
               <!-- Aviso seguridad -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#fefce8;border-radius:10px;padding:14px 18px;">
+                  <td style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.20);border-radius:12px;padding:14px 18px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:16px;">⚠️</td>
-                        <td style="color:#713f12;font-size:12px;line-height:1.5;">
+                        <td style="color:#92400E;font-size:12px;line-height:1.5;">
                           Si no conoces a quien te envió esta invitación o no la solicitaste, ignora este correo.
                         </td>
                       </tr>
@@ -471,14 +473,14 @@ export const EmailService = {
                 Si el botón no funciona, copia este enlace en tu navegador:
               </p>
               <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${inviteLink}" style="color:#059669;font-size:12px;text-decoration:underline;">${inviteLink}</a>
+                <a href="${inviteLink}" style="color:#f97316;font-size:12px;text-decoration:underline;">${inviteLink}</a>
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
+            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
               <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
                 Este correo fue enviado automáticamente por el sistema de Cotransmeq.
               </p>
@@ -493,6 +495,7 @@ export const EmailService = {
 </html>`
 
     try {
+      // Sin bcc intencionalmente: invitación con token de registro personal
       const data = await sendEmail({
         from: 'Cotransmeq <noreply@transmeralda.com>',
         to: [to],
@@ -520,7 +523,7 @@ export const EmailService = {
     portalLink: string
   }) {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
 
     const html = `
 <!DOCTYPE html>
@@ -529,15 +532,15 @@ export const EmailService = {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f1f5f9;">
+<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
     <tr>
       <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
 
           <!-- Header -->
           <tr>
-            <td style="background: linear-gradient(135deg, #059669 0%, #047857 100%); padding:32px 32px 24px 32px; text-align:center;">
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding:32px 32px 24px 32px; text-align:center;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center" style="padding-bottom:16px;">
@@ -572,7 +575,7 @@ export const EmailService = {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <a href="${portalLink}" target="_blank" style="display:inline-block;background-color:#059669;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:10px;line-height:1.4;">
+                    <a href="${portalLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);">
                       📄 Ver Desprendible →
                     </a>
                   </td>
@@ -582,11 +585,11 @@ export const EmailService = {
               <!-- Info -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
                 <tr>
-                  <td style="background-color:#f0fdf4;border-radius:10px;padding:16px 20px;">
+                  <td style="background:linear-gradient(135deg,rgba(249,115,22,0.04),rgba(249,115,22,0.08));border:1px solid rgba(249,115,22,0.15);border-radius:12px;padding:16px 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
                         <td width="28" valign="top" style="font-size:18px;">📋</td>
-                        <td style="color:#065f46;font-size:13px;line-height:1.5;">
+                        <td style="color:#0f172a;font-size:13px;line-height:1.5;">
                           Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu desprendible de nómina.
                         </td>
                       </tr>
@@ -599,7 +602,7 @@ export const EmailService = {
 
           <!-- Footer -->
           <tr>
-            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
+            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
               <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
                 Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
                 Si tienes dudas, contacta al administrador.
@@ -644,7 +647,7 @@ export const EmailService = {
     monto: string
     portalLink: string
   }) {
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -652,14 +655,14 @@ export const EmailService = {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tu Liquidación de Prima</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f1f5f9;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f1f5f9; padding: 32px 16px;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #fcfcfb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #fcfcfb; padding: 32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.08);">
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.04);">
           <!-- Header -->
           <tr>
-            <td style="background: linear-gradient(135deg, #059669 0%, #047857 100%); padding: 32px; text-align: center;">
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px; text-align: center;">
               <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display: block; margin: 0 auto 16px; max-width: 160px; height: auto;">
               <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0;">💰 Tu Liquidación de Prima</h1>
             </td>
@@ -668,7 +671,7 @@ export const EmailService = {
           <!-- Body -->
           <tr>
             <td style="padding: 32px;">
-              <p style="color: #1e293b; font-size: 16px; line-height: 1.6; margin: 0 0 16px;">
+              <p style="color: #0f172a; font-size: 16px; line-height: 1.6; margin: 0 0 16px;">
                 Hola, <strong>${conductorNombre}</strong>
               </p>
               <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 28px;">
@@ -679,7 +682,7 @@ export const EmailService = {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
-                    <a href="${portalLink}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
+                    <a href="${portalLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.30);">
                       💰 Ver Liquidación de Prima →
                     </a>
                   </td>
@@ -687,8 +690,8 @@ export const EmailService = {
               </table>
 
               <!-- Info box -->
-              <div style="margin-top: 28px; padding: 16px; background-color: #f0fdf4; border-left: 4px solid #059669; border-radius: 6px;">
-                <p style="color: #166534; font-size: 13px; line-height: 1.5; margin: 0;">
+              <div style="margin-top: 28px; padding: 16px; background: linear-gradient(135deg, rgba(249, 115, 22, 0.04), rgba(249, 115, 22, 0.08)); border-left: 4px solid #f97316; border-radius: 12px;">
+                <p style="color: #0f172a; font-size: 13px; line-height: 1.5; margin: 0;">
                   Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu liquidación de prima de servicio.
                 </p>
               </div>
@@ -697,7 +700,7 @@ export const EmailService = {
 
           <!-- Footer -->
           <tr>
-            <td style="background-color: #f8fafc; padding: 20px 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+            <td style="background-color: #f6f6f3; padding: 20px 32px; text-align: center; border-top: 1px solid rgba(15, 23, 42, 0.08);">
               <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0;">
                 Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br>
                 Si tienes dudas, contacta al administrador.
@@ -744,17 +747,17 @@ export const EmailService = {
   }) {
     const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
     const accessLink = `${frontendUrl}/public/certificados?token=${token}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
 
     const certificadosHtml = certificados.length > 0
       ? certificados.map(c => `
     <tr>
-      <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0;">
-        <span style="font-weight: 600; color: #059669;">${c.tipo}</span>
+      <td style="padding: 8px 12px; border-bottom: 1px solid rgba(15, 23, 42, 0.08);">
+        <span style="font-weight: 600; color: #166534;">${c.tipo}</span>
         <span style="color: #64748b; margin-left: 8px;">Año ${c.anio}</span>
       </td>
-      <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right;">
-        <a href="${c.url}" style="color: #059669; text-decoration: none; font-size: 13px; font-weight: 600;">Descargar →</a>
+      <td style="padding: 8px 12px; border-bottom: 1px solid rgba(15, 23, 42, 0.08); text-align: right;">
+        <a href="${c.url}" style="color: #f97316; text-decoration: none; font-size: 13px; font-weight: 600;">Descargar →</a>
       </td>
     </tr>
   `).join('')
@@ -767,14 +770,14 @@ export const EmailService = {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f1f5f9; padding: 32px 16px;">
+<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #fcfcfb; padding: 32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.04);">
           <!-- Header -->
           <tr>
-            <td style="background: linear-gradient(135deg, #059669 0%, #047857 100%); padding: 32px 32px 24px 32px; text-align: center;">
+            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px 32px 24px 32px; text-align: center;">
               <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display: block; margin: 0 auto 16px; max-width: 160px; height: auto;">
               <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0;">Tus Certificados Tributarios</h1>
             </td>
@@ -786,7 +789,7 @@ export const EmailService = {
               <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 8px;">Hola,</p>
               <p style="color: #0f172a; font-size: 18px; font-weight: 700; line-height: 1.3; margin: 0 0 24px;">${terceroNombre}</p>
 
-              ${mensaje_personalizado ? `<p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 24px; padding: 12px; background: #f8fafc; border-radius: 8px; border-left: 3px solid #059669;">${mensaje_personalizado}</p>` : ''}
+              ${mensaje_personalizado ? `<p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 24px; padding: 12px; background: linear-gradient(135deg, rgba(249, 115, 22, 0.04), rgba(249, 115, 22, 0.08)); border-radius: 12px; border-left: 3px solid #f97316;">${mensaje_personalizado}</p>` : ''}
 
               <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">Tus certificados tributarios están disponibles. Haz clic en el botón para acceder:</p>
 
@@ -794,7 +797,7 @@ export const EmailService = {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
-                    <a href="${accessLink}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 10px; font-size: 16px; font-weight: 700; box-shadow: 0 2px 12px rgba(5,150,105,0.25);">
+                    <a href="${accessLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 12px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.30);">
                       Ver Certificados →
                     </a>
                   </td>
@@ -805,8 +808,8 @@ export const EmailService = {
               <!-- Certificados list -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 28px;">
                 <tr>
-                  <td style="background-color: #f0fdf4; border-radius: 10px; padding: 16px 20px;">
-                    <p style="margin: 0 0 12px 0; color: #065f46; font-size: 14px; font-weight: 700;">Certificados disponibles:</p>
+                  <td style="background: linear-gradient(135deg, rgba(249, 115, 22, 0.04), rgba(249, 115, 22, 0.08)); border: 1px solid rgba(249, 115, 22, 0.15); border-radius: 12px; padding: 16px 20px;">
+                    <p style="margin: 0 0 12px 0; color: #ea580c; font-size: 14px; font-weight: 700;">Certificados disponibles:</p>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                       ${certificadosHtml}
                     </table>
@@ -818,11 +821,11 @@ export const EmailService = {
               <!-- Expiración -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
                 <tr>
-                  <td style="background-color: #fefce8; border-radius: 10px; padding: 12px 20px;">
+                  <td style="background: linear-gradient(135deg, rgba(22, 101, 52, 0.04), rgba(22, 101, 52, 0.08)); border: 1px solid rgba(22, 101, 52, 0.15); border-radius: 12px; padding: 12px 20px;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                       <tr>
                         <td width="28" valign="top" style="font-size: 18px;">🔒</td>
-                        <td style="color: #713f12; font-size: 13px; line-height: 1.5;">
+                        <td style="color: #166534; font-size: 13px; line-height: 1.5;">
                           Este enlace es válido por <strong>90 días</strong>. Después deberás solicitar un nuevo acceso.
                         </td>
                       </tr>
@@ -836,14 +839,14 @@ export const EmailService = {
                 Si el botón no funciona, copia y pega este enlace:
               </p>
               <p style="margin: 4px 0 0 0; word-break: break-all;">
-                <a href="${accessLink}" style="color: #059669; font-size: 12px; text-decoration: underline;">${accessLink}</a>
+                <a href="${accessLink}" style="color: #f97316; font-size: 12px; text-decoration: underline;">${accessLink}</a>
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color: #f8fafc; padding: 20px 32px; border-top: 1px solid #e2e8f0;">
+            <td style="background-color: #f6f6f3; padding: 20px 32px; border-top: 1px solid rgba(15, 23, 42, 0.08);">
               <p style="margin: 0; color: #94a3b8; font-size: 12px; line-height: 1.5; text-align: center;">
                 Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
                 Si tienes dudas, contacta al administrador.

@@ -249,8 +249,8 @@ export class PDFGeneratorSNCService {
         try {
           const isDist = __dirname.includes('/dist/')
           const logoPath = isDist
-            ? path.join(__dirname, '../../assets/transmeralda-logo.png')
-            : path.join(__dirname, '../../assets/transmeralda-logo.png')
+            ? path.join(__dirname, '../../assets/transmeralda-logo.webp')
+            : path.join(__dirname, '../../assets/transmeralda-logo.webp')
 
           if (fs.existsSync(logoPath)) {
             doc.image(logoPath, leftX, yPos, { width: 130, height: 36 })

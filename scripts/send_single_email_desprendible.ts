@@ -55,7 +55,7 @@ async function main() {
   }
 
   // ── Logo ──────────────────────────────────────────────────────────────────
-  const logoPath = path.resolve(process.cwd(), 'email', 'logo.png');
+  const logoPath = path.resolve(process.cwd(), 'email', 'logo.webp');
   let logoDataUriOrUrl = '';
 
   if (fs.existsSync(logoPath)) {

@@ -1326,7 +1326,7 @@ export class EvaluacionPDFGeneratorService {
     try {
       const logoPath = path.join(
         __dirname,
-        "../../assets/transmeralda-logo.png",
+        "../../assets/transmeralda-logo.webp",
       );
       if (fs.existsSync(logoPath)) {
         doc.image(logoPath, col1X + 12, startY + 10, {

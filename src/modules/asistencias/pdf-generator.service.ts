@@ -55,8 +55,8 @@ export class PDFGeneratorService {
           // In development (src folder), assets are at src/assets
           const isDist = __dirname.includes('/dist/')
           const logoPath = isDist 
-            ? path.join(__dirname, '../../assets/transmeralda-logo.png')
-            : path.join(__dirname, '../../assets/transmeralda-logo.png')
+            ? path.join(__dirname, '../../assets/transmeralda-logo.webp')
+            : path.join(__dirname, '../../assets/transmeralda-logo.webp')
           
           if (fs.existsSync(logoPath)) {
             // Logo en la esquina superior izquierda (reducido 14%)

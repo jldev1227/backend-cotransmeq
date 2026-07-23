@@ -663,7 +663,7 @@ export class PDFGeneratorAccionesService {
         // Left: Logo
         doc.rect(MARGIN, baseY, LOGO_BOX.w, LOGO_BOX.h).fill(C.accentLight).strokeColor(C.border).lineWidth(0.5).stroke();
         try {
-          const logoPath = path.join(__dirname, "../../assets/transmeralda-logo.png");
+          const logoPath = path.join(__dirname, "../../assets/transmeralda-logo.webp");
           if (fs.existsSync(logoPath)) {
             doc.image(logoPath, MARGIN + LOGO_PAD, baseY + LOGO_PAD, { fit: [LOGO_BOX.w - LOGO_PAD * 2, LOGO_BOX.h - LOGO_PAD * 2], align: "center", valign: "center" });
           }
