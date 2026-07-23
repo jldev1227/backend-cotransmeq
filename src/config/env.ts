@@ -10,6 +10,11 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   FRONTEND_URL: z.string().optional(),
   EMAIL_LOGO_URL: z.string().optional(),
+  // URL pública (single, sin coma) usada por los emails para construir enlaces
+  // del portal conductor, certificados, invitaciones, etc. Debe ser la URL
+  // canónica que verán los destinatarios al hacer clic. Si está vacía, se
+  // intenta tomar la primera URL válida de FRONTEND_URL (separadas por coma).
+  EMAIL_FRONTEND_URL: z.string().optional(),
   // SMTP fallback (usado cuando no hay RESEND_API_KEY)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().transform(s => Number(s)).optional(),
@@ -31,7 +36,10 @@ const envSchema = z.object({
   // Cola de borradores de liquidaciones de terceros
   BORRADOR_QUEUE_CONCURRENCY: z.string().transform(s => Number(s)).default('1'),
   BORRADOR_QUEUE_MAX_SIZE: z.string().transform(s => Number(s)).default('10'),
-  BORRADOR_QUEUE_JOB_TTL_MS: z.string().transform(s => Number(s)).default('300000')
+  BORRADOR_QUEUE_JOB_TTL_MS: z.string().transform(s => Number(s)).default('300000'),
+
+  // Prefijo del número de planilla auto-generado (TM = Transmeralda, CM = Cotransmeq)
+  PLANILLA_PREFIX: z.string().trim().min(1).max(5).optional().default('TM')
 })
 
 export const env = envSchema.parse(process.env)

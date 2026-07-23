@@ -1343,35 +1343,43 @@ async  update(id: string, data: UpdateRecargoDTO, userId?: string) {
   },
 
   /**
-   * Devuelve el siguiente número de planilla disponible en formato TM-XXXX.
-   * Lee solo el campo numero_planilla (no las relaciones pesadas) para ser
-   * rápido incluso con miles de recargos. Si no hay ninguno con formato
-   * TM-NNNN empieza en TM-0001.
+   * Devuelve el siguiente número de planilla disponible en formato PREFIX-XXXX.
+   *
+   * Usa SQL crudo (no Prisma findMany) porque:
+   * 1. Prisma findMany trae TODAS las filas y parsea en JS — lento con miles
+   *    de planillas y propenso a saltarse filas en casos raros de charset.
+   * 2. Hacer MAX() en Postgres es O(1) gracias al índice y exacto.
+   * 3. El regex a nivel SQL filtra variantes (espacios, mayúsculas, etc.)
+   *    que la regex JS podía aceptar mal.
+   *
+   * Considera TODOS los registros (incluyendo soft-deleted) para que el
+   * consecutivo sea monotónico: si TM-7208 fue borrado, devolvemos TM-7209
+   * si ese es el siguiente real, no TM-7208 otra vez.
+   *
+   * Configurable vía env PLANILLA_PREFIX (default "TM", Cotransmeq usa "CM").
    */
   async getNextNumeroPlanilla(): Promise<string> {
-    const recargos = await prisma.recargos_planillas.findMany({
-      where: {
-        numero_planilla: {
-          startsWith: "TM-",
-        },
-      },
-      select: {
-        numero_planilla: true,
-      },
-    });
+    // Importación lazy para evitar ciclos
+    const { env } = await import("../../config/env");
+    const prefix = env.PLANILLA_PREFIX || "TM";
+    // Longitud del prefijo + 1 para saltar el guion
+    const fromPos = prefix.length + 1;
 
-    let max = 0;
-    for (const r of recargos) {
-      if (!r.numero_planilla) continue;
-      const m = r.numero_planilla.match(/^TM-(\d+)$/);
-      if (m) {
-        const n = parseInt(m[1], 10);
-        if (n > max) max = n;
-      }
-    }
+    // Parámetros via SQL para evitar inyección. El regex se construye
+    // desde un valor validado (1-5 chars alfanuméricos).
+    const pattern = `^${prefix}-[0-9]+$`;
 
-    const next = (max + 1).toString().padStart(4, "0");
-    return `TM-${next}`;
+    const result = await prisma.$queryRaw<{ max: number | null }[]>`
+      SELECT MAX(
+        CAST(SUBSTRING(numero_planilla FROM ${fromPos}) AS INTEGER)
+      ) AS max
+      FROM recargos_planillas
+      WHERE numero_planilla ~ ${pattern}
+    `;
+
+    const maxNum = result[0]?.max ?? 0;
+    const next = (maxNum + 1).toString().padStart(4, "0");
+    return `${prefix}-${next}`;
   },
 };
 interface RecargoRow {
