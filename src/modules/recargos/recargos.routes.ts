@@ -17,6 +17,10 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // Obtener recargos para canvas (con filtros)
   fastify.get('/recargos', RecargosController.obtenerParaCanvas)
 
+  // Siguiente número de planilla libre (auto-generación en ModalFormRecargo).
+  // Va antes de /:id para que no se confunda con el GET de un recargo específico.
+  fastify.get('/recargos/next-numero-planilla', RecargosController.obtenerSiguienteNumeroPlanilla)
+
   // Obtener un recargo por ID
   fastify.get('/recargos/:id', RecargosController.obtenerPorId)
 

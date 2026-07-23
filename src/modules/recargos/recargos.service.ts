@@ -1341,6 +1341,38 @@ async  update(id: string, data: UpdateRecargoDTO, userId?: string) {
 
     return recargos;
   },
+
+  /**
+   * Devuelve el siguiente número de planilla disponible en formato TM-XXXX.
+   * Lee solo el campo numero_planilla (no las relaciones pesadas) para ser
+   * rápido incluso con miles de recargos. Si no hay ninguno con formato
+   * TM-NNNN empieza en TM-0001.
+   */
+  async getNextNumeroPlanilla(): Promise<string> {
+    const recargos = await prisma.recargos_planillas.findMany({
+      where: {
+        numero_planilla: {
+          startsWith: "TM-",
+        },
+      },
+      select: {
+        numero_planilla: true,
+      },
+    });
+
+    let max = 0;
+    for (const r of recargos) {
+      if (!r.numero_planilla) continue;
+      const m = r.numero_planilla.match(/^TM-(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > max) max = n;
+      }
+    }
+
+    const next = (max + 1).toString().padStart(4, "0");
+    return `TM-${next}`;
+  },
 };
 interface RecargoRow {
   conductores: {

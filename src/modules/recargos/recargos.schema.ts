@@ -105,7 +105,17 @@ export const buscarRecargosSchema = z
       .optional()
       .transform((val) => val === "true"),
     page: z.string().optional().default("1"),
-    limit: z.string().optional().default("10000"),
+    // Cap defensivo: nunca devolver más de 200 recargos por request.
+    // Si el front pide más, se trunca a 200 (evita queries de 7-23s).
+    limit: z
+      .string()
+      .optional()
+      .default("200")
+      .transform((val) => {
+        const n = parseInt(val, 10);
+        if (isNaN(n) || n < 1) return 200;
+        return Math.min(n, 200);
+      }),
   })
   .transform((data) => {
     // Si viene 'ano' sin ñ, usarlo como 'año'

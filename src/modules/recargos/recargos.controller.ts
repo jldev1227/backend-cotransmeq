@@ -68,8 +68,11 @@ export const RecargosController = {
 
       const query = buscarRecargosSchema.parse(request.query);
 
-      const page = parseInt(query.page);
-      const limit = parseInt(query.limit);
+      // page y limit ya vienen transformados a number desde el schema
+      // (con cap a 200 en limit). Si alguien los manda como string,
+      // Number() los coerce sin tirar.
+      const page = Number(query.page);
+      const limit = Number(query.limit);
 
       const filters = {
         mes: query.mes,
@@ -108,6 +111,31 @@ export const RecargosController = {
       } else {
         throw error;
       }
+    }
+  },
+
+  /**
+   * Devuelve el siguiente número de planilla libre (TM-XXXX).
+   * Endpoint ligero: solo consulta el campo numero_planilla, sin joins.
+   * Se usa en ModalFormRecargo para auto-generar el número al abrir para
+   * un recargo nuevo (no consume ancho de banda ni tarda 7+ segundos).
+   */
+  async obtenerSiguienteNumeroPlanilla(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    try {
+      const numero = await RecargosService.getNextNumeroPlanilla();
+      reply.send({
+        success: true,
+        data: { numero_planilla: numero }
+      });
+    } catch (error) {
+      console.error("Error en obtenerSiguienteNumeroPlanilla:", error);
+      reply.status(500).send({
+        success: false,
+        message: "Error al generar el siguiente número de planilla",
+      });
     }
   },
 
