@@ -1352,6 +1352,11 @@ async  update(id: string, data: UpdateRecargoDTO, userId?: string) {
    * 3. El regex a nivel SQL filtra variantes (espacios, mayúsculas, etc.)
    *    que la regex JS podía aceptar mal.
    *
+   * Implementación: usa `regexp_replace(..., '^{PREFIX}-(\d+)$', '\1')` para
+   * extraer el número. NO usa `SUBSTRING(string FROM n)` porque Prisma manda
+   * el `n` como parámetro bigint y Postgres no puede resolver el overload
+   * (error 42883 "function substring(character varying, bigint) does not exist").
+   *
    * Considera TODOS los registros (incluyendo soft-deleted) para que el
    * consecutivo sea monotónico: si TM-7208 fue borrado, devolvemos TM-7209
    * si ese es el siguiente real, no TM-7208 otra vez.
@@ -1361,25 +1366,28 @@ async  update(id: string, data: UpdateRecargoDTO, userId?: string) {
   async getNextNumeroPlanilla(): Promise<string> {
     // Importación lazy para evitar ciclos
     const { env } = await import("../../config/env");
-    const prefix = env.PLANILLA_PREFIX || "TM";
-    // Longitud del prefijo + 1 para saltar el guion
-    const fromPos = prefix.length + 1;
+    // El schema Zod valida 1-5 chars. Escapeamos cualquier char regex
+    // especial (., *, +, etc.) para que el patrón sea literal.
+    const rawPrefix = env.PLANILLA_PREFIX || "TM";
+    const prefix = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Parámetros via SQL para evitar inyección. El regex se construye
-    // desde un valor validado (1-5 chars alfanuméricos).
-    const pattern = `^${prefix}-[0-9]+$`;
-
-    const result = await prisma.$queryRaw<{ max: number | null }[]>`
+    // Construimos la query con $queryRawUnsafe: el prefijo es un valor
+    // validado por el schema (1-5 chars alfanuméricos escapados) y
+    // nunca viene de input del usuario. Inlinarlo evita el bug de
+    // overload de SUBSTRING(... FROM $1).
+    const sql = `
       SELECT MAX(
-        CAST(SUBSTRING(numero_planilla FROM ${fromPos}) AS INTEGER)
+        CAST(regexp_replace(numero_planilla, '^${prefix}-(\\d+)$', '\\1') AS INTEGER)
       ) AS max
       FROM recargos_planillas
-      WHERE numero_planilla ~ ${pattern}
+      WHERE numero_planilla ~ '^${prefix}-[0-9]+$'
     `;
+
+    const result = await prisma.$queryRawUnsafe<{ max: number | null }[]>(sql);
 
     const maxNum = result[0]?.max ?? 0;
     const next = (maxNum + 1).toString().padStart(4, "0");
-    return `${prefix}-${next}`;
+    return `${rawPrefix}-${next}`;
   },
 };
 interface RecargoRow {
