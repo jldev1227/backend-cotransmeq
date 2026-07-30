@@ -880,9 +880,14 @@ export const RecargosController = {
         });
       }
 
+      // Si la importación creó planillas, el service devuelve el
+      // `recalculoBatchId` del job bulk que está corriendo en background
+      // y emitirá `recargos-bulk-recalc:progress` / `:done` al room del
+      // usuario. El frontend usa este id para mostrar el progreso.
       reply.send({
         success: true,
         message: `Importación completada: ${resultado.importadas} importadas, ${resultado.omitidas} omitidas, ${resultado.errores} con error`,
+        recalculoBatchId: resultado.recalculoBatchId,
         data: resultado,
       });
     } catch (error: any) {

@@ -988,7 +988,7 @@ export const LiquidacionesService = {
             // Idempotente: upsert por (liquidacion_id, origen_planilla_id)
             await prisma.recargos.upsert({
               where: {
-                uniq_recargo_origen_planilla: {
+                liquidacion_id_origen_planilla_id: {
                   liquidacion_id: id,
                   origen_planilla_id: grupo.origen_planilla_id,
                 },

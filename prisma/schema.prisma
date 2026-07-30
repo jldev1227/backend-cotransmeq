@@ -730,6 +730,8 @@ model recargos {
   clientes               clientes       @relation(fields: [empresa_id], references: [id], onDelete: Cascade)
   liquidaciones          liquidaciones? @relation(fields: [liquidacion_id], references: [id])
   vehiculos              vehiculos?     @relation(fields: [vehiculo_id], references: [id])
+
+  @@unique([liquidacion_id, origen_planilla_id], map: "uniq_recargo_origen_planilla")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
