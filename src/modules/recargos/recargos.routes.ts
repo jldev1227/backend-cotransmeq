@@ -54,6 +54,63 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // Duplicar recargo
   fastify.post('/recargos/:id/duplicar', RecargosController.duplicar)
 
+  // Recalcular un recargo existente con la config salarial y % de tipos
+  // vigentes en cada día. Útil cuando cambian tarifarios y se quiere
+  // aplicar el recálculo a planillas ya creadas.
+  fastify.post('/recargos/:id/recalcular', RecargosController.recalcular)
+
+  // Recalcular MÚLTIPLES recargos en bulk. Retorna inmediatamente con
+  // `{ batchId, total }` y procesa en background, emitiendo progress
+  // events al room del usuario. El cliente persiste el batchId en
+  // localStorage para reanudar tras recarga de página.
+  fastify.post('/recargos/recalcular-bulk', RecargosController.recalcularBulk)
+
+  // Consultar el estado de un batch bulk (para reanudar UI tras
+  // recarga de página). Retorna 404 si no existe o si ya fue purgado.
+  fastify.get('/recargos/recalcular-bulk/:batchId', RecargosController.getBatchStatus)
+
+  // ═══════════════════════════════════════════════════════════
+  // IMPORTAR DESDE TRANSMERALDA
+  //
+  // Va DESPUÉS de /recalcular-bulk/:batchId para que el `batchId` no se
+  // confunda con un segment estático de la ruta.
+  // ═══════════════════════════════════════════════════════════
+
+  // Sincronizar conductores Cotransmeq en Transmeralda (marca inactivos
+  // a quienes no tengan liquidaciones en 2026). Idempotente.
+  // Va antes de los otros para que el operador pueda ejecutarlo una vez
+  // antes de pedir el preview.
+  fastify.post(
+    '/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq',
+    RecargosController.sincronizarConductoresCotransmeqTransmeralda,
+  )
+
+  // Preview de planillas importables (POST con body, GET con query — el
+  // controller acepta ambos). Filtra por mes/año en Transmeralda.
+  fastify.post(
+    '/recargos/importar-desde-transmeralda/preview',
+    RecargosController.previewImportarTransmeralda,
+  )
+  // Mismo endpoint accesible por GET (conveniencia para el botón del page
+  // que podría querer disparar el preview también por query string).
+  fastify.get(
+    '/recargos/importar-desde-transmeralda/preview',
+    RecargosController.previewImportarTransmeralda,
+  )
+
+  // Crea en Cotransmeq las placas y empresas que faltan en el preview.
+  // NO importa planillas — solo entidades. POST con body { mes, año }.
+  fastify.post(
+    '/recargos/importar-desde-transmeralda/crear-entidades-faltantes',
+    RecargosController.crearEntidadesFaltantesTransmeralda,
+  )
+
+  // Ejecuta la importación de las planillas seleccionadas.
+  fastify.post(
+    '/recargos/importar-desde-transmeralda',
+    RecargosController.importarDesdeTransmeralda,
+  )
+
   // ═══════════════════════════════════════════════════════════
   // CONFIGURACIONES SALARIOS RECARGOS — CRUD + Socket
   // ═══════════════════════════════════════════════════════════
@@ -127,6 +184,11 @@ export async function recargosRoutes(fastify: FastifyInstance) {
           administracion: body.administracion ?? 0,
           prueba_antigeno_covid: body.prueba_antigeno_covid ?? 0,
           prestaciones_sociales: body.prestaciones_sociales ?? 0,
+          // Umbrales de jornada: si no se envían, usan los defaults del
+          // schema (10.33 / 7.33). Son configurables por fecha para
+          // soportar cambios de normativa (ej: 15-jul).
+          jornada_normal_horas: body.jornada_normal_horas ?? 10.33,
+          jornada_festiva_horas: body.jornada_festiva_horas ?? 7.33,
           sede: body.sede || null,
           creado_por_id: userId,
           created_at: new Date(),
@@ -177,6 +239,8 @@ export async function recargosRoutes(fastify: FastifyInstance) {
       if (body.administracion !== undefined) updateData.administracion = body.administracion
       if (body.prueba_antigeno_covid !== undefined) updateData.prueba_antigeno_covid = body.prueba_antigeno_covid
       if (body.prestaciones_sociales !== undefined) updateData.prestaciones_sociales = body.prestaciones_sociales
+      if (body.jornada_normal_horas !== undefined) updateData.jornada_normal_horas = body.jornada_normal_horas
+      if (body.jornada_festiva_horas !== undefined) updateData.jornada_festiva_horas = body.jornada_festiva_horas
       if (body.sede !== undefined) updateData.sede = body.sede || null
 
       const config = await prisma.configuraciones_salarios.update({
@@ -239,6 +303,102 @@ export async function recargosRoutes(fastify: FastifyInstance) {
       })
       reply.send({ success: true, data: empresas })
     } catch (err: any) {
+      reply.status(500).send({ success: false, message: err.message })
+    }
+  })
+
+  // ═══════════════════════════════════════════════════════════
+  // TIPOS DE RECARGO VIGENTES — Para wizard del ModalFormRecargo
+  // ═══════════════════════════════════════════════════════════
+
+  // GET /api/recargos/tipos-recargo/vigentes?fecha=YYYY-MM-DD
+  // Devuelve los tipos de recargo vigentes en una fecha concreta.
+  // Si se pasa rango (?fecha_desde=...&fecha_hasta=...), devuelve TODAS las
+  // versiones que aplican dentro del rango (para que la UI pueda mostrar el
+  // timeline de cambios de porcentaje).
+  fastify.get('/recargos/tipos-recargo/vigentes', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { fecha, fecha_desde, fecha_hasta } = request.query as {
+        fecha?: string;
+        fecha_desde?: string;
+        fecha_hasta?: string;
+      }
+
+      let fechaConsulta: Date
+      let fechaMin: Date
+      let fechaMax: Date
+
+      if (fecha) {
+        fechaConsulta = new Date(fecha + 'T00:00:00Z')
+        fechaMin = fechaConsulta
+        fechaMax = fechaConsulta
+      } else if (fecha_desde && fecha_hasta) {
+        fechaMin = new Date(fecha_desde + 'T00:00:00Z')
+        fechaMax = new Date(fecha_hasta + 'T23:59:59Z')
+      } else {
+        return reply.status(400).send({
+          success: false,
+          message: 'Debe pasar ?fecha=YYYY-MM-DD o ?fecha_desde=...&fecha_hasta=...'
+        })
+      }
+
+      const tipos = await prisma.tipos_recargos.findMany({
+        where: {
+          activo: true,
+          deleted_at: null,
+          vigencia_desde: { lte: fechaMax },
+          OR: [
+            { vigencia_hasta: null },
+            { vigencia_hasta: { gte: fechaMin } }
+          ]
+        },
+        orderBy: [{ codigo: 'asc' }, { vigencia_desde: 'desc' }]
+      })
+
+      reply.send({ success: true, data: tipos })
+    } catch (err: any) {
+      request.log.error(err, 'Error obteniendo tipos de recargo vigentes')
+      reply.status(500).send({ success: false, message: err.message })
+    }
+  })
+
+  // GET /api/recargos/configuraciones-salarios/vigentes?empresa_id=...&fecha=YYYY-MM-DD
+  // Devuelve la config salarial vigente para una empresa y fecha.
+  fastify.get('/recargos/configuraciones-salarios/vigentes', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { empresa_id, fecha } = request.query as { empresa_id?: string; fecha: string }
+
+      if (!fecha) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Debe pasar ?fecha=YYYY-MM-DD'
+        })
+      }
+
+      const fechaConsulta = new Date(fecha + 'T12:00:00Z')
+
+      const configs = await prisma.configuraciones_salarios.findMany({
+        where: {
+          activo: true,
+          deleted_at: null,
+          vigencia_desde: { lte: fechaConsulta },
+          OR: [
+            { vigencia_hasta: null },
+            { vigencia_hasta: { gte: fechaConsulta } }
+          ]
+        },
+        orderBy: [{ empresa_id: 'desc' }, { vigencia_desde: 'desc' }]
+      })
+
+      // Prioridad: específica de la empresa > base
+      const config =
+        configs.find((c) => c.empresa_id === empresa_id) ||
+        configs.find((c) => c.empresa_id === null) ||
+        null
+
+      reply.send({ success: true, data: config })
+    } catch (err: any) {
+      request.log.error(err, 'Error obteniendo config salarial vigente')
       reply.status(500).send({ success: false, message: err.message })
     }
   })

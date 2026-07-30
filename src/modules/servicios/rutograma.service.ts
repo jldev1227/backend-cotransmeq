@@ -88,7 +88,7 @@ interface RiesgosInfo {
   traficoAlto: boolean
 }
 
-// Colores corporativos Cotransmeq
+// Colores corporativos Transmeralda
 const COLORS = {
   primary: '#0e6d36',       // Verde esmeralda oscuro
   primaryLight: '#d4edda',  // Verde claro para fondos
@@ -677,8 +677,8 @@ export class RutogramaService {
   private getLogoPath(): string {
     const isDist = __dirname.includes('/dist/')
     return isDist
-      ? path.join(__dirname, '../../assets/transmeralda-logo.webp')
-      : path.join(__dirname, '../../assets/transmeralda-logo.webp')
+      ? path.join(__dirname, '../../assets/transmeralda-logo.png')
+      : path.join(__dirname, '../../assets/transmeralda-logo.png')
   }
 
   private getFontsDir(): string {
@@ -788,11 +788,11 @@ export class RutogramaService {
         doc.image(logoPath, marginL + 8, y + 6, { width: 140, height: 42 })
       } else {
         doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-          .text('COTRANSMEQ S.A.S', marginL + 8, y + 18)
+          .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
       }
     } catch {
       doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-        .text('COTRANSMEQ S.A.S', marginL + 8, y + 18)
+        .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
     }
 
     // Línea divisora vertical

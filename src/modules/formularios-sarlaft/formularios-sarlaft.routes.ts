@@ -99,6 +99,25 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
     FormulariosSarlaftController.obtenerDocumentosRequeridos
   )
 
+  // Contacto público (teléfono, wa.me, mailto) por tipo de formulario
+  app.get(
+    '/public/formularios-sarlaft/contacto',
+    {
+      schema: {
+        description: 'Devuelve la configuración pública de contacto por tipo de formulario SARLAFT',
+        tags: ['formularios-sarlaft-publicos'],
+        querystring: {
+          type: 'object',
+          properties: {
+            tipo: { type: 'string', enum: ['cliente_proveedor', 'accionistas', 'personal'] }
+          },
+          required: ['tipo']
+        }
+      }
+    },
+    FormulariosSarlaftController.obtenerContactoPublico
+  )
+
   // Recepción del envío (submit) — multipart con archivos.
   // preHandler que parsea el multipart manualmente y adjunta los archivos
   // y el payload como propiedades del request para el controller.
@@ -224,5 +243,41 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
       }
     },
     FormulariosSarlaftController.actualizarEvaluacion as any
+  )
+
+  // Descargar PDF generado a partir de las respuestas
+  app.get(
+    '/formularios-sarlaft/:id/pdf',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        description: 'Descarga el PDF del formulario (respuestas + firma + adjuntos)',
+        tags: ['formularios-sarlaft-admin'],
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' } },
+          required: ['id']
+        }
+      }
+    },
+    FormulariosSarlaftController.descargarPDF as any
+  )
+
+  // Descargar ZIP de evidencia completa (PDF + adjuntos)
+  app.get(
+    '/formularios-sarlaft/:id/evidencia',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        description: 'Descarga un ZIP con el PDF y todos los adjuntos del formulario',
+        tags: ['formularios-sarlaft-admin'],
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' } },
+          required: ['id']
+        }
+      }
+    },
+    FormulariosSarlaftController.descargarEvidencia as any
   )
 }

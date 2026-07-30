@@ -1,10 +1,11 @@
 import { prisma } from "../../config/prisma";
 import { randomUUID } from "crypto";
-// import { generatePayslipPdfContent } from "../../lib/pdf/pdfGenerator";
+
 import * as pdfMake from "pdfmake/build/pdfmake";
 import * as pdfFonts from "pdfmake/build/vfs_fonts";
 import archiver from "archiver";
 import { getIO } from "../../sockets";
+import { RecargosService } from "../recargos/recargos.service";
 
 // Set the fonts for pdfMake
 (pdfMake as any).vfs = pdfFonts.vfs;
@@ -247,6 +248,7 @@ export const LiquidacionesService = {
         valor_incapacidad: Number(liq.valor_incapacidad),
         ajuste_salarial: Number(liq.ajuste_salarial),
         ajuste_parex: Number(liq.ajuste_parex),
+        ajuste_geopark: Number((liq as any).ajuste_geopark ?? 0),
         ajuste_parex_recargos_completos:
           (liq as any).ajuste_parex_recargos_completos ?? false,
         dias_ajuste_deducciones: (liq as any).dias_ajuste_deducciones ?? null,
@@ -416,6 +418,7 @@ export const LiquidacionesService = {
       valor_incapacidad: Number(liquidacion.valor_incapacidad),
       ajuste_salarial: Number(liquidacion.ajuste_salarial),
       ajuste_parex: Number(liquidacion.ajuste_parex),
+      ajuste_geopark: Number((liquidacion as any).ajuste_geopark ?? 0),
       ajuste_parex_recargos_completos:
         (liquidacion as any).ajuste_parex_recargos_completos ?? false,
       dias_ajuste_deducciones:
@@ -445,7 +448,9 @@ export const LiquidacionesService = {
     const liquidacion = await prisma.liquidaciones.create({
       data: {
         id,
-        conductor_id: data.conductor_id,
+        conductores: data.conductor_id
+          ? { connect: { id: data.conductor_id } }
+          : undefined,
         periodo_start: data.periodo_inicio,
         periodo_end: data.periodo_fin,
         dias_laborados: data.dias_laborados || 0,
@@ -468,7 +473,13 @@ export const LiquidacionesService = {
         valor_incapacidad: data.valor_incapacidad || 0,
         ajuste_salarial: data.ajuste_valor || 0,
         ajuste_salarial_por_dia: data.ajuste_por_dia_flag || false,
-        ajuste_parex: data.ajuste_parex ? data.ajuste_parex_valor || 0 : 0,
+        ajuste_parex:
+          data.ajuste_parex || data.ajuste_parex_recargos_completos
+            ? data.ajuste_parex_valor || 0
+            : 0,
+        ajuste_geopark: data.ajuste_geopark
+          ? data.ajuste_geopark_valor || 0
+          : 0,
         ajuste_recargos_config: data.ajuste_recargos_config || null,
         ajuste_parex_recargos_completos:
           data.ajuste_parex_recargos_completos || false,
@@ -483,7 +494,11 @@ export const LiquidacionesService = {
         disponibilidad: data.disponibilidad || 0,
         observaciones: data.observaciones || null,
         estado: data.estado === "Liquidado" ? "Liquidado" : "Pendiente",
-        creado_por_id: userId,
+        // Prisma no permite mezclar `liquidacionesCreateInput` (relations) con
+        // `liquidacionesUncheckedCreateInput` (scalars) en el mismo `data`.
+        // Como ya usamos `conductores: { connect }`, tenemos que usar también
+        // la relation para los FKs de usuarios en vez de los scalars.
+        users_liquidaciones_creado_por_idTousers: { connect: { id: userId } },
         created_at: now,
         updated_at: now,
       },
@@ -545,7 +560,19 @@ export const LiquidacionesService = {
         // Pernotes (solo crear si tienen empresa_id válido)
         if (detalle.pernotes && detalle.pernotes.length > 0) {
           for (const pernote of detalle.pernotes) {
-            if (!pernote.empresa_id) continue;
+            if (!pernote.empresa_id) {
+              // Defensa: el frontend ya valida, pero si llega un pernote sin empresa
+              // lo loggeamos para que no se pierda silenciosamente en producción.
+              const tieneContenido =
+                (pernote.fechas?.length || 0) > 0 || (pernote.cantidad || 0) > 0;
+              if (tieneContenido) {
+                console.warn(
+                  `[liquidaciones.crear] Pernote omitido: empresa_id vacío para vehiculo_id=${vehiculoId} ` +
+                    `(fechas=${pernote.fechas?.length ?? 0}, cantidad=${pernote.cantidad ?? 0})`
+                );
+              }
+              continue;
+            }
             await prisma.pernotes.create({
               data: {
                 id: randomUUID(),
@@ -645,7 +672,9 @@ export const LiquidacionesService = {
     await prisma.liquidaciones.update({
       where: { id },
       data: {
-        conductor_id: data.conductor_id,
+        conductores: data.conductor_id
+          ? { connect: { id: data.conductor_id } }
+          : undefined,
         periodo_start: data.periodo_inicio,
         periodo_end: data.periodo_fin,
         dias_laborados:
@@ -701,9 +730,20 @@ export const LiquidacionesService = {
         ajuste_salarial_por_dia:
           data.ajuste_por_dia_flag ??
           liquidacionExistente.ajuste_salarial_por_dia,
-        ajuste_parex: data.ajuste_parex
-          ? data.ajuste_parex_valor || 0
-          : Number(liquidacionExistente.ajuste_parex) || 0,
+        ajuste_parex: (() => {
+          if (data.ajuste_parex || data.ajuste_parex_recargos_completos) {
+            if (data.ajuste_parex_valor !== undefined) {
+              return data.ajuste_parex_valor || 0;
+            }
+            return Number(liquidacionExistente.ajuste_parex) || 0;
+          }
+          return 0;
+        })(),
+        ajuste_geopark: data.ajuste_geopark
+          ? (data.ajuste_geopark_valor !== undefined
+              ? data.ajuste_geopark_valor || 0
+              : Number((liquidacionExistente as any).ajuste_geopark) || 0)
+          : 0,
         ajuste_recargos_config:
           data.ajuste_recargos_config ??
           (liquidacionExistente as any).ajuste_recargos_config ??
@@ -734,7 +774,9 @@ export const LiquidacionesService = {
             : data.estado === "Pendiente"
               ? "Pendiente"
               : liquidacionExistente.estado,
-        actualizado_por_id: userId,
+        // Mismo motivo que en `crear`: como usamos `conductores: { connect }`,
+        // los FKs de usuarios deben ir por la relation, no por scalar.
+        users_liquidaciones_actualizado_por_idTousers: { connect: { id: userId } },
         updated_at: now,
       },
     });
@@ -905,14 +947,26 @@ export const LiquidacionesService = {
       }
 
       // Recargos calculados desde planillas (recargos_preview)
-      // Idempotente: usa upsert por (liquidacion_id, origen_planilla_id) cuando
-      // se conoce el id de la planilla origen. Si no se conoce, cae a create
-      // con deduplicación lógica por (vehiculo, empresa, mes, emisor) en el loop.
+      // El frontend envía N entradas por grupo (1 por cada origen_planilla_id
+      // que compone el grupo), todas con el mismo `valor` (total del grupo).
+      // Si iteráramos sin deduplicar crearíamos 1 recargo por entrada y los
+      // totales se multiplicarían. Dedupeamos por `key` (vehiculo + mes +
+      // empresa + emisor) para crear exactamente 1 recargo por grupo.
       const recargosPreviewIncluidos = (data.recargos_preview || []).filter(
         (grupo: any) => grupo.incluir !== false,
       );
-      if (recargosPreviewIncluidos.length > 0) {
-        for (const grupo of recargosPreviewIncluidos) {
+      const gruposUnicosPorKey = new Map<string, any>();
+      for (const grupo of recargosPreviewIncluidos) {
+        if (!grupo.empresa_id) continue;
+        const dedupKey = `${grupo.vehiculo_id || ""}|${grupo.empresa_id}|${grupo.mes || ""}|${grupo.emisor || ""}`;
+        if (!gruposUnicosPorKey.has(dedupKey)) {
+          gruposUnicosPorKey.set(dedupKey, grupo);
+        }
+      }
+      const gruposUnicos = Array.from(gruposUnicosPorKey.values());
+
+      if (gruposUnicos.length > 0) {
+        for (const grupo of gruposUnicos) {
           if (!grupo.empresa_id) continue;
 
           const dataRecargo = {
@@ -1256,49 +1310,113 @@ export const LiquidacionesService = {
       orderBy: { vigencia_desde: "desc" },
     });
 
-    // Función helper para obtener la config correcta según empresa_id y mes/año de la planilla
-    // Valida que la vigencia de la config cubra el mes de la planilla
-    // Si existe config específica para esa empresa vigente en ese mes, usarla. Si no, usar la config base
+    // Función helper para obtener la config correcta para una FECHA concreta.
+    //
+    // ⚠️ ANTES esta función usaba `esVigenteParaMes` (overlap con el mes) y luego
+    // `find()` sobre configs ordenadas por `vigencia_desde DESC`. Eso provocaba
+    // un bug crítico: para una planilla de julio 2026 con dos configs (vieja
+    // hasta 14-jul, nueva desde 15-jul), AMBAS solapaban con el mes, y find()
+    // devolvía SIEMPRE la nueva → todos los días se calculaban con la tarifa
+    // del 15-jul en adelante, aunque fueran del 1-6.
+    //
+    // Ahora la firma acepta un `diaConcreto` (1-31) y resuelve con la fecha
+    // EXACTA. Si no se pasa día, mantiene el comportamiento de compatibilidad
+    // (overlap con el mes) para no romper llamadas existentes, pero marcando
+    // claramente que es legacy.
     function getConfigParaEmpresa(
       empresaId: string,
       mesPlanilla?: number,
       añoPlanilla?: number,
+      diaConcreto?: number,
     ) {
-      // Función interna para verificar si una config es vigente para un mes/año dado
+      // Vigencia para una fecha concreta (preferida): solo configs cuyo rango
+      // de vigencia ENVUELVA la fecha exacta.
+      const esVigenteEnFecha = (
+        config: (typeof configsSalariales)[0],
+        fecha: Date,
+      ): boolean => {
+        if (config.vigencia_desde > fecha) return false;
+        if (config.vigencia_hasta && config.vigencia_hasta < fecha)
+          return false;
+        return true;
+      };
+
+      // Vigencia por overlap de mes (LEGACY, solo si NO hay día concreto):
+      // cualquier config que se solape con el rango del mes. NO usar para
+      // resolver configs: induce al bug descrito arriba. Se conserva para
+      // diagnóstico, pero el flujo real va siempre por `esVigenteEnFecha`.
       const esVigenteParaMes = (
         config: (typeof configsSalariales)[0],
         mes: number,
         año: number,
       ): boolean => {
-        // Primer día del mes de la planilla
         const inicioMes = new Date(Date.UTC(año, mes - 1, 1));
-        // Último día del mes de la planilla
         const finMes = new Date(Date.UTC(año, mes, 0));
-
-        // La vigencia_desde debe ser <= fin del mes de la planilla
         if (config.vigencia_desde > finMes) return false;
-        // La vigencia_hasta (si existe) debe ser >= inicio del mes de la planilla
         if (config.vigencia_hasta && config.vigencia_hasta < inicioMes)
           return false;
         return true;
       };
 
+      // ── Camino principal: fecha concreta ──
+      if (
+        mesPlanilla !== undefined &&
+        añoPlanilla !== undefined &&
+        diaConcreto !== undefined
+      ) {
+        const fechaDia = new Date(
+          Date.UTC(añoPlanilla, mesPlanilla - 1, diaConcreto),
+        );
+        // Prioridad: específica de la empresa > base. Con datos duplicados
+        // (migración ejecutada más de una vez sin UNIQUE constraint) puede
+        // haber varias filas "vigentes" para la misma empresa+fecha. Se
+        // desempata por:
+        //   a) `vigencia_hasta` no nulo (más específico)
+        //   b) `vigencia_desde` más reciente
+        // Mismo criterio que `tiposVigentesPara` en recargos.service.ts.
+        const scoreVigencia = (
+          desde: Date | string,
+          hasta: Date | string | null,
+        ) => (hasta ? 1 : 0) * 1e18 + new Date(desde).getTime();
+        const candidatas = configsSalariales.filter((c) =>
+          esVigenteEnFecha(c, fechaDia),
+        );
+        const configEmpresa = candidatas
+          .filter((c) => c.empresa_id === empresaId)
+          .sort(
+            (a, b) =>
+              scoreVigencia(b.vigencia_desde, b.vigencia_hasta) -
+              scoreVigencia(a.vigencia_desde, a.vigencia_hasta),
+          )[0];
+        if (configEmpresa) return configEmpresa;
+        const configBase = candidatas
+          .filter((c) => c.empresa_id === null)
+          .sort(
+            (a, b) =>
+              scoreVigencia(b.vigencia_desde, b.vigencia_hasta) -
+              scoreVigencia(a.vigencia_desde, a.vigencia_hasta),
+          )[0];
+        if (configBase) return configBase;
+        return null;
+      }
+
+      // ── Camino legacy: solo mes/año, sin día concreto ──
+      // ⚠️ Este camino NO debe usarse para cálculos monetarios. Solo se
+      // conserva para que llamadas externas sin día no rompan, pero
+      // preferentemente siempre se debe pasar `diaConcreto`.
       if (mesPlanilla !== undefined && añoPlanilla !== undefined) {
-        // Buscar config específica para la empresa que esté vigente en el mes de la planilla
         const configEmpresa = configsSalariales.find(
           (c) =>
             c.empresa_id === empresaId &&
             esVigenteParaMes(c, mesPlanilla, añoPlanilla),
         );
         if (configEmpresa) return configEmpresa;
-        // Fallback: config base (sin empresa asignada) que esté vigente en el mes
         const configBaseMes = configsSalariales.find(
           (c) =>
             c.empresa_id === null &&
             esVigenteParaMes(c, mesPlanilla, añoPlanilla),
         );
         if (configBaseMes) return configBaseMes;
-        // Último fallback: config base sin validar vigencia por mes
         return configsSalariales.find((c) => c.empresa_id === null) || null;
       }
 
@@ -1397,7 +1515,13 @@ export const LiquidacionesService = {
     let totalHorasTrabajadas = 0;
     let totalFestivosGeneral = 0;
 
-    // Resumen por tipo de recargo
+    // Resumen por tipo de recargo.
+    // Importante: la clave agrupa por (codigo, porcentaje) para que cuando
+    // una planilla cruza un cambio de tarifario (ej: HEFN 155% antes del
+    // 15-jul, 165% desde el 15-jul) cada % salga como fila separada con su
+    // propio total. Antes la clave era solo `codigo`, lo que mezclaba dos
+    // tarifas distintas en una sola fila mostrando el % del primer detalle
+    // encontrado (engañoso para el usuario final).
     const resumenTipos: Record<
       string,
       {
@@ -1412,15 +1536,106 @@ export const LiquidacionesService = {
       }
     > = {};
 
+    // Pre-cargar configs y tipos vigentes por fecha (para usar el valor
+    // hora y % VIGENTES al momento de la consulta, no los snapshots viejos
+    // que se guardaron cuando se creó la planilla).
+    const tiposTodos = await prisma.tipos_recargos.findMany({
+      where: { activo: true, deleted_at: null }
+    });
+    const tiposMapGlobal = new Map(tiposTodos.map((t) => [t.codigo, t]));
+
+    const configsTodas = await prisma.configuraciones_salarios.findMany({
+      where: {
+        activo: true,
+        deleted_at: null,
+        vigencia_desde: { lte: fechaFin },
+        OR: [
+          { vigencia_hasta: null },
+          { vigencia_hasta: { gte: fechaInicio } }
+        ]
+      },
+      orderBy: [{ empresa_id: "desc" }, { vigencia_desde: "desc" }]
+    });
+
+    // Helpers para resolver config y tipos vigentes para una fecha concreta
+    const scoreVigencia = (
+      desde: Date | string,
+      hasta: Date | string | null
+    ) => (hasta ? 1 : 0) * 1e18 + new Date(desde).getTime();
+
+    const getConfigVigentePorFecha = (empresaId: string, fecha: Date) => {
+      const candidatas = configsTodas.filter((c) => {
+        if (c.vigencia_desde > fecha) return false;
+        if (c.vigencia_hasta && c.vigencia_hasta < fecha) return false;
+        return true;
+      });
+      const emp = candidatas
+        .filter((c) => c.empresa_id === empresaId)
+        .sort(
+          (a, b) =>
+            scoreVigencia(b.vigencia_desde, b.vigencia_hasta) -
+            scoreVigencia(a.vigencia_desde, a.vigencia_hasta)
+        )[0];
+      if (emp) return emp;
+      const base = candidatas
+        .filter((c) => c.empresa_id === null)
+        .sort(
+          (a, b) =>
+            scoreVigencia(b.vigencia_desde, b.vigencia_hasta) -
+            scoreVigencia(a.vigencia_desde, a.vigencia_hasta)
+        )[0];
+      return base || null;
+    };
+
+    const getTipoVigentePorFecha = (codigo: string, fecha: Date) => {
+      let best: { id: string; porcentaje: number; es_hora_extra: boolean; score: number } | null =
+        null;
+      for (const t of tiposTodos) {
+        if (t.codigo !== codigo) continue;
+        if (t.vigencia_desde > fecha) continue;
+        if (t.vigencia_hasta && t.vigencia_hasta < fecha) continue;
+        const score = scoreVigencia(t.vigencia_desde, t.vigencia_hasta);
+        if (!best || score > best.score) {
+          best = {
+            id: t.id,
+            porcentaje: Number(t.porcentaje),
+            es_hora_extra: t.es_hora_extra,
+            score
+          };
+        }
+      }
+      return best;
+    };
+
     const planillasDetalle = planillas.map((planilla) => {
       const mesPlanilla = planilla.mes;
       const añoPlanilla = planilla.a_o;
 
-      // Obtener config salarial específica para la empresa de esta planilla (validando vigencia por mes)
+      // Filtrar días dentro del rango del período ANTES de resolver la
+      // config de planilla, para que el `primer dia` usado por
+      // `getConfigParaEmpresa(..., diaConcreto)` refleje el día más antiguo
+      // que el usuario está viendo (no un día fuera del rango).
+      const diasFiltrados = planilla.dias_laborales_planillas.filter((dia) => {
+        const fechaDia = new Date(
+          Date.UTC(añoPlanilla, mesPlanilla - 1, dia.dia),
+        );
+        return fechaDia >= fechaInicio && fechaDia <= fechaFin;
+      });
+
+      // Resolver la config salarial pasando el DÍA CONCRETO más antiguo
+      // visible de la planilla. Antes se llamaba sin día → caía en el
+      // camino legacy de overlap por mes y devolvía la config más nueva
+      // (ordenada por `vigencia_desde DESC`), lo que hacía que días previos
+      // al cambio de tarifario (ej. 1-6 jul) tomaran el valor del tarifario
+      // nuevo (15-jul en adelante). Ver `getConfigParaEmpresa`.
+      const primerDiaVisible = diasFiltrados
+        .map((d) => d.dia)
+        .sort((a, b) => a - b)[0];
       const configPlanilla = getConfigParaEmpresa(
         planilla.empresa_id,
         mesPlanilla,
         añoPlanilla,
+        primerDiaVisible,
       );
       // Calcular valor hora con máxima precisión desde salario/horas (como Excel)
       // NO usar el valor_hora_trabajador pre-redondeado de la BD
@@ -1432,14 +1647,6 @@ export const LiquidacionesService = {
       const porcentajeFestivos = configPlanilla
         ? Number(configPlanilla.porcentaje_festivos)
         : 75;
-
-      // Filtrar días dentro del rango del período
-      const diasFiltrados = planilla.dias_laborales_planillas.filter((dia) => {
-        const fechaDia = new Date(
-          Date.UTC(añoPlanilla, mesPlanilla - 1, dia.dia),
-        );
-        return fechaDia >= fechaInicio && fechaDia <= fechaFin;
-      });
 
       const diasDetalle = diasFiltrados.map((dia) => {
         const fechaDia = new Date(
@@ -1467,45 +1674,62 @@ export const LiquidacionesService = {
           totalDiasTrabajados++;
         }
 
-        // Calcular detalles de recargos con valores monetarios
-        // Si es día disponible, no calcular valores de recargos
-        // Cálculo estilo Excel: usar valor hora = salario/horas_mes con máxima precisión.
-        // No redondear intermedios. Los TOTALES se calculan como totalHoras × tasa
-        // y se aplica Math.round al final (redondeo estándar, igual que Excel).
+        // ── Leer las horas de la database (detalles_recargos_dias) ──
+        //
+        // Las horas se leen TAL CUAL de la base de datos. El usuario quiere
+        // que la fuente de verdad sea la database, no un cálculo en vivo.
+        // Solo recalculamos el VALOR MONETARIO (con la config salarial
+        // vigente al momento de la consulta), porque ese sí cambia cuando
+        // cambia la config.
+        //
+        // Esto también significa que el desglose modal muestra las mismas
+        // horas que `ModalVisualizarRecargo` (que también lee de
+        // `detalles_recargos_dias`).
+        const configVigente = getConfigVigentePorFecha(planilla.empresa_id, fechaDia);
+        const valorHoraBase = configVigente
+          ? Number(configVigente.salario_basico) / configVigente.horas_mensuales_base
+          : 0;
 
         const recargosDetalle = dia.disponibilidad
           ? []
           : dia.detalles_recargos_dias.map((detalle) => {
               const tipo = detalle.tipos_recargos;
               const horas = Number(detalle.horas);
-              const porcentaje = Number(tipo.porcentaje);
 
-              // Calcular valor hora calculada con máxima precisión (sin redondear)
-              let valorHoraCalc = 0;
-              if (tipo.es_hora_extra || tipo.adicional) {
-                valorHoraCalc =
-                  valorHoraBase + (valorHoraBase * porcentaje) / 100;
-              } else {
-                valorHoraCalc = (valorHoraBase * porcentaje) / 100;
-              }
+              // % vigente al momento de la consulta (no el del snapshot)
+              const tipoVigente = getTipoVigentePorFecha(tipo.codigo, fechaDia);
+              const porcentaje = tipoVigente
+                ? tipoVigente.porcentaje
+                : Number(tipo.porcentaje);
 
-              // valor_total por día (redondeado para visualización)
-              const valorTotal = Math.round(horas * valorHoraCalc);
+              // Tarifas "all-in" (base + %): horas extras, adicionales y
+              // RD (Recargo Dominical/Festivo). El resto (RN, RNDF) son
+              // recargos puros sumados a la base.
+              const esAllIn =
+                (tipoVigente?.es_hora_extra ?? tipo.es_hora_extra) ||
+                tipo.adicional ||
+                tipo.codigo === "RD";
+              const tasa = esAllIn
+                ? valorHoraBase + (valorHoraBase * porcentaje) / 100
+                : (valorHoraBase * porcentaje) / 100;
+              const valorTotal = Math.round(horas * tasa);
 
-              // Acumular horas en resumen por tipo (para calcular totales estilo Excel al final)
-              if (!resumenTipos[tipo.codigo]) {
-                resumenTipos[tipo.codigo] = {
+              // Acumular en resumen por (tipo, %)
+              const resumenKey = `${tipo.codigo}@${porcentaje}`;
+              if (!resumenTipos[resumenKey]) {
+                resumenTipos[resumenKey] = {
                   codigo: tipo.codigo,
                   nombre: tipo.nombre,
                   porcentaje,
                   es_hora_extra: tipo.es_hora_extra,
                   adicional: tipo.adicional,
                   totalHoras: 0,
-                  valorHoraBase: valorHoraBase,
-                  valorTotal: 0, // Se recalculará al final como totalHoras × tasa
+                  valorHoraBase: Math.round(valorHoraBase),
+                  valorTotal: 0,
                 };
               }
-              resumenTipos[tipo.codigo].totalHoras += horas;
+              resumenTipos[resumenKey].totalHoras += horas;
+              resumenTipos[resumenKey].valorTotal += valorTotal;
 
               return {
                 tipo_codigo: tipo.codigo,
@@ -1515,7 +1739,7 @@ export const LiquidacionesService = {
                 porcentaje,
                 horas,
                 valor_hora_base: Math.round(valorHoraBase),
-                valor_hora_calculada: Math.round(valorHoraCalc),
+                valor_hora_calculada: Math.round(tasa),
                 valor_total: valorTotal,
               };
             });
@@ -1541,39 +1765,17 @@ export const LiquidacionesService = {
         };
       });
 
-      // Calcular total_valor de la planilla estilo Excel:
-      // Acumular horas por tipo de recargo, luego totalHoras × tasa (sin truncar intermedios)
-      const horasPorTipoPlanilla: Record<
-        string,
-        { horas: number; valorHoraCalc: number }
-      > = {};
-      for (const dia of diasDetalle) {
-        for (const rec of dia.recargos) {
-          if (!horasPorTipoPlanilla[rec.tipo_codigo]) {
-            horasPorTipoPlanilla[rec.tipo_codigo] = {
-              horas: 0,
-              valorHoraCalc: 0,
-            };
-          }
-          horasPorTipoPlanilla[rec.tipo_codigo].horas += rec.horas;
-          // Recalcular tasa con precisión completa
-          const porcentaje = rec.porcentaje;
-          if (rec.es_hora_extra || rec.adicional) {
-            horasPorTipoPlanilla[rec.tipo_codigo].valorHoraCalc =
-              valorHoraBase + (valorHoraBase * porcentaje) / 100;
-          } else {
-            horasPorTipoPlanilla[rec.tipo_codigo].valorHoraCalc =
-              (valorHoraBase * porcentaje) / 100;
-          }
-        }
-      }
-      let totalRecargoPlanillaRaw = 0;
-      for (const key of Object.keys(horasPorTipoPlanilla)) {
-        const { horas, valorHoraCalc } = horasPorTipoPlanilla[key];
-        totalRecargoPlanillaRaw += horas * valorHoraCalc; // Sin redondear por tipo
-      }
-      // Redondear el total de la planilla una sola vez (como Excel)
-      const totalRecargoPlanilla = Math.round(totalRecargoPlanillaRaw);
+      // Calcular total_valor de la planilla sumando los totales POR DÍA
+      // que ya están en `diasDetalle` (cada `total_valor_dia` se compone
+      // de snapshots por día correctos). Esto reemplaza el cálculo previo
+      // que re-multiplicaba horas × valorHoraBase (de planilla) × factor,
+      // el cual mezclaba configs de distintos días en un solo factor y
+      // producía totales incorrectos cuando la planilla cruzaba un cambio
+      // de tarifario. Ahora se respeta el snapshot por día.
+      const totalRecargoPlanilla = diasDetalle.reduce(
+        (sum, d) => sum + (d.total_valor_dia || 0),
+        0,
+      );
 
       totalGeneralRecargos += totalRecargoPlanilla;
 
@@ -1654,21 +1856,29 @@ export const LiquidacionesService = {
         total_festivos: totalFestivosGeneral,
         total_general: totalGeneralRecargos,
       },
-      resumen_tipos: Object.values(resumenTipos).map((t) => {
-        // Recalcular valorTotal estilo Excel: totalHoras × tasa (con precisión completa)
-        let valorHoraCalc = 0;
-        if (t.es_hora_extra || t.adicional) {
-          valorHoraCalc =
-            t.valorHoraBase + (t.valorHoraBase * t.porcentaje) / 100;
-        } else {
-          valorHoraCalc = (t.valorHoraBase * t.porcentaje) / 100;
-        }
-        return {
-          ...t,
-          totalHoras: Math.round(t.totalHoras * 100) / 100,
-          valorTotal: Math.round(t.totalHoras * valorHoraCalc),
-        };
-      }),
+      resumen_tipos: Object.values(resumenTipos)
+        .map((t) => {
+          // `valorTotal` ya viene acumulado desde los snapshots por día
+          // (cada detalle aporta su valor_total real con la config que le
+          // correspondía). Solo lo redondeamos para presentación.
+          return {
+            ...t,
+            totalHoras: Math.round(t.totalHoras * 100) / 100,
+            valorTotal: Math.round(t.valorTotal),
+          };
+        })
+        // Orden estable: HED, HEN, HEFD, HEFN, RN, RD, RNDF; dentro del
+        // mismo codigo, % más bajo primero (cronológico).
+        .sort((a, b) => {
+          const orden: Record<string, number> = {
+            HED: 1, HEN: 2, HEFD: 3, HEFN: 4, RN: 5, RD: 6, RNDF: 7,
+          };
+          const oa = orden[a.codigo] ?? 99;
+          const ob = orden[b.codigo] ?? 99;
+          if (oa !== ob) return oa - ob;
+          if (a.porcentaje !== b.porcentaje) return a.porcentaje - b.porcentaje;
+          return a.nombre.localeCompare(b.nombre);
+        }),
       planillas: planillasDetalle,
     };
   },

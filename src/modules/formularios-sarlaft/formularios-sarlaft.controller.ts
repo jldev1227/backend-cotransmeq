@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify'
 import { FormulariosSarlaftService } from './formularios-sarlaft.service'
 import { submitFormularioSarlaftSchema, type ArchivoUpload } from './formularios-sarlaft.schema'
 import { listarFormularios, getFormularioPorCodigo, getDocumentosRequeridos } from './formularios-sarlaft.constants'
+import { CONFIG_POR_TIPO, type TipoFormularioSarlaft } from './sarlaft-config'
 
 export const FormulariosSarlaftController = {
   /**
@@ -27,7 +28,7 @@ export const FormulariosSarlaftController = {
         'Ley 1581 de 2012',
         'Decreto 1377 de 2013'
       ],
-      empresa: 'COTRANSMEQ S.A.S.'
+      empresa: 'TRANSMERALDA S.A.S.'
     })
   },
 
@@ -72,6 +73,36 @@ export const FormulariosSarlaftController = {
         max_bytes: 10 * 1024 * 1024,
         mimes_permitidos: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
         extensiones_permitidas: ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']
+      }
+    })
+  },
+
+  /**
+   * GET /api/public/formularios-sarlaft/contacto?tipo=...
+   * Devuelve la configuración pública de contacto (teléfono, área) para
+   * que el landing muestre los datos correctos según el tipo de formulario.
+   */
+  async obtenerContactoPublico(request: FastifyRequest, reply: FastifyReply) {
+    const query = request.query as { tipo?: string }
+    const tipo = (['cliente_proveedor', 'accionistas', 'personal'] as TipoFormularioSarlaft[]).includes(
+      query.tipo as TipoFormularioSarlaft
+    ) ? (query.tipo as TipoFormularioSarlaft) : null
+    if (!tipo) {
+      return reply.status(400).send({ success: false, error: 'Tipo inválido' })
+    }
+    const cfg = CONFIG_POR_TIPO[tipo]
+    return reply.send({
+      success: true,
+      contacto: {
+        tipo,
+        area_responsable: cfg.area_responsable,
+        telefono_principal: cfg.telefono_principal,
+        telefono_wa: `https://wa.me/${cfg.telefono_wa}`,
+        telefono_tel: `tel:+${cfg.telefono_wa}`,
+        correo_publico: cfg.correo_publico ?? cfg.emails[0],
+        correo_mailto: cfg.correo_publico
+          ? `mailto:${cfg.correo_publico}`
+          : `mailto:${cfg.emails[0]}`
       }
     })
   },
@@ -168,6 +199,48 @@ export const FormulariosSarlaftController = {
       return reply.send({ success: true, formulario: actualizado })
     } catch (err: any) {
       request.log.error({ err }, 'Error al actualizar evaluación')
+      return reply.status(500).send({ success: false, error: err.message })
+    }
+  },
+
+  /**
+   * GET /api/formularios-sarlaft/:id/pdf
+   * Descarga el PDF generado a partir de las respuestas del formulario.
+   * Auth requerida.
+   */
+  async descargarPDF(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const data = await FormulariosSarlaftService.generarPDFRespuesta(id)
+      if (!data) return reply.status(404).send({ success: false, error: 'Formulario no encontrado' })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${data.nombre_archivo}"`)
+      reply.header('Content-Length', data.buffer.length.toString())
+      return reply.send(data.buffer)
+    } catch (err: any) {
+      request.log.error({ err }, 'Error al generar PDF SARLAFT')
+      return reply.status(500).send({ success: false, error: err.message })
+    }
+  },
+
+  /**
+   * GET /api/formularios-sarlaft/:id/evidencia
+   * Descarga un ZIP con el PDF + todos los adjuntos subidos.
+   * Auth requerida.
+   */
+  async descargarEvidencia(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const data = await FormulariosSarlaftService.generarEvidenciaZip(id)
+      if (!data) return reply.status(404).send({ success: false, error: 'Formulario no encontrado' })
+
+      reply.header('Content-Type', 'application/zip')
+      reply.header('Content-Disposition', `attachment; filename="${data.nombre_archivo}"`)
+      reply.header('Content-Length', data.buffer.length.toString())
+      return reply.send(data.buffer)
+    } catch (err: any) {
+      request.log.error({ err }, 'Error al generar ZIP de evidencia SARLAFT')
       return reply.status(500).send({ success: false, error: err.message })
     }
   },

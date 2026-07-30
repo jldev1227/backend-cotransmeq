@@ -16,6 +16,12 @@ export async function conductoresRoutes(app: FastifyInstance) {
   // POST /api/conductores/masivo - Operaciones masivas (ocultar, eliminar, restaurar)
   app.post('/conductores/masivo', ConductoresController.operacionesMasivas)
 
+  // GET /api/conductores/select-list - Listado liviano para <select>
+  // Solo activos, no ocultos, sin fotos (optimizado para formularios
+  // donde solo se necesita id + nombre + identificación).
+  // IMPORTANTE: esta ruta debe ir ANTES de /:id.
+  app.get('/conductores/select-list', ConductoresController.listarParaSelect)
+
   // GET /api/conductores - Obtener todos los conductores
   app.get('/conductores', ConductoresController.obtenerTodos)
 

@@ -8,6 +8,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string(),
   JWT_SECRET: z.string(),
   RESEND_API_KEY: z.string().optional(),
+  // `from` que se usa cuando el proveedor es Resend. Debe ser un dominio
+  // verificado en Resend (ej: "Transmeralda <noreply@transmeralda.com>").
+  // Si no se define, el código cae a SMTP_FROM o a noreply@transmeralda.com.
+  RESEND_FROM: z.string().optional(),
   FRONTEND_URL: z.string().optional(),
   EMAIL_LOGO_URL: z.string().optional(),
   // URL pública (single, sin coma) usada por los emails para construir enlaces
@@ -39,7 +43,12 @@ const envSchema = z.object({
   BORRADOR_QUEUE_JOB_TTL_MS: z.string().transform(s => Number(s)).default('300000'),
 
   // Prefijo del número de planilla auto-generado (TM = Transmeralda, CM = Cotransmeq)
-  PLANILLA_PREFIX: z.string().trim().min(1).max(5).optional().default('TM')
+  PLANILLA_PREFIX: z.string().trim().min(1).max(5).optional().default('TM'),
+
+  // URL de la base de datos Transmeralda (mismo schema, instancia distinta).
+  // Se usa para importar recargos desde Transmeralda hacia Cotransmeq.
+  // Si no se define, los endpoints /importar-desde-transmeralda/* devuelven 503.
+  TRANSMERALDA_DATABASE_URL: z.string().optional()
 })
 
 export const env = envSchema.parse(process.env)

@@ -10,7 +10,7 @@ import { startCerrarServiciosConPlanillaCron } from './jobs/cerrar-servicios-con
 
 async function start() {
   try {
-    logger.info('🚀 Starting Cotransmeq Backend...')
+    logger.info('🚀 Starting Transmeralda Backend...')
     
     // Test database connection first
     await testDatabaseConnection()

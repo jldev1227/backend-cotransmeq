@@ -6,6 +6,11 @@ import {
   listarRegistrosSchema,
   calendarAdminSchema
 } from './dias-laborados.schema'
+import {
+  guardarRegistrosMasivosSchema,
+  editarSegmentoSchema,
+  editarRegistroSchema
+} from './dias-laborados-admin.schema'
 import { getIO } from '../../sockets'
 
 export const DiasLaboradosController = {
@@ -194,6 +199,104 @@ export const DiasLaboradosController = {
       return reply.status(500).send({
         success: false,
         message: err.message || 'Error al listar vehículos'
+      })
+    }
+  },
+
+  // ─── PROTECTED (admin): Guardado MASIVO de recorridos ──────
+  // Pensado para que el operador registre un mes entero de un conductor
+  // en una sola llamada, a partir de "patrones" (placa+cliente+horario)
+  // y asignación de fechas.
+  async guardarRegistrosMasivos(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const data = guardarRegistrosMasivosSchema.parse(request.body)
+      const result = await DiasLaboradosService.guardarRegistrosMasivos(data)
+      return reply.send({ success: true, ...result })
+    } catch (err: any) {
+      const status = err.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: err.message || 'Error al guardar registros masivos'
+      })
+    }
+  },
+
+  // ─── PROTECTED (admin): Editar un segmento (tramo) específico ──────
+  // PUT /api/dias-laborados/admin/segmento/:id
+  // Solo los campos de detalle. No toca registro_dia padre.
+  async editarSegmento(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const data = editarSegmentoSchema.parse(request.body)
+      const result = await DiasLaboradosService.editarSegmento(id, data)
+      return reply.send({
+        success: true,
+        message: 'Segmento actualizado',
+        data: result
+      })
+    } catch (err: any) {
+      const status = err.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: err.message || 'Error al editar el segmento'
+      })
+    }
+  },
+
+  // ─── PROTECTED (admin): Soft delete de un segmento ──────
+  // DELETE /api/dias-laborados/admin/segmento/:id
+  // Marca deleted_at. No borra físicamente.
+  async softDeleteSegmento(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const result = await DiasLaboradosService.softDeleteSegmento(id)
+      return reply.send({ success: true, ...result })
+    } catch (err: any) {
+      const status = err.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: err.message || 'Error al eliminar el segmento'
+      })
+    }
+  },
+
+  // ─── PROTECTED (admin): Editar metadata de un registro (día) ──────
+  // PUT /api/dias-laborados/admin/registro/:id
+  // Solo tipo + observaciones. No toca los segmentos.
+  async editarRegistro(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const data = editarRegistroSchema.parse(request.body)
+      const result = await DiasLaboradosService.editarRegistro(id, data)
+      return reply.send({
+        success: true,
+        message: 'Registro actualizado',
+        data: result
+      })
+    } catch (err: any) {
+      const status = err.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: err.message || 'Error al editar el registro'
+      })
+    }
+  },
+
+  // ─── PROTECTED (admin): Soft delete de un registro (día completo) ──────
+  // DELETE /api/dias-laborados/admin/registro/:id
+  // Marca deleted_at en el padre y en cascada en sus segmentos activos.
+  // Usado para días DESCANSO / MANTENIMIENTO sin segmentos, o para
+  // borrar un día completo de un solo click.
+  async softDeleteRegistro(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const result = await DiasLaboradosService.softDeleteRegistro(id)
+      return reply.send({ success: true, ...result })
+    } catch (err: any) {
+      const status = err.statusCode || 500
+      return reply.status(status).send({
+        success: false,
+        message: err.message || 'Error al eliminar el registro'
       })
     }
   }

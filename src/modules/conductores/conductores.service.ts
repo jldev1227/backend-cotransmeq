@@ -2,115 +2,41 @@ import { prisma } from "../../config/prisma";
 import { getS3SignedUrl, uploadToS3, deleteFromS3 } from "../../config/aws";
 import { randomUUID } from "crypto";
 
-/**
- * Helper batch para obtener fotos firmadas de S3 de N conductores en UNA
- * sola query. Evita el N+1 de la implementación anterior que hacía 1 query
- * por conductor + 1 llamada a S3 por conductor (con connection_limit=1 en
- * Prisma, los `Promise.all` se serializaban y se superaban los 15s de
- * timeout del frontend).
- *
- * Estrategia:
- *  1) 1 sola query a `documento` con `conductor_id IN (...)` para traer las
- *     FOTO_PERFIL vigentes más recientes por conductor.
- *  2) 1 sola query a `conductores` para obtener el fallback `foto_url` de
- *     los que no tengan documento FOTO_PERFIL.
- *  3) URLs firmadas generadas en `Promise.all` (sin más queries a DB).
- *
- * Retorna un Map<conductor_id, foto_signed_url | null>.
- */
-async function obtenerFotosConductoresBatch(
-  conductorIds: string[],
-): Promise<Map<string, string | null>> {
-  const fotoMap = new Map<string, string | null>();
-  if (conductorIds.length === 0) return fotoMap;
-
-  // 1. Fallback: foto_url directo de la tabla conductores
-  try {
-    const conductores = await prisma.conductores.findMany({
-      where: { id: { in: conductorIds } },
-      select: { id: true, foto_url: true },
-    });
-    for (const c of conductores) {
-      if (c.id) fotoMap.set(c.id, c.foto_url ?? null);
-    }
-  } catch (error) {
-    console.error("[conductores] Error leyendo foto_url fallback:", error);
-  }
-
-  // 2. Documentos FOTO_PERFIL vigentes (más recientes primero)
-  let fotos: Array<{ conductor_id: string | null; s3_key: string | null; ruta_archivo: string; created_at: Date }> = [];
-  try {
-    fotos = await prisma.documento.findMany({
+export const ConductoresService = {
+  // Listado LIVIANO para alimentar <select> del modal admin
+  // (sin fotos, sin S3, sin joins pesados). Solo lo necesario
+  // para identificar al conductor: id, nombre, apellido, cédula, estado.
+  //
+  // Estados EXCLUIDOS: inactivo, retirado, suspendido.
+  // (No tiene sentido registrar recorridos para alguien retirado
+  //  o suspendido. "incapacitado" se mapea al enum "suspendido"
+  //  en el endpoint principal, por lo que también queda fuera.)
+  //
+  // Estados INCLUIDOS: activo, vacaciones, servicio, descanso,
+  //   programado, disponible. Un conductor en vacaciones o servicio
+  //   sigue registrando recorridos (antes, durante o entre turnos).
+  //
+  // Ordenado A-Z por nombre, apellido.
+  async listarParaSelect() {
+    return prisma.conductores.findMany({
       where: {
-        conductor_id: { in: conductorIds },
-        categoria: "FOTO_PERFIL",
-        estado: "vigente",
+        oculto: false,
+        deleted_at: null,
+        estado: {
+          notIn: ['inactivo', 'retirado', 'suspendido']
+        }
       },
       select: {
-        conductor_id: true,
-        s3_key: true,
-        ruta_archivo: true,
-        created_at: true,
+        id: true,
+        nombre: true,
+        apellido: true,
+        numero_identificacion: true,
+        estado: true
       },
-      orderBy: { created_at: "desc" },
-    });
-  } catch (error) {
-    console.error("[conductores] Error leyendo documento FOTO_PERFIL batch:", error);
-    return fotoMap;
-  }
+      orderBy: [{ nombre: 'asc' }, { apellido: 'asc' }]
+    })
+  },
 
-  // 3. Sobrescribir con la FOTO_PERFIL más reciente (la primera por created_at desc)
-  // Solo si aún no tiene una URL (preserva el orden de "más reciente primero")
-  for (const foto of fotos) {
-    if (!foto.conductor_id) continue;
-    if (fotoMap.get(foto.conductor_id) === null || fotoMap.get(foto.conductor_id) === undefined) {
-      const key = foto.s3_key || foto.ruta_archivo || null;
-      fotoMap.set(foto.conductor_id, key);
-    }
-  }
-
-  // 4. Generar URLs firmadas en paralelo. Si una falla, dejar null (no rompe la lista).
-  const entries = Array.from(fotoMap.entries()).filter(([, key]) => !!key) as Array<[string, string]>;
-  if (entries.length > 0) {
-    const signed = await Promise.all(
-      entries.map(([, key]) =>
-        getS3SignedUrl(key).catch((err) => {
-          console.error(`[conductores] Error firmando s3_key=${key}:`, err?.message || err);
-          return null;
-        }),
-      ),
-    );
-    entries.forEach(([conductorId], i) => {
-      fotoMap.set(conductorId, signed[i] ?? null);
-    });
-  }
-
-  return fotoMap;
-}
-
-/**
- * Atacha `foto_signed_url` a un conductor usando el mapa pre-calculado.
- * Si el mapa no tiene el id, intenta generar la URL desde `foto_url` (fallback).
- */
-async function attachFotoConductor(
-  conductor: { id: string; foto_url?: string | null },
-  fotoMap: Map<string, string | null>,
-): Promise<string | null> {
-  if (fotoMap.has(conductor.id)) {
-    return fotoMap.get(conductor.id) ?? null;
-  }
-  // Fallback: si el mapa no tiene la entrada (caso borde), firmar foto_url directo
-  if (conductor.foto_url) {
-    try {
-      return await getS3SignedUrl(conductor.foto_url);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-export const ConductoresService = {
   // Obtener todos los conductores (sin soft deleted)
   async obtenerTodos(filters?: {
     estado?: string;
@@ -164,9 +90,22 @@ export const ConductoresService = {
           numero_identificacion: true,
           email: true,
           telefono: true,
+          foto_url: true,
+          fecha_nacimiento: true,
+          genero: true,
+          direccion: true,
           cargo: true,
+          fecha_ingreso: true,
+          salario_base: true,
           estado: true,
+          eps: true,
+          fondo_pension: true,
+          arl: true,
+          tipo_contrato: true,
+          categoria_licencia: true,
+          vencimiento_licencia: true,
           sede_trabajo: true,
+          tipo_sangre: true,
           created_at: true,
           updated_at: true,
         },
@@ -177,17 +116,41 @@ export const ConductoresService = {
       prisma.conductores.count({ where }),
     ]);
 
-    // Batch: 1 sola query a `documento` + 1 a `conductores` (fallback) en vez
-    // de N queries por conductor. Las URLs firmadas se generan en paralelo
-    // después. Esto baja el request de ~6s+ a <1s incluso con 100+ conductores.
-    const ids = conductores.map((c) => c.id).filter((id): id is string => !!id);
-    const fotoMap = await obtenerFotosConductoresBatch(ids);
-
+    // Generar URLs firmadas de S3 para las fotos desde la tabla documento
     const conductoresConFotos = await Promise.all(
-      conductores.map(async (conductor) => ({
-        ...conductor,
-        foto_signed_url: await attachFotoConductor(conductor, fotoMap),
-      })),
+      conductores.map(async (conductor) => {
+        let foto_signed_url = null;
+
+        try {
+          // Buscar documento de tipo FOTO_PERFIL para el conductor
+          const fotoDocumento = await prisma.documento.findFirst({
+            where: {
+              conductor_id: conductor.id,
+              categoria: "FOTO_PERFIL",
+              estado: "vigente", // Cambiado de 'ACTIVO' a 'vigente'
+            },
+            orderBy: {
+              created_at: "desc",
+            },
+          });
+
+          // Si existe el documento y tiene s3_key, generar URL firmada
+          if (fotoDocumento?.s3_key) {
+            foto_signed_url = await getS3SignedUrl(fotoDocumento.s3_key);
+          }
+          // Fallback al foto_url antiguo si existe
+          else if (conductor.foto_url) {
+            foto_signed_url = await getS3SignedUrl(conductor.foto_url);
+          }
+        } catch (error) {
+          console.error(
+            `Error generando URL firmada para conductor ${conductor.id}:`,
+            error,
+          );
+        }
+
+        return { ...conductor, foto_signed_url };
+      }),
     );
 
     return {
@@ -232,10 +195,32 @@ export const ConductoresService = {
       throw new Error("Conductor no encontrado");
     }
 
-    // Reutiliza el mismo batch helper (con 1 solo id) para mantener
-    // consistencia con `obtenerTodos` y compartir la lógica de fallback.
-    const fotoMap = await obtenerFotosConductoresBatch([conductor.id]);
-    const foto_signed_url = await attachFotoConductor(conductor, fotoMap);
+    // Generar URL firmada para la foto desde la tabla documento
+    let foto_signed_url = null;
+    try {
+      // Buscar documento de tipo FOTO_PERFIL para el conductor
+      const fotoDocumento = await prisma.documento.findFirst({
+        where: {
+          conductor_id: conductor.id,
+          categoria: "FOTO_PERFIL",
+          estado: "vigente", // Cambiado de 'ACTIVO' a 'vigente'
+        },
+        orderBy: {
+          created_at: "desc",
+        },
+      });
+
+      // Si existe el documento y tiene s3_key, generar URL firmada
+      if (fotoDocumento?.s3_key) {
+        foto_signed_url = await getS3SignedUrl(fotoDocumento.s3_key);
+      }
+      // Fallback al foto_url antiguo si existe
+      else if (conductor.foto_url) {
+        foto_signed_url = await getS3SignedUrl(conductor.foto_url);
+      }
+    } catch (error) {
+      console.error("Error generando URL firmada:", error);
+    }
 
     return { ...conductor, foto_signed_url };
   },
@@ -524,6 +509,7 @@ export const ConductoresService = {
           estado: true,
           sede_trabajo: true,
           cargo: true,
+          salario_base: true,
           deleted_at: true,
           created_at: true,
           updated_at: true,
@@ -957,6 +943,7 @@ export const ConductoresService = {
           estado: true,
           sede_trabajo: true,
           cargo: true,
+          salario_base: true,
           oculto: true,
           created_at: true,
           updated_at: true,

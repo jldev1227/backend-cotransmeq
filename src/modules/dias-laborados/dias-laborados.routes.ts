@@ -93,6 +93,72 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   }, DiasLaboradosController.calendarAdmin)
 
   // ═══════════════════════════════════════════
+  // RUTA ADMIN: Guardado MASIVO de recorridos
+  //
+  // El operador envía patrones (uno por cada tipo de día: LABORADO,
+  // DISPONIBLE, DESCANSO, MANTENIMIENTO) y las fechas en que aplica
+  // cada uno. El backend expande y crea los registros. Reemplaza
+  // cualquier registro existente SOLO en las fechas tocadas
+  // (idempotente). Los días no incluidos en ningún patrón NO se
+  // tocan — el operador debe crear un patrón explícitamente para
+  // marcarlos.
+  // ═══════════════════════════════════════════
+  app.post('/dias-laborados/admin/registros-masivos', {
+    onRequest: authMiddleware,
+    schema: {
+      description:
+        'Guardar recorridos de un mes completo para un conductor, a partir de patrones (uno por tipo de día) y asignación de fechas',
+      tags: ['dias-laborados', 'admin'],
+      body: {
+        type: 'object',
+        required: ['conductor_id', 'mes', 'anio', 'patrones'],
+        properties: {
+          conductor_id: { type: 'string', format: 'uuid' },
+          mes: { type: 'integer', minimum: 1, maximum: 12 },
+          anio: { type: 'integer', minimum: 2000, maximum: 2100 },
+          patrones: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['fechas'],
+              properties: {
+                tipo: {
+                  type: 'string',
+                  enum: ['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO'],
+                  default: 'LABORADO'
+                },
+                fechas: {
+                  type: 'array',
+                  items: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+                  minItems: 1
+                },
+                segmento: {
+                  type: 'object',
+                  properties: {
+                    cliente_id: { type: 'string', format: 'uuid', nullable: true },
+                    cliente_nombre: { type: 'string', nullable: true },
+                    vehiculo_id: { type: 'string', format: 'uuid', nullable: true },
+                    vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
+                    hora_inicio: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
+                    hora_fin: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
+                    horas_conducidas: { type: 'number', minimum: 0, maximum: 24, nullable: true },
+                    km_inicial: { type: 'integer', minimum: 0, nullable: true },
+                    km_final: { type: 'integer', minimum: 0, nullable: true },
+                    pernocte: { type: 'boolean' },
+                    observaciones: { type: 'string', nullable: true }
+                  }
+                },
+                observaciones: { type: 'string', nullable: true }
+              }
+            },
+            maxItems: 60
+          }
+        }
+      }
+    }
+  }, DiasLaboradosController.guardarRegistrosMasivos)
+
+  // ═══════════════════════════════════════════
   // RUTAS: BONOS de planilla (lectura libre para usuarios autenticados,
   //        escritura protegida por requireBonosPlanilla)
   // ═══════════════════════════════════════════
@@ -226,6 +292,139 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   }, BonoConfigVisualController.guardar)
 
   // ═══════════════════════════════════════════
+  // RUTAS ADMIN: Catálogos auxiliares (clientes / vehículos)
+  // para alimentar los selects del modal de registro masivo de
+  // recorridos. Se exponen a nivel de la app (no dentro del
+  // sub-scope `conductorAuthMiddleware`) para que usuarios
+  // autenticados con token de admin/dashboard puedan consumirlos.
+  // ═══════════════════════════════════════════
+  app.get('/dias-laborados/clientes', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Lista de clientes activos (para selects del modal admin)',
+      tags: ['dias-laborados', 'admin']
+    }
+  }, DiasLaboradosController.listarClientes)
+
+  app.get('/dias-laborados/vehiculos', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Lista de vehículos activos (para selects del modal admin)',
+      tags: ['dias-laborados', 'admin']
+    }
+  }, DiasLaboradosController.listarVehiculos)
+
+  // ═══════════════════════════════════════════
+  // RUTAS ADMIN: Editar / soft-delete de un segmento
+  // Usado por los botones de acción del canvas de Recorridos.
+  // El soft delete marca `deleted_at`; la query de `calendar`
+  // filtra esos segmentos para que dejen de aparecer.
+  // ═══════════════════════════════════════════
+  app.put('/dias-laborados/admin/segmento/:id', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Editar un segmento (tramo) específico',
+      tags: ['dias-laborados', 'admin'],
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string' } }
+      },
+      body: {
+        type: 'object',
+        properties: {
+          cliente_id: { type: 'string', format: 'uuid', nullable: true },
+          cliente_nombre: { type: 'string', maxLength: 255, nullable: true },
+          vehiculo_id: { type: 'string', format: 'uuid', nullable: true },
+          vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
+          hora_inicio: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
+          hora_fin: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
+          inicio_dia_siguiente: { type: 'boolean' },
+          fin_dia_siguiente: { type: 'boolean' },
+          horas_conducidas: { type: 'number', minimum: 0, maximum: 24, nullable: true },
+          km_inicial: { type: 'integer', minimum: 0, nullable: true },
+          km_final: { type: 'integer', minimum: 0, nullable: true },
+          pernocte: { type: 'boolean' },
+          observaciones: { type: 'string', maxLength: 500, nullable: true }
+        }
+      }
+    }
+  }, DiasLaboradosController.editarSegmento)
+
+  app.delete('/dias-laborados/admin/segmento/:id', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Soft delete de un segmento (marca deleted_at)',
+      tags: ['dias-laborados', 'admin'],
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string' } }
+      }
+    }
+  }, DiasLaboradosController.softDeleteSegmento)
+
+  // ═══════════════════════════════════════════
+  // RUTAS ADMIN: Editar / soft-delete de un REGISTRO (día)
+  // Cubre días DESCANSO / MANTENIMIENTO / DISPONIBLE sin
+  // segmentos, o el caso de querer borrar un día completo.
+  // ═══════════════════════════════════════════
+  app.put('/dias-laborados/admin/registro/:id', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Editar metadata de un registro (tipo + observaciones + segmento opcional)',
+      tags: ['dias-laborados', 'admin'],
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string' } }
+      },
+      body: {
+        type: 'object',
+        properties: {
+          tipo: {
+            type: 'string',
+            enum: ['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO']
+          },
+          observaciones: { type: 'string', maxLength: 500, nullable: true },
+          segmento: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              cliente_id: { type: 'string', format: 'uuid', nullable: true },
+              cliente_nombre: { type: 'string', maxLength: 255, nullable: true },
+              vehiculo_id: { type: 'string', format: 'uuid', nullable: true },
+              vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
+              hora_inicio: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
+              hora_fin: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
+              inicio_dia_siguiente: { type: 'boolean' },
+              fin_dia_siguiente: { type: 'boolean' },
+              horas_conducidas: { type: 'number', minimum: 0, maximum: 24, nullable: true },
+              km_inicial: { type: 'integer', minimum: 0, nullable: true },
+              km_final: { type: 'integer', minimum: 0, nullable: true },
+              pernocte: { type: 'boolean' },
+              observaciones: { type: 'string', maxLength: 500, nullable: true }
+            }
+          }
+        }
+      }
+    }
+  }, DiasLaboradosController.editarRegistro)
+
+  app.delete('/dias-laborados/admin/registro/:id', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Soft delete de un registro (día completo) — marca deleted_at en padre y segmentos',
+      tags: ['dias-laborados', 'admin'],
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string' } }
+      }
+    }
+  }, DiasLaboradosController.softDeleteRegistro)
+
+  // ═══════════════════════════════════════════
   // RUTAS PROTEGIDAS (requieren token de conductor)
   // ═══════════════════════════════════════════
 
@@ -287,20 +486,10 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
       }
     }, DiasLaboradosController.eliminarRegistro)
 
-    // Listar clientes (para select en formulario)
-    protectedApp.get('/dias-laborados/clientes', {
-      schema: {
-        description: 'Obtener lista de clientes para el formulario',
-        tags: ['dias-laborados']
-      }
-    }, DiasLaboradosController.listarClientes)
-
-    // Listar vehículos (para select en formulario)
-    protectedApp.get('/dias-laborados/vehiculos', {
-      schema: {
-        description: 'Obtener lista de vehículos para el formulario',
-        tags: ['dias-laborados']
-      }
-    }, DiasLaboradosController.listarVehiculos)
+    // NOTA: Los endpoints /dias-laborados/clientes y
+    // /dias-laborados/vehiculos están a nivel de la app principal
+    // (protegidos con `authMiddleware`) para que el dashboard
+    // administrativo pueda consumirlos. Aquí solo vive el flujo
+    // del portal público del conductor.
   })
 }

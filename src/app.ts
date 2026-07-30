@@ -49,6 +49,7 @@ import { liquidacionesTercerosDescuentosRoutes } from './modules/liquidaciones-t
 import { invitacionesRoutes } from './modules/invitaciones/invitaciones.routes'
 import { liquidacionesChatRoutes } from './modules/liquidaciones-chat/liquidaciones-chat.routes'
 import { liquidacionesSnapshotsRoutes } from './modules/liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.routes'
+import { liquidacionesTercerosMensualRoutes } from './modules/liquidaciones-terceros-mensual/liquidaciones-terceros-mensual.routes'
 import { formulariosSarlaftRoutes } from './modules/formularios-sarlaft/formularios-sarlaft.routes'
 
 export function buildApp() {
@@ -94,7 +95,7 @@ export function buildApp() {
     app.register(swagger as any, {
         routePrefix: '/docs',
         swagger: {
-            info: { title: 'Cotransmeq API', version: '0.1.0' }
+            info: { title: 'Transmeralda API', version: '0.1.0' }
         },
         exposeRoute: true
     })
@@ -144,6 +145,7 @@ export function buildApp() {
     app.register(invitacionesRoutes, { prefix: '/api' })
     app.register(liquidacionesChatRoutes, { prefix: '/api' })
     app.register(liquidacionesSnapshotsRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosMensualRoutes, { prefix: '/api' })
     
     // Rutas públicas de firma de desprendible (sin auth para conductor)
     app.register(desprendibleFirmaRoutes, { prefix: '/api' })

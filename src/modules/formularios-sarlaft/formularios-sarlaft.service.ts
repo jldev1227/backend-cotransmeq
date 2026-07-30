@@ -1,27 +1,75 @@
-import { prisma } from '../../config/prisma'
-import { getFormularioPorCodigo, FormularioDefinicion, SeccionDefinicion, PreguntaDefinicion, getDocumentosRequeridos, UPLOAD_MAX_BYTES, UPLOAD_MIME_PERMITIDOS, UPLOAD_EXT_PERMITIDAS, TipoDocumentoId, DOCUMENTOS_REQUERIDOS } from './formularios-sarlaft.constants'
-import type { SubmitFormularioSarlaftInput, ArchivoUpload } from './formularios-sarlaft.schema'
-import { EmailService } from '../../services/email.service'
-import { uploadToS3, deleteFromS3, getS3SignedUrl } from '../../config/aws'
-import crypto from 'crypto'
+import { prisma } from "../../config/prisma";
+import {
+  getFormularioPorCodigo,
+  FormularioDefinicion,
+  SeccionDefinicion,
+  PreguntaDefinicion,
+  getDocumentosRequeridos,
+  UPLOAD_MAX_BYTES,
+  UPLOAD_MIME_PERMITIDOS,
+  UPLOAD_EXT_PERMITIDAS,
+  TipoDocumentoId,
+  DOCUMENTOS_REQUERIDOS,
+} from "./formularios-sarlaft.constants";
+import type {
+  SubmitFormularioSarlaftInput,
+  ArchivoUpload,
+} from "./formularios-sarlaft.schema";
+import { EmailService } from "../../services/email.service";
+import {
+  uploadToS3,
+  deleteFromS3,
+  getS3SignedUrl,
+  getS3ObjectStream,
+} from "../../config/aws";
+import { getConfigPorTipo, type TipoFormularioSarlaft } from "./sarlaft-config";
+import { PDFGeneratorSarlaftService } from "./pdf-generator-sarlaft-html.service";
+import { SarlaftEvidenciaService } from "./evidencia-sarlaft.service";
+import crypto from "crypto";
+
+/**
+ * Extrae la firma del bloque de respuestas (siempre como dataURL base64
+ * proveniente del canvas del front) para los tres tipos de formulario.
+ * Devuelve null si no hay firma o el formato no es válido.
+ */
+function extraerFirmaDataUrl(
+  respuestas: Record<string, any> | null | undefined,
+): string | null {
+  if (!respuestas) return null;
+  const f =
+    respuestas["PER-ENC-04"] ??
+    respuestas["ACC-ENC-04"] ??
+    respuestas["CLI-ENC-04"];
+  if (!f || typeof f !== "string") return null;
+  if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(f)) return null;
+  return f;
+}
 
 // ──────────────────────────────────────────────────────────
 // Generación de radicado
 // ──────────────────────────────────────────────────────────
 async function generarRadicado(tipoFormulario: string): Promise<string> {
-  const year = new Date().getFullYear()
-  const prefix = tipoFormulario === 'cliente_proveedor' ? 'CLI' : tipoFormulario === 'accionistas' ? 'ACC' : 'PER'
+  const year = new Date().getFullYear();
+  const prefix =
+    tipoFormulario === "cliente_proveedor"
+      ? "CLI"
+      : tipoFormulario === "accionistas"
+        ? "ACC"
+        : "PER";
 
   // Conteo del año actual
-  const desde = new Date(`${year}-01-01T00:00:00Z`)
-  const hasta = new Date(`${year}-12-31T23:59:59Z`)
+  const desde = new Date(`${year}-01-01T00:00:00Z`);
+  const hasta = new Date(`${year}-12-31T23:59:59Z`);
 
   const count = await prisma.formulario_sarlaft_ptee.count({
-    where: { fecha_envio: { gte: desde, lte: hasta }, tipo_formulario: tipoFormulario }
-  })
+    where: {
+      fecha_envio: { gte: desde, lte: hasta },
+      tipo_formulario: tipoFormulario,
+    },
+  });
 
-  const correlativo = String(count + 1).padStart(5, '0')
-  return `SARLAFT-${year}-${prefix}-${correlativo}`
+  const correlativo = String(count + 1).padStart(5, "0");
+  return `SARLAFT-${year}-${prefix}-${correlativo}`;
 }
 
 // ──────────────────────────────────────────────────────────
@@ -29,61 +77,69 @@ async function generarRadicado(tipoFormulario: string): Promise<string> {
 // ──────────────────────────────────────────────────────────
 function extraerDatosClave(
   formulario: FormularioDefinicion,
-  respuestas: Record<string, any>
+  respuestas: Record<string, any>,
 ): {
-  nombre_completo: string | null
-  tipo_documento: string | null
-  numero_documento: string | null
-  correo: string | null
-  telefono: string | null
+  nombre_completo: string | null;
+  tipo_documento: string | null;
+  numero_documento: string | null;
+  correo: string | null;
+  telefono: string | null;
 } {
   // Mapeo por tipo de formulario
-  if (formulario.tipo === 'personal') {
+  if (formulario.tipo === "personal") {
     return {
-      nombre_completo: firstString(respuestas['PER-IG-01']),
-      tipo_documento: 'CC',
-      numero_documento: firstString(respuestas['PER-IG-02']),
-      correo: firstString(respuestas['PER-IP-03']),
-      telefono: firstString(respuestas['PER-IP-02'])
-    }
+      nombre_completo: firstString(respuestas["PER-IG-01"]),
+      tipo_documento: "CC",
+      numero_documento: firstString(respuestas["PER-IG-02"]),
+      correo: firstString(respuestas["PER-IP-03"]),
+      telefono: firstString(respuestas["PER-IP-02"]),
+    };
   }
 
-  if (formulario.tipo === 'accionistas') {
+  if (formulario.tipo === "accionistas") {
     return {
-      nombre_completo: firstString(respuestas['ACC-EMP-01']),
-      tipo_documento: 'NIT',
-      numero_documento: firstString(respuestas['ACC-EMP-02']),
-      correo: firstString(respuestas['ACC-EMP-05']),
-      telefono: firstString(respuestas['ACC-EMP-04'])
-    }
+      nombre_completo: firstString(respuestas["ACC-EMP-01"]),
+      tipo_documento: "NIT",
+      numero_documento: firstString(respuestas["ACC-EMP-02"]),
+      correo: firstString(respuestas["ACC-EMP-05"]),
+      telefono: firstString(respuestas["ACC-EMP-04"]),
+    };
   }
 
   // cliente_proveedor — depende del tipo de cliente
-  const tipoCliente = firstString(respuestas['CLI-IG-01'])
-  if (tipoCliente === 'Persona Natural') {
+  const tipoCliente = firstString(respuestas["CLI-IG-01"]);
+  if (tipoCliente === "Persona Natural") {
     return {
-      nombre_completo: firstString(respuestas['CLI-PN-01']),
-      tipo_documento: 'CC',
-      numero_documento: firstString(respuestas['CLI-PN-02']),
-      correo: firstString(respuestas['CLI-PN-09']),
-      telefono: firstString(respuestas['CLI-PN-08'])
-    }
+      nombre_completo: firstString(respuestas["CLI-PN-01"]),
+      tipo_documento: "CC",
+      numero_documento: firstString(respuestas["CLI-PN-02"]),
+      correo: firstString(respuestas["CLI-PN-09"]),
+      telefono: firstString(respuestas["CLI-PN-08"]),
+    };
   }
   // Persona Jurídica o sin definir
   return {
-    nombre_completo: firstString(respuestas['CLI-PJ-01']) ?? firstString(respuestas['CLI-PN-01']),
-    tipo_documento: tipoCliente === 'Persona Jurídica' ? 'NIT' : 'CC',
-    numero_documento: firstString(respuestas['CLI-PJ-02']) ?? firstString(respuestas['CLI-PN-02']),
-    correo: firstString(respuestas['CLI-DP-06']) ?? firstString(respuestas['CLI-PN-09']),
-    telefono: firstString(respuestas['CLI-DP-05']) ?? firstString(respuestas['CLI-PN-08'])
-  }
+    nombre_completo:
+      firstString(respuestas["CLI-PJ-01"]) ??
+      firstString(respuestas["CLI-PN-01"]),
+    tipo_documento: tipoCliente === "Persona Jurídica" ? "NIT" : "CC",
+    numero_documento:
+      firstString(respuestas["CLI-PJ-02"]) ??
+      firstString(respuestas["CLI-PN-02"]),
+    correo:
+      firstString(respuestas["CLI-DP-06"]) ??
+      firstString(respuestas["CLI-PN-09"]),
+    telefono:
+      firstString(respuestas["CLI-DP-05"]) ??
+      firstString(respuestas["CLI-PN-08"]),
+  };
 }
 
 function firstString(value: unknown): string | null {
-  if (value == null) return null
-  if (typeof value === 'string') return value.trim() || null
-  if (typeof value === 'number') return String(value)
-  return null
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number") return String(value);
+  return null;
 }
 
 // ──────────────────────────────────────────────────────────
@@ -91,77 +147,92 @@ function firstString(value: unknown): string | null {
 // ──────────────────────────────────────────────────────────
 function validarObligatorios(
   formulario: FormularioDefinicion,
-  respuestas: Record<string, any>
+  respuestas: Record<string, any>,
 ): string[] {
-  const errores: string[] = []
+  const errores: string[] = [];
 
   for (const seccion of formulario.secciones) {
-    if (!esSeccionVisible(seccion, respuestas)) continue
+    if (!esSeccionVisible(seccion, respuestas)) continue;
 
-    if (seccion.tipo_bloque === 'tabla_repetible_multiple') {
-      const filas = extraerFilasTabla(seccion, respuestas)
+    if (seccion.tipo_bloque === "tabla_repetible_multiple") {
+      const filas = extraerFilasTabla(seccion, respuestas);
       // Si la sección no tiene campos obligatorios, se permite 0 filas
-      const tieneObligatorios = seccion.preguntas.some(p => p.obligatorio)
+      const tieneObligatorios = seccion.preguntas.some((p) => p.obligatorio);
       if (filas.length === 0 && tieneObligatorios) {
-        errores.push(`La sección "${seccion.seccion}" requiere al menos un registro.`)
-        continue
+        errores.push(
+          `La sección "${seccion.seccion}" requiere al menos un registro.`,
+        );
+        continue;
       }
       for (let i = 0; i < filas.length; i++) {
-        const fila = filas[i]
+        const fila = filas[i];
         for (const p of seccion.preguntas) {
           if (p.obligatorio) {
-            const v = fila[p.id]
-            if (v == null || v === '') {
-              errores.push(`Fila ${i + 1} de "${seccion.seccion}" — campo "${p.pregunta}" es obligatorio.`)
+            const v = fila[p.id];
+            if (v == null || v === "") {
+              errores.push(
+                `Fila ${i + 1} de "${seccion.seccion}" — campo "${p.pregunta}" es obligatorio.`,
+              );
             }
           }
         }
       }
     } else {
       for (const p of seccion.preguntas) {
-        if (!p.obligatorio) continue
-        if (p.tipo_respuesta === 'declaracion_informativa') continue
-        if (!esPreguntaVisible(p.id, respuestas)) continue
-        const v = respuestas[p.id]
-        if (v == null || v === '') {
-          errores.push(`Campo obligatorio pendiente: "${p.pregunta}"`)
+        if (!p.obligatorio) continue;
+        if (p.tipo_respuesta === "declaracion_informativa") continue;
+        if (!esPreguntaVisible(p.id, respuestas)) continue;
+        const v = respuestas[p.id];
+        if (v == null || v === "") {
+          errores.push(`Campo obligatorio pendiente: "${p.pregunta}"`);
         }
       }
     }
   }
 
-  return errores
+  return errores;
 }
 
-function esSeccionVisible(seccion: SeccionDefinicion, respuestas: Record<string, any>): boolean {
-  if (!seccion.condicional) return true
+function esSeccionVisible(
+  seccion: SeccionDefinicion,
+  respuestas: Record<string, any>,
+): boolean {
+  if (!seccion.condicional) return true;
   // Convención: "Se diligencia si <ID_PREGUNTA> = <valor>"
-  const match = seccion.condicional.match(/si\s+([A-Z0-9-]+)\s*=\s*(.+)$/i)
-  if (!match) return true
-  const [, preguntaId, valorEsperado] = match
-  return respuestas[preguntaId] === valorEsperado.trim()
+  const match = seccion.condicional.match(/si\s+([A-Z0-9-]+)\s*=\s*(.+)$/i);
+  if (!match) return true;
+  const [, preguntaId, valorEsperado] = match;
+  return respuestas[preguntaId] === valorEsperado.trim();
 }
 
-function esPreguntaVisible(preguntaId: string, respuestas: Record<string, any>): boolean {
+function esPreguntaVisible(
+  preguntaId: string,
+  respuestas: Record<string, any>,
+): boolean {
   // Las preguntas *-DEC-04-N son condicionales si DEC-04 = Sí
   if (/^(?:PER|ACC|CLI)-DEC-04-[1-4]$/.test(preguntaId)) {
-    const tipo = preguntaId.split('-')[0] // PER, ACC, CLI
-    return respuestas[`${tipo}-DEC-04`] === 'Sí'
+    const tipo = preguntaId.split("-")[0]; // PER, ACC, CLI
+    return respuestas[`${tipo}-DEC-04`] === "Sí";
   }
   // CLI-DEC-05 también es condicional a CLI-DEC-04 = Sí
-  if (preguntaId === 'CLI-DEC-05') {
-    return respuestas['CLI-DEC-04'] === 'Sí'
+  if (preguntaId === "CLI-DEC-05") {
+    return respuestas["CLI-DEC-04"] === "Sí";
   }
-  return true
+  return true;
 }
 
-function extraerFilasTabla(seccion: SeccionDefinicion, respuestas: Record<string, any>): Array<Record<string, any>> {
+function extraerFilasTabla(
+  seccion: SeccionDefinicion,
+  respuestas: Record<string, any>,
+): Array<Record<string, any>> {
   // El frontend envía la tabla bajo un key explícito definido en la sección
   // (`key_tabla`) o derivado del id de la primera pregunta como fallback.
-  const tablaKey = seccion.key_tabla ?? `${seccion.preguntas[0]?.id.split('-').slice(0, -1).join('-')}__rows`
-  const filas = respuestas[tablaKey]
-  if (Array.isArray(filas)) return filas
-  return []
+  const tablaKey =
+    seccion.key_tabla ??
+    `${seccion.preguntas[0]?.id.split("-").slice(0, -1).join("-")}__rows`;
+  const filas = respuestas[tablaKey];
+  if (Array.isArray(filas)) return filas;
+  return [];
 }
 
 // ──────────────────────────────────────────────────────────
@@ -169,21 +240,42 @@ function extraerFilasTabla(seccion: SeccionDefinicion, respuestas: Record<string
 // ──────────────────────────────────────────────────────────
 function validarArchivo(archivo: ArchivoUpload): string | null {
   if (archivo.size > UPLOAD_MAX_BYTES) {
-    return `El archivo "${archivo.filename}" excede el tamaño máximo de 10 MB.`
+    return `El archivo "${archivo.filename}" excede el tamaño máximo de 10 MB.`;
   }
   // Validamos la extensión (lo más confiable) y además el mime type.
-  const extOk = UPLOAD_EXT_PERMITIDAS.some((ext) => archivo.filename.toLowerCase().endsWith(ext))
+  const extOk = UPLOAD_EXT_PERMITIDAS.some((ext) =>
+    archivo.filename.toLowerCase().endsWith(ext),
+  );
   if (!extOk) {
-    return `El archivo "${archivo.filename}" no tiene una extensión permitida. Solo se aceptan: ${UPLOAD_EXT_PERMITIDAS.join(', ')}.`
+    return `El archivo "${archivo.filename}" no tiene una extensión permitida. Solo se aceptan: ${UPLOAD_EXT_PERMITIDAS.join(", ")}.`;
   }
   if (archivo.mimetype && !UPLOAD_MIME_PERMITIDOS.includes(archivo.mimetype)) {
-    return `El archivo "${archivo.filename}" tiene un tipo MIME no permitido (${archivo.mimetype}).`
+    return `El archivo "${archivo.filename}" tiene un tipo MIME no permitido (${archivo.mimetype}).`;
   }
-  return null
+  return null;
 }
 
 function calcularHash(buffer: Buffer): string {
-  return crypto.createHash('sha256').update(buffer).digest('hex')
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+/**
+ * Devuelve la URL pública canónica para construir el link redirect al
+ * dashboard admin de SARLAFT, idéntica a la lógica del EmailService pero
+ * reusada por este módulo.
+ */
+function getFrontendUrl(): string {
+  const v = process.env.EMAIL_FRONTEND_URL?.trim();
+  if (v) return v.replace(/\/+$/, "");
+  const fe = process.env.FRONTEND_URL?.trim();
+  if (fe) {
+    const first = fe
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean)[0];
+    if (first) return first.replace(/\/+$/, "");
+  }
+  return "http://localhost:5173";
 }
 
 // ──────────────────────────────────────────────────────────
@@ -196,57 +288,91 @@ export const FormulariosSarlaftService = {
    *  - field 'payload': JSON string con las respuestas
    *  - fields 'doc_<tipo>': archivo (uno por cada documento requerido)
    */
-  async submit(input: SubmitFormularioSarlaftInput, archivos: ArchivoUpload[], contextoHttp: { ip: string | null; userAgent: string | null; referer: string | null }) {
-    const formulario = getFormularioPorCodigo(input.codigo_formulario)
+  async submit(
+    input: SubmitFormularioSarlaftInput,
+    archivos: ArchivoUpload[],
+    contextoHttp: {
+      ip: string | null;
+      userAgent: string | null;
+      referer: string | null;
+    },
+  ) {
+    const formulario = getFormularioPorCodigo(input.codigo_formulario);
     if (!formulario) {
-      throw Object.assign(new Error(`Código de formulario no soportado: ${input.codigo_formulario}`), { statusCode: 400 })
+      throw Object.assign(
+        new Error(
+          `Código de formulario no soportado: ${input.codigo_formulario}`,
+        ),
+        { statusCode: 400 },
+      );
     }
 
     // 1. Validar obligatorios
-    const errores = validarObligatorios(formulario, input.respuestas)
+    const errores = validarObligatorios(formulario, input.respuestas);
     if (errores.length > 0) {
-      throw Object.assign(new Error('Hay campos obligatorios pendientes'), {
+      throw Object.assign(new Error("Hay campos obligatorios pendientes"), {
         statusCode: 422,
-        details: errores
-      })
+        details: errores,
+      });
     }
 
     // 2. Validar archivos subidos
-    const tipoCliente = firstString(input.respuestas['CLI-IG-01'])
-    const docsRequeridos = getDocumentosRequeridos(formulario.tipo, tipoCliente as any)
-    const docsRequeridosIds = new Set(docsRequeridos.map((d) => d.id))
-    const archivosSubidosPorTipo = new Map<string, ArchivoUpload>()
+    const tipoCliente = firstString(input.respuestas["CLI-IG-01"]);
+    const docsRequeridos = getDocumentosRequeridos(
+      formulario.tipo,
+      tipoCliente as any,
+    );
+    const docsRequeridosIds = new Set(docsRequeridos.map((d) => d.id));
+    const archivosSubidosPorTipo = new Map<string, ArchivoUpload>();
     for (const archivo of archivos) {
       // fieldname esperado: "doc_<tipo_documento>"
-      const match = archivo.fieldname.match(/^doc_(.+)$/)
-      if (!match) continue
-      const tipo = match[1]
-      if (!docsRequeridosIds.has(tipo as TipoDocumentoId)) continue
-      const err = validarArchivo(archivo)
+      const match = archivo.fieldname.match(/^doc_(.+)$/);
+      if (!match) continue;
+      const tipo = match[1];
+      if (!docsRequeridosIds.has(tipo as TipoDocumentoId)) continue;
+      const err = validarArchivo(archivo);
       if (err) {
-        throw Object.assign(new Error(err), { statusCode: 422 })
+        throw Object.assign(new Error(err), { statusCode: 422 });
       }
-      archivosSubidosPorTipo.set(tipo, archivo)
+      archivosSubidosPorTipo.set(tipo, archivo);
     }
-    const docsFaltantes = docsRequeridos.filter((d) => !archivosSubidosPorTipo.has(d.id))
+    const docsFaltantes = docsRequeridos.filter(
+      (d) => !archivosSubidosPorTipo.has(d.id),
+    );
     if (docsFaltantes.length > 0) {
       throw Object.assign(
-        new Error(`Faltan documentos obligatorios: ${docsFaltantes.map((d) => d.nombre).join(', ')}`),
-        { statusCode: 422, details: docsFaltantes.map((d) => `Falta adjuntar: ${d.nombre}`) }
-      )
+        new Error(
+          `Faltan documentos obligatorios: ${docsFaltantes.map((d) => d.nombre).join(", ")}`,
+        ),
+        {
+          statusCode: 422,
+          details: docsFaltantes.map((d) => `Falta adjuntar: ${d.nombre}`),
+        },
+      );
     }
 
     // 3. Extraer datos clave
-    const datosClave = extraerDatosClave(formulario, input.respuestas)
+    const datosClave = extraerDatosClave(formulario, input.respuestas);
 
     // 4. Generar radicado
-    const radicado = await generarRadicado(formulario.tipo)
+    const radicado = await generarRadicado(formulario.tipo);
 
     // 5. Persistir formulario + subir archivos a S3 + crear registros de documentos
-    const fechaDiligenciamiento = input.fecha_diligenciamiento ? new Date(input.fecha_diligenciamiento) : null
-    const year = new Date().getFullYear()
+    const fechaDiligenciamiento = input.fecha_diligenciamiento
+      ? new Date(input.fecha_diligenciamiento)
+      : null;
+    const year = new Date().getFullYear();
 
-    const s3Keys: string[] = []
+    const s3Keys: string[] = [];
+    let registroCreado: any = null;
+    let documentosCreados: Array<{
+      id: string;
+      nombre_archivo: string;
+      tipo_documento: string;
+      s3_key: string;
+      mime_type: string;
+      tamano_bytes: string;
+    }> = [];
     try {
       const registro = await prisma.formulario_sarlaft_ptee.create({
         data: {
@@ -264,17 +390,18 @@ export const FormulariosSarlaftService = {
           ip_origen: contextoHttp.ip,
           user_agent: contextoHttp.userAgent,
           referer: contextoHttp.referer,
-          estado: 'recibido'
-        }
-      })
+          estado: "recibido",
+        },
+      });
+      registroCreado = registro;
 
       // Subir cada archivo a S3 y crear el registro
       for (const [tipo, archivo] of archivosSubidosPorTipo) {
-        const ext = archivo.filename.match(/\.[^.]+$/)?.[0] || ''
-        const s3Key = `sarlaft/${year}/${radicado}/${tipo}_${Date.now()}${ext}`
-        s3Keys.push(s3Key)
-        await uploadToS3(s3Key, archivo.buffer, archivo.mimetype)
-        await prisma.formulario_sarlaft_ptee_documento.create({
+        const ext = archivo.filename.match(/\.[^.]+$/)?.[0] || "";
+        const s3Key = `sarlaft/${year}/${radicado}/${tipo}_${Date.now()}${ext}`;
+        s3Keys.push(s3Key);
+        await uploadToS3(s3Key, archivo.buffer, archivo.mimetype);
+        const doc = await prisma.formulario_sarlaft_ptee_documento.create({
           data: {
             formulario_id: registro.id,
             tipo_documento: tipo,
@@ -282,16 +409,61 @@ export const FormulariosSarlaftService = {
             s3_key: s3Key,
             mime_type: archivo.mimetype,
             tamano_bytes: BigInt(archivo.size),
-            hash_sha256: calcularHash(archivo.buffer)
-          }
-        })
+            hash_sha256: calcularHash(archivo.buffer),
+          },
+        });
+        documentosCreados.push({
+          id: doc.id,
+          nombre_archivo: doc.nombre_archivo,
+          tipo_documento: doc.tipo_documento,
+          s3_key: doc.s3_key,
+          mime_type: doc.mime_type,
+          tamano_bytes: doc.tamano_bytes.toString(),
+        });
       }
 
-      // 6. Email de notificación
+      // 6. Generar PDF con las respuestas
+      let pdfBuffer: Buffer | null = null;
       try {
-        await this.notificarOficialCumplimiento(registradoToDTO(registro), formulario)
+        pdfBuffer = await PDFGeneratorSarlaftService.generarPDFSarlaft({
+          radicado,
+          tipo_formulario: formulario.tipo,
+          version: formulario.version,
+          fecha_envio: registro.fecha_envio.toISOString(),
+          fecha_diligenciamiento: fechaDiligenciamiento?.toISOString() ?? null,
+          nombre_completo: registro.nombre_completo,
+          tipo_documento: registro.tipo_documento,
+          numero_documento: registro.numero_documento,
+          correo: registro.correo,
+          telefono: registro.telefono,
+          ip_origen: registro.ip_origen,
+          user_agent: registro.user_agent,
+          referer: registro.referer,
+          estado: registro.estado,
+          respuestas: input.respuestas,
+          documentos: documentosCreados,
+          formulario,
+        });
+      } catch (pdfErr) {
+        console.error(
+          "[FormulariosSarlaft] No se pudo generar PDF inicial:",
+          pdfErr,
+        );
+      }
+
+      // 7. Email de notificación al destinatario configurado
+      try {
+        await this.notificarOficialCumplimiento(
+          registradoToDTO(registro),
+          formulario,
+          documentosCreados,
+          pdfBuffer,
+        );
       } catch (err) {
-        console.error('[FormulariosSarlaft] No se pudo enviar email de notificación:', err)
+        console.error(
+          "[FormulariosSarlaft] No se pudo enviar email de notificación:",
+          err,
+        );
       }
 
       return {
@@ -301,193 +473,50 @@ export const FormulariosSarlaftService = {
         codigo_formulario: registro.codigo_formulario,
         nombre_completo: registro.nombre_completo,
         documentos_adjuntos: archivosSubidosPorTipo.size,
-        mensaje: 'Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de COTRANSMEQ S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.'
-      }
+        mensaje:
+          "Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de TRANSMERALDA S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.",
+      };
     } catch (err) {
       // Si algo falla después de subir archivos a S3, los limpiamos
       for (const key of s3Keys) {
-        try { await deleteFromS3(key) } catch {}
+        try {
+          await deleteFromS3(key);
+        } catch {}
       }
-      throw err
+      throw err;
     }
   },
 
   /**
-   * Notifica por email al Oficial de Cumplimiento que se recibió un nuevo envío.
+   * Notifica por email al destinatario correspondiente que se recibió un nuevo
+   * envío. Usa la configuración centralizada `sarlaft-config.ts` para resolver
+   * los correos destino y adjunta el PDF + los archivos originales.
    */
-  /**
-   * Listado paginado para el dashboard admin con búsqueda y filtros.
-   */
-  async listarAdmin(params: {
-    page?: number
-    limit?: number
-    search?: string
-    tipo_formulario?: 'cliente_proveedor' | 'accionistas' | 'personal' | null
-    estado?: string | null
-    fecha_desde?: string | null
-    fecha_hasta?: string | null
-  }) {
-    const page = Math.max(1, params.page ?? 1)
-    const limit = Math.min(100, Math.max(1, params.limit ?? 20))
-    const skip = (page - 1) * limit
-
-    const where: any = {}
-    if (params.tipo_formulario) where.tipo_formulario = params.tipo_formulario
-    if (params.estado) where.estado = params.estado
-    if (params.fecha_desde || params.fecha_hasta) {
-      where.fecha_envio = {}
-      if (params.fecha_desde) where.fecha_envio.gte = new Date(params.fecha_desde)
-      if (params.fecha_hasta) where.fecha_envio.lte = new Date(params.fecha_hasta)
-    }
-    if (params.search) {
-      where.OR = [
-        { radicado: { contains: params.search, mode: 'insensitive' } },
-        { nombre_completo: { contains: params.search, mode: 'insensitive' } },
-        { numero_documento: { contains: params.search, mode: 'insensitive' } },
-        { correo: { contains: params.search, mode: 'insensitive' } }
-      ]
-    }
-
-    const [items, total] = await Promise.all([
-      prisma.formulario_sarlaft_ptee.findMany({
-        where,
-        include: {
-          _count: { select: { documentos: true } },
-          evaluado_por: { select: { id: true, nombre: true, correo: true } }
-        },
-        orderBy: { fecha_envio: 'desc' },
-        skip,
-        take: limit
-      }),
-      prisma.formulario_sarlaft_ptee.count({ where })
-    ])
-
-    return {
-      items: items.map((f) => ({
-        id: f.id,
-        radicado: f.radicado,
-        codigo_formulario: f.codigo_formulario,
-        tipo_formulario: f.tipo_formulario,
-        version: f.version,
-        fecha_envio: f.fecha_envio.toISOString(),
-        fecha_diligenciamiento: f.fecha_diligenciamiento?.toISOString() ?? null,
-        nombre_completo: f.nombre_completo,
-        tipo_documento: f.tipo_documento,
-        numero_documento: f.numero_documento,
-        correo: f.correo,
-        telefono: f.telefono,
-        estado: f.estado,
-        documentos_count: f._count.documentos,
-        evaluado_por: f.evaluado_por
-          ? { id: f.evaluado_por.id, nombre: f.evaluado_por.nombre }
-          : null
-      })),
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    }
-  },
-
-  /**
-   * Detalle completo de un formulario (con respuestas y documentos).
-   */
-  async obtenerDetalle(id: string) {
-    const f = await prisma.formulario_sarlaft_ptee.findUnique({
-      where: { id },
-      include: {
-        documentos: { orderBy: { tipo_documento: 'asc' } },
-        evaluado_por: { select: { id: true, nombre: true, correo: true } }
-      }
-    })
-    if (!f) return null
-
-    return {
-      id: f.id,
-      radicado: f.radicado,
-      codigo_formulario: f.codigo_formulario,
-      tipo_formulario: f.tipo_formulario,
-      version: f.version,
-      fecha_envio: f.fecha_envio.toISOString(),
-      fecha_diligenciamiento: f.fecha_diligenciamiento?.toISOString() ?? null,
-      nombre_completo: f.nombre_completo,
-      tipo_documento: f.tipo_documento,
-      numero_documento: f.numero_documento,
-      correo: f.correo,
-      telefono: f.telefono,
-      estado: f.estado,
-      evaluacion_concepto: f.evaluacion_concepto,
-      evaluacion_observaciones: f.evaluacion_observaciones,
-      evaluado_at: f.evaluado_at?.toISOString() ?? null,
-      evaluado_por: f.evaluado_por
-        ? { id: f.evaluado_por.id, nombre: f.evaluado_por.nombre, correo: f.evaluado_por.correo }
-        : null,
-      ip_origen: f.ip_origen,
-      user_agent: f.user_agent,
-      referer: f.referer,
-      respuestas: f.respuestas,
-      documentos: f.documentos.map((d) => ({
-        id: d.id,
-        tipo_documento: d.tipo_documento,
-        nombre_archivo: d.nombre_archivo,
-        s3_key: d.s3_key,
-        mime_type: d.mime_type,
-        tamano_bytes: d.tamano_bytes.toString(),
-        hash_sha256: d.hash_sha256,
-        created_at: d.created_at.toISOString()
-      })),
-      created_at: f.created_at.toISOString(),
-      updated_at: f.updated_at.toISOString()
-    }
-  },
-
-  /**
-   * Genera una URL firmada de S3 para descargar un documento del formulario.
-   */
-  async obtenerUrlDescargaDocumento(documentoId: string) {
-    const doc = await prisma.formulario_sarlaft_ptee_documento.findUnique({
-      where: { id: documentoId }
-    })
-    if (!doc) return null
-
-    const url = await getS3SignedUrl(doc.s3_key, 300) // 5 minutos
-    return {
-      id: doc.id,
-      nombre_archivo: doc.nombre_archivo,
-      mime_type: doc.mime_type,
-      tamano_bytes: doc.tamano_bytes.toString(),
-      url,
-      expires_in: 300
-    }
-  },
-
-  /**
-   * Actualiza el estado de evaluación de un formulario.
-   */
-  async actualizarEvaluacion(id: string, data: { estado?: string; concepto?: string | null; observaciones?: string | null; userId: string }) {
-    return prisma.formulario_sarlaft_ptee.update({
-      where: { id },
-      data: {
-        ...(data.estado && { estado: data.estado }),
-        ...(data.concepto !== undefined && { evaluacion_concepto: data.concepto }),
-        ...(data.observaciones !== undefined && { evaluacion_observaciones: data.observaciones }),
-        evaluado_por_id: data.userId,
-        evaluado_at: new Date()
-      }
-    })
-  },
-
-  async notificarOficialCumplimiento(registro: ReturnType<typeof registradoToDTO>, formulario: FormularioDefinicion) {
-    const to = 'operaciones.transmeraldasas@gmail.com'
-    const subject = `[SARLAFT ${registro.codigo_formulario}] Nuevo formulario recibido — Radicado ${registro.radicado}`
+  async notificarOficialCumplimiento(
+    registro: ReturnType<typeof registradoToDTO>,
+    formulario: FormularioDefinicion,
+    documentos: Array<{
+      nombre_archivo: string;
+      tipo_documento: string;
+      mime_type: string;
+      s3_key: string;
+      tamano_bytes: string;
+    }>,
+    pdfBuffer: Buffer | null,
+  ) {
+    const cfg = getConfigPorTipo(
+      registro.tipo_formulario as TipoFormularioSarlaft,
+    );
+    const subject = `[SARLAFT ${registro.codigo_formulario}] Nuevo formulario recibido — Radicado ${registro.radicado}`;
 
     const tipoLabel: Record<string, string> = {
-      cliente_proveedor: 'Cliente / Proveedor',
-      accionistas: 'Accionistas',
-      personal: 'Vinculación de Personal'
-    }
+      cliente_proveedor: "Cliente / Proveedor",
+      accionistas: "Accionistas",
+      personal: "Vinculación de Personal",
+    };
+
+    const frontendUrl = getFrontendUrl();
+    const dashboardLink = `${frontendUrl}/dashboard/sarlaft/${registro.id}`;
 
     // HTML del correo
     const html = `
@@ -518,7 +547,7 @@ export const FormulariosSarlaftService = {
         <span class="badge">${registro.codigo_formulario}</span>
       </div>
       <h1>Nuevo formulario SARLAFT + PTEE recibido</h1>
-      <p class="subtitle">Tipo: ${tipoLabel[registro.tipo_formulario] ?? registro.tipo_formulario}</p>
+      <p class="subtitle">Tipo: ${tipoLabel[registro.tipo_formulario] ?? registro.tipo_formulario} · Área responsable: ${cfg.area_responsable}</p>
 
       <table>
         <tr>
@@ -527,56 +556,396 @@ export const FormulariosSarlaftService = {
         </tr>
         <tr>
           <td class="label">Fecha de envío</td>
-          <td class="value">${new Date(registro.fecha_envio).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}</td>
+          <td class="value">${new Date(registro.fecha_envio).toLocaleString("es-CO", { timeZone: "America/Bogota" })}</td>
         </tr>
         <tr>
           <td class="label">Titular</td>
-          <td class="value">${registro.nombre_completo ?? '—'}</td>
+          <td class="value">${registro.nombre_completo ?? "—"}</td>
         </tr>
         <tr>
           <td class="label">Documento</td>
-          <td class="value">${registro.tipo_documento ? registro.tipo_documento + ' ' : ''}${registro.numero_documento ?? '—'}</td>
+          <td class="value">${registro.tipo_documento ? registro.tipo_documento + " " : ""}${registro.numero_documento ?? "—"}</td>
         </tr>
         <tr>
           <td class="label">Correo de contacto</td>
-          <td class="value">${registro.correo ?? '—'}</td>
+          <td class="value">${registro.correo ?? "—"}</td>
         </tr>
         <tr>
           <td class="label">Teléfono</td>
-          <td class="value">${registro.telefono ?? '—'}</td>
+          <td class="value">${registro.telefono ?? "—"}</td>
         </tr>
         <tr>
           <td class="label">IP de origen</td>
-          <td class="value">${registro.ip_origen ?? '—'}</td>
+          <td class="value">${registro.ip_origen ?? "—"}</td>
+        </tr>
+        <tr>
+          <td class="label">Adjuntos</td>
+          <td class="value">${documentos.length} archivo${documentos.length === 1 ? "" : "s"}</td>
         </tr>
       </table>
 
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard/sarlaft/${registro.id}" class="cta">
-        Ver en el dashboard
+      <a href="${dashboardLink}" class="cta">
+        Ver en el dashboard →
       </a>
 
       <p style="margin-top:24px; font-size:13px; color:#6b7280;">
-        Las respuestas completas del formulario se almacenaron como JSONB y están disponibles
-        en el dashboard interno de cumplimiento para su revisión y evaluación.
+        Se adjuntan el PDF con las respuestas diligenciadas y los archivos originales
+        proporcionados por el titular. Asimismo, la información suministrada en el
+        formulario ha sido almacenada de forma segura y se encuentra disponible en el
+        sistema interno de cumplimiento para su consulta, revisión y seguimiento cuando
+        sea necesario.
       </p>
 
       <div class="footer">
-        COTRANSMEQ S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
+        TRANSMERALDA S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
         Resolución 2328 de 2025 · Resolución 14673 de 2025 · Ley 1581 de 2012
       </div>
     </div>
   </div>
 </body>
-</html>`
+</html>`;
 
+    // Descargar adjuntos desde S3 y armar attachments de nodemailer
+    type Attachment = {
+      filename: string;
+      content: Buffer;
+      contentType?: string;
+    };
+    const attachments: Attachment[] = [];
+    if (pdfBuffer && pdfBuffer.length > 0) {
+      attachments.push({
+        filename: `SARLAFT_${registro.radicado}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      });
+    }
+    for (const doc of documentos) {
+      try {
+        const stream = await getS3ObjectStream(doc.s3_key);
+        if (!stream) continue;
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream as any) {
+          chunks.push(
+            typeof chunk === "string" ? Buffer.from(chunk) : (chunk as Buffer),
+          );
+        }
+        attachments.push({
+          filename: doc.nombre_archivo,
+          content: Buffer.concat(chunks),
+          contentType: doc.mime_type,
+        });
+      } catch (err) {
+        console.error(
+          `[FormulariosSarlaft] No se pudo descargar adjunto ${doc.nombre_archivo} para email:`,
+          err,
+        );
+      }
+    }
+
+    // Adjuntar la firma manuscrita como PNG separado (solo si viene como
+    // data:image del canvas). El PDF de respuestas ya la incluye renderizada,
+    // pero el Oficial de Cumplimiento también recibe una copia limpia y
+    // recortada de la firma para sus archivos de auditoría.
+    const firmaDataUrl = extraerFirmaDataUrl(
+      (registro as any).respuestas ??
+        (await prisma.formulario_sarlaft_ptee.findUnique({
+          where: { id: registro.id },
+          select: { respuestas: true },
+        }))?.respuestas,
+    );
+    if (firmaDataUrl) {
+      const m = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(firmaDataUrl);
+      if (m) {
+        const ext = m[1] === "jpeg" ? "jpg" : m[1] === "jpg" ? "jpg" : m[1];
+        attachments.push({
+          filename: `firma_${registro.radicado}.${ext}`,
+          content: Buffer.from(m[2], "base64"),
+          contentType: `image/${m[1]}`,
+        });
+      }
+    }
+
+    const from =
+      process.env.SMTP_FROM || "Transmeralda <noreply@transmeralda.com>";
+
+    // Si el proveedor es SMTP (nodemailer) podemos adjuntar archivos nativos;
+    // para Resend (API) también soporta attachments con el mismo formato.
+    //
+    // NOTA: este correo NUNCA lleva BCC. Los formularios SARLAFT contienen
+    // datos personales sensibles (nombre, documento, correo, firma manuscrita)
+    // y van directo al Oficial de Cumplimiento — no se debe hacer copia
+    // oculta a otras áreas. El NOTIF_BCC_EMAIL del .env aplica SOLO a las
+    // notificaciones de conductores (desprendibles / primas).
     await EmailService.sendEmail({
-      from: process.env.SMTP_FROM || 'Cotransmeq <noreply@transmeralda.com>',
-      to: [to],
+      from,
+      to: cfg.emails,
       subject,
-      html
-    })
-  }
-}
+      html,
+      attachments,
+      bcc: undefined,
+    } as any);
+  },
+
+  /**
+   * Listado paginado para el dashboard admin con búsqueda y filtros.
+   */
+  async listarAdmin(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    tipo_formulario?: "cliente_proveedor" | "accionistas" | "personal" | null;
+    estado?: string | null;
+    fecha_desde?: string | null;
+    fecha_hasta?: string | null;
+  }) {
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (params.tipo_formulario) where.tipo_formulario = params.tipo_formulario;
+    if (params.estado) where.estado = params.estado;
+    if (params.fecha_desde || params.fecha_hasta) {
+      where.fecha_envio = {};
+      if (params.fecha_desde)
+        where.fecha_envio.gte = new Date(params.fecha_desde);
+      if (params.fecha_hasta)
+        where.fecha_envio.lte = new Date(params.fecha_hasta);
+    }
+    if (params.search) {
+      where.OR = [
+        { radicado: { contains: params.search, mode: "insensitive" } },
+        { nombre_completo: { contains: params.search, mode: "insensitive" } },
+        { numero_documento: { contains: params.search, mode: "insensitive" } },
+        { correo: { contains: params.search, mode: "insensitive" } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.formulario_sarlaft_ptee.findMany({
+        where,
+        include: {
+          _count: { select: { documentos: true } },
+          evaluado_por: { select: { id: true, nombre: true, correo: true } },
+        },
+        orderBy: { fecha_envio: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.formulario_sarlaft_ptee.count({ where }),
+    ]);
+
+    return {
+      items: items.map((f) => ({
+        id: f.id,
+        radicado: f.radicado,
+        codigo_formulario: f.codigo_formulario,
+        tipo_formulario: f.tipo_formulario,
+        version: f.version,
+        fecha_envio: f.fecha_envio.toISOString(),
+        fecha_diligenciamiento: f.fecha_diligenciamiento?.toISOString() ?? null,
+        nombre_completo: f.nombre_completo,
+        tipo_documento: f.tipo_documento,
+        numero_documento: f.numero_documento,
+        correo: f.correo,
+        telefono: f.telefono,
+        estado: f.estado,
+        documentos_count: f._count.documentos,
+        evaluado_por: f.evaluado_por
+          ? { id: f.evaluado_por.id, nombre: f.evaluado_por.nombre }
+          : null,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  },
+
+  /**
+   * Detalle completo de un formulario (con respuestas y documentos).
+   */
+  async obtenerDetalle(id: string) {
+    const f = await prisma.formulario_sarlaft_ptee.findUnique({
+      where: { id },
+      include: {
+        documentos: { orderBy: { tipo_documento: "asc" } },
+        evaluado_por: { select: { id: true, nombre: true, correo: true } },
+      },
+    });
+    if (!f) return null;
+
+    return {
+      id: f.id,
+      radicado: f.radicado,
+      codigo_formulario: f.codigo_formulario,
+      tipo_formulario: f.tipo_formulario,
+      version: f.version,
+      fecha_envio: f.fecha_envio.toISOString(),
+      fecha_diligenciamiento: f.fecha_diligenciamiento?.toISOString() ?? null,
+      nombre_completo: f.nombre_completo,
+      tipo_documento: f.tipo_documento,
+      numero_documento: f.numero_documento,
+      correo: f.correo,
+      telefono: f.telefono,
+      estado: f.estado,
+      evaluacion_concepto: f.evaluacion_concepto,
+      evaluacion_observaciones: f.evaluacion_observaciones,
+      evaluado_at: f.evaluado_at?.toISOString() ?? null,
+      evaluado_por: f.evaluado_por
+        ? {
+            id: f.evaluado_por.id,
+            nombre: f.evaluado_por.nombre,
+            correo: f.evaluado_por.correo,
+          }
+        : null,
+      ip_origen: f.ip_origen,
+      user_agent: f.user_agent,
+      referer: f.referer,
+      respuestas: f.respuestas,
+      documentos: f.documentos.map((d) => ({
+        id: d.id,
+        tipo_documento: d.tipo_documento,
+        nombre_archivo: d.nombre_archivo,
+        s3_key: d.s3_key,
+        mime_type: d.mime_type,
+        tamano_bytes: d.tamano_bytes.toString(),
+        hash_sha256: d.hash_sha256,
+        created_at: d.created_at.toISOString(),
+      })),
+      created_at: f.created_at.toISOString(),
+      updated_at: f.updated_at.toISOString(),
+    };
+  },
+
+  /**
+   * Genera una URL firmada de S3 para descargar un documento del formulario.
+   */
+  async obtenerUrlDescargaDocumento(documentoId: string) {
+    const doc = await prisma.formulario_sarlaft_ptee_documento.findUnique({
+      where: { id: documentoId },
+    });
+    if (!doc) return null;
+
+    const url = await getS3SignedUrl(doc.s3_key, 300); // 5 minutos
+    return {
+      id: doc.id,
+      nombre_archivo: doc.nombre_archivo,
+      mime_type: doc.mime_type,
+      tamano_bytes: doc.tamano_bytes.toString(),
+      url,
+      expires_in: 300,
+    };
+  },
+
+  /**
+   * Actualiza el estado de evaluación de un formulario.
+   */
+  async actualizarEvaluacion(
+    id: string,
+    data: {
+      estado?: string;
+      concepto?: string | null;
+      observaciones?: string | null;
+      userId: string;
+    },
+  ) {
+    return prisma.formulario_sarlaft_ptee.update({
+      where: { id },
+      data: {
+        ...(data.estado && { estado: data.estado }),
+        ...(data.concepto !== undefined && {
+          evaluacion_concepto: data.concepto,
+        }),
+        ...(data.observaciones !== undefined && {
+          evaluacion_observaciones: data.observaciones,
+        }),
+        evaluado_por_id: data.userId,
+        evaluado_at: new Date(),
+      },
+    });
+  },
+
+  /**
+   * Genera el PDF completo de un formulario radicado (admin).
+   */
+  async generarPDFRespuesta(
+    id: string,
+  ): Promise<{
+    buffer: Buffer;
+    radicado: string;
+    tipo_formulario: string;
+    nombre_archivo: string;
+  } | null> {
+    const detalle = await this.obtenerDetalle(id);
+    if (!detalle) return null;
+    const formulario = getFormularioPorCodigo(detalle.codigo_formulario as any);
+    if (!formulario) return null;
+    const buffer = await PDFGeneratorSarlaftService.generarPDFSarlaft({
+      radicado: detalle.radicado,
+      tipo_formulario: detalle.tipo_formulario as any,
+      version: detalle.version,
+      fecha_envio: detalle.fecha_envio,
+      fecha_diligenciamiento: detalle.fecha_diligenciamiento,
+      nombre_completo: detalle.nombre_completo,
+      tipo_documento: detalle.tipo_documento,
+      numero_documento: detalle.numero_documento,
+      correo: detalle.correo,
+      telefono: detalle.telefono,
+      ip_origen: detalle.ip_origen,
+      user_agent: detalle.user_agent,
+      referer: detalle.referer,
+      estado: detalle.estado,
+      respuestas: detalle.respuestas ?? {},
+      documentos: detalle.documentos ?? [],
+      formulario,
+    });
+    return {
+      buffer,
+      radicado: detalle.radicado,
+      tipo_formulario: detalle.tipo_formulario,
+      nombre_archivo: `SARLAFT_${detalle.radicado}.pdf`,
+    };
+  },
+
+  /**
+   * Genera un ZIP con el PDF + todos los adjuntos (evidencia completa).
+   */
+  async generarEvidenciaZip(
+    id: string,
+  ): Promise<{
+    buffer: Buffer;
+    radicado: string;
+    nombre_archivo: string;
+  } | null> {
+    const detalle = await this.obtenerDetalle(id);
+    if (!detalle) return null;
+
+    let pdfBuffer: Buffer | null = null;
+    try {
+      const pdf = await this.generarPDFRespuesta(id);
+      if (pdf) pdfBuffer = pdf.buffer;
+    } catch (err) {
+      console.error(
+        "[FormulariosSarlaft] No se pudo generar PDF para ZIP:",
+        err,
+      );
+    }
+
+    const buffer = await SarlaftEvidenciaService.generarZipEvidencia({
+      radicado: detalle.radicado,
+      pdfBuffer,
+      documentos: detalle.documentos ?? [],
+    });
+    return {
+      buffer,
+      radicado: detalle.radicado,
+      nombre_archivo: `Evidencia_SARLAFT_${detalle.radicado}.zip`,
+    };
+  },
+};
 
 // Helper para serializar el registro a DTO de respuesta
 function registradoToDTO(r: any) {
@@ -591,6 +960,6 @@ function registradoToDTO(r: any) {
     numero_documento: r.numero_documento,
     correo: r.correo,
     telefono: r.telefono,
-    ip_origen: r.ip_origen
-  }
+    ip_origen: r.ip_origen,
+  };
 }

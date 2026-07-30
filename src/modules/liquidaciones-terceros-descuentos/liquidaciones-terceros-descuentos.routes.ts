@@ -57,6 +57,11 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   // Soft delete del cierre (cabeza + items + conceptos)
   app.delete('/liquidaciones-terceros/:id', LiquidacionesTercerosDescuentosController.softDelete);
 
+  // ── BULK SAVE (async, con cola + socket) ──
+  app.post('/liquidaciones-terceros/guardar-borrador-bulk-async', LiquidacionesTercerosDescuentosController.guardarBorradorBulkAsync);
+  app.get('/liquidaciones-terceros/save-bulk/:batchId', LiquidacionesTercerosDescuentosController.getSaveBulkStatus);
+  app.delete('/liquidaciones-terceros/save-bulk-job/:batchId', LiquidacionesTercerosDescuentosController.cancelSaveBulk);
+
   // ── Historial y detalle de cierres finales ──
   app.get('/liquidaciones-terceros-descuentos', LiquidacionesTercerosDescuentosController.listarHistorial);
   app.get('/liquidaciones-terceros-descuentos/:id', LiquidacionesTercerosDescuentosController.obtenerPorId);

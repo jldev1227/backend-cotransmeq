@@ -290,6 +290,7 @@ model configuraciones_salarios {
   sede                  enum_configuraciones_salarios_sede?
   usuarios              usuarios?                           @relation(fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clientes              clientes?                           @relation(fields: [empresa_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  detalles_recargos_dias detalles_recargos_dias[]
 
   @@index([activo, vigencia_desde], map: "idx_config_salario_activo_vigencia")
   @@index([empresa_id, vigencia_desde], map: "idx_config_salario_empresa_vigencia")
@@ -306,6 +307,27 @@ model detalles_recargos_dias {
   horas                                                  Decimal                  @default(0) @db.Decimal(5, 2)
   valor_hora_base                                        Decimal?                 @db.Decimal(12, 4)
   valor_calculado                                        Decimal?                 @db.Decimal(12, 2)
+  /// Snapshot del porcentaje aplicado al momento del cálculo.
+  /// Hace inmutable el valor aunque cambien las vigencias de tipos_recargos a futuro.
+  /// Para registros antiguos, se rellena con el % actual del tipo_recargo al backfill.
+  porcentaje_aplicado                                    Decimal?                  @db.Decimal(8, 2)
+  /// Snapshot del valor hora efectivo (salario_basico / horas_mensuales_base) al momento del cálculo.
+  /// Para horas extras = valorHora × (1 + porcentaje/100). Para recargos = valorHora × porcentaje/100.
+  valor_hora_calculado                                   Decimal?                  @db.Decimal(12, 4)
+  /// FK a la configuración salarial concreta usada ese día (para auditoría).
+  /// Nullable para back-compat con registros antiguos que no la tenían.
+  configuracion_salario_id                               String?                   @db.Uuid
+  /// Fecha real (YYYY-MM-DD) a la que aplica este detalle. Permite que un mismo
+  /// recargo_planilla tenga detalles con distintas configs cuando la planilla cruza
+  /// un cambio de vigencia (ej. 1-14 jul con config vieja, 15-30 jul con la nueva).
+  fecha_aplicacion                                       DateTime?                 @db.Date
+  /// Snapshot del umbral de horas ordinarias para día normal usado al
+  /// calcular este detalle. Hace inmutable el valor aunque cambie la
+  /// config a futuro. Nullable para back-compat con registros antiguos.
+  jornada_normal_horas                                   Decimal?                  @db.Decimal(4, 2)
+  /// Snapshot del umbral de horas ordinarias para domingo/festivo.
+  /// Nullable para back-compat con registros antiguos.
+  jornada_festiva_horas                                  Decimal?                  @db.Decimal(4, 2)
   observaciones                                          String?
   calculado_automaticamente                              Boolean                  @default(true)
   activo                                                 Boolean                  @default(true)
@@ -319,11 +341,14 @@ model detalles_recargos_dias {
   users_detalles_recargos_dias_creado_por_idTousers      usuarios?                @relation("detalles_recargos_dias_creado_por_idTousers", fields: [creado_por_id], references: [id])
   dias_laborales_planillas                               dias_laborales_planillas @relation(fields: [dia_laboral_id], references: [id], onDelete: Cascade)
   tipos_recargos                                         tipos_recargos           @relation(fields: [tipo_recargo_id], references: [id])
+  configuraciones_salarios                               configuraciones_salarios? @relation(fields: [configuracion_salario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([activo], map: "idx_detalle_recargo_activo")
   @@index([calculado_automaticamente], map: "idx_detalle_recargo_automatico")
+  @@index([configuracion_salario_id], map: "idx_detalle_recargo_config_salario")
   @@index([created_at], map: "idx_detalle_recargo_created")
   @@index([dia_laboral_id], map: "idx_detalle_recargo_dia")
+  @@index([fecha_aplicacion], map: "idx_detalle_recargo_fecha_aplicacion")
   @@index([horas], map: "idx_detalle_recargo_horas")
   @@index([tipo_recargo_id], map: "idx_detalle_recargo_tipo")
 }
@@ -538,6 +563,7 @@ model liquidaciones {
   cesantias                                     Decimal                   @default(0.00) @db.Decimal(10, 2)
   observaciones                                 String?
   ajuste_parex                                  Decimal                   @default(0) @db.Decimal(10, 2)
+  ajuste_geopark                                Decimal                   @default(0) @db.Decimal(10, 2)
   ajuste_recargos_config                        Json?                     @db.Json
   ajuste_salarial                               Decimal                   @default(0) @db.Decimal(10, 2)
   ajuste_salarial_por_dia                       Boolean                   @default(false)
@@ -688,6 +714,8 @@ model recargos {
   pag_cliente            Boolean?
   porcentaje_propietario Decimal?       @db.Decimal(5, 2)
   es_automatico          Boolean        @default(false)
+  es_override            Boolean        @default(false)
+  origen_planilla_id     String?        @db.Uuid
   mes                    String?        @db.VarChar(255)
   numero_planilla        String?        @db.VarChar(50)
   incluir                Boolean        @default(true)
@@ -713,6 +741,14 @@ model recargos_planillas {
   numero_planilla                                    String?                        @db.VarChar(50)
   mes                                                Int
   a_o                                                Int                            @map("año")
+  /// ID original de la planilla en Transmeralda (si fue importada).
+  /// NULL = planilla nativa de Cotransmeq. No-UNIQUE porque en teoría
+  /// un source_id podría importarse y re-importarse si se borró, pero
+  /// la lógica del import usa matching (conductor+planilla+mes+año) para
+  /// evitar duplicados.
+  imported_from_transmeralda_id                      String?                        @db.Uuid
+  /// Timestamp de cuándo se importó desde Transmeralda.
+  imported_from_transmeralda_at                      DateTime?                      @db.Timestamptz(6)
   total_dias_laborados                               Int?                           @default(0)
   total_horas_trabajadas                             Decimal?                       @default(0) @db.Decimal(6, 2)
   total_horas_ordinarias                             Decimal?                       @default(0) @db.Decimal(6, 2)

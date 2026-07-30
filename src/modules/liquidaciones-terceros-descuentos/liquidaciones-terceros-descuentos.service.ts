@@ -2,6 +2,7 @@
 import { prisma } from "../../config/prisma";
 import { randomUUID } from "crypto";
 import { LiquidacionesSnapshotsService } from "../liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.service";
+import { getIo } from "../../sockets";
 
 const MESES = [
   'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
@@ -18,7 +19,7 @@ export type TipoConcepto = "COSTO_LABORAL" | "GASTO_OPERATIVO" | "IMPUESTO" | "A
 /// Se persiste en liquidacion_tercero_final.adicionales (JSONB) y se muestra
 /// como última fila de la tabla de items en la UI y en el PDF preview.
 /// El valor_unitario * cantidad se SUMA al valor_liquidar del cierre y
-/// queda como ingreso negativo para Cotransmeq (ingreso_empresa).
+/// queda como ingreso negativo para Transmeralda (ingreso_empresa).
 export interface AdicionalInput {
   id?: string;
   cliente?: string;
@@ -954,7 +955,87 @@ export const LiquidacionesTercerosDescuentosService = {
     es_propietario_overrides?: Record<string, boolean>;
     user_id?: string;
     force_new?: boolean;
+    /// ── BULK MODE ──
+    /// Si `bulk_mode: true`, el endpoint itera la creación/actualización
+    /// para CADA placa en el array `placas`, devolviendo un array de
+    /// resultados. El campo `placa` y `item_ids` se interpretan como
+    /// referencias por defecto (primer elemento) y los overrides
+    /// por-placa vienen en `placas_payload`. Ver más abajo.
+    bulk_mode?: boolean;
+    /// Lista de placas a crear (modo bulk). Cuando bulk_mode=true, el
+    /// endpoint itera y crea una liquidación independiente por cada
+    /// placa, devolviendo un array de resultados.
+    placas?: string[];
+    /// Payload por-placa en modo bulk. Cada entry debe incluir
+    /// { placa, item_ids, conceptos, adicionales, tercero_id, liquidacion_servicio_id }.
+    /// Si una placa no aparece aquí, se usan los valores top-level
+    /// (compatibilidad con un sólo item bulk).
+    placas_payload?: Array<{
+      placa: string;
+      item_ids: string[];
+      conceptos: ConceptoInput[];
+      adicionales?: AdicionalInput[];
+      tercero_id?: string | null;
+      liquidacion_servicio_id?: string;
+    }>;
   }) {
+    // ── BULK MODE: iterar por cada placa y consolidar resultados ──
+    if (params.bulk_mode === true) {
+      const payloadPorPlaca = (Array.isArray(params.placas_payload) && params.placas_payload.length > 0)
+        ? params.placas_payload
+        : (Array.isArray(params.placas) && params.placas.length > 0
+            ? params.placas.map((p) => ({
+                placa: p,
+                item_ids: params.item_ids,
+                conceptos: params.conceptos,
+                adicionales: params.adicionales,
+                tercero_id: params.tercero_id,
+                liquidacion_servicio_id: params.liquidacion_servicio_id,
+              }))
+            : []);
+
+      if (payloadPorPlaca.length === 0) {
+        throw new Error('En modo bulk se requiere al menos una placa en `placas` o `placas_payload`');
+      }
+
+      const results: any[] = [];
+      const errors: any[] = [];
+
+      for (const entry of payloadPorPlaca) {
+        try {
+          const sub = await this.guardarBorrador({
+            id: params.id,
+            liquidacion_servicio_id: entry.liquidacion_servicio_id || params.liquidacion_servicio_id,
+            placa: entry.placa,
+            tercero_id: entry.tercero_id ?? params.tercero_id ?? null,
+            mes: params.mes,
+            anio: params.anio,
+            item_ids: entry.item_ids,
+            conceptos: entry.conceptos,
+            adicionales: entry.adicionales,
+            es_propietario_overrides: params.es_propietario_overrides,
+            user_id: params.user_id,
+            force_new: params.force_new,
+          });
+          results.push(sub);
+        } catch (e: any) {
+          errors.push({ placa: entry.placa, error: e.message });
+        }
+      }
+
+      if (results.length === 0 && errors.length > 0) {
+        throw new Error(errors.map((e) => `${e.placa}: ${e.error}`).join('; '));
+      }
+
+      return {
+        ok: true,
+        bulk: true,
+        count: results.length,
+        results,
+        errors,
+      };
+    }
+
     const {
       liquidacion_servicio_id,
       placa,
@@ -988,7 +1069,7 @@ export const LiquidacionesTercerosDescuentosService = {
         const valorLiq = a.valor_liquidar != null ? toNumber(a.valor_liquidar) : vUnit * cant;
         return {
           id: a.id || randomUUID(),
-          cliente: a.cliente || 'COTRANSMEQ',
+          cliente: a.cliente || 'TRANSMERALDA',
           placa: a.placa || placa,
           tercero_nombre: a.tercero_nombre || '',
           recorrido: a.recorrido || '',
@@ -1292,6 +1373,30 @@ export const LiquidacionesTercerosDescuentosService = {
       });
     } catch (snapErr) {
       console.error('[guardarBorrador-create] Snapshot failed:', snapErr);
+    }
+
+    // ── Socket: notificar a TODOS los clientes que se creó una nueva
+    //    liquidación de tercero, para que la página de historial refresque
+    //    la tabla y resalte la fila entrante con un badge "NUEVO". ──
+    try {
+      const io = getIo();
+      const payload = {
+        id: created.id,
+        placa: created.placa,
+        consecutivo: created.consecutivo,
+        mes: created.mes,
+        anio: created.anio,
+        estado: created.estado,
+        total_pagar: toNumber(created.total_pagar),
+        creado_por_id: created.creado_por_id || user_id || null,
+        created_at: created.created_at instanceof Date
+          ? created.created_at.toISOString()
+          : created.created_at,
+      };
+      io.emit('liquidacion-tercero:created', payload);
+      console.log(`[guardarBorrador-create] socket emit liquidacion-tercero:created id=${created.id} placa=${created.placa}`);
+    } catch (emitErr) {
+      console.error('[guardarBorrador-create] No se pudo emitir liquidacion-tercero:created:', emitErr);
     }
 
     return {
@@ -1773,7 +1878,7 @@ export const LiquidacionesTercerosDescuentosService = {
       // mismo shape que `items` para que la UI y el PDF las rendericen como
       // últimas filas de la tabla. El backend ya incluye su valor en
       // `valor_liquidar` y `total_pagar`, y se refleja como ingreso negativo
-      // en `ingreso_empresa` del lado Cotransmeq.
+      // en `ingreso_empresa` del lado Transmeralda.
       items_adicionales: (Array.isArray(item.adicionales) ? item.adicionales : []).map((a: any) => ({
         ...a,
         valor_unitario: toNumber(a.valor_unitario),

@@ -87,7 +87,10 @@ export function registerLiquidacionTerceroGateway(io: IOServer) {
           // Update scalar fields on the cierre
           const updateData: Record<string, any> = {
             updated_at: new Date(),
-            actualizado_por_id: user.id,
+            // Schema Prisma `liquidacion_tercero_final` define la relación como
+            // `usuarios_actualizado_por`, no como `actualizado_por_id` (que era
+            // el nombre de un campo que se renombró en una migración previa).
+            usuarios_actualizado_por: { connect: { id: user.id } },
           }
           for (const [key, value] of Object.entries(changes)) {
             if (!['id', 'created_at', 'updated_at', 'deleted_at'].includes(key)) {

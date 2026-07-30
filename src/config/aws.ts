@@ -92,6 +92,30 @@ export async function deleteFromS3(key: string): Promise<void> {
 export { s3Client, BUCKET_NAME }
 
 /**
+ * Descarga un objeto de S3 como stream (Body de @aws-sdk).
+ * @param key - La clave (path) del objeto en S3
+ * @returns Stream legible o `null` si el objeto no existe
+ */
+export async function getS3ObjectStream(key: string): Promise<NodeJS.ReadableStream | null> {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key
+    })
+    const response = await s3Client.send(command)
+    if (!response.Body) return null
+    return response.Body as NodeJS.ReadableStream
+  } catch (error: any) {
+    // NoSuchKey / NoSuchBucket: tratar como no encontrado
+    if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NoSuchKey') {
+      return null
+    }
+    console.error('Error descargando objeto de S3 como stream:', error)
+    throw error
+  }
+}
+
+/**
  * Descarga un objeto de S3 y lo retorna como data URL base64
  * @param key - La clave (path) del objeto en S3
  * @returns Data URL base64 (ej: "data:image/png;base64,iVBOR...")

@@ -105,6 +105,26 @@ export const ConductoresController = {
     }
   },
 
+  // GET /conductores/select-list
+  // Listado liviano pensado para alimentar <select> en formularios
+  // (sin foto, sin S3, sin joins). Solo activos + no ocultos.
+  async listarParaSelect(
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) {
+    try {
+      const data = await ConductoresService.listarParaSelect()
+      return reply.send({ success: true, data, count: data.length })
+    } catch (error: any) {
+      console.error('Error al listar conductores (select):', error)
+      return reply.status(500).send({
+        success: false,
+        message: 'Error al listar conductores',
+        error: error.message
+      })
+    }
+  },
+
   // POST /conductores
   async crear(
     request: FastifyRequest<{ Body: ConductorBody }>,

@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { LiquidacionesTercerosDescuentosService } from './liquidaciones-terceros-descuentos.service';
 import { borradorQueueService } from '../../queue/borrador-queue.service';
+import { bulkSaveLiquidacionTerceroService } from '../../queue/bulk-save-liquidacion-tercero.service';
 
 export class LiquidacionesTercerosDescuentosController {
 
@@ -190,6 +191,10 @@ export class LiquidacionesTercerosDescuentosController {
             : {},
         user_id: userId,
         force_new: body.force_new === true,
+        // ── Bulk mode: crear varias liquidaciones independientes en una sola llamada ──
+        bulk_mode: body.bulk_mode === true,
+        placas: Array.isArray(body.placas) ? body.placas : undefined,
+        placas_payload: Array.isArray(body.placas_payload) ? body.placas_payload : undefined,
       });
       return reply.send(result);
     } catch (error: any) {
@@ -363,9 +368,83 @@ export class LiquidacionesTercerosDescuentosController {
       const status = /no encontrada|ya eliminada/i.test(msg)
         ? 404
         : /no se puede eliminar/i.test(msg)
-        ? 409
-        : 500;
+          ? 409
+          : 500;
       return reply.status(status).send({ error: msg });
+    }
+  }
+
+  // ── BULK SAVE (async, con cola + socket) ──
+  // Lanza el guardado de N liquidaciones en background. Emite
+  // `liquidaciones-terceros-save-bulk:progress` y
+  // `liquidaciones-terceros-save-bulk:done` al room `user-${userId}`.
+  // El cliente persiste el batchId en localStorage para reanudar la
+  // UI tras recarga (vía `GET /liquidaciones-terceros/save-bulk/:batchId`).
+
+  static async guardarBorradorBulkAsync(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const body = (request.body as any) || {};
+      const userId = (request as any).user?.id;
+      const userName = (request as any).user?.nombre || 'Usuario';
+      if (!userId) {
+        return reply.status(401).send({ error: 'No autenticado' });
+      }
+      const placas = Array.isArray(body.placas) ? body.placas : [];
+      if (placas.length === 0) {
+        return reply.status(400).send({ error: 'Se requiere array `placas` con al menos un item' });
+      }
+      const mes = Number(body.mes);
+      const anio = Number(body.anio);
+      if (!Number.isFinite(mes) || !Number.isFinite(anio)) {
+        return reply.status(400).send({ error: 'Se requiere `mes` y `anio` numéricos' });
+      }
+
+      const result = bulkSaveLiquidacionTerceroService.enqueue(userId, userName, {
+        placas,
+        mes,
+        anio,
+        force_new: body.force_new === true,
+      });
+
+      return reply.status(202).send({
+        success: true,
+        batchId: result.jobId,
+        total: result.total,
+        status: result.status,
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  static async getSaveBulkStatus(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { batchId } = request.params as any;
+      const userId = (request as any).user?.id;
+      if (!userId) {
+        return reply.status(401).send({ error: 'No autenticado' });
+      }
+      const job = bulkSaveLiquidacionTerceroService.getStatus(batchId, userId);
+      if (!job) {
+        return reply.status(404).send({ error: 'batch_not_found' });
+      }
+      return reply.send({ success: true, data: job });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  static async cancelSaveBulk(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { batchId } = request.params as any;
+      const userId = (request as any).user?.id;
+      if (!userId) {
+        return reply.status(401).send({ error: 'No autenticado' });
+      }
+      const ok = bulkSaveLiquidacionTerceroService.cancel(batchId, userId);
+      return reply.send({ cancelled: ok });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
   }
 }

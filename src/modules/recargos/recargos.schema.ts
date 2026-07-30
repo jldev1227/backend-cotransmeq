@@ -104,6 +104,13 @@ export const buscarRecargosSchema = z
       .string()
       .optional()
       .transform((val) => val === "true"),
+    /**
+     * Filtro de planillas importadas de Transmeralda:
+     *   'si'  → solo importadas (badge "TM" visible)
+     *   'no'  → solo nativas de Cotransmeq
+     *   'all' o ausente → sin filtro
+     */
+    imported_from_transmeralda: z.enum(['si', 'no', 'all']).optional(),
     page: z.string().optional().default("1"),
     // Cap defensivo: nunca devolver más de 200 recargos por request.
     // Si el front pide más, se trunca a 200 (evita queries de 7-23s).
@@ -145,6 +152,29 @@ export const cambiarEstadoMultipleSchema = z.object({
     "liquidado",
     "cancelado",
   ]),
+});
+
+// Schema para preview de importación desde Transmeralda
+export const previewImportarTransmeraldaSchema = z.object({
+  mes: z.coerce.number().int().min(1).max(12),
+  año: z.coerce.number().int().min(2000).max(2100),
+  /**
+   * Si es true, devuelve también las planillas que no son importables
+   * (conductor inactivo, conductor no existe en CM, sin planilla, etc.)
+   * con su `motivo_no_importable` poblado. Útil para diagnóstico:
+   * saber por qué algo no aparece.
+   *
+   * Default: false (preview limpio, solo importables + ya importadas).
+   */
+  incluir_no_importables: z.coerce.boolean().optional().default(false),
+});
+
+// Schema para ejecutar la importación desde Transmeralda
+export const importarTransmeraldaSchema = z.object({
+  source_ids: z
+    .array(z.string().uuid())
+    .min(1, "Debe seleccionar al menos una planilla")
+    .max(200, "Máximo 200 planillas por importación"),
 });
 
 export type CreateRecargoDTO = z.infer<typeof createRecargoSchema>;

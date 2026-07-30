@@ -110,7 +110,8 @@ export const BonosService = {
 				: []
 		const configById = new Map(configs.map((c) => [c.id, c]))
 
-		await prisma.$transaction(async (tx) => {
+		await prisma.$transaction(
+			async (tx) => {
 			// 1) Eliminar los bonos que el usuario desmarcó
 			if (eliminar.length > 0) {
 				const result = await tx.registro_dia_laboral_bono.deleteMany({
@@ -135,17 +136,23 @@ export const BonosService = {
 						message: `configuraciones_liquidacion ${cfg.nombre} no está activa`
 					}
 				}
-				try {
-					await tx.registro_dia_laboral_bono.create({
-						data: {
-							id: randomUUID(),
-							registro_dia_id: b.registro_dia_id,
-							segmento_id: b.segmento_id ?? null,
-							config_liquidacion_id: b.config_liquidacion_id,
-							valor: cfg.valor,
-							observaciones: b.observaciones ?? null,
-							creado_por_id: creadoPorId
-						}
+			try {
+				await tx.registro_dia_laboral_bono.create({
+					data: {
+						id: randomUUID(),
+						// Prisma 5: usar RELACIONES (no FKs directos) para todos
+						// los campos de relación.
+						registro_dia: { connect: { id: b.registro_dia_id } },
+						config_liquidacion: { connect: { id: b.config_liquidacion_id } },
+						...(b.segmento_id
+							? { segmento: { connect: { id: b.segmento_id } } }
+							: {}),
+						...(creadoPorId
+							? { creado_por: { connect: { id: creadoPorId } } }
+							: {}),
+						valor: cfg.valor,
+						observaciones: b.observaciones ?? null
+					}
 					})
 					created += 1
 				} catch (err: any) {
@@ -153,7 +160,15 @@ export const BonosService = {
 					if (err?.code !== 'P2002') throw err
 				}
 			}
-		})
+		},
+		{
+			// El sync puede crear/eliminar muchos bonos en una sola llamada
+			// (paginación grande + varios tramos). 30s es holgado para
+			// los casos reales sin bloquear otras queries.
+			timeout: 30_000,
+			maxWait: 5_000
+		}
+		)
 
 		return { created, deleted, total: created - deleted }
 	},
@@ -175,12 +190,18 @@ export const BonosService = {
 			const bono = await prisma.registro_dia_laboral_bono.create({
 				data: {
 					id: randomUUID(),
-					registro_dia_id: input.registro_dia_id,
-					segmento_id: input.segmento_id ?? null,
-					config_liquidacion_id: input.config_liquidacion_id,
+					// Prisma 5: usar RELACIONES (no FKs directos) para todos
+					// los campos de relación.
+					registro_dia: { connect: { id: input.registro_dia_id } },
+					config_liquidacion: { connect: { id: input.config_liquidacion_id } },
+					...(input.segmento_id
+						? { segmento: { connect: { id: input.segmento_id } } }
+						: {}),
+					...(creadoPorId
+						? { creado_por: { connect: { id: creadoPorId } } }
+						: {}),
 					valor: cfg.valor,
-					observaciones: input.observaciones ?? null,
-					creado_por_id: creadoPorId
+					observaciones: input.observaciones ?? null
 				},
 				include: {
 					config_liquidacion: {

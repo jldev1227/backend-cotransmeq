@@ -35,10 +35,9 @@ function resolveDatabaseBaseUrl(): string {
 const getDatabaseUrl = () => {
   const baseUrl = resolveDatabaseBaseUrl()
   const poolParams = new URLSearchParams({
-    connection_limit: '1',
+    connection_limit: '10',
     pool_timeout: '30',
-    connect_timeout: '10',
-    pgbouncer: 'true'
+    connect_timeout: '10'
   })
   return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${poolParams.toString()}`
 }

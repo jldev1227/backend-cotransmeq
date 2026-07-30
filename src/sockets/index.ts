@@ -4,6 +4,8 @@ import { registerLiquidacionTerceroGateway } from './liquidacion-tercero.gateway
 import { registerChatGateway } from '../modules/liquidaciones-chat/liquidaciones-chat.gateway'
 import { registerBorradorQueueGateway } from '../queue/borrador-queue.gateway'
 import { borradorQueueService } from '../queue/borrador-queue.service'
+import { registerBulkSaveLiquidacionTerceroGateway } from '../queue/bulk-save-liquidacion-tercero.gateway'
+import { bulkSaveLiquidacionTerceroService } from '../queue/bulk-save-liquidacion-tercero.service'
 
 let io: IOServer | null = null
 
@@ -39,6 +41,18 @@ export function initSockets(server: HttpServer) {
         io!.emit('usuarios-online', Array.from(onlineUserIds))
         console.log(`✅ [sockets] Usuario ${userId} unido al room user-${userId}`)
         console.log(`   Rooms del socket: [${Array.from(socket.rooms).join(', ')}]`)
+        // Verificar que efectivamente entró al room (a veces el join
+        // puede fallar silenciosamente si el namespace no está bien)
+        setTimeout(() => {
+          if (!socket.rooms.has(`user-${userId}`)) {
+            console.error(
+              `❌ [sockets] socket ${socket.id} NO está en room user-${userId} ` +
+              `tras join-dashboard. Rooms: [${Array.from(socket.rooms).join(', ')}]`
+            )
+          } else {
+            console.log(`✓ [sockets] socket ${socket.id} confirmado en room user-${userId}`)
+          }
+        }, 100)
       } else {
         console.warn(`⚠️ [sockets] join-dashboard recibido con userId vacío`)
       }
@@ -77,9 +91,13 @@ export function initSockets(server: HttpServer) {
   registerLiquidacionTerceroGateway(io)
   registerChatGateway(io)
   registerBorradorQueueGateway(io)
+  registerBulkSaveLiquidacionTerceroGateway(io)
 
   // Wire up queue emitter
   borradorQueueService.setEmitter((userId, event, data) => {
+    io.to(`user-${userId}`).emit(event, data)
+  })
+  bulkSaveLiquidacionTerceroService.setEmitter((userId, event, data) => {
     io.to(`user-${userId}`).emit(event, data)
   })
 
