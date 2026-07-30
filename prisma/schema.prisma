@@ -1133,6 +1133,8 @@ model respuestas_asistencia {
   numero_documento   String                 @db.VarChar(50)
   cargo              String                 @db.VarChar(255)
   numero_telefono    String                 @db.VarChar(20)
+  pertenece_comite   Boolean?
+  nombre_comite      String?                @db.VarChar(255)
   firma              String
   ip_address         String                 @db.VarChar(45)
   user_agent         String
@@ -1143,6 +1145,7 @@ model respuestas_asistencia {
   @@unique([formulario_id, device_fingerprint])
   @@index([formulario_id])
   @@index([numero_documento])
+  @@index([pertenece_comite])
   @@map("respuestas_asistencia")
 }
 
