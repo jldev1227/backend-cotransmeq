@@ -635,6 +635,92 @@ export const LiquidacionesService = {
       }
     }
 
+    // Recargos calculados desde planillas (recargos_preview)
+    // Mismo bloque que en `actualizar` (líneas ~949-1032). Sin esto, los
+    // recargos automáticos que el usuario incluyó en el preview NUNCA se
+    // persistían al crear la liquidación: `item.recargos` quedaba vacío
+    // y el PDF caía al fallback de `recargosData.planillas`, que no
+    // respeta la marca `incluir` y mostraba también los desmarcados en
+    // la sumatoria de "OTROS".
+    const recargosPreviewIncluidos = (data.recargos_preview || []).filter(
+      (grupo: any) => grupo.incluir !== false,
+    );
+    const gruposUnicosPorKey = new Map<string, any>();
+    for (const grupo of recargosPreviewIncluidos) {
+      if (!grupo.empresa_id) continue;
+      const dedupKey = `${grupo.vehiculo_id || ""}|${grupo.empresa_id}|${grupo.mes || ""}|${grupo.emisor || ""}`;
+      if (!gruposUnicosPorKey.has(dedupKey)) {
+        gruposUnicosPorKey.set(dedupKey, grupo);
+      }
+    }
+    const gruposUnicos = Array.from(gruposUnicosPorKey.values());
+
+    if (gruposUnicos.length > 0) {
+      for (const grupo of gruposUnicos) {
+        if (!grupo.empresa_id) continue;
+
+        const dataRecargo = {
+          empresa_id: grupo.empresa_id,
+          valor: grupo.valor || 0,
+          pag_cliente: grupo.pag_cliente || false,
+          porcentaje_propietario: grupo.porcentaje_propietario ?? null,
+          es_automatico: true,
+          mes: grupo.mes || "",
+          numero_planilla: grupo.numero_planilla || null,
+          incluir: grupo.incluir !== false,
+          emisor: grupo.emisor || null,
+          vehiculo_id: grupo.vehiculo_id || null,
+          liquidacion_id: id,
+          updated_at: now,
+        };
+
+        if (grupo.origen_planilla_id) {
+          // Idempotente: upsert por (liquidacion_id, origen_planilla_id)
+          await prisma.recargos.upsert({
+            where: {
+              liquidacion_id_origen_planilla_id: {
+                liquidacion_id: id,
+                origen_planilla_id: grupo.origen_planilla_id,
+              },
+            },
+            update: dataRecargo,
+            create: {
+              id: randomUUID(),
+              origen_planilla_id: grupo.origen_planilla_id,
+              ...dataRecargo,
+              created_at: now,
+            },
+          });
+        } else {
+          // Fallback (sin origen_planilla_id): verificar manualmente si ya existe
+          const existente = await prisma.recargos.findFirst({
+            where: {
+              liquidacion_id: id,
+              es_automatico: true,
+              vehiculo_id: grupo.vehiculo_id || null,
+              empresa_id: grupo.empresa_id,
+              mes: grupo.mes || "",
+              emisor: grupo.emisor || null,
+            },
+          });
+          if (existente) {
+            await prisma.recargos.update({
+              where: { id: existente.id },
+              data: dataRecargo,
+            });
+          } else {
+            await prisma.recargos.create({
+              data: {
+                id: randomUUID(),
+                ...dataRecargo,
+                created_at: now,
+              },
+            });
+          }
+        }
+      }
+    }
+
     // Crear anticipos
     if (data.anticipos && data.anticipos.length > 0) {
       for (const anticipo of data.anticipos) {
