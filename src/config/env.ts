@@ -9,8 +9,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string(),
   RESEND_API_KEY: z.string().optional(),
   // `from` que se usa cuando el proveedor es Resend. Debe ser un dominio
-  // verificado en Resend (ej: "Transmeralda <noreply@transmeralda.com>").
-  // Si no se define, el código cae a SMTP_FROM o a noreply@transmeralda.com.
+  // verificado en Resend (ej: "Transmeralda <noreply@cotransmeq.com>").
+  // Si no se define, el código cae a SMTP_FROM o a noreply@cotransmeq.com.
   RESEND_FROM: z.string().optional(),
   FRONTEND_URL: z.string().optional(),
   EMAIL_LOGO_URL: z.string().optional(),

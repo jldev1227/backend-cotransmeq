@@ -666,7 +666,7 @@ export const FormulariosSarlaftService = {
     }
 
     const from =
-      process.env.SMTP_FROM || "Transmeralda <noreply@transmeralda.com>";
+      process.env.SMTP_FROM || "Transmeralda <noreply@cotransmeq.com>";
 
     // Si el proveedor es SMTP (nodemailer) podemos adjuntar archivos nativos;
     // para Resend (API) también soporta attachments con el mismo formato.

@@ -88,7 +88,7 @@ export const EmailService = {
    * Envía un email genérico (helper expuesto para uso desde otros módulos)
    */
   async sendEmail(params: { from?: string; to: string[]; subject: string; html: string; bcc?: string[] }) {
-    return sendEmail({ from: params.from ?? env.SMTP_FROM ?? 'noreply@transmeralda.com', ...params })
+    return sendEmail({ from: params.from ?? env.SMTP_FROM ?? 'noreply@cotransmeq.com', ...params })
   },
 
   async sendMagicLink({ to, conductorNombre, conductorApellido, token }: SendMagicLinkParams) {
@@ -217,7 +217,7 @@ export const EmailService = {
     try {
       // Sin bcc intencionalmente: es un access link con token personal
       const data = await sendEmail({
-        from: 'Cotransmeq <noreply@transmeralda.com>',
+        from: 'Cotransmeq <noreply@cotransmeq.com>',
         to: [to],
         subject: '🚛 Acceso al Reporte Diario — Cotransmeq',
         html
@@ -350,7 +350,7 @@ export const EmailService = {
     try {
       // Sin bcc intencionalmente: es un access link con token personal
       const data = await sendEmail({
-        from: 'Cotransmeq <noreply@transmeralda.com>',
+        from: 'Cotransmeq <noreply@cotransmeq.com>',
         to: [to],
         subject: '📋 Acceso al Portal del Conductor — Cotransmeq',
         html
@@ -497,7 +497,7 @@ export const EmailService = {
     try {
       // Sin bcc intencionalmente: invitación con token de registro personal
       const data = await sendEmail({
-        from: 'Cotransmeq <noreply@transmeralda.com>',
+        from: 'Cotransmeq <noreply@cotransmeq.com>',
         to: [to],
         subject: `🟢 ${invitadoPorNombre} te invita a Cotransmeq`,
         html
@@ -620,7 +620,7 @@ export const EmailService = {
     try {
       const bcc = env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
       const data = await sendEmail({
-        from: 'Cotransmeq <noreply@transmeralda.com>',
+        from: 'Cotransmeq <noreply@cotransmeq.com>',
         to: [to],
         subject: `📄 Tu Desprendible de Nómina — ${periodo}`,
         html,
@@ -718,7 +718,7 @@ export const EmailService = {
     try {
       const bcc = env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
       const data = await sendEmail({
-        from: 'Cotransmeq <noreply@transmeralda.com>',
+        from: 'Cotransmeq <noreply@cotransmeq.com>',
         to: [to],
         subject: `💰 Tu Liquidación de Prima — ${periodo}`,
         html,
@@ -863,7 +863,7 @@ export const EmailService = {
     try {
       const bcc = env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
       const data = await sendEmail({
-        from: 'Cotransmeq <noreply@transmeralda.com>',
+        from: 'Cotransmeq <noreply@cotransmeq.com>',
         to: [to],
         subject: '📋 Tus Certificados Tributarios — Cotransmeq',
         html,
