@@ -493,7 +493,11 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         // Obtener liquidación completa usando el service existente
         const liquidacion = await LiquidacionesService.obtenerPorId(id)
 
-        // Obtener preview de recargos
+        // Obtener preview de recargos (raw, sin clasificar — solo se
+        // expone en `recargos` para compatibilidad con callers que lo
+        // consuman directamente. El PDF usa `dataParaPdf` que ya viene
+        // clasificado por `buildDataParaPdf`, igual que el modal del
+        // dashboard).
         let recargosData = null
         try {
           if (liquidacion.periodo_inicio && liquidacion.periodo_fin && liquidacion.conductores?.id) {
@@ -505,6 +509,24 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           }
         } catch (e) {
           // Si falla preview de recargos, no bloquear
+        }
+
+        // Construir `dataParaPdf` con planillas clasificadas
+        // (`_categoria`: 'pagar' | 'bono_aparte' | 'no_pagar'). Esta es
+        // la MISMA estructura que construye el modal de detalle en el
+        // frontend, movida al backend para que el desprendible del
+        // portal del conductor sea idéntico al del dashboard.
+        // Diferencia clave: GEOLAB, RED SALUD, INGENIERIA ESPECIALIZADA
+        // se marcan como 'bono_aparte' (sin valor monetario en el
+        // total), no como 'pagar'.
+        let dataParaPdf: { planillas: any[] } = { planillas: [] }
+        try {
+          dataParaPdf = await LiquidacionesService.buildDataParaPdf(liquidacion)
+        } catch (e) {
+          request.log.warn(
+            { error: e, liquidacionId: id },
+            'No se pudo construir dataParaPdf para el desprendible del portal'
+          )
         }
 
         // Obtener firma si existe (con fallback a firma de prima del mismo mes/año)
@@ -577,6 +599,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           data: {
             liquidacion,
             recargos: recargosData,
+            dataParaPdf,
             firma: firmaPresigned
               ? { presignedUrl: firmaPresigned, fecha_firma: firmaFecha, origen: firmaOrigen }
               : null

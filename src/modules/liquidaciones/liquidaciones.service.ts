@@ -1969,6 +1969,204 @@ export const LiquidacionesService = {
     };
   },
 
+  // Empresas cuyos servicios se pagan como BONO APARTE al
+  // conductor (no como recargo monetario dentro de la liquidación).
+  // Sus planillas se muestran en el PDF en azul con la nota
+  // "Reconocido como bono aparte", listando solo días y horas
+  // (sin desglose HED/RN/HEN ni valor monetario).
+  //
+  // Si en el futuro se agregan más empresas a esta lista, basta
+  // con añadir el nombre aquí. La comparación es case-insensitive
+  // y por coincidencia de substring para tolerar variaciones
+  // como "GEOLAB S.A.S" vs "GEOLAB".
+  EMPRESAS_BONO_APARTE: [
+    "GEOLAB",
+    "RED SALUD",
+    "INGENIERIA ESPECIALIZADA",
+  ],
+
+  esEmpresaBonoAparte(p: any): boolean {
+    const nombre = String(p?.empresa?.nombre || "").toUpperCase();
+    if (!nombre) return false;
+    return LiquidacionesService.EMPRESAS_BONO_APARTE.some((e) =>
+      nombre.includes(e.toUpperCase()),
+    );
+  },
+
+  /**
+   * Construye el `dataParaPdf` (planillas clasificadas con `_categoria`)
+   * que consume el generador de PDF (`pdfDesprendible.ts`).
+   *
+   * Esta lógica vivía en el frontend del modal de detalle de
+   * liquidación. La movimos al backend para que el endpoint del
+   * portal del conductor devuelva EXACTAMENTE la misma estructura
+   * de datos, evitando diferencias entre el desprendible visto por
+   * el admin y el visto por el conductor.
+   *
+   * Categorías:
+   *   - 'pagar'        → recargo monetario que suma al total.
+   *   - 'bono_aparte'  → empresa (GEOLAB, RED SALUD, INGENIERIA
+   *                      ESPECIALIZADA) cuyos servicios NO se
+   *                      remuneran como recargo.
+   *   - 'no_pagar'     → días con disponibilidad o recorrido sin
+   *                      recargo generado (informativos, sin valor).
+   *
+   * Si la liquidación no tiene `mostrar_recargos = true`, devuelve
+   * `{ planillas: [] }` y el PDF no generará las páginas 2+ de recargos.
+   */
+  async buildDataParaPdf(liquidacion: any): Promise<{ planillas: any[] }> {
+    if (!liquidacion?.mostrar_recargos) {
+      return { planillas: [] };
+    }
+    if (
+      !liquidacion.conductor_id ||
+      !liquidacion.periodo_inicio ||
+      !liquidacion.periodo_fin
+    ) {
+      return { planillas: [] };
+    }
+
+    let preview: any = null;
+    try {
+      preview = await LiquidacionesService.previewRecargos(
+        liquidacion.conductor_id,
+        liquidacion.periodo_inicio,
+        liquidacion.periodo_fin,
+      );
+    } catch (e) {
+      console.warn(
+        "[buildDataParaPdf] No se pudo obtener preview-recargos:",
+        e,
+      );
+      return { planillas: [] };
+    }
+
+    const todasLasPlanillas: any[] = preview?.planillas || [];
+    const recargosArr: any[] = (liquidacion.recargos as any[]) || [];
+
+    // Coincidencia por (vehiculo, empresa, mes). Razón: el recargo
+    // guardado puede ser la SUMA de varias planillas (p. ej.
+    // SCHLUMBERGER TM-7282 con 2 planillas, SERTECPET TM-7169 +
+    // TM-7210 con 2 planillas) pero `origen_planilla_id` solo apunta
+    // a UNA. Si solo incluyéramos esa, los días del desglose no
+    // sumarían al TOTAL del recargo.
+    //
+    // Filtramos por `dias.length > 0` para no incluir planillas
+    // totalmente vacías del mismo grupo.
+    //
+    // IMPORTANTE: NO exigimos `total_valor > 0`. Una planilla puede
+    // tener `total_valor = 0` cuando TODOS sus días están marcados
+    // como disponibilidad.
+    const recargoMatch = (r: any, p: any) => {
+      if (!r || !p) return false;
+      const matchVehiculo = p.vehiculo?.id === r.vehiculo_id;
+      const matchEmpresa =
+        p.empresa?.id === (r.empresa_id || r.clientes?.id);
+      const planillaMes = `${p.año}-${String(p.mes).padStart(2, "0")}`;
+      const matchMes = planillaMes === r.mes;
+      const tieneDias = Array.isArray(p.dias) && p.dias.length > 0;
+      return matchVehiculo && matchEmpresa && matchMes && tieneDias;
+    };
+
+    const planillasFinales: any[] = [];
+    const planillaIdsAgregadas = new Set<string>();
+
+    // 1) Planillas del preview que coinciden con algún recargo
+    for (const rec of recargosArr) {
+      const matches = todasLasPlanillas.filter((p) => recargoMatch(rec, p));
+      for (const p of matches) {
+        if (planillaIdsAgregadas.has(p.planilla_id)) continue;
+        planillaIdsAgregadas.add(p.planilla_id);
+        (p as any)._categoria = "pagar";
+        planillasFinales.push(p);
+      }
+    }
+
+    // 1.5) Planillas que NO quedaron ancladas a un recargo guardado
+    for (const p of todasLasPlanillas) {
+      if (planillaIdsAgregadas.has(p.planilla_id)) continue;
+      const diasVisibles = Array.isArray(p.dias) ? p.dias : [];
+      if (diasVisibles.length === 0) continue;
+
+      const esBonoAparte = LiquidacionesService.esEmpresaBonoAparte(p);
+
+      const tieneDiasConDisponibilidad = diasVisibles.some(
+        (d: any) => d.disponibilidad,
+      );
+      const tieneDiasConRecorridoSinRecargo = diasVisibles.some(
+        (d: any) =>
+          !d.disponibilidad &&
+          Number(d.total_horas) > 0 &&
+          (!Array.isArray(d.recargos) || d.recargos.length === 0),
+      );
+
+      if (
+        !esBonoAparte &&
+        !tieneDiasConDisponibilidad &&
+        !tieneDiasConRecorridoSinRecargo
+      )
+        continue;
+
+      planillaIdsAgregadas.add(p.planilla_id);
+      (p as any)._categoria = esBonoAparte ? "bono_aparte" : "no_pagar";
+      planillasFinales.push(p);
+    }
+
+    // 2) Recargos SIN planilla con días (caso típico FEPCO: el
+    //    recargo está guardado pero la planilla en el preview tiene
+    //    `dias: []` y `total_valor: 0`). Creamos una planilla
+    //    sintética con el valor del recargo para que el TOTAL del
+    //    PDF cuadre con el del preview.
+    for (const r of recargosArr) {
+      if (!r) continue;
+      const tieneMatchConDias = todasLasPlanillas.some((p) =>
+        recargoMatch(r, p),
+      );
+      if (tieneMatchConDias) continue;
+      if (Number(r.valor || 0) <= 0) continue;
+
+      const vehiculo = (liquidacion.vehiculos as any[])?.find(
+        (v) => v.id === r.vehiculo_id,
+      );
+      const [yearStr, monthStr] = (r.mes || "").split("-");
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+
+      const planillaReferencia = todasLasPlanillas.find(
+        (p) => p.empresa?.id === (r.empresa_id || r.clientes?.id),
+      );
+
+      planillasFinales.push({
+        planilla_id: r.origen_planilla_id || r.id,
+        numero_planilla: r.numero_planilla || "S/N",
+        vehiculo: vehiculo
+          ? {
+              id: vehiculo.id,
+              placa: vehiculo.placa,
+              marca: vehiculo.marca,
+              modelo: vehiculo.modelo,
+            }
+          : planillaReferencia?.vehiculo || null,
+        empresa:
+          r.clientes ||
+          planillaReferencia?.empresa || { id: r.empresa_id, nombre: "N/A" },
+        mes: month || planillaReferencia?.mes || 0,
+        año: year || planillaReferencia?.año || 0,
+        total_dias: 0,
+        total_horas: 0,
+        total_valor: Number(r.valor || 0),
+        total_festivos: 0,
+        configuracion_salarial:
+          planillaReferencia?.configuracion_salarial || {
+            valor_hora_trabajador: 0,
+          },
+        dias: [],
+      });
+    }
+
+    return { planillas: planillasFinales };
+  },
+
   // Preview de recargos desde planillas para un conductor en un período
   // Obtener una liquidación por ID (ya existente, pero necesitamos su resultado transformado)
   async obtenerPorIdTransformada(id: string) {

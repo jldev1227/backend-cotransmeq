@@ -170,7 +170,7 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
       // Obtener liquidación completa usando el service existente
       const liquidacion = await LiquidacionesService.obtenerPorId(firma.liquidacion_id)
 
-      // Obtener preview de recargos
+      // Obtener preview de recargos (raw, sin clasificar)
       let recargosData = null
       try {
         if (liquidacion.periodo_inicio && liquidacion.periodo_fin && liquidacion.conductores?.id) {
@@ -182,6 +182,17 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
         }
       } catch (e) {
         // Si falla preview de recargos, no bloquear
+      }
+
+      // Construir `dataParaPdf` con planillas clasificadas (misma
+      // estructura que el modal del dashboard y el portal del
+      // conductor). GEOLAB, RED SALUD, INGENIERIA ESPECIALIZADA
+      // quedan como 'bono_aparte' (sin valor monetario en el total).
+      let dataParaPdf: { planillas: any[] } = { planillas: [] }
+      try {
+        dataParaPdf = await LiquidacionesService.buildDataParaPdf(liquidacion)
+      } catch (e) {
+        // Si falla, no bloquear
       }
 
       // Generar presigned URL de la firma
@@ -275,6 +286,7 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
         data: {
           liquidacion,
           recargos: recargosData,
+          dataParaPdf,
           firma: {
             presignedUrl: firmaPresigned,
             fecha_firma: firma.fecha_firma
