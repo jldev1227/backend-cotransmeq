@@ -1536,6 +1536,8 @@ model liquidacion_servicio {
   valor_transporte_adicional Decimal                          @default(0) @db.Decimal(15, 2)
   valor_administracion_ta    Decimal                          @default(0) @db.Decimal(15, 2)
   valor_pernoctes            Decimal                          @default(0) @db.Decimal(15, 2)
+  cantidad_pernoctes         Int                              @default(0)
+  valor_unitario_pernoctes   Decimal                          @default(0) @db.Decimal(12, 2)
   subtotal                   Decimal                          @default(0) @db.Decimal(15, 2)
   porcentaje_iva             Decimal                          @default(0) @db.Decimal(5, 2)
   valor_iva                  Decimal                          @default(0) @db.Decimal(15, 2)
@@ -1545,6 +1547,7 @@ model liquidacion_servicio {
   motivo_anulacion           String?
   observaciones              String?
   osi                        String?
+  operadora                  String?
   tercero_liquidado          Boolean                          @default(false)
   creado_por_id              String?                          @db.Uuid
   actualizado_por_id         String?                          @db.Uuid
