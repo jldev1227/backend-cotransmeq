@@ -58,6 +58,13 @@ export interface PdfFromHtmlOptions {
    * Útil cuando se quiere ganar ancho horizontal sin afectar el alto.
    */
   widthScale?: number;
+  /**
+   * Si true, respeta el tamaño declarado en CSS (@page { size: ... })
+   * por encima del `format` / `landscape` pasados. Útil cuando el HTML
+   * usa named pages (@page liqPortrait { size: Letter portrait }) para
+   * mezclar tamaños/orientaciones dentro del mismo documento.
+   */
+  preferCSSPageSize?: boolean;
 }
 
 // Dimensiones base (en pulgadas) de cada formato, en orientación PORTRAIT.
@@ -80,7 +87,8 @@ export async function pdfFromHtml(opts: PdfFromHtmlOptions): Promise<Buffer> {
     baseUrl,
     format = "Letter",
     heightScale,
-    widthScale
+    widthScale,
+    preferCSSPageSize = false
   } = opts;
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -145,6 +153,7 @@ export async function pdfFromHtml(opts: PdfFromHtmlOptions): Promise<Buffer> {
     const pdfOptions: any = {
       landscape,
       printBackground: true,
+      preferCSSPageSize,
       margin: {
         top: `${marginMm}mm`,
         right: `${marginMm}mm`,

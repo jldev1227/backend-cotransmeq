@@ -4,8 +4,8 @@ import { pdfFromHtml } from '../../services/pdf.service';
 export class PdfController {
   static async fromHtml(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const body = request.body as any;
-      const { html, landscape, marginMm, filename, format, heightScale, widthScale } = body || {};
+const body = request.body as any;
+      const { html, landscape, marginMm, filename, format, heightScale, widthScale, preferCSSPageSize } = body || {};
 
       if (!html || typeof html !== 'string') {
         return reply.status(400).send({ error: 'Falta el campo "html" (string con el contenido a renderizar).' });
@@ -25,6 +25,7 @@ export class PdfController {
       if (typeof widthScale === 'number' && widthScale >= 0.5 && widthScale <= 3) {
         safeWidthScale = widthScale;
       }
+      const safePreferCSSPageSize = preferCSSPageSize === true;
 
       const pdf = await pdfFromHtml({
         html,
@@ -33,6 +34,7 @@ export class PdfController {
         format: safeFormat,
         heightScale: safeHeightScale,
         widthScale: safeWidthScale,
+        preferCSSPageSize: safePreferCSSPageSize
       });
 
       const safeName = (filename || 'documento').replace(/[^a-z0-9_\-]/gi, '_');
