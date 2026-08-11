@@ -1,8 +1,19 @@
 import puppeteer, { Browser } from "puppeteer-core";
 import fs from "fs";
+import { execSync } from "child_process";
 
+/** Busca un binario de Chromium/Chrome en el sistema. Cubre:
+    - Variable de entorno PUPPETEER_EXECUTABLE_PATH (estándar puppeteer)
+    - Variable de entorno PUPPETEER_CHROMIUM_PATH (legacy)
+    - macOS: /Applications
+    - Linux: /usr/bin/chromium, /usr/bin/chromium-browser,
+      /usr/bin/google-chrome, /usr/bin/google-chrome-stable
+    - PATH: chromium, chromium-browser, google-chrome, chrome
+    Si no encuentra nada, lanza un error descriptivo. */
 function resolveChromiumPath(): string {
-  if (process.env.PUPPETEER_CHROMIUM_PATH) return process.env.PUPPETEER_CHROMIUM_PATH;
+  const fromEnv =
+    process.env.PUPPETEER_EXECUTABLE_PATH || process.env.PUPPETEER_CHROMIUM_PATH;
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
 
   if (process.platform === "darwin") {
     const macPaths = [
@@ -17,7 +28,42 @@ function resolveChromiumPath(): string {
     );
   }
 
-  return "/usr/bin/chromium";
+  // Linux / Unix: busca primero rutas conocidas (rápido, sin spawn)
+  const linuxPaths = [
+    "/usr/bin/chromium-browser", // Alpine, Debian/Ubuntu
+    "/usr/bin/chromium",          // Arch, Manjaro
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/snap/bin/chromium",
+    "/opt/google/chrome/chrome",
+  ];
+  for (const p of linuxPaths) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Fallback: resolver vía PATH (cubre instalaciones no estándar)
+  for (const bin of ["chromium", "chromium-browser", "google-chrome", "chrome"]) {
+    try {
+      const found = execSync(`command -v ${bin}`, {
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .toString()
+        .trim();
+      if (found && fs.existsSync(found)) return found;
+    } catch {
+      /* binario no existe en PATH, sigue con el siguiente */
+    }
+  }
+
+  throw new Error(
+    "No se encontró un binario de Chromium/Chrome instalado en el sistema. " +
+      "Instálalo (apt: chromium-browser | apk: chromium | brew: --cask chromium) " +
+      "o define PUPPETEER_EXECUTABLE_PATH con la ruta absoluta al binario."
+  );
 }
 
 let browserInstance: Browser | null = null;

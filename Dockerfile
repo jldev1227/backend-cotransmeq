@@ -25,10 +25,28 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install OpenSSL and other dependencies required for Prisma in production
-RUN apk add --no-cache openssl libc6-compat
+# Install OpenSSL + Chromium (needed by Puppeteer in /api/pdf/from-html)
+# - openssl, libc6-compat: Prisma runtime deps
+# - chromium: headless browser for Puppeteer; provides /usr/bin/chromium-browser
+# - chromium's recommended shared libs: nss, freetype, harfbuzz, ca-certificates, dumb-init
+RUN apk add --no-cache \
+    openssl \
+    libc6-compat \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    dumb-init \
+    ttf-freefont \
+  && mkdir -p /app/.cache/puppeteer \
+  && chown -R node:node /app/.cache/puppeteer
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    CHROME_BIN=/usr/bin/chromium-browser \
+    CHROMIUM_PATH=/usr/bin/chromium-browser
 
 # Copy package files
 COPY --from=builder /app/package.json ./
