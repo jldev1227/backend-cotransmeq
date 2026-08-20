@@ -88,9 +88,9 @@ export const hseqFr04: SeedDefinition = {
 	suggested: {
 		frequency: 'MONTHLY',
 		limitPolicy: 'UNLIMITED',
-		context: {},
+		context: { vehicleId: { required: false } },
 		rationale:
-			'Mensual, sin límite: un vehículo o una sede puede tener varios extintores y cada uno se inspecciona por separado. El número de extintor lo distingue dentro del envío.'
+			'Mensual, sin límite: un vehículo o una sede puede tener varios extintores y cada uno se inspecciona por separado. El número de extintor lo distingue dentro del envío. Vehículo OPCIONAL en el contexto: un extintor de oficina no tiene placa, pero el de un vehículo debe quedar asociado a la suya mediante la columna `vehicle_id` del envío.'
 	},
 
 	source: {

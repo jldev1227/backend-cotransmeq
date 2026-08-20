@@ -53,6 +53,8 @@ export interface EmailAttachment {
   filename: string
   content: Buffer
   contentType?: string
+  /** Content-ID para imágenes embebidas: el HTML las referencia como cid:<id>. */
+  contentId?: string
 }
 
 /**
@@ -67,7 +69,8 @@ async function sendEmail({ from, to, subject, html, bcc, attachments }: { from: 
     if (attachments && attachments.length > 0) {
       payload.attachments = attachments.map((a) => ({
         filename: a.filename,
-        content: a.content
+        content: a.content,
+        ...(a.contentId ? { contentId: a.contentId } : {})
       }))
     }
     const { data, error } = await getResend().emails.send(payload)
@@ -92,7 +95,8 @@ async function sendEmail({ from, to, subject, html, bcc, attachments }: { from: 
     mailOptions.attachments = attachments.map((a) => ({
       filename: a.filename,
       content: a.content,
-      contentType: a.contentType
+      contentType: a.contentType,
+      cid: a.contentId
     }))
   }
   const info = await getSmtpTransporter().sendMail(mailOptions)

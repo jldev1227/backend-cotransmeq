@@ -394,25 +394,20 @@ export function identificacionInspector(
 // ─── 7. Contexto del vehículo ────────────────────────────────────────────────
 
 /**
- * Referencia al vehículo con snapshot de sus datos legibles.
+ * Datos del vehículo que NO vienen del contexto del envío.
  *
- * `LOOKUP` y no texto libre: el snapshot (placa, marca, clase, modelo) queda
- * dentro del envío, así que el informe sigue diciendo qué vehículo era aunque el
- * vehículo se dé de baja o cambie de placa. Un texto libre además admite
- * «AAA123», «aaa-123» y «AAA 123» como tres vehículos distintos.
+ * La placa no se pide aquí. El vehículo es contexto del envío (`vehicleId`), lo
+ * elige el conductor en el selector previo del portal y se guarda en la columna
+ * `form_submissions.vehicle_id`. De ahí salen la unicidad `ONE_PER_CONTEXT`, la
+ * columna `placa` del export y el dashboard. Un campo de formulario que volviera
+ * a pedirla admitiría que el envío quedara con dos vehículos distintos, porque
+ * nada sincroniza el campo con el contexto.
+ *
+ * Para que el selector aparezca, la asignación debe declarar `vehicleId` en su
+ * `context`; sin eso el envío se guarda sin vehículo.
  */
-export function contextoVehiculo(
-	config: { required?: boolean; conKilometraje?: boolean } = {}
-): Campo[] {
-	const campos: Campo[] = [
-		{
-			...base('vehiculo', 'Vehículo'),
-			type: 'LOOKUP',
-			required: config.required ?? true,
-			config: { source: 'VEHICLE', snapshot: ['placa', 'marca', 'clase_vehiculo', 'modelo'] },
-			helpText: 'Selecciona la placa. Se guardan marca, clase y modelo junto al envío.'
-		}
-	]
+export function contextoVehiculo(config: { conKilometraje?: boolean } = {}): Campo[] {
+	const campos: Campo[] = []
 	if (config.conKilometraje) {
 		campos.push(
 			entero('kilometraje', 'Kilometraje actual', {
@@ -424,25 +419,18 @@ export function contextoVehiculo(
 	return campos
 }
 
-/** Alternativa cuando el original pide lugar O placa (equipos fijos y móviles). */
+/**
+ * Alternativa cuando el original pide lugar O placa (equipos fijos y móviles).
+ *
+ * Solo distingue vehículo de sede y captura la sede. La placa, cuando aplica,
+ * sale del contexto del envío; ver `contextoVehiculo`.
+ */
 export function ubicacionOVehiculo(): Campo[] {
 	return [
 		opciones('ubicacion_tipo', 'El elemento inspeccionado está en…', [
 			{ value: 'VEHICULO', label: 'Un vehículo' },
 			{ value: 'SEDE', label: 'Una sede o instalación' }
 		], { required: true }),
-		{
-			...base('vehiculo', 'Vehículo'),
-			type: 'LOOKUP',
-			config: { source: 'VEHICLE', snapshot: ['placa', 'marca', 'clase_vehiculo'] },
-			/// Se muestra solo si es un vehículo: pedir placa para un extintor de
-			/// oficina obliga al inspector a inventarse un valor.
-			visibilityRule: {
-				version: 1,
-				all: [{ fieldKey: 'ubicacion_tipo', operator: 'equals', value: 'VEHICULO' }],
-				effect: { action: 'show', targetFieldKey: 'vehiculo' }
-			} satisfies Rule
-		},
 		texto('ubicacion_sede', 'Sede o lugar de ubicación', {
 			validation: { maxLength: 150 },
 			visibilityRule: {

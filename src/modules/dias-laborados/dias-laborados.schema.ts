@@ -15,6 +15,9 @@ export const segmentoSchema = z.object({
   vehiculo_placa: z.string().min(1, 'Placa requerida'),
   hora_inicio: z.string().regex(/^\d{2}:\d{2}$/),
   hora_fin: z.string().regex(/^\d{2}:\d{2}$/),
+  // Turnos que cruzan medianoche: la hora corresponde al día siguiente (+1)
+  inicio_dia_siguiente: z.boolean().optional().default(false),
+  fin_dia_siguiente: z.boolean().optional().default(false),
   horas_conducidas: z.number().min(0).max(24),
   km_inicial: z.number().int().nonnegative().optional().nullable(),
   km_final: z.number().int().nonnegative().optional().nullable(),

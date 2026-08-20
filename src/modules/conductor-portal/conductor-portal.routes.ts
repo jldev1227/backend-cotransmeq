@@ -8,8 +8,7 @@ import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
 import { DiasLaboradosService } from '../dias-laborados/dias-laborados.service'
 import { getIO } from '../../sockets'
 import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aws'
-
-const TOKEN_VALIDITY_DAYS = 30
+import { emitirTokenPortal } from './portal-token.service'
 
 /**
  * Middleware de autenticación para el portal del conductor.
@@ -89,32 +88,15 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         })
       }
 
-      // 2. Generar JWT
-      const expiresAt = new Date()
-      expiresAt.setDate(expiresAt.getDate() + TOKEN_VALIDITY_DAYS)
-
-      const jwtToken = jwt.sign(
-        {
-          sub: conductor.id,
-          cedula: numero_identificacion,
-          nombre: `${conductor.nombre} ${conductor.apellido}`,
-          tipo: 'conductor_portal'
-        },
-        env.JWT_SECRET,
-        { expiresIn: `${TOKEN_VALIDITY_DAYS}d` }
-      )
-
-      // 3. Guardar token en BD
-      await prisma.conductor_token.create({
-        data: {
-          id: require('crypto').randomUUID(),
-          conductor_id: conductor.id,
-          token: jwtToken,
-          expires_at: expiresAt
-        }
+      // 2. Generar y registrar el JWT con el contrato compartido del portal.
+      const jwtToken = await emitirTokenPortal({
+        id: conductor.id,
+        numero_identificacion,
+        nombre: conductor.nombre,
+        apellido: conductor.apellido
       })
 
-      // 4. Enviar email
+      // 3. Enviar email
       await EmailService.sendPortalAccessLink({
         to: conductor.email,
         conductorNombre: conductor.nombre,
@@ -1259,6 +1241,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
                   vehiculo_placa: { type: 'string' },
                   hora_inicio: { type: 'string' },
                   hora_fin: { type: 'string' },
+                  inicio_dia_siguiente: { type: 'boolean' },
+                  fin_dia_siguiente: { type: 'boolean' },
                   horas_conducidas: { type: 'number' },
                   km_inicial: { type: ['integer', 'null'] },
                   km_final: { type: ['integer', 'null'] },

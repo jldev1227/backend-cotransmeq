@@ -3,6 +3,13 @@ import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { FormulariosController } from './formularios-dinamicos.controller'
 import { snapshotMetricas } from './formularios-dinamicos.observabilidad'
+import {
+  destinatarioPorId,
+  enviarCampana,
+  enviarGuia,
+  listarAudiencia,
+  resolverPeriodo
+} from './formularios-campana-email.service'
 
 /**
  * Rutas administrativas del constructor de formularios.
@@ -58,6 +65,43 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
   app.get('/formularios/metricas', puedeLeer, async (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
     return reply.send({ success: true, data: snapshotMetricas() })
+  })
+
+  // ── Comunicación de lanzamiento al Portal del Conductor ────────────────
+  // Cada mensaje se envía individualmente porque contiene un token privado.
+  app.get('/formularios/campana-portal/audiencia', puedeLeer, async (request, reply) => {
+    try {
+      const { periodo } = request.query as { periodo?: string }
+      const data = await listarAudiencia(periodo)
+      return reply.send({ success: true, data, meta: { total: data.destinatarios.length } })
+    } catch (error) {
+      return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_INVALID', message: error instanceof Error ? error.message : 'Solicitud inválida.' } })
+    }
+  })
+
+  app.post('/formularios/campana-portal/test', puedeEditar, async (request, reply) => {
+    try {
+      const { conductorId, to } = request.body as { conductorId?: string; to?: string }
+      if (!conductorId || !to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_INVALID', message: 'conductorId y to válido son obligatorios.' } })
+      }
+      const destinatario = await destinatarioPorId(conductorId)
+      const result = await enviarGuia(destinatario, to)
+      return reply.send({ success: true, data: { id: result?.id ?? null, to, conductorId, test: true } })
+    } catch (error) {
+      return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_SEND_FAILED', message: error instanceof Error ? error.message : 'No fue posible enviar la prueba.' } })
+    }
+  })
+
+  app.post('/formularios/campana-portal/enviar', puedeEditar, async (request, reply) => {
+    try {
+      const { periodo, confirmacion } = request.body as { periodo?: string; confirmacion?: string }
+      const rango = resolverPeriodo(periodo)
+      const data = await enviarCampana(rango.periodo, confirmacion || '')
+      return reply.send({ success: data.fallidos === 0, data })
+    } catch (error) {
+      return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_SEND_FAILED', message: error instanceof Error ? error.message : 'No fue posible enviar la campaña.' } })
+    }
   })
 
   // ── Plantillas de cards ──────────────────────────────────────────────────

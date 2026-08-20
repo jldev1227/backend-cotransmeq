@@ -272,7 +272,7 @@ export const hseqFr56: SeedDefinition = {
 			]),
 
 			seccion('vehiculo', 'Datos del vehículo', [
-				contextoVehiculo({ required: true, conKilometraje: true }),
+				contextoVehiculo({ conKilometraje: true }),
 				texto('vehiculo_tipo', 'Tipo', { validation: { maxLength: 100 } }),
 				texto('vehiculo_color', 'Color', { validation: { maxLength: 60 } }),
 				texto('vehiculo_chasis', 'N° de chasis', { validation: { maxLength: 60 } }),

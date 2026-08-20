@@ -6,20 +6,20 @@ Todas quedan en DRAFT. Ninguna crea asignaciones ni se publica.
 
 RESUMEN
   CÓDIGO        SEC  CAMPOS  RESP  OBLIG  OPC  REGLAS  GRUPOS  ADJ  ESTADO
-  HSEQ-FR-22      5      43    41     22   35      24       1    2  OK
-  HSEQ-FR-08     18     241   239    123  334     212       0    2  OK
-  HSEQ-FR-09     19     275   273    140  385     246       0    2  OK
-  HSEQ-FR-04      6      54    52     31   50      30       1    2  OK
-  HSEQ-FR-05      6     130   128     75  101      68       1    2  OK
-  HSEQ-FR-07      6      24    22     10   11       5       0    2  OK
-  HSEQ-FR-17      5      35    33     20   26      18       1    2  OK
+  HSEQ-FR-22      5      42    40     22   35      23       1    2  OK
+  HSEQ-FR-08     18     240   238    122  334     212       0    2  OK
+  HSEQ-FR-09     19     274   272    139  385     246       0    2  OK
+  HSEQ-FR-04      6      53    51     31   50      29       1    2  OK
+  HSEQ-FR-05      6     129   127     75  101      67       1    2  OK
+  HSEQ-FR-07      6      23    21     10   11       4       0    2  OK
+  HSEQ-FR-17      5      34    32     20   26      17       1    2  OK
   HSEQ-FR-21      5      42    40     23   24      24       1    2  OK
   HSEQ-FR-33      7      18    17     10   66       4       0    2  OK
   HSEQ-FR-40      5      38    36     21   30      20       1    2  OK
   HSEQ-FR-42      7      27    25     10   20       2       0    2  OK
   HSEQ-FR-43      9      75    73     40   87      58       1    2  OK
-  HSEQ-FR-56     17     231   226     82  303     196       2    3  OK
-  TOTAL          115    1233                    1472     907
+  HSEQ-FR-56     17     230   225     81  303     196       2    3  OK
+  TOTAL          115    1225                    1472     902
 
 ──────────────────────────────────────────────────────────────────────────────
 HSEQ-FR-22 — Inspección kit de derrames

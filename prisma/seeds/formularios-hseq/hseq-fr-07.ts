@@ -63,9 +63,9 @@ export const hseqFr07: SeedDefinition = {
 	suggested: {
 		frequency: 'ON_DEMAND',
 		limitPolicy: 'UNLIMITED',
-		context: {},
+		context: { vehicleId: { required: false } },
 		rationale:
-			'A demanda y sin límite: una falla se reporta cuando ocurre, y un mismo vehículo puede tener varias en un día.'
+			'A demanda y sin límite: una falla se reporta cuando ocurre, y un mismo vehículo puede tener varias en un día. Vehículo OPCIONAL en el contexto: el activo que falla puede ser un equipo, una herramienta o infraestructura, pero cuando es un vehículo el reporte debe quedar asociado a su placa y esa asociación es la columna `vehicle_id` del envío, no un campo del formulario.'
 	},
 
 	source: {
@@ -142,23 +142,7 @@ export const hseqFr07: SeedDefinition = {
 					validation: { maxLength: 200 }
 				}),
 				texto('activo_marca', 'Marca', { validation: { maxLength: 100 } }),
-				texto('activo_serie', 'Serie / código', { validation: { maxLength: 100 } }),
-				{
-					key: 'vehiculo',
-					type: 'LOOKUP',
-					label: 'Vehículo (si la falla es de un vehículo)',
-					helpText: 'Selecciona la placa para que el reporte quede asociado al vehículo.',
-					placeholder: null,
-					required: false,
-					config: { source: 'VEHICLE', snapshot: ['placa', 'marca', 'clase_vehiculo'] },
-					validation: {},
-					defaultValue: null,
-					visibilityRule: {
-						version: 1,
-						all: [{ fieldKey: 'clase_activo', operator: 'equals', value: 'VEHICULO' }],
-						effect: { action: 'show', targetFieldKey: 'vehiculo' }
-					} satisfies Rule
-				}
+				texto('activo_serie', 'Serie / código', { validation: { maxLength: 100 } })
 			]),
 
 			seccion('falla', 'Descripción de la falla', [

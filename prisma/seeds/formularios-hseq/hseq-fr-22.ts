@@ -68,7 +68,7 @@ export const hseqFr22: SeedDefinition = {
 		limitPolicy: 'ONE_PER_CONTEXT',
 		context: { vehicleId: { required: true } },
 		rationale:
-			'Mensual por vehículo o sede. `ONE_PER_CONTEXT` con vehículo requerido para que un conductor que maneja dos vehículos pueda inspeccionar los dos kits en el mismo mes.'
+			'Mensual por vehículo. `ONE_PER_CONTEXT` con vehículo requerido para que un conductor que maneja dos vehículos pueda inspeccionar los dos kits en el mismo mes. ATENCIÓN AL PUBLICAR: el formulario también admite kits de sede (`ubicacion_tipo = SEDE`), y esta configuración NO los cubre — con vehículo requerido no se puede entregar un envío sin placa. Los kits de sede necesitan una SEGUNDA asignación de la misma versión, con target `SEDE`, `limitPolicy: UNLIMITED` y `context: {}`. No basta con volver opcional el `vehicleId` de esta: `verificarLimite` agrupa todos los envíos sin vehículo bajo la misma clave (`vehicle_id: null`), así que la unicidad degeneraría a "uno por conductor y mes" y un conductor no podría inspeccionar más de un kit de sede al mes.'
 	},
 
 	source: {

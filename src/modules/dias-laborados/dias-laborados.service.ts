@@ -187,6 +187,8 @@ export const DiasLaboradosService = {
               vehiculo_placa: seg.vehiculo_placa,
               hora_inicio: seg.hora_inicio,
               hora_fin: seg.hora_fin,
+              inicio_dia_siguiente: seg.inicio_dia_siguiente === true,
+              fin_dia_siguiente: seg.fin_dia_siguiente === true,
               horas_conducidas: Number(seg.horas_conducidas) || 0,
               km_inicial: seg.km_inicial != null ? Number(seg.km_inicial) : null,
               km_final: seg.km_final != null ? Number(seg.km_final) : null,

@@ -222,24 +222,18 @@ export const HERRAMIENTAS_COMUN = [
 
 // ─── Secciones compartidas ───────────────────────────────────────────────────
 
-/** Documentos del vehículo con sus fechas de vencimiento. */
+/**
+ * Documentos del vehículo con sus fechas de vencimiento.
+ *
+ * No pide la placa: el vehículo es contexto del envío (`vehicleId`) y el
+ * conductor ya lo eligió en el selector previo del portal. Las asignaciones de
+ * FR-08 y FR-09 lo declaran requerido, así que aquí siempre hay vehículo.
+ */
 export function seccionDocumentos(): FormSectionDraft {
 	return seccion(
 		'documentos',
 		'Información y documentos del vehículo',
 		[
-			{
-				key: 'vehiculo',
-				type: 'LOOKUP',
-				label: 'Vehículo',
-				helpText: 'Selecciona la placa. Se guardan marca, clase y modelo junto al envío.',
-				placeholder: null,
-				required: true,
-				config: { source: 'VEHICLE', snapshot: ['placa', 'marca', 'clase_vehiculo', 'modelo'] },
-				validation: {},
-				visibilityRule: null,
-				defaultValue: null
-			},
 			fecha('doc_tarjeta_operaciones', 'Vencimiento de la tarjeta de operaciones'),
 			fecha('doc_soat', 'Vencimiento del SOAT', { required: true }),
 			fecha('doc_poliza_extracontractual', 'Vencimiento de la póliza de responsabilidad civil extracontractual'),

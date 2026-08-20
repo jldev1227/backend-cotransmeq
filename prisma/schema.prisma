@@ -222,6 +222,12 @@ model registro_dia_laboral_segmento {
   vehiculo_placa    String              @db.VarChar(20)
   hora_inicio       String              @db.VarChar(10)
   hora_fin          String              @db.VarChar(10)
+  /// Indica si la hora de inicio corresponde al día SIGUIENTE
+  /// (caso típico: turno que arranca pasada la medianoche).
+  inicio_dia_siguiente Boolean          @default(false)
+  /// Indica si la hora de fin corresponde al día SIGUIENTE
+  /// (caso típico: turno que termina pasada la medianoche → +1).
+  fin_dia_siguiente    Boolean          @default(false)
   horas_conducidas  Decimal             @default(0) @db.Decimal(4, 1)
   km_inicial        Int?
   km_final          Int?
