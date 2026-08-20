@@ -1,0 +1,177 @@
+──────────────────────────────────────────────────────────────────────────────
+INVENTARIO DE SEMILLAS HSEQ — FORMULARIOS DINÁMICOS
+13 semillas · 13 válidas · 0 con errores
+Todas quedan en DRAFT. Ninguna crea asignaciones ni se publica.
+──────────────────────────────────────────────────────────────────────────────
+
+RESUMEN
+  CÓDIGO        SEC  CAMPOS  RESP  OBLIG  OPC  REGLAS  GRUPOS  ADJ  ESTADO
+  HSEQ-FR-22      5      43    41     22   35      24       1    2  OK
+  HSEQ-FR-08     18     241   239    123  334     212       0    2  OK
+  HSEQ-FR-09     19     275   273    140  385     246       0    2  OK
+  HSEQ-FR-04      6      54    52     31   50      30       1    2  OK
+  HSEQ-FR-05      6     130   128     75  101      68       1    2  OK
+  HSEQ-FR-07      6      24    22     10   11       5       0    2  OK
+  HSEQ-FR-17      5      35    33     20   26      18       1    2  OK
+  HSEQ-FR-21      5      42    40     23   24      24       1    2  OK
+  HSEQ-FR-33      7      18    17     10   66       4       0    2  OK
+  HSEQ-FR-40      5      38    36     21   30      20       1    2  OK
+  HSEQ-FR-42      7      27    25     10   20       2       0    2  OK
+  HSEQ-FR-43      9      75    73     40   87      58       1    2  OK
+  HSEQ-FR-56     17     231   226     82  303     196       2    3  OK
+  TOTAL          115    1233                    1472     907
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-22 — Inspección kit de derrames
+  id formulario : c1a43c40-0492-510b-8056-6a201039d2df
+  id versión    : 725ffbaf-87be-589f-b413-c7cac3624412
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • La cinta de señalización figura como «rollo 100 metros» en el nombre del elemento y como «rollo 50 metros» en la columna de cantidad. Se transcribió la contradicción; HSEQ debe decidir cuál es la correcta.
+    • Se añadió el estado «No tiene» a la escala original COMPLETO/INCOMPLETO: un elemento ausente no es lo mismo que uno incompleto.
+    • Las seis columnas de inspección que el Excel imprime en paralelo NO se transcribieron como columnas: cada diligenciamiento es un envío y el historial vive en la lista de envíos.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-08 — Preoperacional de vehículos: automóviles, camperos y camionetas
+  id formulario : 1a256c71-7d39-5d4e-870a-f51754019b3c
+  id versión    : 324951d9-7e85-550d-8e5e-e22cf48f4ebe
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • LAS SIETE COLUMNAS DE FECHA DEL EXCEL NO SE TRANSCRIBIERON como siete campos. En el papel una hoja cubre una semana; aquí cada día es un envío con su fecha de negocio y el historial se consulta en la lista de envíos.
+    • La instrucción «si un ítem sale MALO, diligencie el Reporte de Falla» no se puede automatizar entre dos formularios distintos. Se recuerda en la sección de firma; HSEQ puede querer un enlace directo en una fase futura.
+    • El original escribe «TABLERO Y TESTICOS» (errata por «TESTIGOS») y «EXTRATO CONTRATO» (por «EXTRACTO»). Se corrigieron en la transcripción.
+    • El original tiene el ítem «Fugas de Líquidos en el motor o debajo del vehículo» redactado en positivo o negativo según el formato; se unificó como «Sin fugas de líquidos…» para que BUENO signifique siempre «está bien».
+    • Los ítems marcados «***» en el original (KM final, novedades de equipaje, equipaje olvidado) son los que se diligencian al FINAL del recorrido. Se agruparon en la sección de cierre.
+    • El control de cambios del original registra hasta la versión 4 (2024-08-09) pero el encabezado dice «Versión 6 / 2025-07-16». HSEQ debe confirmar qué cambió en la 5 y la 6.
+    • Este formulario supera los 250 campos. Probarlo en un teléfono de gama baja y en modo avión antes de publicarlo.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-09 — Preoperacional de vehículos: microbuses, busetas y buses
+  id formulario : fe1d401a-a471-5f0c-a306-e47af8b12428
+  id versión    : 76ead2de-0f4a-52b8-9fbf-23324c37bb80
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • LAS SIETE COLUMNAS DE FECHA DEL EXCEL NO SE TRANSCRIBIERON como siete campos: cada día es un envío con su fecha de negocio.
+    • La hoja «Hoja1» del libro repite la zona de pasajeros y el kit de carretera como lista de apoyo; no aporta campos nuevos y no se transcribió.
+    • El original escribe «TABLERO Y TESTICOS» (errata por «TESTIGOS»). Se corrigió.
+    • «Licuadora de Emergencia» aparece así en el original; parece referirse a la luz intermitente de emergencia. Se transcribió literalmente y HSEQ debería aclarar el término.
+    • La instrucción «si un ítem sale MALO, diligencie el Reporte de Falla» no se automatiza entre formularios distintos; se recuerda en la sección de firma.
+    • El control de cambios solo registra la emisión inicial (2022-04-18, versión 1) pero el encabezado dice «Versión 3 / 2025-07-16». HSEQ debe confirmar qué cambió.
+    • Este formulario supera los 280 campos. Probarlo en un teléfono de gama baja y en modo avión antes de publicarlo.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-04 — Inspección de extintores
+  id formulario : 4a3829cc-1032-53bd-a34b-50bbacd3b4fa
+  id versión    : d20a6224-14b1-5dd4-a2c3-3efc2d2d06fe
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • El encabezado interno dice «Versión 3 / 2025-03-04», pero el control de cambios solo registra hasta la versión 2 (2024-04-01). HSEQ debe confirmar qué cambió en la 3.
+    • La hoja «Hoja1» del libro es una lista de apoyo con los mismos elementos y no se transcribió como campos.
+    • El límite sugerido es UNLIMITED porque un mismo vehículo puede tener dos extintores; si HSEQ prefiere uno por extintor y mes, hará falta un identificador de activo en el contexto.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-05 — Inspección de botiquín
+  id formulario : a0f48785-b202-5346-9e54-53a1761a7c6b
+  id versión    : 60d6bc9a-e568-59e2-9f79-57d758d33077
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • La fecha de vencimiento solo se pide en los elementos que caducan (gasas, sueros, alcohol, guantes…). El original la pide para los 33, incluidas tijeras y pito. HSEQ debe confirmar la lista de elementos con caducidad.
+    • La sección «Cambios o reposiciones» del original repite la tabla completa en blanco; se transcribió como grupo repetible en vez de 33 campos más.
+    • La escala del original es B / M / C-R (bueno, malo, cambiar-reemplazar). Se conservó tal cual.
+    • El elemento «Estado general e higiene de la maleta del botiquín» del original no es un elemento inventariable; se transcribió como ítem de estado sin cantidad.
+    • La repetición horizontal de seis inspecciones del libro se normaliza como historial de envíos.
+    • Este formulario supera los 100 campos. Conviene probarlo en un teléfono de gama baja antes de publicarlo.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-07 — Reporte de falla
+  id formulario : d11f4147-ef84-5c99-82c3-e614a6771fbc
+  id versión    : cf210e16-0676-5615-bc56-31c91b9d8892
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • El original imprime DOS copias idénticas del formato en la misma hoja. Se transcribió UNA vez, tal como indica el documento de especificación.
+    • El consecutivo «No. REPORTE» no se pide al conductor: lo asigna el servidor. Pedírselo produce duplicados y huecos.
+    • Las secciones de análisis de causas, posibles soluciones y las firmas de líder de proceso y Administración/Compras se marcaron como `editableBy: [USER]`. El runner del conductor las omite; el tratamiento administrativo se implementa en una fase posterior.
+    • La fecha del encabezado interno (2025-11-28) es POSTERIOR a la fecha de inspección del ZIP (2026-08-19 según la especificación, pero el archivo se descargó el 2026-08-19). HSEQ debe confirmar que la revisión 2 es la vigente.
+    • El campo «MAQUINA OTRO ¿Cuál?» del original mezcla dos opciones en una celda; se separó en la opción «Máquina» y la opción «Otro» con su campo de texto.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-17 — Inspección férula espinal larga (FEL) / camilla
+  id formulario : 37222853-c6c4-5128-a553-72c78b2f9504
+  id versión    : 3bf41a15-6319-5dc6-b496-3e0d2fe2337e
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • El original imprime diez renglones de elementos pero solo ocho tienen texto. Las filas 9 y 10 no se transcribieron como campos: los hallazgos adicionales van al grupo repetible.
+    • `ONE_PER_CONTEXT` con vehículo opcional no restringe realmente: si HSEQ quiere un envío por camilla y mes, hace falta marcar el vehículo como requerido o añadir un identificador de activo.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-21 — Inspección de productos químicos
+  id formulario : e609e8e5-1ff2-52c3-ac50-3063cdbd6fd3
+  id versión    : 88af0e22-c8ce-5818-a0dc-bc735068428f
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • DISCREPANCIA DE VERSIÓN: el nombre del archivo dice «V1» y el encabezado interno dice «Versión 2 / 2025-01-10». Se conservó la del encabezado.
+    • La escala es solo C/NC, sin «No aplica», tal como el original. Si HSEQ necesita NA habrá que añadirlo explícitamente.
+    • Los criterios 6 a 12 están redactados como instrucciones y no como preguntas verificables («Se debe verificar…», «Usar los elementos…»). Se transcribieron literalmente; HSEQ debería reformularlos.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-33 — Tarjeta de observación
+  id formulario : 4d7d7000-e6c8-5ed7-a985-b43a25d86ea8
+  id versión    : a51dc986-0cc4-537c-8b4f-7660f50a0caa
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • DECISIÓN IMPORTANTE: el catálogo de ~53 subcategorías del original se transcribió como campos de OPCIÓN MÚLTIPLE agrupados, no como 53 casillas booleanas. Con booleanos, el informe queda lleno de «false» que significan «no lo miré» y no «no ocurrió». HSEQ debe confirmar esta decisión.
+    • Los grupos 1 a 12 del original se fusionaron en un único campo «Actos y condiciones subestándar observadas», y los grupos 13 y 14 en «Actos y condiciones seguras», conservando la numeración en cada etiqueta (1.1, 8.5, 13.1…) para poder cruzarlo con el papel.
+    • El original tiene una hoja llamada «CARA 1» pero no existe una «CARA 2» en el libro. Si el formato impreso tiene reverso, falta transcribirlo.
+    • El campo «1.6 Otro. ¿Cuál?» del catálogo original tenía una casilla de texto asociada; se conservó como campo de texto condicional.
+    • El grupo «15 - Malestar o condición de salud no adecuada» pide describir el malestar: son datos de salud. Revisar retención y quién puede consultarlos antes de publicar.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-40 — Inspección de residuos
+  id formulario : bc977fb8-ceb8-5f09-b79f-fc2534bcd25e
+  id versión    : 49f54de0-ff94-5fcc-b681-bc891de72eeb
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • DISCREPANCIA: el encabezado interno dice «Versión 1 / 2022-07-17» pero el control de cambios registra una versión 2 del 2025-03-12. El encabezado parece desactualizado; HSEQ debe confirmar cuál es la vigente antes de publicar.
+    • El formato mezcla parámetros de energía y de agua bajo el título «Inspección de residuos». Se conservó el título del documento.
+    • El original registra al inspector con líneas de subrayado en una celda de texto («INSPECCIONADO POR: ____ CARGO: ____ LUGAR/SEDE: ____»). Se transcribió como tres campos independientes.
+    • La regla que exige el plan de acción se implementó con `any` sobre los diez parámetros. Si HSEQ añade parámetros habrá que ampliarla (tope de 20 condiciones por regla).
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-42 — PQRSAF — petición, queja, reclamo, sugerencia, apelación y felicitación
+  id formulario : 9903f429-dc78-592b-b8bc-8f799b14003f
+  id versión    : e5ddb0b6-c644-541a-af05-4eca08f710c1
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • El libro tiene DOS hojas de formato. Se transcribió «Formato» (la más completa: incluye Felicitaciones, requirentes Trabajador y Otro, y el valor NA en el cierre) y se ignoró «Formato Quejas», que es la versión anterior.
+    • DATOS PERSONALES DE TERCEROS: este formulario recoge nombre, documento, celular, correo y dirección de personas que no son empleados. Definir retención, base legal del tratamiento y quién puede consultarlos ANTES de publicar.
+    • El tratamiento y el concepto de cierre se marcaron como `editableBy: [USER]`: el runner del conductor los omite. El flujo administrativo se implementa en una fase posterior.
+    • El consecutivo «No.» no se pide: lo asigna el servidor.
+    • La hoja «Formato» tiene la errata «TRATAMINETO» por «TRATAMIENTO» en dos títulos. Se corrigió en la transcripción.
+    • El original pide «Documento de Identidad ___ de ___» (número y lugar de expedición). Se transcribió como dos campos.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-43 — Inspección ambiental
+  id formulario : bc3cb818-783f-598d-b45c-252a61881c81
+  id versión    : 1fe75709-dec5-5a13-88a5-d2485847ef30
+  ADVERTENCIAS DEL VALIDADOR:
+    ! [FIELD_LABEL_DUPLICATE] sections[2].fields[12].label — La etiqueta se repite (también en sections[1].fields[4]).
+    ! [FIELD_LABEL_DUPLICATE] sections[2].fields[13].label — La etiqueta se repite (también en sections[1].fields[5]).
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • El ítem «No se observa goteo de agua en las llaves» aparece DOS VECES en el original (bloques 1 y 2). Se conservaron los dos con claves distintas; el validador lo reporta como etiqueta duplicada. HSEQ debe decidir si eliminar uno.
+    • El bloque 3 se titula «MANEJO DE RESIDUOS SOLIDOS LIQUIDOS» en el original, que parece una errata por «RESIDUOS LÍQUIDOS». Se transcribió como «Manejo de residuos líquidos».
+    • El bloque 5 se titula «MANEJO DE RESIDUOS SOLIDOS (QUÍMICOS)» pero sus criterios son de almacenamiento de químicos, no de residuos. Se transcribió como «Manejo de productos químicos».
+    • Las seis columnas de inspección en paralelo del Excel se convierten en seis envíos mensuales independientes.
+    • El original no incluye un plan de acción formal; se añadió el grupo repetible de hallazgos para poder registrar las recomendaciones con responsable y fecha. HSEQ debe confirmar si lo quiere.
+
+──────────────────────────────────────────────────────────────────────────────
+HSEQ-FR-56 — Acta de entrega y/o recibo de vehículo tractocamión
+  id formulario : 842e9531-b056-52c2-aeb0-73fbc0d05bfa
+  id versión    : 5d83fc36-debf-52f2-8ff7-ff1ed596932b
+  NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
+    • DISCREPANCIA DE VERSIÓN: el nombre del archivo dice «V1» y el encabezado interno dice «Versión 2 / 2024-07-10». Se conservó la del encabezado.
+    • Las nueve observaciones numeradas del original se transcribieron como UN grupo repetible, no como nueve campos fijos.
+    • El botiquín de este acta usa la escala B/M/C del original y NO pide fecha de vencimiento: el acta verifica presencia y estado, no caducidad. La inspección de caducidad es HSEQ-FR-05.
+    • El original marca «BOTIQUÍN SI__ NO__» y «HERRAMIENTA SI__ NO__» como casillas previas a cada inventario; se transcribieron como preguntas que condicionan el inventario correspondiente.
+    • El extintor del original solo pide capacidad y mes de vencimiento (no un checklist). Se transcribió así; la inspección completa del extintor es HSEQ-FR-04.
+    • Este formulario supera los 150 campos. Probarlo en un teléfono de gama baja antes de publicarlo.
+
+──────────────────────────────────────────────────────────────────────────────
+CHECKLIST HSEQ ANTES DE PUBLICAR
+  [ ] Confirmar código, revisión y fecha contra el encabezado del archivo original.
+  [ ] Corregir ortografía sin cambiar el sentido normativo.
+  [ ] Definir required, NA permitido y observaciones obligatorias por estado negativo.
+  [ ] Confirmar frecuencia, target, vehículo/sede y ventana de vigencia.
+  [ ] Revisar datos personales, firma, fotos y política de retención.
+  [ ] Verificar límites y mensajes de criticidad.
+  [ ] Probar en un teléfono pequeño (320 px) y en modo avión.
+  [ ] Firmar la aprobación funcional fuera del sistema antes de activar assignments.
+──────────────────────────────────────────────────────────────────────────────

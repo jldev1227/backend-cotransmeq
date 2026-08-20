@@ -10,6 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed": "tsx prisma/seed.ts",
+    "seeds:formularios:inventario": "tsx prisma/seeds/formularios-hseq/inventario.ts",
+    "seeds:formularios:cargar": "tsx prisma/seeds/formularios-hseq/cargar.ts",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",

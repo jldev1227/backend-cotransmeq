@@ -44,14 +44,32 @@ function getSmtpTransporter(): Transporter {
 }
 
 /**
+ * Attachment genérico aceptado por ambos providers (Resend y SMTP).
+ * - `filename`: nombre del archivo
+ * - `content`: contenido como Buffer
+ * - `contentType` (opcional): mime type
+ */
+export interface EmailAttachment {
+  filename: string
+  content: Buffer
+  contentType?: string
+}
+
+/**
  * Envía un email usando el proveedor disponible (Resend o SMTP)
  */
-async function sendEmail({ from, to, subject, html, bcc }: { from: string; to: string[]; subject: string; html: string; bcc?: string[] }) {
+async function sendEmail({ from, to, subject, html, bcc, attachments }: { from: string; to: string[]; subject: string; html: string; bcc?: string[]; attachments?: EmailAttachment[] }) {
   const provider = getEmailProvider()
 
   if (provider === 'resend') {
     const payload: any = { from, to, subject, html }
     if (bcc && bcc.length > 0) payload.bcc = bcc
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments.map((a) => ({
+        filename: a.filename,
+        content: a.content
+      }))
+    }
     const { data, error } = await getResend().emails.send(payload)
     if (error) {
       console.error('[EmailService][Resend] Error enviando email:', error)
@@ -70,6 +88,13 @@ async function sendEmail({ from, to, subject, html, bcc }: { from: string; to: s
     html,
   }
   if (bcc && bcc.length > 0) mailOptions.bcc = bcc.join(', ')
+  if (attachments && attachments.length > 0) {
+    mailOptions.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType
+    }))
+  }
   const info = await getSmtpTransporter().sendMail(mailOptions)
   console.log('[EmailService][SMTP] Email enviado exitosamente:', info.messageId)
   return { id: info.messageId }
@@ -87,7 +112,7 @@ export const EmailService = {
   /**
    * Envía un email genérico (helper expuesto para uso desde otros módulos)
    */
-  async sendEmail(params: { from?: string; to: string[]; subject: string; html: string; bcc?: string[] }) {
+  async sendEmail(params: { from?: string; to: string[]; subject: string; html: string; bcc?: string[]; attachments?: EmailAttachment[] }) {
     return sendEmail({ from: params.from ?? env.SMTP_FROM ?? 'noreply@cotransmeq.com', ...params })
   },
 

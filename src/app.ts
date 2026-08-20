@@ -51,6 +51,8 @@ import { liquidacionesChatRoutes } from './modules/liquidaciones-chat/liquidacio
 import { liquidacionesSnapshotsRoutes } from './modules/liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.routes'
 import { liquidacionesTercerosMensualRoutes } from './modules/liquidaciones-terceros-mensual/liquidaciones-terceros-mensual.routes'
 import { formulariosSarlaftRoutes } from './modules/formularios-sarlaft/formularios-sarlaft.routes'
+import { formulariosDinamicosRoutes } from './modules/formularios-dinamicos/formularios-dinamicos.routes'
+import { formulariosPortalRoutes } from './modules/formularios-dinamicos/formularios-portal.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -68,9 +70,18 @@ export function buildApp() {
         prefix: '/assets/'
     })
     
+    // Orígenes permitidos por CORS. Se incluyen las variantes 127.0.0.1 además
+    // de localhost porque SvelteKit resuelve el host tal como se escribió y un
+    // origen no listado hace fallar el `load` del formulario público.
+    // Los dominios de cotransmeq.com son los de la landing que sirve los
+    // formularios SARLAFT + PTEE al público.
     const defaultOrigins = [
         'http://localhost:5173',
+        'http://127.0.0.1:5173',
         'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://www.cotransmeq.com',
+        'https://cotransmeq.com',
         'https://transmeralda-app.vercel.app'
     ]
 
@@ -170,6 +181,13 @@ export function buildApp() {
 
     // Formularios públicos SARLAFT + PTEE (clientes, proveedores, accionistas, personal)
     app.register(formulariosSarlaftRoutes, { prefix: '/api' })
+
+    // Formularios dinámicos: constructor administrativo (permiso `formularios`)
+    // y API del portal del conductor (magic link). Van en dos registros porque
+    // se autentican distinto: el primero con `authMiddleware` (JWT de
+    // dashboard), el segundo con el JWT `tipo: conductor_portal`.
+    app.register(formulariosDinamicosRoutes, { prefix: '/api' })
+    app.register(formulariosPortalRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

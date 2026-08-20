@@ -1,16 +1,40 @@
 import { z } from 'zod'
 
-export const tipoFormularioEnum = z.enum(['cliente_proveedor', 'accionistas', 'personal'])
+export const tipoFormularioEnum = z.enum([
+  'cliente_proveedor',
+  'accionistas',
+  'personal',
+  'autorizacion_propietario'
+])
 
-export const tipoDocumentoEnum = z.enum(['cedula_representante', 'rut', 'certificado_existencia', 'composicion_accionaria'])
+export const tipoDocumentoEnum = z.enum([
+  // SARLAFT (GC-FR-04 / 05 / 06)
+  'cedula_representante',
+  'rut',
+  'certificado_existencia',
+  'composicion_accionaria',
+  // Autorización del Propietario (SLFT-PTEE-FR-12)
+  'identidad_propietario',
+  'identidad_tercero',
+  'rut_propietario',
+  'rut_tercero',
+  'tarjeta_propiedad',
+  'certificacion_bancaria',
+  'cert_existencia_propietario',
+  'cert_tradicion_vehiculo',
+  'contrato_relacion_juridica',
+  'formulario_conocimiento_tercero',
+  'otros_anexos'
+])
 
-// Schema base para una respuesta individual
-const respuestaValorSchema = z.union([z.string(), z.number(), z.null()])
+// Schema base para una respuesta individual.
+// El arreglo de strings cubre las preguntas `seleccion_multiple`.
+const respuestaValorSchema = z.union([z.string(), z.number(), z.null(), z.array(z.string())])
 const filaTablaSchema = z.record(z.string(), respuestaValorSchema)
 
 // Schema del JSON payload (llega como string en multipart, lo parseamos)
 export const submitFormularioSarlaftSchema = z.object({
-  codigo_formulario: z.enum(['GC-FR-04', 'GC-FR-05', 'GC-FR-06']),
+  codigo_formulario: z.enum(['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12']),
   fecha_diligenciamiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   respuestas: z.record(z.string(), z.union([respuestaValorSchema, filaTablaSchema, z.array(filaTablaSchema)])),
   contexto: z.object({

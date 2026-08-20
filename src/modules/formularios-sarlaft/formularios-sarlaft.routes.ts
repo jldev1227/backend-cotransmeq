@@ -56,7 +56,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
         params: {
           type: 'object',
           properties: {
-            codigo: { type: 'string', enum: ['GC-FR-04', 'GC-FR-05', 'GC-FR-06'] }
+            codigo: { type: 'string', enum: ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12'] }
           },
           required: ['codigo']
         },
@@ -109,7 +109,10 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
         querystring: {
           type: 'object',
           properties: {
-            tipo: { type: 'string', enum: ['cliente_proveedor', 'accionistas', 'personal'] }
+            tipo: {
+              type: 'string',
+              enum: ['cliente_proveedor', 'accionistas', 'personal', 'autorizacion_propietario']
+            }
           },
           required: ['tipo']
         }
@@ -169,7 +172,10 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
             page: { type: 'integer', minimum: 1, default: 1 },
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
             search: { type: 'string' },
-            tipo_formulario: { type: 'string', enum: ['cliente_proveedor', 'accionistas', 'personal'] },
+            tipo_formulario: {
+              type: 'string',
+              enum: ['cliente_proveedor', 'accionistas', 'personal', 'autorizacion_propietario']
+            },
             estado: { type: 'string' },
             fecha_desde: { type: 'string', format: 'date' },
             fecha_hasta: { type: 'string', format: 'date' }

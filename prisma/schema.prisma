@@ -170,6 +170,8 @@ model conductores {
   vehiculos             vehiculos[]
   conductor_token       conductor_token[]
   registro_dia_laboral  registro_dia_laboral[]
+  form_assignment_targets form_assignment_target[] @relation("form_assignment_target_conductor")
+  form_submissions        form_submission[]        @relation("form_submission_conductor")
 }
 
 model conductor_token {
@@ -859,6 +861,7 @@ model servicio {
   municipios_servicio_origen_idTomunicipios  municipios                       @relation("servicios_origen_idTomunicipios", fields: [origen_id], references: [id], onDelete: NoAction)
   vehiculos                                  vehiculos?                       @relation(fields: [vehiculo_id], references: [id])
   servicios_cancelados                       servicios_cancelados[]
+  form_submissions                           form_submission[]                @relation("form_submission_servicio")
 
   @@map("servicios")
 }
@@ -1013,6 +1016,14 @@ model usuarios {
   facturas_liq_anulado                                                        factura_liquidacion_servicio[]      @relation("factura_liq_anulado_por")
   sesiones                                                                    sesiones[]
   notificaciones                                                             notificacion[]
+  formularios_sarlaft_evaluados                                               formulario_sarlaft_ptee[]          @relation("formularios_sarlaft_evaluador")
+  form_definitions_creadas                                                    form_definition[]                  @relation("form_definition_created_by")
+  form_definitions_actualizadas                                               form_definition[]                  @relation("form_definition_updated_by")
+  form_versions_creadas                                                       form_version[]                     @relation("form_version_created_by")
+  form_versions_publicadas                                                    form_version[]                     @relation("form_version_published_by")
+  form_field_templates_creadas                                                form_field_template[]              @relation("form_field_template_created_by")
+  form_assignments_creadas                                                    form_assignment[]                  @relation("form_assignment_created_by")
+  form_submissions_anuladas                                                   form_submission[]                  @relation("form_submission_voided_by")
 
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
@@ -1093,6 +1104,8 @@ model vehiculos {
   registro_dia_laboral_segmento registro_dia_laboral_segmento[]
   conductores                conductores?           @relation(fields: [conductor_id], references: [id])
   usuarios                   usuarios?              @relation(fields: [propietario_id], references: [id])
+  form_assignment_targets    form_assignment_target[] @relation("form_assignment_target_vehiculo")
+  form_submissions           form_submission[]        @relation("form_submission_vehiculo")
 }
 
 /// Formularios de asistencia creados por administradores
@@ -1721,4 +1734,474 @@ model factura_liquidacion_item {
 enum estado_factura_liq_enum {
   ACTIVA
   ANULADA
+}
+
+/// Formularios públicos SARLAFT + PTEE de COTRANSMEQ
+/// (cliente/proveedor, accionistas, personal y autorización del propietario)
+model formulario_sarlaft_ptee {
+  id                     String    @id @default(uuid()) @db.Uuid
+  radicado               String    @unique @db.VarChar(50)
+  tipo_formulario        String    @db.VarChar(50)
+  codigo_formulario      String    @db.VarChar(20)
+  version                String    @default("001") @db.VarChar(10)
+  fecha_diligenciamiento DateTime? @db.Date
+  fecha_envio            DateTime  @default(now()) @db.Timestamptz(6)
+
+  /// Snapshot completo de respuestas del usuario (todas las secciones externas)
+  respuestas Json
+
+  /// Datos extraídos (para queries/filtrado rápido)
+  nombre_completo  String? @db.VarChar(255)
+  tipo_documento   String? @db.VarChar(50)
+  numero_documento String? @db.VarChar(50)
+  correo           String? @db.VarChar(255)
+  telefono         String? @db.VarChar(50)
+
+  /// Contexto de la solicitud
+  ip_origen  String? @db.VarChar(64)
+  user_agent String?
+  referer    String?
+
+  /// Estado del trámite
+  estado                   String    @default("recibido") @db.VarChar(30)
+  evaluado_por_id          String?   @db.Uuid
+  evaluado_at              DateTime? @db.Timestamptz(6)
+  evaluacion_concepto      String?   @db.VarChar(50)
+  evaluacion_observaciones String?
+
+  created_at   DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime                            @updatedAt @db.Timestamptz(6)
+  evaluado_por usuarios?                           @relation("formularios_sarlaft_evaluador", fields: [evaluado_por_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  documentos   formulario_sarlaft_ptee_documento[] @relation("formulario_sarlaft_documentos")
+
+  @@index([tipo_formulario])
+  @@index([numero_documento])
+  @@index([correo])
+  @@index([estado])
+  @@index([fecha_envio(sort: Desc)])
+  @@map("formulario_sarlaft_ptee")
+}
+
+/// Documentos adjuntos a los formularios SARLAFT + PTEE
+model formulario_sarlaft_ptee_documento {
+  id             String                  @id @default(uuid()) @db.Uuid
+  formulario_id  String                  @db.Uuid
+  tipo_documento String                  @db.VarChar(50)
+  nombre_archivo String                  @db.VarChar(255)
+  s3_key         String                  @db.VarChar(500)
+  mime_type      String                  @db.VarChar(100)
+  tamano_bytes   BigInt
+  hash_sha256    String?                 @db.VarChar(64)
+  created_at     DateTime                @default(now()) @db.Timestamptz(6)
+  formulario     formulario_sarlaft_ptee @relation("formulario_sarlaft_documentos", fields: [formulario_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([formulario_id, tipo_documento])
+  @@index([formulario_id])
+  @@map("formulario_sarlaft_ptee_documento")
+}
+
+// ============================================================================
+// FORMULARIOS DINÁMICOS — módulo `formularios-dinamicos`
+//
+// Motor propio, deliberadamente separado de las tablas legacy de evaluaciones
+// (`Evaluacion`/`Pregunta`/`Opcion`/`Resultado`/`Respuesta`): aquellas
+// reescriben preguntas y respuestas al editar, y aquí la versión publicada
+// tiene que quedar congelada porque un envío firmado la referencia.
+//
+// Los "enums" son VARCHAR + CHECK en la migración manual y `String` aquí.
+// Añadir un valor nuevo es un `ALTER ... DROP/ADD CONSTRAINT` y no un
+// `ALTER TYPE`, que en Postgres no se puede revertir dentro de una
+// transacción.
+//
+// Los índices parciales (`WHERE ...`) y los CHECK viven SOLO en
+// `prisma/migrations/19-08-2026-formularios-dinamicos/migration.sql`: Prisma
+// no sabe expresarlos, y declararlos aquí sin el `WHERE` describiría un
+// índice que no es el que existe en la base.
+// ============================================================================
+
+/// Identidad estable del formulario. Sobrevive a todas sus versiones: el
+/// código HSEQ y el slug no cambian aunque se republique diez veces.
+model form_definition {
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Código documental HSEQ, p. ej. `HSEQ-FR-08`.
+  code        String  @unique(map: "uq_form_definitions_code") @db.VarChar(50)
+  slug        String  @unique(map: "uq_form_definitions_slug") @db.VarChar(120)
+  name        String  @db.VarChar(255)
+  description String?
+  owner_area  String  @default("hseq") @db.VarChar(80)
+
+  created_by_id String    @db.Uuid
+  updated_by_id String?   @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  created_by usuarios       @relation("form_definition_created_by", fields: [created_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updated_by usuarios?      @relation("form_definition_updated_by", fields: [updated_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions   form_version[]
+
+  @@map("form_definitions")
+}
+
+/// Una revisión completa del formulario. `DRAFT` es lo único editable;
+/// publicar la vuelve inmutable y "editar" pasa a ser `clone()`.
+///
+/// `revision` es el contador de concurrencia optimista del borrador (el
+/// autosave del builder lo envía y el servidor responde 409 si no coincide);
+/// no tiene relación con `version_number`, que es la línea de versionado
+/// funcional visible para HSEQ.
+model form_version {
+  id             String @id @default(uuid()) @db.Uuid
+  form_id        String @db.Uuid
+  version_number Int
+  /// `DRAFT` | `PUBLISHED` | `ARCHIVED`.
+  status         String @default("DRAFT") @db.VarChar(20)
+  title          String @db.VarChar(255)
+
+  description          String?
+  instructions         String?
+  settings_json        Json    @default("{}")
+  /// Procedencia documental de la semilla (archivo, revisión, fecha).
+  source_metadata_json Json    @default("{}")
+  revision             Int     @default(1)
+
+  created_by_id   String    @db.Uuid
+  published_by_id String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  published_at    DateTime? @db.Timestamptz(6)
+  archived_at     DateTime? @db.Timestamptz(6)
+
+  form         form_definition   @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  created_by   usuarios          @relation("form_version_created_by", fields: [created_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  published_by usuarios?         @relation("form_version_published_by", fields: [published_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sections     form_section[]
+  fields       form_field[]
+  assignments  form_assignment[]
+  submissions  form_submission[]
+
+  @@unique([form_id, version_number], map: "uq_form_versions_number")
+  @@index([form_id, status, version_number(sort: Desc)], map: "idx_form_versions_form_status")
+  @@map("form_versions")
+}
+
+/// Agrupador visual de campos. `sort_order` es único por versión y la
+/// restricción es DEFERRABLE en SQL para que reordenar en una sola
+/// transacción no choque a mitad de camino.
+model form_section {
+  id            String  @id @default(uuid()) @db.Uuid
+  version_id    String  @db.Uuid
+  key           String  @db.VarChar(120)
+  title         String  @db.VarChar(255)
+  description   String?
+  sort_order    Int
+  settings_json Json    @default("{}")
+
+  version form_version @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  fields  form_field[]
+
+  @@unique([version_id, key], map: "uq_form_sections_key")
+  @@unique([version_id, sort_order], map: "uq_form_sections_order")
+  @@index([version_id, sort_order], map: "idx_form_sections_version_order")
+  @@map("form_sections")
+}
+
+/// Card del constructor. Cada drag crea un `form_field` propio: la paleta
+/// define tipos, no registros compartidos, así que editar una card jamás
+/// altera otro formulario.
+///
+/// `parent_field_id` modela `REPEATABLE_GROUP` y `MATRIX`; los hijos son las
+/// columnas. Las siete columnas de fecha de los Excel NO se importan como
+/// siete campos: cada diligenciamiento es un envío y el historial vive en
+/// `form_submissions`.
+model form_field {
+  id              String  @id @default(uuid()) @db.Uuid
+  version_id      String  @db.Uuid
+  section_id      String  @db.Uuid
+  parent_field_id String? @db.Uuid
+  key             String  @db.VarChar(120)
+  /// Ver `FIELD_TYPES` en el módulo; el CHECK de la migración es la copia
+  /// autoritativa de esa lista.
+  type            String  @db.VarChar(40)
+  label           String  @db.VarChar(500)
+
+  help_text   String?
+  placeholder String? @db.VarChar(500)
+  required    Boolean @default(false)
+  sort_order  Int
+
+  config_json          Json  @default("{}")
+  validation_json      Json  @default("{}")
+  /// Regla declarativa (`{version, all/any, effect}`). Nunca JavaScript.
+  visibility_rule_json Json?
+  default_value_json   Json?
+
+  version  form_version        @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  section  form_section        @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  parent   form_field?         @relation("form_field_parent", fields: [parent_field_id], references: [id], onDelete: Cascade)
+  children form_field[]        @relation("form_field_parent")
+  options  form_field_option[]
+  answers  form_answer[]
+
+  @@unique([version_id, key], map: "uq_form_fields_key")
+  @@unique([section_id, parent_field_id, sort_order], map: "uq_form_fields_order")
+  @@index([version_id, section_id, sort_order], map: "idx_form_fields_version_section_order")
+  @@map("form_fields")
+}
+
+/// Opción de `SINGLE_CHOICE`/`MULTIPLE_CHOICE`. `value` es el token estable
+/// que usan las reglas condicionales; `label` es texto que HSEQ puede
+/// corregir sin invalidar reglas ni envíos.
+model form_field_option {
+  id            String   @id @default(uuid()) @db.Uuid
+  field_id      String   @db.Uuid
+  value         String   @db.VarChar(120)
+  label         String   @db.VarChar(255)
+  color         String?  @db.VarChar(20)
+  score         Decimal? @db.Decimal(12, 2)
+  sort_order    Int
+  metadata_json Json     @default("{}")
+
+  field   form_field           @relation(fields: [field_id], references: [id], onDelete: Cascade)
+  answers form_answer_option[]
+
+  @@unique([field_id, value], map: "uq_form_field_options_value")
+  @@unique([field_id, sort_order], map: "uq_form_field_options_order")
+  @@map("form_field_options")
+}
+
+/// Biblioteca de cards preconfiguradas (C/NC/NA, plan de acción, firma…).
+/// Insertar una plantilla COPIA su snapshot: no queda enlazada, así que
+/// editar la plantilla no muta formularios ya construidos.
+model form_field_template {
+  id            String  @id @default(uuid()) @db.Uuid
+  name          String  @db.VarChar(255)
+  category      String  @db.VarChar(100)
+  field_type    String  @db.VarChar(40)
+  template_json Json
+  owner_area    String? @db.VarChar(80)
+  is_global     Boolean @default(false)
+
+  created_by_id String    @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  created_by usuarios @relation("form_field_template_created_by", fields: [created_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("form_field_templates")
+}
+
+/// Quién debe diligenciar qué versión, cuándo y con qué límite.
+///
+/// Apunta a una versión PUBLICADA exacta, nunca "la última": si HSEQ publica
+/// la v3, los envíos en curso siguen contra la v2 que el conductor tiene
+/// cacheada, y el historial no cambia de forma retroactiva.
+model form_assignment {
+  id           String @id @default(uuid()) @db.Uuid
+  version_id   String @db.Uuid
+  name         String @db.VarChar(255)
+  /// `ACTIVE` | `PAUSED` | `CLOSED`.
+  status       String @default("ACTIVE") @db.VarChar(20)
+  /// `ON_DEMAND` | `ONCE` | `DAILY` | `WEEKLY` | `MONTHLY` | `PER_SERVICE`.
+  frequency    String @default("ON_DEMAND") @db.VarChar(30)
+  /// `UNLIMITED` | `ONE_PER_PERIOD` | `ONE_PER_CONTEXT`.
+  limit_policy String @default("UNLIMITED") @db.VarChar(30)
+  /// Zona con la que se calcula `business_date`. El default es la zona de
+  /// negocio: con UTC, un preoperacional de las 19:00 en Bogotá contaría
+  /// para el día siguiente.
+  timezone     String @default("America/Bogota") @db.VarChar(64)
+
+  starts_at DateTime? @db.Timestamptz(6)
+  ends_at   DateTime? @db.Timestamptz(6)
+
+  /// Contexto exigido al abrir el runner, p. ej. `{"vehicleId":{"required":true}}`.
+  context_schema_json Json @default("{}")
+  settings_json       Json @default("{}")
+
+  created_by_id String    @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  version     form_version             @relation(fields: [version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  created_by  usuarios                 @relation("form_assignment_created_by", fields: [created_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  targets     form_assignment_target[]
+  submissions form_submission[]
+
+  @@index([version_id], map: "idx_form_assignments_version")
+  @@map("form_assignments")
+}
+
+/// Una audiencia de la asignación. El CHECK de la migración obliga a que
+/// exactamente la columna del `target_type` esté poblada, para que no exista
+/// un target `CONDUCTOR` sin conductor.
+model form_assignment_target {
+  id            String   @id @default(uuid()) @db.Uuid
+  assignment_id String   @db.Uuid
+  /// `ALL_CONDUCTORS` | `CONDUCTOR` | `VEHICLE` | `SEDE` | `GROUP`.
+  target_type   String   @db.VarChar(30)
+  conductor_id  String?  @db.Uuid
+  vehicle_id    String?  @db.Uuid
+  sede          String?  @db.VarChar(80)
+  group_key     String?  @db.VarChar(120)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  assignment form_assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  conductor  conductores?    @relation("form_assignment_target_conductor", fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vehiculo   vehiculos?      @relation("form_assignment_target_vehiculo", fields: [vehicle_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("form_assignment_targets")
+}
+
+/// Un diligenciamiento. `SUBMITTED` es terminal: una corrección crea otro
+/// envío con `supersedes_submission_id` y se conservan los dos.
+///
+/// `client_submission_id` lo genera el dispositivo antes de empezar y es
+/// UNIQUE: es lo que hace idempotente el POST cuando la red se corta después
+/// de que el servidor ya guardó el envío.
+model form_submission {
+  id                       String  @id @default(uuid()) @db.Uuid
+  client_submission_id     String  @unique(map: "uq_form_submissions_client") @db.Uuid
+  assignment_id            String  @db.Uuid
+  version_id               String  @db.Uuid
+  conductor_id             String  @db.Uuid
+  vehicle_id               String? @db.Uuid
+  service_id               String? @db.Uuid
+  supersedes_submission_id String? @db.Uuid
+  /// `DRAFT` | `SUBMITTED` | `VOIDED`. `SYNCING`/`FAILED` son estados de la
+  /// outbox del dispositivo y no se persisten aquí.
+  status                   String  @default("DRAFT") @db.VarChar(20)
+
+  /// Fecha de negocio calculada en servidor con la zona de la asignación.
+  business_date DateTime @db.Date
+  /// Clave del período para `ONE_PER_PERIOD` (p. ej. `2026-08-19`, `2026-W34`).
+  period_key    String?  @db.VarChar(80)
+  context_json  Json     @default("{}")
+  device_json   Json     @default("{}")
+
+  started_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  submitted_at DateTime? @db.Timestamptz(6)
+  voided_at    DateTime? @db.Timestamptz(6)
+  voided_by_id String?   @db.Uuid
+  void_reason  String?
+
+  assignment  form_assignment         @relation(fields: [assignment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  version     form_version            @relation(fields: [version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conductor   conductores             @relation("form_submission_conductor", fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vehiculo    vehiculos?              @relation("form_submission_vehiculo", fields: [vehicle_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  servicio    servicio?               @relation("form_submission_servicio", fields: [service_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supersedes  form_submission?        @relation("form_submission_supersedes", fields: [supersedes_submission_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  superseded  form_submission[]       @relation("form_submission_supersedes")
+  voided_by   usuarios?               @relation("form_submission_voided_by", fields: [voided_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  answers     form_answer[]
+  attachments form_attachment[]
+  events      form_submission_event[]
+
+  @@index([conductor_id, business_date(sort: Desc), status], map: "idx_form_submissions_portal")
+  @@index([version_id, submitted_at(sort: Desc)], map: "idx_form_submissions_version")
+  @@map("form_submissions")
+}
+
+/// Una respuesta. Los escalares van en la columna tipada que corresponde al
+/// tipo del campo (el CHECK de la migración impide poblar dos a la vez) y las
+/// opciones seleccionadas se normalizan en `form_answer_options`.
+///
+/// `occurrence_id` agrupa las celdas de una misma fila de un repetible;
+/// `row_index` solo da el orden de presentación. Los índices únicos que
+/// impiden respuestas duplicadas son PARCIALES y viven en la migración.
+model form_answer {
+  id            String  @id @default(uuid()) @db.Uuid
+  submission_id String  @db.Uuid
+  field_id      String  @db.Uuid
+  occurrence_id String? @db.Uuid
+  row_index     Int?
+
+  value_text     String?
+  value_decimal  Decimal?  @db.Decimal(18, 6)
+  value_boolean  Boolean?
+  value_date     DateTime? @db.Date
+  value_datetime DateTime? @db.Timestamptz(6)
+  value_json     Json?
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  submission  form_submission      @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  field       form_field           @relation(fields: [field_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  options     form_answer_option[]
+  attachments form_attachment[]
+
+  @@index([submission_id], map: "idx_form_answers_submission")
+  @@index([field_id], map: "idx_form_answers_field")
+  @@map("form_answers")
+}
+
+/// Opciones marcadas en una respuesta. Tabla puente y no un array de texto,
+/// para que borrar una opción de un borrador falle en vez de dejar envíos
+/// apuntando a un token que ya no existe.
+model form_answer_option {
+  answer_id String @db.Uuid
+  option_id String @db.Uuid
+
+  answer form_answer       @relation(fields: [answer_id], references: [id], onDelete: Cascade)
+  option form_field_option @relation(fields: [option_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([answer_id, option_id])
+  @@map("form_answer_options")
+}
+
+/// Evidencia (foto, archivo, firma). El binario vive en S3; aquí solo la
+/// metadata y el `sha256` con el que se verifica el objeto subido.
+///
+/// `client_attachment_id` es UNIQUE por el mismo motivo que
+/// `client_submission_id`: reanudar una subida cortada no debe duplicar el
+/// adjunto.
+model form_attachment {
+  id                   String  @id @default(uuid()) @db.Uuid
+  submission_id        String  @db.Uuid
+  answer_id            String? @db.Uuid
+  client_attachment_id String  @unique(map: "uq_form_attachments_client") @db.Uuid
+  /// `PHOTO` | `FILE` | `SIGNATURE`.
+  kind                 String  @db.VarChar(20)
+  /// `PENDING` | `UPLOADED` | `FAILED`.
+  status               String  @default("PENDING") @db.VarChar(20)
+
+  object_key    String? @db.VarChar(1024)
+  original_name String? @db.VarChar(255)
+  mime_type     String  @db.VarChar(150)
+  byte_size     BigInt
+  sha256        String  @db.VarChar(64)
+  metadata_json Json    @default("{}")
+
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  uploaded_at DateTime? @db.Timestamptz(6)
+
+  submission form_submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  answer     form_answer?    @relation(fields: [answer_id], references: [id], onDelete: Cascade)
+
+  @@index([submission_id], map: "idx_form_attachments_submission")
+  @@map("form_attachments")
+}
+
+/// Bitácora append-only del envío: creación, sincronización, aceptación,
+/// anulación. Es la única forma de saber quién anuló y por qué, porque
+/// `VOIDED` no reabre ni reescribe las respuestas.
+model form_submission_event {
+  id            String   @id @default(uuid()) @db.Uuid
+  submission_id String   @db.Uuid
+  event_type    String   @db.VarChar(40)
+  /// `CONDUCTOR` | `USER` | `SYSTEM`.
+  actor_type    String   @db.VarChar(20)
+  /// Sin FK a propósito: apunta a `users` o a `conductores` según
+  /// `actor_type`, y es NULL cuando el actor es el sistema.
+  actor_id      String?  @db.Uuid
+  payload_json  Json     @default("{}")
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  submission form_submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+
+  @@index([submission_id, created_at], map: "idx_form_events_submission_time")
+  @@map("form_submission_events")
 }

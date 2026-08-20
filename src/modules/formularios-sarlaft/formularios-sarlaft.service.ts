@@ -27,35 +27,87 @@ import { PDFGeneratorSarlaftService } from "./pdf-generator-sarlaft-html.service
 import { SarlaftEvidenciaService } from "./evidencia-sarlaft.service";
 import crypto from "crypto";
 
+/** Una firma manuscrita capturada en el formulario. */
+export interface FirmaCapturada {
+  /** Id de la pregunta de tipo `firma` que la produjo. */
+  id: string;
+  /** Etiqueta para el PDF (ej. "PROPIETARIO DEL VEHÍCULO"). */
+  label: string;
+  /** Nombre del firmante, si se pudo resolver. */
+  nombre: string | null;
+  dataUrl: string;
+}
+
+function esDataUrlDeImagen(v: any): v is string {
+  return (
+    typeof v === "string" && /^data:image\/(png|jpe?g|webp);base64,/i.test(v)
+  );
+}
+
 /**
- * Extrae la firma del bloque de respuestas (siempre como dataURL base64
- * proveniente del canvas del front) para los tres tipos de formulario.
- * Devuelve null si no hay firma o el formato no es válido.
+ * Etiqueta y nombre del firmante asociados a cada pregunta de tipo `firma`.
+ * Los tres formularios SARLAFT tienen una sola firma (la de quien autoriza);
+ * SLFT-PTEE-FR-12 tiene dos (propietario y tercero autorizado).
  */
-function extraerFirmaDataUrl(
+const FIRMANTES: Record<string, { label: string; nombreId: string }> = {
+  "CLI-ENC-04": { label: "QUIEN AUTORIZA", nombreId: "CLI-ENC-03" },
+  "ACC-ENC-04": { label: "QUIEN AUTORIZA", nombreId: "ACC-ENC-03" },
+  "PER-ENC-04": { label: "QUIEN AUTORIZA", nombreId: "PER-ENC-03" },
+  "AUT-FIR-07": { label: "PROPIETARIO DEL VEHÍCULO", nombreId: "AUT-FIR-03" },
+  "AUT-FIR-12": { label: "TERCERO AUTORIZADO", nombreId: "AUT-FIR-08" },
+};
+
+/**
+ * Recorre la definición del formulario y devuelve todas las firmas
+ * efectivamente capturadas (dataURL base64 proveniente del canvas del front),
+ * en el orden en que aparecen en el documento.
+ */
+function extraerFirmas(
+  formulario: FormularioDefinicion,
   respuestas: Record<string, any> | null | undefined,
-): string | null {
-  if (!respuestas) return null;
-  const f =
-    respuestas["PER-ENC-04"] ??
-    respuestas["ACC-ENC-04"] ??
-    respuestas["CLI-ENC-04"];
-  if (!f || typeof f !== "string") return null;
-  if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(f)) return null;
-  return f;
+): FirmaCapturada[] {
+  if (!respuestas) return [];
+  const firmas: FirmaCapturada[] = [];
+  for (const seccion of formulario.secciones) {
+    for (const p of seccion.preguntas) {
+      if (p.tipo_respuesta !== "firma") continue;
+      const valor = respuestas[p.id];
+      if (!esDataUrlDeImagen(valor)) continue;
+      const meta = FIRMANTES[p.id];
+      firmas.push({
+        id: p.id,
+        label: meta?.label ?? "QUIEN AUTORIZA",
+        nombre: meta ? firstString(respuestas[meta.nombreId]) : null,
+        dataUrl: valor,
+      });
+    }
+  }
+  return firmas;
 }
 
 // ──────────────────────────────────────────────────────────
 // Generación de radicado
 // ──────────────────────────────────────────────────────────
-async function generarRadicado(tipoFormulario: string): Promise<string> {
+const RADICADO_PREFIJO: Record<string, { serie: string; tipo: string }> = {
+  cliente_proveedor: { serie: "SARLAFT", tipo: "CLI" },
+  accionistas: { serie: "SARLAFT", tipo: "ACC" },
+  personal: { serie: "SARLAFT", tipo: "PER" },
+  autorizacion_propietario: { serie: "AUTPROP", tipo: "PRO" },
+};
+
+/**
+ * Construye el radicado del envío. El correlativo se calcula por conteo, así
+ * que dos envíos simultáneos del mismo tipo pueden proponer el mismo número;
+ * `intento` desplaza el correlativo para que el llamador pueda reintentar ante
+ * una colisión con el índice UNIQUE de `radicado`.
+ */
+async function generarRadicado(
+  tipoFormulario: string,
+  intento = 0,
+): Promise<string> {
   const year = new Date().getFullYear();
-  const prefix =
-    tipoFormulario === "cliente_proveedor"
-      ? "CLI"
-      : tipoFormulario === "accionistas"
-        ? "ACC"
-        : "PER";
+  const { serie, tipo } =
+    RADICADO_PREFIJO[tipoFormulario] ?? RADICADO_PREFIJO.cliente_proveedor;
 
   // Conteo del año actual
   const desde = new Date(`${year}-01-01T00:00:00Z`);
@@ -68,8 +120,10 @@ async function generarRadicado(tipoFormulario: string): Promise<string> {
     },
   });
 
-  const correlativo = String(count + 1).padStart(5, "0");
-  return `SARLAFT-${year}-${prefix}-${correlativo}`;
+  const correlativo = String(count + 1 + intento).padStart(5, "0");
+  return serie === "AUTPROP"
+    ? `${serie}-${year}-${correlativo}`
+    : `${serie}-${year}-${tipo}-${correlativo}`;
 }
 
 // ──────────────────────────────────────────────────────────
@@ -103,6 +157,18 @@ function extraerDatosClave(
       numero_documento: firstString(respuestas["ACC-EMP-02"]),
       correo: firstString(respuestas["ACC-EMP-05"]),
       telefono: firstString(respuestas["ACC-EMP-04"]),
+    };
+  }
+
+  if (formulario.tipo === "autorizacion_propietario") {
+    // El titular del trámite es el propietario del vehículo, no el tercero.
+    const tipoDoc = firstString(respuestas["AUT-DCL-02"]);
+    return {
+      nombre_completo: firstString(respuestas["AUT-DCL-01"]),
+      tipo_documento: tipoDoc === "NIT" ? "NIT" : "CC",
+      numero_documento: firstString(respuestas["AUT-DCL-03"]),
+      correo: firstString(respuestas["AUT-FIR-06"]),
+      telefono: firstString(respuestas["AUT-FIR-05"]),
     };
   }
 
@@ -167,13 +233,10 @@ function validarObligatorios(
       for (let i = 0; i < filas.length; i++) {
         const fila = filas[i];
         for (const p of seccion.preguntas) {
-          if (p.obligatorio) {
-            const v = fila[p.id];
-            if (v == null || v === "") {
-              errores.push(
-                `Fila ${i + 1} de "${seccion.seccion}" — campo "${p.pregunta}" es obligatorio.`,
-              );
-            }
+          if (p.obligatorio && estaVacio(fila[p.id])) {
+            errores.push(
+              `Fila ${i + 1} de "${seccion.seccion}" — campo "${p.pregunta}" es obligatorio.`,
+            );
           }
         }
       }
@@ -181,9 +244,8 @@ function validarObligatorios(
       for (const p of seccion.preguntas) {
         if (!p.obligatorio) continue;
         if (p.tipo_respuesta === "declaracion_informativa") continue;
-        if (!esPreguntaVisible(p.id, respuestas)) continue;
-        const v = respuestas[p.id];
-        if (v == null || v === "") {
+        if (!esPreguntaVisible(p, respuestas)) continue;
+        if (estaVacio(respuestas[p.id])) {
           errores.push(`Campo obligatorio pendiente: "${p.pregunta}"`);
         }
       }
@@ -191,6 +253,15 @@ function validarObligatorios(
   }
 
   return errores;
+}
+
+/** Una respuesta cuenta como vacía si es null/undefined, string en blanco o
+ *  arreglo sin elementos (caso `seleccion_multiple`). */
+function estaVacio(valor: unknown): boolean {
+  if (valor == null) return true;
+  if (Array.isArray(valor)) return valor.length === 0;
+  if (typeof valor === "string") return valor.trim() === "";
+  return false;
 }
 
 function esSeccionVisible(
@@ -206,9 +277,22 @@ function esSeccionVisible(
 }
 
 function esPreguntaVisible(
-  preguntaId: string,
+  pregunta: PreguntaDefinicion,
   respuestas: Record<string, any>,
 ): boolean {
+  // Regla declarativa (formularios nuevos): depende de otra pregunta.
+  const cond = pregunta.condicional_pregunta;
+  if (cond) {
+    const origen = respuestas[cond.id];
+    if (cond.incluye != null) {
+      return Array.isArray(origen) && origen.includes(cond.incluye);
+    }
+    if (cond.igual_a != null) {
+      return origen === cond.igual_a;
+    }
+  }
+
+  const preguntaId = pregunta.id;
   // Las preguntas *-DEC-04-N son condicionales si DEC-04 = Sí
   if (/^(?:PER|ACC|CLI)-DEC-04-[1-4]$/.test(preguntaId)) {
     const tipo = preguntaId.split("-")[0]; // PER, ACC, CLI
@@ -323,6 +407,11 @@ export const FormulariosSarlaftService = {
       tipoCliente as any,
     );
     const docsRequeridosIds = new Set(docsRequeridos.map((d) => d.id));
+    // Separamos los docs que el usuario está obligado a adjuntar (true) de
+    // los opcionales, para validar únicamente los obligatorios. Esto
+    // permite que el formulario de Vinculación de Personal pueda
+    // mostrar documentos opcionales sin bloquear el envío.
+    const docsObligatorios = docsRequeridos.filter((d) => d.obligatorio);
     const archivosSubidosPorTipo = new Map<string, ArchivoUpload>();
     for (const archivo of archivos) {
       // fieldname esperado: "doc_<tipo_documento>"
@@ -336,7 +425,7 @@ export const FormulariosSarlaftService = {
       }
       archivosSubidosPorTipo.set(tipo, archivo);
     }
-    const docsFaltantes = docsRequeridos.filter(
+    const docsFaltantes = docsObligatorios.filter(
       (d) => !archivosSubidosPorTipo.has(d.id),
     );
     if (docsFaltantes.length > 0) {
@@ -354,10 +443,7 @@ export const FormulariosSarlaftService = {
     // 3. Extraer datos clave
     const datosClave = extraerDatosClave(formulario, input.respuestas);
 
-    // 4. Generar radicado
-    const radicado = await generarRadicado(formulario.tipo);
-
-    // 5. Persistir formulario + subir archivos a S3 + crear registros de documentos
+    // 4. Persistir formulario + subir archivos a S3 + crear registros de documentos
     const fechaDiligenciamiento = input.fecha_diligenciamiento
       ? new Date(input.fecha_diligenciamiento)
       : null;
@@ -374,25 +460,49 @@ export const FormulariosSarlaftService = {
       tamano_bytes: string;
     }> = [];
     try {
-      const registro = await prisma.formulario_sarlaft_ptee.create({
-        data: {
-          radicado,
-          tipo_formulario: formulario.tipo,
-          codigo_formulario: formulario.codigo,
-          version: formulario.version,
-          fecha_diligenciamiento: fechaDiligenciamiento,
-          respuestas: input.respuestas,
-          nombre_completo: datosClave.nombre_completo,
-          tipo_documento: datosClave.tipo_documento,
-          numero_documento: datosClave.numero_documento,
-          correo: datosClave.correo,
-          telefono: datosClave.telefono,
-          ip_origen: contextoHttp.ip,
-          user_agent: contextoHttp.userAgent,
-          referer: contextoHttp.referer,
-          estado: "recibido",
-        },
-      });
+      // El radicado se calcula por conteo, así que dos envíos simultáneos del
+      // mismo tipo pueden proponer el mismo número y chocar con el índice
+      // UNIQUE. Reintentamos con el correlativo desplazado.
+      let registro: any = null;
+      let radicado = "";
+      for (let intento = 0; intento < 5; intento++) {
+        radicado = await generarRadicado(formulario.tipo, intento);
+        try {
+          registro = await prisma.formulario_sarlaft_ptee.create({
+            data: {
+              radicado,
+              tipo_formulario: formulario.tipo,
+              codigo_formulario: formulario.codigo,
+              version: formulario.version,
+              fecha_diligenciamiento: fechaDiligenciamiento,
+              respuestas: input.respuestas,
+              nombre_completo: datosClave.nombre_completo,
+              tipo_documento: datosClave.tipo_documento,
+              numero_documento: datosClave.numero_documento,
+              correo: datosClave.correo,
+              telefono: datosClave.telefono,
+              ip_origen: contextoHttp.ip,
+              user_agent: contextoHttp.userAgent,
+              referer: contextoHttp.referer,
+              estado: "recibido",
+            },
+          });
+          break;
+        } catch (err: any) {
+          const esColisionRadicado =
+            err?.code === "P2002" &&
+            (err?.meta?.target ?? []).toString().includes("radicado");
+          if (!esColisionRadicado) throw err;
+        }
+      }
+      if (!registro) {
+        throw Object.assign(
+          new Error(
+            "No se pudo asignar un número de radicado. Intenta enviar el formulario de nuevo.",
+          ),
+          { statusCode: 409 },
+        );
+      }
       registroCreado = registro;
 
       // Subir cada archivo a S3 y crear el registro
@@ -474,7 +584,7 @@ export const FormulariosSarlaftService = {
         nombre_completo: registro.nombre_completo,
         documentos_adjuntos: archivosSubidosPorTipo.size,
         mensaje:
-          "Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de TRANSMERALDA S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.",
+          "Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de COTRANSMEQ S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.",
       };
     } catch (err) {
       // Si algo falla después de subir archivos a S3, los limpiamos
@@ -507,12 +617,14 @@ export const FormulariosSarlaftService = {
     const cfg = getConfigPorTipo(
       registro.tipo_formulario as TipoFormularioSarlaft,
     );
-    const subject = `[SARLAFT ${registro.codigo_formulario}] Nuevo formulario recibido — Radicado ${registro.radicado}`;
+    const serie = formulario.categoria === "sarlaft" ? "SARLAFT" : "PTEE";
+    const subject = `[${serie} ${registro.codigo_formulario}] Nuevo formulario recibido — Radicado ${registro.radicado}`;
 
     const tipoLabel: Record<string, string> = {
       cliente_proveedor: "Cliente / Proveedor",
       accionistas: "Accionistas",
       personal: "Vinculación de Personal",
+      autorizacion_propietario: "Autorización del Propietario",
     };
 
     const frontendUrl = getFrontendUrl();
@@ -597,7 +709,7 @@ export const FormulariosSarlaftService = {
       </p>
 
       <div class="footer">
-        TRANSMERALDA S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
+        COTRANSMEQ S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
         Resolución 2328 de 2025 · Resolución 14673 de 2025 · Ley 1581 de 2012
       </div>
     </div>
@@ -642,31 +754,36 @@ export const FormulariosSarlaftService = {
       }
     }
 
-    // Adjuntar la firma manuscrita como PNG separado (solo si viene como
-    // data:image del canvas). El PDF de respuestas ya la incluye renderizada,
+    // Adjuntar las firmas manuscritas como PNG separados (solo si vienen como
+    // data:image del canvas). El PDF de respuestas ya las incluye renderizadas,
     // pero el Oficial de Cumplimiento también recibe una copia limpia y
-    // recortada de la firma para sus archivos de auditoría.
-    const firmaDataUrl = extraerFirmaDataUrl(
+    // recortada de cada firma para sus archivos de auditoría. SLFT-PTEE-FR-12
+    // trae dos: la del propietario y la del tercero autorizado.
+    const firmas = extraerFirmas(
+      formulario,
       (registro as any).respuestas ??
-        (await prisma.formulario_sarlaft_ptee.findUnique({
-          where: { id: registro.id },
-          select: { respuestas: true },
-        }))?.respuestas,
+        ((
+          await prisma.formulario_sarlaft_ptee.findUnique({
+            where: { id: registro.id },
+            select: { respuestas: true },
+          })
+        )?.respuestas as Record<string, any> | undefined),
     );
-    if (firmaDataUrl) {
-      const m = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(firmaDataUrl);
-      if (m) {
-        const ext = m[1] === "jpeg" ? "jpg" : m[1] === "jpg" ? "jpg" : m[1];
-        attachments.push({
-          filename: `firma_${registro.radicado}.${ext}`,
-          content: Buffer.from(m[2], "base64"),
-          contentType: `image/${m[1]}`,
-        });
-      }
+    for (const firma of firmas) {
+      const m = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(firma.dataUrl);
+      if (!m) continue;
+      const ext = m[1] === "jpeg" ? "jpg" : m[1];
+      const sufijo =
+        firmas.length > 1 ? `_${firma.id.toLowerCase().replace(/-/g, "")}` : "";
+      attachments.push({
+        filename: `firma${sufijo}_${registro.radicado}.${ext}`,
+        content: Buffer.from(m[2], "base64"),
+        contentType: `image/${m[1]}`,
+      });
     }
 
     const from =
-      process.env.SMTP_FROM || "Transmeralda <noreply@cotransmeq.com>";
+      process.env.SMTP_FROM || "Cotransmeq <noreply@cotransmeq.com>";
 
     // Si el proveedor es SMTP (nodemailer) podemos adjuntar archivos nativos;
     // para Resend (API) también soporta attachments con el mismo formato.
@@ -693,7 +810,7 @@ export const FormulariosSarlaftService = {
     page?: number;
     limit?: number;
     search?: string;
-    tipo_formulario?: "cliente_proveedor" | "accionistas" | "personal" | null;
+    tipo_formulario?: TipoFormularioSarlaft | null;
     estado?: string | null;
     fecha_desde?: string | null;
     fecha_hasta?: string | null;
@@ -805,6 +922,10 @@ export const FormulariosSarlaftService = {
       user_agent: f.user_agent,
       referer: f.referer,
       respuestas: f.respuestas,
+      /** Definición del formato (secciones + preguntas). El dashboard la usa
+       *  para renderizar genéricamente los formularios que no tienen un mapa
+       *  de campos curado, como SLFT-PTEE-FR-12. */
+      definicion: getFormularioPorCodigo(f.codigo_formulario),
       documentos: f.documentos.map((d) => ({
         id: d.id,
         tipo_documento: d.tipo_documento,

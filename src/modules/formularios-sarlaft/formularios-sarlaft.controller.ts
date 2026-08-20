@@ -4,12 +4,29 @@ import { submitFormularioSarlaftSchema, type ArchivoUpload } from './formularios
 import { listarFormularios, getFormularioPorCodigo, getDocumentosRequeridos } from './formularios-sarlaft.constants'
 import { CONFIG_POR_TIPO, type TipoFormularioSarlaft } from './sarlaft-config'
 
+/** Razón social que se muestra al público en los formularios y notificaciones.
+ *  Se deja configurable para no tener que tocar código si cambia el nombre
+ *  legal registrado. */
+const EMPRESA_NOMBRE = process.env.SARLAFT_EMPRESA_NOMBRE?.trim() || 'COTRANSMEQ S.A.S.'
+
+/** Tipos de formulario admitidos como filtro/parámetro en las rutas. */
+const TIPOS_FORMULARIO: TipoFormularioSarlaft[] = [
+  'cliente_proveedor',
+  'accionistas',
+  'personal',
+  'autorizacion_propietario'
+]
+
 export const FormulariosSarlaftController = {
   /**
    * GET /api/public/formularios-sarlaft
+   *
+   * Solo los formularios de conocimiento SARLAFT + PTEE. Los formatos
+   * individuales (ej. SLFT-PTEE-FR-12) se excluyen a propósito: viven en su
+   * propia ruta del landing y se piden por código, no desde este selector.
    */
   async listarFormulariosPublicos(_request: FastifyRequest, reply: FastifyReply) {
-    const formularios = listarFormularios().map(f => ({
+    const formularios = listarFormularios('sarlaft').map(f => ({
       codigo: f.codigo,
       tipo: f.tipo,
       titulo: f.titulo,
@@ -28,7 +45,7 @@ export const FormulariosSarlaftController = {
         'Ley 1581 de 2012',
         'Decreto 1377 de 2013'
       ],
-      empresa: 'TRANSMERALDA S.A.S.'
+      empresa: EMPRESA_NOMBRE
     })
   },
 
@@ -47,7 +64,14 @@ export const FormulariosSarlaftController = {
 
     return reply.send({
       success: true,
-      formulario
+      // Los totales se calculan aquí (y no se guardan en la definición) para
+      // que el front pueda mostrarlos sin recorrer las secciones. El listado
+      // público expone los mismos campos.
+      formulario: {
+        ...formulario,
+        total_secciones: formulario.secciones.length,
+        total_preguntas: formulario.secciones.reduce((acc, s) => acc + s.preguntas.length, 0)
+      }
     })
   },
 
@@ -84,9 +108,9 @@ export const FormulariosSarlaftController = {
    */
   async obtenerContactoPublico(request: FastifyRequest, reply: FastifyReply) {
     const query = request.query as { tipo?: string }
-    const tipo = (['cliente_proveedor', 'accionistas', 'personal'] as TipoFormularioSarlaft[]).includes(
-      query.tipo as TipoFormularioSarlaft
-    ) ? (query.tipo as TipoFormularioSarlaft) : null
+    const tipo = TIPOS_FORMULARIO.includes(query.tipo as TipoFormularioSarlaft)
+      ? (query.tipo as TipoFormularioSarlaft)
+      : null
     if (!tipo) {
       return reply.status(400).send({ success: false, error: 'Tipo inválido' })
     }
@@ -127,12 +151,11 @@ export const FormulariosSarlaftController = {
         page: q.page ? Number(q.page) : undefined,
         limit: q.limit ? Number(q.limit) : undefined,
         search: q.search,
-        tipo_formulario:
-          q.tipo_formulario === 'cliente_proveedor' ||
-          q.tipo_formulario === 'accionistas' ||
-          q.tipo_formulario === 'personal'
-            ? q.tipo_formulario
-            : null,
+        // Incluye `autorizacion_propietario`: la ruta lo acepta como filtro y
+        // sin él los radicados de SLFT-PTEE-FR-12 no se podrían aislar.
+        tipo_formulario: TIPOS_FORMULARIO.includes(q.tipo_formulario as TipoFormularioSarlaft)
+          ? (q.tipo_formulario as TipoFormularioSarlaft)
+          : null,
         estado: q.estado,
         fecha_desde: q.fecha_desde,
         fecha_hasta: q.fecha_hasta

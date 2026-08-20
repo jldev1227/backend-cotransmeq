@@ -6,6 +6,8 @@ import { registerBorradorQueueGateway } from '../queue/borrador-queue.gateway'
 import { borradorQueueService } from '../queue/borrador-queue.service'
 import { registerBulkSaveLiquidacionTerceroGateway } from '../queue/bulk-save-liquidacion-tercero.gateway'
 import { bulkSaveLiquidacionTerceroService } from '../queue/bulk-save-liquidacion-tercero.service'
+import { installSocketAuth, corsOrigins } from './auth'
+import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
 
 let io: IOServer | null = null
 
@@ -20,8 +22,15 @@ export function initSockets(server: HttpServer) {
   console.log('🔌 [initSockets] INICIANDO SOCKET.IO SERVER')
   console.log('═══════════════════════════════════════════════════════')
   
-  io = new IOServer(server, { cors: { origin: '*', methods: ['GET', 'POST'] } })
-  
+  io = new IOServer(server, { cors: { origin: corsOrigins(), methods: ['GET', 'POST'] } })
+
+  // Verificación de identidad en el handshake. Va ANTES de cualquier
+  // `io.on('connection')` para que los handlers ya tengan `socket.data.user`.
+  // El gateway de formularios dinámicos la exige (`getSocketUser`); el resto
+  // de gateways sigue funcionando igual porque el modo por defecto es
+  // `permissive` (ver SOCKET_AUTH_MODE en config/env.ts).
+  installSocketAuth(io)
+
   console.log('✅ [initSockets] Socket.IO server creado')
   
   io.on('connection', socket => {
@@ -89,6 +98,7 @@ export function initSockets(server: HttpServer) {
     });
   })
   registerLiquidacionTerceroGateway(io)
+  registerFormulariosGateway(io)
   registerChatGateway(io)
   registerBorradorQueueGateway(io)
   registerBulkSaveLiquidacionTerceroGateway(io)

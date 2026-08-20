@@ -9,8 +9,8 @@ import { pdfFromHtml } from '../../services/pdf.service'
  * la misma estética editorial de los PDF de liquidaciones de ingreso
  * (PreviewTerceroPDF / LiquidacionEditor) y lo renderizamos con
  * Puppeteer. Esto permite:
- *   - Mantener el branding (logo, tipografía Fraunces/Inter Tight, paleta
- *     esmeralda) consistente con el resto de la suite.
+ *   - Mantener el branding (logo, tipografía Geist, paleta
+ *     ámbar/verde) consistente con el resto de la suite Cotransmeq.
  *   - Renderizar la firma manuscrita como <img src="data:..."> sin que se
  *     filtre como texto plano (que era el bug de la versión con pdfkit).
  *   - Iterar más rápido en el layout: cualquier cambio de estilo se hace
@@ -30,6 +30,9 @@ type PreguntaLite = {
   opciones?: string[] | null
   obligatorio?: boolean
   nota?: string
+  /** Visibilidad declarativa: la pregunta solo aplica si otra tiene cierto
+   *  valor. Las no aplicables se omiten del PDF en vez de imprimirse con "—". */
+  condicional_pregunta?: { id: string; igual_a?: string; incluye?: string }
 }
 
 type SeccionLite = {
@@ -55,7 +58,7 @@ type DocumentoAdjunto = {
 
 export interface SarlaftPDFData {
   radicado: string
-  tipo_formulario: 'cliente_proveedor' | 'accionistas' | 'personal'
+  tipo_formulario: 'cliente_proveedor' | 'accionistas' | 'personal' | 'autorizacion_propietario'
   version: string
   fecha_envio: string
   fecha_diligenciamiento: string | null
@@ -76,7 +79,8 @@ export interface SarlaftPDFData {
 const TIPO_LABELS: Record<SarlaftPDFData['tipo_formulario'], string> = {
   cliente_proveedor: 'Cliente / Proveedor',
   accionistas: 'Accionistas',
-  personal: 'Vinculación de Personal'
+  personal: 'Vinculación de Personal',
+  autorizacion_propietario: 'Autorización del Propietario'
 }
 
 // ─── HELPERS ────────────────────────────────────────────────
@@ -201,43 +205,89 @@ function fmtValor(v: any, opts?: { monetario?: boolean }): string {
   return String(v)
 }
 
-function getFirmaDataUrl(respuestas: Record<string, any>): string | null {
-  const f =
-    respuestas?.['PER-ENC-04'] ??
-    respuestas?.['ACC-ENC-04'] ??
-    respuestas?.['CLI-ENC-04']
-  if (!f || typeof f !== 'string') return null
-  if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(f)) return null
-  return f
+/** Etiqueta y pregunta con el nombre del firmante, por cada pregunta de tipo
+ *  `firma`. Los formularios SARLAFT tienen una sola; SLFT-PTEE-FR-12 tiene dos
+ *  (propietario del vehículo y tercero autorizado). */
+const FIRMANTES: Record<string, { label: string; nombreId: string }> = {
+  'CLI-ENC-04': { label: 'FIRMA DE QUIEN AUTORIZA', nombreId: 'CLI-ENC-03' },
+  'ACC-ENC-04': { label: 'FIRMA DE QUIEN AUTORIZA', nombreId: 'ACC-ENC-03' },
+  'PER-ENC-04': { label: 'FIRMA DE QUIEN AUTORIZA', nombreId: 'PER-ENC-03' },
+  'AUT-FIR-07': { label: 'PROPIETARIO DEL VEHÍCULO', nombreId: 'AUT-FIR-03' },
+  'AUT-FIR-12': { label: 'TERCERO AUTORIZADO — ACEPTACIÓN', nombreId: 'AUT-FIR-08' }
 }
 
-function getNombreFirmante(respuestas: Record<string, any>): string | null {
-  const n =
-    respuestas?.['PER-ENC-03'] ??
-    respuestas?.['ACC-ENC-03'] ??
-    respuestas?.['CLI-ENC-03']
-  return n ? String(n) : null
+type FirmaRender = { label: string; nombre: string | null; dataUrl: string | null }
+
+/**
+ * Recorre la definición del formulario y devuelve un bloque por cada pregunta
+ * de tipo `firma`, en el orden del documento. Si no hay ninguna declarada, cae
+ * al comportamiento histórico (una firma de "quien autoriza").
+ */
+function getFirmas(formulario: FormularioLite, respuestas: Record<string, any>): FirmaRender[] {
+  const firmas: FirmaRender[] = []
+  for (const seccion of formulario.secciones) {
+    for (const p of seccion.preguntas) {
+      const meta = FIRMANTES[p.id]
+      // `tipo_respuesta` es opcional en `PreguntaLite`: cuando el llamador no
+      // lo envía, se reconoce la firma por su id conocido.
+      const esFirma = p.tipo_respuesta ? p.tipo_respuesta === 'firma' : !!meta
+      if (!esFirma) continue
+      const v = respuestas?.[p.id]
+      const dataUrl =
+        typeof v === 'string' && /^data:image\/(png|jpe?g|webp);base64,/i.test(v) ? v : null
+      const nombre = meta ? respuestas?.[meta.nombreId] : null
+      firmas.push({
+        label: meta?.label ?? 'FIRMA DE QUIEN AUTORIZA',
+        nombre: nombre ? String(nombre) : null,
+        dataUrl
+      })
+    }
+  }
+  return firmas
 }
 
 // ─── RENDERERS DE SECCIONES ─────────────────────────────────
 
 /**
- * Carga el logo de Transmeralda desde src/assets/ y lo embebe en el HTML
+ * Carga el logo de Cotransmeq desde src/assets/ y lo embebe en el HTML
  * como data URL. Se cachea en memoria para no leer el disco en cada PDF.
  * Si el archivo no existe, cae a un fallback de texto.
  */
 let _logoDataUrl: string | null = null
 function getLogoDataUrl(): string {
   if (_logoDataUrl !== null) return _logoDataUrl
-  try {
-    const logoPath = resolve(__dirname, '../../assets/logo_transmeralda-264.webp')
-    const buf = readFileSync(logoPath)
-    _logoDataUrl = `data:image/webp;base64,${buf.toString('base64')}`
-  } catch (err) {
-    console.warn('[PDFSarlaft] No se encontró logo.webp, usando fallback')
-    _logoDataUrl = ''
+  // Se prueban varios nombres para no acoplar el PDF a un archivo concreto:
+  // basta con dejar un logo con cualquiera de estos nombres en src/assets/.
+  // Solo nombres propios de Cotransmeq. `logo.png` NO entra en la lista: en
+  // este repo ese archivo sigue siendo el logotipo de Transmeralda, y un PDF de
+  // cumplimiento con la marca equivocada es peor que uno sin logotipo — por eso
+  // el fallback es el nombre en texto, no otra imagen.
+  const CANDIDATOS: Array<[string, string]> = [
+    ['../../assets/logo_cotransmeq-264.webp', 'image/webp'],
+    ['../../assets/cotransmeq-logo.png', 'image/png']
+  ]
+  for (const [rel, mime] of CANDIDATOS) {
+    try {
+      const buf = readFileSync(resolve(__dirname, rel))
+      _logoDataUrl = `data:${mime};base64,${buf.toString('base64')}`
+      return _logoDataUrl
+    } catch {
+      /* siguiente candidato */
+    }
   }
+  console.warn('[PDFSarlaft] No se encontró el logo de Cotransmeq, usando fallback de texto')
+  _logoDataUrl = ''
   return _logoDataUrl
+}
+
+/** Resuelve la visibilidad declarativa de una pregunta. Sin regla, aplica. */
+function aplicaPregunta(pregunta: PreguntaLite, respuestas: Record<string, any>): boolean {
+  const cond = pregunta.condicional_pregunta
+  if (!cond) return true
+  const origen = respuestas?.[cond.id]
+  if (cond.incluye != null) return Array.isArray(origen) && origen.includes(cond.incluye)
+  if (cond.igual_a != null) return origen === cond.igual_a
+  return true
 }
 
 function renderPregunta(pregunta: PreguntaLite, valor: any): string {
@@ -258,18 +308,25 @@ function renderPregunta(pregunta: PreguntaLite, valor: any): string {
     `
   }
 
-  // Si tiene opciones (selección única) → renderizar como pills inline
+  // Si tiene opciones (selección única o múltiple) → renderizar como pills inline.
+  // En `seleccion_multiple` el valor llega como arreglo de strings.
   if (pregunta.opciones && pregunta.opciones.length > 0) {
-    const selected = String(valor ?? '')
+    const seleccionadas = Array.isArray(valor)
+      ? valor.map((v) => String(v))
+      : valor == null || valor === ''
+        ? []
+        : [String(valor)]
+    const esMultiple = pregunta.tipo_respuesta === 'seleccion_multiple' || Array.isArray(valor)
     return `
-      <div class="field field--inline">
+      <div class="field field--inline ${esMultiple ? 'field--wide' : ''}">
         <div class="field-label">${preguntaTxt}</div>
         <div class="field-value opciones-row">
           ${pregunta.opciones
             .map((op) => {
-              const isSel = op === selected
+              const isSel = seleccionadas.includes(op)
+              const marca = esMultiple ? (isSel ? '☑' : '☐') : isSel ? '●' : '○'
               return `<span class="op-pill ${isSel ? 'op-pill--selected' : ''}">${
-                isSel ? '●' : '○'
+                marca
               } ${escapeHtml(op)}</span>`
             })
             .join('')}
@@ -311,12 +368,11 @@ function renderSeccion(
     }
   }
 
-  // Campos normales: los de la sección (excluyendo la firma)
+  // Campos normales: los de la sección (excluyendo la firma y las preguntas
+  // condicionales que no aplican según lo respondido).
   const camposHtml = seccion.preguntas
-    .map((p) => {
-      const v = respuestas[p.id]
-      return renderPregunta(p, v)
-    })
+    .filter((p) => aplicaPregunta(p, respuestas))
+    .map((p) => renderPregunta(p, respuestas[p.id]))
     .filter(Boolean)
     .join('')
 
@@ -483,29 +539,33 @@ function renderTablaRepetible(seccion: SeccionLite, filas: any[]): string {
   `
 }
 
-function renderFirma(firmaDataUrl: string | null, nombreFirmante: string | null): string {
-  const nombre = nombreFirmante ? escapeHtml(nombreFirmante) : '—'
-  if (firmaDataUrl) {
-    return `
-      <section class="firma-block">
-        <div class="firma-label">FIRMA DE QUIEN AUTORIZA</div>
-        <div class="firma-box">
-          <img src="${firmaDataUrl}" alt="Firma manuscrita de ${nombre}" class="firma-img" />
-        </div>
-        <div class="firma-nombre">${nombre}</div>
-        <div class="firma-meta">Firma capturada en el formulario · ${fmtFechaHora(new Date().toISOString())}</div>
-      </section>
-    `
-  }
-  return `
-    <section class="firma-block">
-      <div class="firma-label">FIRMA DE QUIEN AUTORIZA</div>
-      <div class="firma-box firma-box--empty">
-        <span class="firma-empty">No se adjuntó firma</span>
-      </div>
-      <div class="firma-nombre">${nombre}</div>
-    </section>
-  `
+function renderFirmas(firmas: FirmaRender[]): string {
+  if (firmas.length === 0) return ''
+  const capturadaEl = fmtFechaHora(new Date().toISOString())
+  const bloques = firmas
+    .map(({ label, nombre, dataUrl }) => {
+      const nom = nombre ? escapeHtml(nombre) : '—'
+      const caja = dataUrl
+        ? `<div class="firma-box">
+             <img src="${dataUrl}" alt="Firma manuscrita de ${nom}" class="firma-img" />
+           </div>
+           <div class="firma-nombre">${nom}</div>
+           <div class="firma-meta">Firma capturada en el formulario · ${capturadaEl}</div>`
+        : `<div class="firma-box firma-box--empty">
+             <span class="firma-empty">No se adjuntó firma</span>
+           </div>
+           <div class="firma-nombre">${nom}</div>`
+      return `
+        <section class="firma-block">
+          <div class="firma-label">${escapeHtml(label)}</div>
+          ${caja}
+        </section>
+      `
+    })
+    .join('')
+
+  // Con más de una firma se muestran lado a lado, como en el formato impreso.
+  return firmas.length > 1 ? `<div class="firmas-grid">${bloques}</div>` : bloques
 }
 
 // ─── TEMPLATE HTML ──────────────────────────────────────────
@@ -513,6 +573,13 @@ function renderFirma(firmaDataUrl: string | null, nombreFirmante: string | null)
 function buildHtml(data: SarlaftPDFData): string {
   const codigo = data.formulario.codigo
   const tipoLabel = TIPO_LABELS[data.tipo_formulario] ?? data.tipo_formulario
+  // Los formatos individuales (SLFT-PTEE-*) no son formularios de conocimiento
+  // SARLAFT, así que no se rotulan como tales en el encabezado ni en el pie.
+  const esSarlaft = data.tipo_formulario !== 'autorizacion_propietario'
+  const serie = esSarlaft ? 'SARLAFT' : 'PTEE'
+  const subtitulo = esSarlaft
+    ? `Formulario SARLAFT + PTEE · ${escapeHtml(tipoLabel)}`
+    : `Formato SARLAFT + PTEE · ${escapeHtml(tipoLabel)}`
   const radicado = escapeHtml(data.radicado)
   const version = escapeHtml(data.formulario.version)
   const fechaDoc = escapeHtml(data.formulario.fecha_documento || '—')
@@ -528,7 +595,7 @@ function buildHtml(data: SarlaftPDFData): string {
   // Logo local embebido como data URL (no requiere red, no infla el PDF)
   const logoSrc = getLogoDataUrl()
   const logoTag = logoSrc
-    ? `<img src="${logoSrc}" alt="Transmeralda S.A.S." />`
+    ? `<img src="${logoSrc}" alt="Cotransmeq" />`
     : `<div class="doc-logo-fallback">TRANS<br/>MERALDA</div>`
 
   // Render de cada sección
@@ -537,10 +604,8 @@ function buildHtml(data: SarlaftPDFData): string {
     .filter(Boolean)
     .join('')
 
-  // Firma
-  const firmaDataUrl = getFirmaDataUrl(data.respuestas)
-  const nombreFirmante = getNombreFirmante(data.respuestas)
-  const firmaHtml = renderFirma(firmaDataUrl, nombreFirmante)
+  // Firma(s) — una por cada pregunta de tipo `firma` del formulario
+  const firmaHtml = renderFirmas(getFirmas(data.formulario, data.respuestas))
 
   // Documentos adjuntos
   let docsHtml = ''
@@ -584,16 +649,16 @@ function buildHtml(data: SarlaftPDFData): string {
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>SARLAFT ${codigo} · ${radicado}</title>
+  <title>${serie} ${codigo} · ${radicado}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet"
   />
   <style>
     /* ════════════════════════════════════════════════════
-       TOKENS (paleta esmeralda / cálida — coherente con la suite)
+       TOKENS (paleta ámbar/verde de Cotransmeq — coherente con la landing)
        Layout compacto estilo "documento bancario":
          - márgenes -25% vs versión inicial
          - font-size base 8pt (era 9pt)
@@ -602,25 +667,25 @@ function buildHtml(data: SarlaftPDFData): string {
            que NINGUNA celda se desborde por cabecera larga
        ════════════════════════════════════════════════════ */
     :root {
-      --bg: #FAF7F2;
+      --bg: #FCFCFB;
       --surface: #ffffff;
-      --ink: #0F1F1A;
-      --ink-2: #1A1A1A;
-      --muted: #6B6B6B;
-      --muted-2: #9A9A9A;
-      --line: #E6E2D9;
-      --line-2: rgba(0, 0, 0, 0.06);
-      --emerald-50: #ecfdf5;
-      --emerald-100: #d1fae5;
-      --emerald-200: #a7f3d0;
-      --emerald-300: #6ee7b7;
-      --emerald-500: #10B981;
-      --emerald-600: #059669;
-      --emerald-700: #047857;
-      --emerald-800: #065f46;
-      --emerald-900: #064e3b;
-      --accent: #10B981;
-      --accent-ink: #065f46;
+      --ink: #0F172A;
+      --ink-2: #1E293B;
+      --muted: #64748B;
+      --muted-2: #94A3B8;
+      --line: #E4E4E0;
+      --line-2: rgba(15, 23, 42, 0.08);
+      --brand-50: #fff7ed;
+      --brand-100: #ffedd5;
+      --brand-200: #fed7aa;
+      --brand-300: #fdba74;
+      --brand-500: #f97316;
+      --brand-600: #ea580c;
+      --brand-700: #c2410c;
+      --brand-800: #9a3412;
+      --brand-900: #7c2d12;
+      --accent: #f97316;
+      --accent-ink: #9a3412;
       --amber-bg: #fef3c7;
       --amber-ink: #92400e;
       --red-bg: #fee2e2;
@@ -632,7 +697,7 @@ function buildHtml(data: SarlaftPDFData): string {
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0; background: var(--bg); color: var(--ink);
-      font-family: 'Inter Tight', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
       font-size: 8pt;
       line-height: 1.35;
       -webkit-font-smoothing: antialiased;
@@ -668,16 +733,16 @@ function buildHtml(data: SarlaftPDFData): string {
       max-width: 100%; max-height: 100%; object-fit: contain; display: block;
     }
     .doc-logo-fallback {
-      font-family: 'Fraunces', Georgia, serif;
+      font-family: 'Geist', system-ui, sans-serif;
       font-size: 10pt; font-weight: 600;
-      color: var(--emerald-800);
+      color: var(--brand-800);
       letter-spacing: 0.04em;
       line-height: 1.1;
       text-align: center;
     }
     .doc-title { text-align: center; }
     .doc-company {
-      font-family: 'Fraunces', Georgia, serif;
+      font-family: 'Geist', system-ui, sans-serif;
       font-size: 11pt; font-weight: 500;
       letter-spacing: 0.01em;
       color: var(--ink);
@@ -688,7 +753,7 @@ function buildHtml(data: SarlaftPDFData): string {
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--emerald-800);
+      color: var(--brand-800);
       margin-top: 1px;
     }
     .doc-meta {
@@ -710,19 +775,19 @@ function buildHtml(data: SarlaftPDFData): string {
       align-items: center;
       margin-top: 6px;
       padding: 6px 10px;
-      background: linear-gradient(180deg, var(--emerald-50) 0%, #ffffff 100%);
-      border: 1px solid var(--emerald-200);
+      background: linear-gradient(180deg, var(--brand-50) 0%, #ffffff 100%);
+      border: 1px solid var(--brand-200);
       border-radius: 6px;
     }
     .hero-l { display: flex; flex-direction: column; gap: 1px; }
     .hero-eyebrow {
       font-size: 5.8pt; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.12em;
-      color: var(--emerald-700);
+      color: var(--brand-700);
       font-family: 'JetBrains Mono', monospace;
     }
     .hero-radicado {
-      font-family: 'Fraunces', Georgia, serif;
+      font-family: 'Geist', system-ui, sans-serif;
       font-size: 13pt; font-weight: 500; color: var(--ink);
       letter-spacing: 0.01em;
     }
@@ -735,8 +800,8 @@ function buildHtml(data: SarlaftPDFData): string {
       display: inline-block; padding: 2px 8px; border-radius: 999px;
       font-size: 6.8pt; font-weight: 700; letter-spacing: 0.04em;
       text-transform: uppercase;
-      border: 1px solid var(--emerald-200);
-      background: var(--emerald-100); color: var(--emerald-800);
+      border: 1px solid var(--brand-200);
+      background: var(--brand-100); color: var(--brand-800);
     }
 
     /* ═══ SUMMARY GRID (titular / documento / contacto) ═══ */
@@ -778,7 +843,7 @@ function buildHtml(data: SarlaftPDFData): string {
     .seccion-head {
       display: flex; align-items: center; gap: 8px;
       padding: 4px 8px;
-      background: var(--emerald-900);
+      background: var(--brand-900);
       color: white;
       border-radius: 5px 5px 0 0;
     }
@@ -791,7 +856,7 @@ function buildHtml(data: SarlaftPDFData): string {
       font-size: 7pt; font-weight: 700;
     }
     .seccion-title {
-      font-family: 'Fraunces', Georgia, serif;
+      font-family: 'Geist', system-ui, sans-serif;
       font-size: 10.5pt; font-weight: 500;
       margin: 0; color: white;
       letter-spacing: 0.01em;
@@ -824,7 +889,7 @@ function buildHtml(data: SarlaftPDFData): string {
     .field-label {
       font-size: 5.8pt; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: var(--emerald-800);
+      color: var(--brand-800);
       font-family: 'JetBrains Mono', monospace;
       margin-bottom: 1px;
     }
@@ -837,7 +902,7 @@ function buildHtml(data: SarlaftPDFData): string {
     .field-value--money {
       font-family: 'JetBrains Mono', monospace;
       font-weight: 600;
-      color: var(--emerald-900);
+      color: var(--brand-900);
     }
     .field--inline { display: flex; flex-direction: column; }
     .field--wide { grid-column: 1 / -1; }
@@ -869,9 +934,9 @@ function buildHtml(data: SarlaftPDFData): string {
       background: var(--gray-bg); color: var(--muted);
     }
     .op-pill--selected {
-      background: var(--emerald-100);
-      border-color: var(--emerald-300);
-      color: var(--emerald-900);
+      background: var(--brand-100);
+      border-color: var(--brand-300);
+      color: var(--brand-900);
       font-weight: 700;
     }
 
@@ -901,11 +966,11 @@ function buildHtml(data: SarlaftPDFData): string {
       line-height: 1.25;
     }
     .tabla thead th {
-      background: var(--emerald-50);
-      color: var(--emerald-900);
+      background: var(--brand-50);
+      color: var(--brand-900);
       font-weight: 700; font-size: 6.5pt;
       text-transform: uppercase; letter-spacing: 0.04em;
-      border-bottom: 1.5px solid var(--emerald-300);
+      border-bottom: 1.5px solid var(--brand-300);
       padding-top: 4px; padding-bottom: 4px;
     }
     .tabla tbody tr:nth-child(even) { background: rgba(0, 0, 0, 0.015); }
@@ -922,12 +987,12 @@ function buildHtml(data: SarlaftPDFData): string {
       font-family: 'JetBrains Mono', monospace;
       font-size: 6.5pt;
     }
-    .tabla .td-num { font-weight: 600; color: var(--emerald-800); }
+    .tabla .td-num { font-weight: 600; color: var(--brand-800); }
     .tabla .td-text { font-size: 7.2pt; }
     .tabla .td-money {
       font-family: 'JetBrains Mono', monospace;
       font-size: 7pt; font-weight: 600;
-      color: var(--emerald-900);
+      color: var(--brand-900);
       text-align: right;
     }
 
@@ -944,14 +1009,14 @@ function buildHtml(data: SarlaftPDFData): string {
     .doc-card {
       display: flex; gap: 6px; align-items: flex-start;
       padding: 5px 7px;
-      background: var(--emerald-50);
-      border: 1px solid var(--emerald-200);
+      background: var(--brand-50);
+      border: 1px solid var(--brand-200);
       border-radius: 5px;
     }
     .doc-card-num {
       font-family: 'JetBrains Mono', monospace;
       font-size: 7pt; font-weight: 700;
-      color: var(--emerald-800);
+      color: var(--brand-800);
       background: white;
       padding: 1px 5px;
       border-radius: 3px;
@@ -960,7 +1025,7 @@ function buildHtml(data: SarlaftPDFData): string {
     .doc-card-body { flex: 1; min-width: 0; }
     .doc-card-tipo {
       font-size: 6.2pt; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.08em; color: var(--emerald-700);
+      letter-spacing: 0.08em; color: var(--brand-700);
     }
     .doc-card-name {
       font-size: 7.5pt; font-weight: 600; color: var(--ink);
@@ -974,12 +1039,23 @@ function buildHtml(data: SarlaftPDFData): string {
     }
 
     /* ═══ FIRMA ═══ */
+    /* Con dos firmantes (propietario + tercero autorizado) van lado a lado,
+       igual que en el formato impreso. */
+    .firmas-grid {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .firmas-grid .firma-block { grid-column: auto; margin-top: 8px; }
     .firma-block {
       grid-column: 1 / -1;
       margin-top: 8px;
       padding: 8px 12px;
       background: var(--surface);
-      border: 1.5px solid var(--emerald-800);
+      border: 1.5px solid var(--brand-800);
       border-radius: 6px;
       break-inside: avoid;
       page-break-inside: avoid;
@@ -987,13 +1063,13 @@ function buildHtml(data: SarlaftPDFData): string {
     .firma-label {
       font-size: 6.5pt; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.12em;
-      color: var(--emerald-800);
+      color: var(--brand-800);
       font-family: 'JetBrains Mono', monospace;
       margin-bottom: 4px;
     }
     .firma-box {
-      background: var(--emerald-50);
-      border: 1px dashed var(--emerald-300);
+      background: var(--brand-50);
+      border: 1px dashed var(--brand-300);
       border-radius: 5px;
       height: 80px;               /* era 110px */
       display: flex; align-items: center; justify-content: center;
@@ -1007,7 +1083,7 @@ function buildHtml(data: SarlaftPDFData): string {
       color: var(--muted); font-style: italic; font-size: 7.5pt;
     }
     .firma-nombre {
-      font-family: 'Fraunces', Georgia, serif;
+      font-family: 'Geist', system-ui, sans-serif;
       font-size: 11pt; font-weight: 500; color: var(--ink);
       margin-top: 4px;
     }
@@ -1029,7 +1105,7 @@ function buildHtml(data: SarlaftPDFData): string {
       /* márgenes reducidos ~25%: 12/10/14/10 → 9/7.5/10.5/7.5 mm */
       margin: 9mm 7.5mm 10.5mm 7.5mm;
       @bottom-center {
-        content: 'SARLAFT ${codigo} · Radicado ${radicado} · TRANSMERALDA S.A.S. · Pág. ' counter(page) ' / ' counter(pages);
+        content: '${serie} ${codigo} · Radicado ${radicado} · COTRANSMEQ S.A.S. · Pág. ' counter(page) ' / ' counter(pages);
         font-family: 'JetBrains Mono', monospace;
         font-size: 5.8pt;
         color: #9A9A9A;
@@ -1043,8 +1119,8 @@ function buildHtml(data: SarlaftPDFData): string {
     <header class="doc-header">
       <div class="doc-logo">${logoTag}</div>
       <div class="doc-title">
-        <div class="doc-company">TRANSPORTES Y SERVICIOS ESMERALDA S.A.S.</div>
-        <div class="doc-subtitle">Formulario SARLAFT + PTEE · ${escapeHtml(tipoLabel)}</div>
+        <div class="doc-company">COTRANSMEQ S.A.S. · TRANSPORTE ESPECIAL DE PERSONAL</div>
+        <div class="doc-subtitle">${subtitulo}</div>
       </div>
       <div class="doc-meta">
         <div class="doc-meta-row"><span class="doc-meta-lbl">Código</span><span class="doc-meta-val">${codigo}</span></div>

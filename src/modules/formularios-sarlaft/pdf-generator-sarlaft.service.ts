@@ -440,7 +440,11 @@ export class PDFGeneratorSarlaftService {
         // Left: Logo
         doc.rect(MARGIN, baseY, LOGO_BOX.w, LOGO_BOX.h).fill(C.accentLight).strokeColor(C.border).lineWidth(0.5).stroke();
         try {
-          const logoPath = path.join(__dirname, "../../assets/transmeralda-logo.png");
+          // No se usa `logo.png`: en este repo ese archivo sigue siendo el
+          // logotipo de Transmeralda. Este generador (pdfkit) quedó sustituido
+          // por el basado en HTML, pero se corrige la ruta para que no imprima
+          // la marca equivocada si alguien vuelve a engancharlo.
+          const logoPath = path.join(__dirname, "../../assets/cotransmeq-logo.png");
           if (fs.existsSync(logoPath)) {
             doc.image(logoPath, MARGIN + LOGO_PAD, baseY + LOGO_PAD, { fit: [LOGO_BOX.w - LOGO_PAD * 2, LOGO_BOX.h - LOGO_PAD * 2], align: "center", valign: "center" });
           }

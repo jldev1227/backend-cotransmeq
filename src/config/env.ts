@@ -48,7 +48,43 @@ const envSchema = z.object({
   // URL de la base de datos Transmeralda (mismo schema, instancia distinta).
   // Se usa para importar recargos desde Transmeralda hacia Cotransmeq.
   // Si no se define, los endpoints /importar-desde-transmeralda/* devuelven 503.
-  TRANSMERALDA_DATABASE_URL: z.string().optional()
+  TRANSMERALDA_DATABASE_URL: z.string().optional(),
+
+  // ── Checksum nativo de S3 para adjuntos de formularios dinámicos ────
+  // Con 'true' (default) el PUT firmado incluye `ChecksumSHA256`, S3 rechaza
+  // la subida si los bytes no producen ese digest, y `HeadObject` lo devuelve
+  // para que el backend lo compare. Es la única forma de verificar integridad
+  // contra los bytes ALMACENADOS y no contra lo que el cliente declara.
+  //
+  // Ponerlo en 'false' solo si el proveedor compatible con S3 no implementa
+  // checksums nativos (algunos MinIO antiguos, Ceph). En ese caso la
+  // verificación se hace descargando el objeto en streaming y hasheándolo, que
+  // es correcto pero consume red.
+  FORMS_S3_NATIVE_CHECKSUM: z
+    .string()
+    .optional()
+    .default('true')
+    .transform((v) => v !== 'false'),
+
+  // ── Autenticación de Socket.IO ──────────────────────────────────────
+  // Hasta ahora los sockets NO verificaban nada: la identidad venía en el
+  // payload de cada evento. El gateway de formularios dinámicos SÍ la exige
+  // (`getSocketUser`), así que la verificación se instala en el handshake.
+  //
+  // Activar el rechazo de golpe tumbaría a la vez chat, colas de borrador y
+  // presencia del dashboard, así que se despliega en dos pasos:
+  //   'permissive' (default) → verifica el token si viene y deja pasar si no,
+  //                            dejando rastro en logs de quién falta migrar.
+  //   'enforce'              → rechaza el handshake sin token válido.
+  //   'off'                  → no instala nada (comportamiento anterior).
+  SOCKET_AUTH_MODE: z
+    .enum(['off', 'permissive', 'enforce'])
+    .optional()
+    .default('permissive'),
+
+  // Orígenes permitidos para Socket.IO, separados por coma. Vacío = '*'
+  // (comportamiento anterior). Conviene fijarlo antes de pasar a 'enforce'.
+  SOCKET_CORS_ORIGINS: z.string().optional()
 })
 
 export const env = envSchema.parse(process.env)

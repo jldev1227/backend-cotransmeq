@@ -93,6 +93,22 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Salidas no conformes'
   },
 
+  // Módulo propio y no reutilizado: los envíos incluyen datos de salud, fatiga
+  // y firmas de los conductores, así que el acceso tiene que poder concederse y
+  // revocarse por separado de cualquier otro módulo.
+  //
+  // `operaciones` solo lee: consulta preoperacionales del día para despachar,
+  // pero no debe poder publicar ni cambiar un formulario de HSEQ.
+  //
+  // Espejo EXACTO de `ingreso-svelte/src/lib/config/permissions.ts`. Si aquí y
+  // allí no coinciden, el sidebar muestra una entrada que la API rechaza con
+  // 403 (o al contrario, oculta algo a quien sí puede usarlo).
+  formularios: {
+    full: ['administracion', 'hseq'],
+    read: ['operaciones'],
+    description: 'Formularios dinámicos (constructor, asignaciones y envíos)'
+  },
+
   nomina: {
     full: ['administracion', 'talento_humano', 'facturacion'],
     description: 'Gestión de nómina'
