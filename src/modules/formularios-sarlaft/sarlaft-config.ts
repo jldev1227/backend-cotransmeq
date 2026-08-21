@@ -48,7 +48,7 @@ function emailsDeEnv(clave: string, porDefecto: string[]): string[] {
 const CORREO_CUMPLIMIENTO = process.env.SARLAFT_EMAIL_CUMPLIMIENTO?.trim() || 'cotransmeqsarlaft@gmail.com'
 /** Correo de cara al público para dudas sobre el diligenciamiento.
  *  Es el mismo que publica la landing en su pie de página. */
-const CORREO_PUBLICO = process.env.SARLAFT_EMAIL_PUBLICO?.trim() || 'operaciones.cotransmeq@hotmail.com'
+const CORREO_PUBLICO = process.env.SARLAFT_EMAIL_PUBLICO?.trim() || 'compras.cotransmeq@hotmail.com'
 
 /** Canal telefónico principal de COTRANSMEQ (el mismo de la landing). */
 const TELEFONO_PRINCIPAL = process.env.SARLAFT_TELEFONO?.trim() || '+57 302 571 1858'
