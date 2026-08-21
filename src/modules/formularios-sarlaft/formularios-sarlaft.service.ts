@@ -637,19 +637,23 @@ export const FormulariosSarlaftService = {
 <head>
   <meta charset="UTF-8" />
   <style>
-    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #1a1a1a; line-height: 1.5; }
-    .container { max-width: 640px; margin: 0 auto; padding: 24px; background: #FAF7F2; }
-    .card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 24px rgba(0,0,0,0.05); }
-    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e5e7eb; }
-    .badge { display: inline-block; background: #10B981; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
-    h1 { font-size: 18px; margin: 12px 0 4px; color: #064e3b; }
-    .subtitle { color: #6b7280; font-size: 13px; margin: 0; }
+    /* Paleta naranja de COTRANSMEQ — los mismos tokens que usa el template
+       del PDF de evidencia (pdf-generator-sarlaft-html.service.ts), para que
+       el correo y el documento que viaja adjunto se lean como una sola pieza.
+       No usar verde aquí: la identidad de la marca es el naranja. */
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #0F172A; line-height: 1.5; background: #FCFCFB; }
+    .container { max-width: 640px; margin: 0 auto; padding: 24px; background: #FCFCFB; }
+    .card { background: #ffffff; border-radius: 16px; padding: 24px; box-shadow: 0 4px 24px rgba(0,0,0,0.05); border: 1px solid #E4E4E0; }
+    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #E4E4E0; }
+    .badge { display: inline-block; background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    h1 { font-size: 18px; margin: 12px 0 4px; color: #9a3412; }
+    .subtitle { color: #64748B; font-size: 13px; margin: 0; }
     table { width: 100%; border-collapse: collapse; margin-top: 16px; }
     td { padding: 8px 0; font-size: 13px; vertical-align: top; }
-    td.label { color: #6b7280; width: 200px; }
-    td.value { color: #111827; font-weight: 600; }
-    .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #9ca3af; }
-    .cta { display: inline-block; margin-top: 16px; padding: 10px 20px; background: #10B981; color: white; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; }
+    td.label { color: #64748B; width: 200px; }
+    td.value { color: #0F172A; font-weight: 600; }
+    .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #E4E4E0; font-size: 12px; color: #94A3B8; }
+    .cta { display: inline-block; margin-top: 16px; padding: 10px 20px; background: #f97316; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -700,7 +704,7 @@ export const FormulariosSarlaftService = {
         Ver en el dashboard →
       </a>
 
-      <p style="margin-top:24px; font-size:13px; color:#6b7280;">
+      <p style="margin-top:24px; font-size:13px; color:#64748B;">
         Se adjuntan el PDF con las respuestas diligenciadas y los archivos originales
         proporcionados por el titular. Asimismo, la información suministrada en el
         formulario ha sido almacenada de forma segura y se encuentra disponible en el
@@ -782,9 +786,15 @@ export const FormulariosSarlaftService = {
       });
     }
 
-    const from =
-      process.env.SMTP_FROM || "Cotransmeq <noreply@cotransmeq.com>";
-
+    // El `from` NO se fija aquí a propósito. Antes se tomaba de `SMTP_FROM`,
+    // que apunta a una cuenta @gmail.com; con RESEND_API_KEY configurada el
+    // proveedor activo es Resend y éste rechaza cualquier remitente cuyo
+    // dominio no esté verificado ("The gmail.com domain is not verified",
+    // HTTP 403), así que ninguna notificación SARLAFT llegaba. Delegando en
+    // EmailService.sendEmail se usa el remitente correcto para el proveedor
+    // activo: RESEND_FROM / noreply@cotransmeq.com con Resend, SMTP_FROM con
+    // SMTP.
+    //
     // Si el proveedor es SMTP (nodemailer) podemos adjuntar archivos nativos;
     // para Resend (API) también soporta attachments con el mismo formato.
     //
@@ -794,7 +804,6 @@ export const FormulariosSarlaftService = {
     // oculta a otras áreas. El NOTIF_BCC_EMAIL del .env aplica SOLO a las
     // notificaciones de conductores (desprendibles / primas).
     await EmailService.sendEmail({
-      from,
       to: cfg.emails,
       subject,
       html,

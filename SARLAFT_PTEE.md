@@ -90,26 +90,64 @@ npx prisma generate     # regenera el cliente con los dos modelos
 
 ### Destinatarios y canales (`sarlaft-config.ts`)
 
-Todos los valores tienen un default de COTRANSMEQ y pueden sobreescribirse por
-entorno, sin tocar código:
+**Canales autorizados.** Sólo dos buzones pueden recibir formularios SARLAFT +
+PTEE. Están declarados como literales en `CANALES_AUTORIZADOS` dentro de
+`sarlaft-config.ts` y **no** son configurables por entorno: son el punto de
+control de a dónde sale información con documento de identidad y firma
+manuscrita, así que ampliarlos exige un cambio de código revisable.
+
+| Buzón | Uso |
+|---|---|
+| `compras.cotransmeq@hotmail.com` | Compras / Proveedores |
+| `cotransmeqreportesla@gmail.com` | Reportes de Cumplimiento |
+
+**Los dos buzones reciben todos los tipos de formulario.** Van en `to` (no en
+BCC) para que Compras y Cumplimiento se vean entre sí y no dupliquen la gestión
+del mismo radicado.
+
+Lo que sí varía por tipo es el `correo_publico`, que no recibe nada: es el canal
+de dudas que se le muestra al titular tras enviar el formulario.
+
+| Tipo | Área | Correo mostrado al titular |
+|---|---|---|
+| `cliente_proveedor` | Operaciones | `compras.cotransmeq@hotmail.com` |
+| `accionistas` | Cumplimiento | `cotransmeqreportesla@gmail.com` |
+| `personal` | Talento Humano | `cotransmeqreportesla@gmail.com` |
+| `autorizacion_propietario` | Cumplimiento | `cotransmeqreportesla@gmail.com` |
+
+Lo que se puede ajustar por entorno:
 
 | Variable | Default |
 |---|---|
 | `SARLAFT_EMPRESA_NOMBRE` | `COTRANSMEQ S.A.S.` |
-| `SARLAFT_EMAIL_CUMPLIMIENTO` | `cotransmeqsarlaft@gmail.com` |
-| `SARLAFT_EMAIL_PUBLICO` | `operaciones.cotransmeq@hotmail.com` |
 | `SARLAFT_TELEFONO` / `SARLAFT_TELEFONO_WA` | `+57 302 571 1858` / `573025711858` |
-| `SARLAFT_EMAILS_CLIENTE_PROVEEDOR` | compras + cumplimiento |
-| `SARLAFT_EMAILS_ACCIONISTAS` | cumplimiento |
-| `SARLAFT_EMAILS_PERSONAL` | cumplimiento |
-| `SARLAFT_EMAILS_AUTORIZACION_PROPIETARIO` | cumplimiento |
+| `SARLAFT_EMAILS_CLIENTE_PROVEEDOR` | ambos buzones |
+| `SARLAFT_EMAILS_ACCIONISTAS` | ambos buzones |
+| `SARLAFT_EMAILS_PERSONAL` | ambos buzones |
+| `SARLAFT_EMAILS_AUTORIZACION_PROPIETARIO` | ambos buzones |
 
-Las listas aceptan varios correos separados por coma.
+Las listas aceptan varios correos separados por coma, pero **se filtran contra
+`CANALES_AUTORIZADOS`**: cualquier dirección fuera de la lista blanca se
+descarta con un `console.warn` y, si el override queda vacío, se cae al
+destinatario por defecto.
 
 > El correo de notificación **nunca lleva BCC**: contiene datos personales
 > sensibles (documento, firma manuscrita) y va directo al Oficial de
 > Cumplimiento. El `NOTIF_BCC_EMAIL` del `.env` aplica solo a las
 > notificaciones de conductores.
+
+### Remitente (`from`) y Resend
+
+Con `RESEND_API_KEY` presente el proveedor activo es Resend, que **rechaza con
+HTTP 403 cualquier remitente cuyo dominio no esté verificado**. El único
+dominio verificado de la cuenta es `cotransmeq.com`, así que el `from` debe
+salir de ahí (`RESEND_FROM=Cotransmeq <noreply@cotransmeq.com>`).
+
+El módulo SARLAFT no fija su propio `from`: delega en `EmailService.sendEmail`,
+que elige `RESEND_FROM` con Resend y `SMTP_FROM` con SMTP. Fijarlo a mano fue
+la causa de que las notificaciones no llegaran — tomaba `SMTP_FROM`, que apunta
+a una cuenta `@gmail.com`, y Resend devolvía *"The gmail.com domain is not
+verified"*.
 
 ### CORS
 

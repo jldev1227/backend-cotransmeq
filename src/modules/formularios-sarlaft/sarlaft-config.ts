@@ -33,7 +33,16 @@ export interface ContactoConfig {
   correo_publico?: string
 }
 
-/** Lee una lista de correos separados por coma desde el entorno. */
+/**
+ * Lee una lista de correos separados por coma desde el entorno, descartando
+ * cualquier dirección que no esté en `CANALES_AUTORIZADOS`.
+ *
+ * El filtro existe porque un `SARLAFT_EMAILS_*` mal puesto en el `.env` de un
+ * despliegue bastaría para desviar formularios con documento de identidad y
+ * firma manuscrita a un buzón no autorizado, sin dejar rastro en el código.
+ * Si el override queda vacío tras filtrar, se cae al destinatario por defecto
+ * en lugar de no notificar a nadie.
+ */
 function emailsDeEnv(clave: string, porDefecto: string[]): string[] {
   const raw = process.env[clave]?.trim()
   if (!raw) return porDefecto
@@ -41,55 +50,87 @@ function emailsDeEnv(clave: string, porDefecto: string[]): string[] {
     .split(',')
     .map((e) => e.trim())
     .filter(Boolean)
-  return lista.length > 0 ? lista : porDefecto
+
+  const permitidos = lista.filter((e) => CANALES_AUTORIZADOS.has(e.toLowerCase()))
+  const rechazados = lista.filter((e) => !CANALES_AUTORIZADOS.has(e.toLowerCase()))
+  if (rechazados.length > 0) {
+    console.warn(
+      `[SarlaftConfig] ${clave}: se ignoraron canales no autorizados -> ${rechazados.join(', ')}. ` +
+        'Sólo se admiten los buzones declarados en CANALES_AUTORIZADOS.'
+    )
+  }
+  return permitidos.length > 0 ? permitidos : porDefecto
 }
 
-/** Correo de cumplimiento (Oficial de Cumplimiento SARLAFT de COTRANSMEQ). */
-const CORREO_CUMPLIMIENTO = process.env.SARLAFT_EMAIL_CUMPLIMIENTO?.trim() || 'cotransmeqsarlaft@gmail.com'
-/** Correo de cara al público para dudas sobre el diligenciamiento.
- *  Es el mismo que publica la landing en su pie de página. */
-const CORREO_PUBLICO = process.env.SARLAFT_EMAIL_PUBLICO?.trim() || 'compras.cotransmeq@hotmail.com'
+// ─────────────────────────────────────────────────────────────────────────────
+// CANALES AUTORIZADOS
+//
+// Sólo estas dos direcciones están autorizadas por COTRANSMEQ para recibir
+// formularios SARLAFT + PTEE. Cualquier otro buzón que aparezca aquí es un
+// canal no autorizado: estos correos transportan documento de identidad,
+// firma manuscrita y adjuntos del titular, así que la lista es cerrada y no
+// se amplía sin autorización expresa del Oficial de Cumplimiento.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Buzón de Compras / Proveedores — también es el correo público de la landing. */
+const CORREO_COMPRAS = 'compras.cotransmeq@hotmail.com'
+/** Buzón de reportes de Cumplimiento SARLAFT. */
+const CORREO_REPORTES = 'cotransmeqreportesla@gmail.com'
+
+/**
+ * Lista blanca de destinatarios. Es deliberadamente literal y no configurable
+ * por entorno: es el punto de control de a dónde puede salir un formulario
+ * SARLAFT. Ampliarla requiere un cambio de código revisable, no una variable
+ * de entorno editable en el panel del hosting.
+ */
+const CANALES_AUTORIZADOS = new Set([CORREO_COMPRAS, CORREO_REPORTES])
+
+/**
+ * Destinatarios por defecto: los dos buzones autorizados reciben TODOS los
+ * tipos de formulario. Es una decisión explícita de COTRANSMEQ — Compras y
+ * Cumplimiento trabajan la misma bandeja de casos, así que ninguno depende de
+ * que el otro reenvíe. Van en `to` (no en BCC) para que ambas áreas se vean
+ * entre sí y no dupliquen la gestión del mismo radicado.
+ */
+const DESTINATARIOS = [CORREO_COMPRAS, CORREO_REPORTES]
 
 /** Canal telefónico principal de COTRANSMEQ (el mismo de la landing). */
 const TELEFONO_PRINCIPAL = process.env.SARLAFT_TELEFONO?.trim() || '+57 302 571 1858'
 const TELEFONO_WA = process.env.SARLAFT_TELEFONO_WA?.trim() || '573025711858'
 
+// El `correo_publico` sí cambia por tipo: es el que se le muestra al titular
+// como canal de dudas, y conviene que apunte al área que atiende su caso.
 export const CONFIG_POR_TIPO: Record<TipoFormularioSarlaft, ContactoConfig> = {
-  // Clientes / Proveedores — Notificación a Compras/Proveedores y a Cumplimiento
   cliente_proveedor: {
-    emails: emailsDeEnv('SARLAFT_EMAILS_CLIENTE_PROVEEDOR', [
-      'compraproveedorescotransmeq@gmail.com',
-      CORREO_CUMPLIMIENTO
-    ]),
+    emails: emailsDeEnv('SARLAFT_EMAILS_CLIENTE_PROVEEDOR', DESTINATARIOS),
     area_responsable: 'Operaciones',
     telefono_principal: TELEFONO_PRINCIPAL,
     telefono_wa: TELEFONO_WA,
-    correo_publico: CORREO_PUBLICO
+    correo_publico: CORREO_COMPRAS
   },
-  // Accionistas — Notificación a Cumplimiento SARLAFT
   accionistas: {
-    emails: emailsDeEnv('SARLAFT_EMAILS_ACCIONISTAS', [CORREO_CUMPLIMIENTO]),
+    emails: emailsDeEnv('SARLAFT_EMAILS_ACCIONISTAS', DESTINATARIOS),
     area_responsable: 'Cumplimiento',
     telefono_principal: TELEFONO_PRINCIPAL,
-    telefono_wa: TELEFONO_WA
+    telefono_wa: TELEFONO_WA,
+    correo_publico: CORREO_REPORTES
   },
-  // Personal — Notificación a Cumplimiento. El canal de contacto que ve el
-  // aspirante es el de Operaciones, que es el que atiende en horario hábil.
   personal: {
-    emails: emailsDeEnv('SARLAFT_EMAILS_PERSONAL', [CORREO_CUMPLIMIENTO]),
+    emails: emailsDeEnv('SARLAFT_EMAILS_PERSONAL', DESTINATARIOS),
     area_responsable: 'Talento Humano',
     telefono_principal: TELEFONO_PRINCIPAL,
     telefono_wa: TELEFONO_WA,
-    correo_publico: CORREO_PUBLICO
+    correo_publico: CORREO_REPORTES
   },
   // Autorización del Propietario (SLFT-PTEE-FR-12) — al tratarse de una
   // autorización de facturación/pago a un tercero, la revisión la hace
-  // directamente el Oficial de Cumplimiento antes de cualquier desembolso.
+  // el Oficial de Cumplimiento antes de cualquier desembolso.
   autorizacion_propietario: {
-    emails: emailsDeEnv('SARLAFT_EMAILS_AUTORIZACION_PROPIETARIO', [CORREO_CUMPLIMIENTO]),
+    emails: emailsDeEnv('SARLAFT_EMAILS_AUTORIZACION_PROPIETARIO', DESTINATARIOS),
     area_responsable: 'Cumplimiento',
     telefono_principal: TELEFONO_PRINCIPAL,
-    telefono_wa: TELEFONO_WA
+    telefono_wa: TELEFONO_WA,
+    correo_publico: CORREO_REPORTES
   }
 }
 
