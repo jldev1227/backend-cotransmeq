@@ -7,8 +7,7 @@ import {
   destinatarioPorId,
   enviarCampana,
   enviarGuia,
-  listarAudiencia,
-  resolverPeriodo
+  listarAudiencia
 } from './formularios-campana-email.service'
 
 /**
@@ -96,8 +95,7 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
   app.post('/formularios/campana-portal/enviar', puedeEditar, async (request, reply) => {
     try {
       const { periodo, confirmacion } = request.body as { periodo?: string; confirmacion?: string }
-      const rango = resolverPeriodo(periodo)
-      const data = await enviarCampana(rango.periodo, confirmacion || '')
+      const data = await enviarCampana(periodo, confirmacion || '')
       return reply.send({ success: data.fallidos === 0, data })
     } catch (error) {
       return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_SEND_FAILED', message: error instanceof Error ? error.message : 'No fue posible enviar la campaña.' } })

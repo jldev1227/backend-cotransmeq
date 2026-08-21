@@ -10,40 +10,34 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const PASOS = [
   {
-    archivo: 'guia-01-formularios.jpeg',
-    cid: 'guia-portal-paso-1',
+    archivo: 'cotransmeq-guia-01-formularios.jpeg',
+    cid: 'cotransmeq-guia-paso-1',
     titulo: '1. Consulte sus formularios',
     texto: 'Al abrir su enlace personal llegará a Formularios. Allí verá únicamente los formatos asignados y el estado de cada borrador. “Todo sincronizado” confirma que la información guardada ya está al día.'
   },
   {
-    archivo: 'guia-02-preoperacional.jpeg',
-    cid: 'guia-portal-paso-2',
-    titulo: '2. Abra el preoperacional y confirme el vehículo',
-    texto: 'Seleccione el formulario correspondiente y verifique la placa antes de responder. Lea completamente las instrucciones. Los botones Guardar y Enviar permanecen disponibles en la parte inferior.'
-  },
-  {
-    archivo: 'guia-03-diligenciamiento.jpeg',
-    cid: 'guia-portal-paso-3',
-    titulo: '3. Revise físicamente y marque cada estado',
-    texto: 'Use Bueno, Malo o No aplica según lo que realmente encuentre. Cuando marque Malo aparecerá una observación obligatoria: describa el hallazgo concreto y agregue la evidencia solicitada.'
-  },
-  {
-    archivo: 'guia-04-desprendibles.jpeg',
-    cid: 'guia-portal-paso-4',
-    titulo: '4. Consulte sus desprendibles y primas',
+    archivo: 'cotransmeq-guia-02-desprendibles.jpeg',
+    cid: 'cotransmeq-guia-paso-2',
+    titulo: '2. Consulte sus desprendibles y primas',
     texto: 'En Desprendibles puede consultar, firmar y descargar los comprobantes de nómina o liquidaciones de prima que estén disponibles para usted.'
   },
   {
-    archivo: 'guia-05-servicios.jpeg',
-    cid: 'guia-portal-paso-5',
-    titulo: '5. Consulte sus servicios',
+    archivo: 'cotransmeq-guia-03-servicios.jpeg',
+    cid: 'cotransmeq-guia-paso-3',
+    titulo: '3. Consulte sus servicios',
     texto: 'En Servicios encontrará los recorridos asignados, con fecha, vehículo, cliente y estado. Use la búsqueda cuando necesite localizar uno rápidamente.'
   },
   {
-    archivo: 'guia-06-dias-laborados.jpeg',
-    cid: 'guia-portal-paso-6',
-    titulo: '6. Registre sus días laborados',
-    texto: 'En Días puede registrar su actividad diaria. Toque el día correspondiente y seleccione con cuidado si fue laborado, disponible, descanso o mantenimiento.'
+    archivo: 'cotransmeq-guia-04-dias.jpeg',
+    cid: 'cotransmeq-guia-paso-4',
+    titulo: '4. Consulte el calendario de días laborados',
+    texto: 'En Días puede revisar el resumen mensual de jornadas laboradas, disponibilidad, descansos, mantenimientos y horas registradas.'
+  },
+  {
+    archivo: 'cotransmeq-guia-05-jornada.jpeg',
+    cid: 'cotransmeq-guia-paso-5',
+    titulo: '5. Registre el tipo de jornada',
+    texto: 'Toque el día correspondiente, seleccione Día laborado, Disponible, Descanso o Mantenimiento y confirme con Guardar registro.'
   }
 ] as const
 
@@ -100,17 +94,34 @@ export function resolverPeriodo(periodo?: string): PeriodoCampana {
   }
 }
 
+async function ultimaNomina(): Promise<PeriodoCampana> {
+  const ultima = await prisma.liquidaciones.findFirst({
+    where: { conductor_id: { not: null } },
+    orderBy: [{ periodo_end: 'desc' }, { periodo_start: 'desc' }, { created_at: 'desc' }],
+    select: { periodo_start: true, periodo_end: true }
+  })
+  if (!ultima) throw new Error('No hay liquidaciones registradas para construir la audiencia.')
+  return {
+    periodo: `${ultima.periodo_start}_${ultima.periodo_end}`,
+    inicio: ultima.periodo_start,
+    fin: ultima.periodo_end
+  }
+}
+
 /**
- * Conductores únicos con una liquidación cuyo periodo cruza el mes solicitado.
+ * Conductores únicos presentes en la nómina más reciente. Si se solicita un
+ * YYYY-MM explícito, conserva la consulta histórica por mes para auditoría.
  * Se excluyen eliminados, ocultos y registros sin un correo utilizable.
  */
-export async function listarAudiencia(periodo?: string): Promise<{ periodo: PeriodoCampana; destinatarios: AudienciaCampana[] }> {
-  const rango = resolverPeriodo(periodo)
+export async function listarAudiencia(periodo?: string): Promise<{ periodo: PeriodoCampana; origen: 'ULTIMA_NOMINA' | 'MES_EXPLICITO'; destinatarios: AudienciaCampana[] }> {
+  const rango = periodo ? resolverPeriodo(periodo) : await ultimaNomina()
+  const origen = periodo ? 'MES_EXPLICITO' : 'ULTIMA_NOMINA'
   const liquidaciones = await prisma.liquidaciones.findMany({
     where: {
       conductor_id: { not: null },
-      periodo_start: { lte: rango.fin },
-      periodo_end: { gte: rango.inicio },
+      ...(origen === 'ULTIMA_NOMINA'
+        ? { periodo_start: rango.inicio, periodo_end: rango.fin }
+        : { periodo_start: { lte: rango.fin }, periodo_end: { gte: rango.inicio } }),
       conductores: {
         is: { deleted_at: null, oculto: false, email: { not: null } }
       }
@@ -135,7 +146,7 @@ export async function listarAudiencia(periodo?: string): Promise<{ periodo: Peri
     }))
     .sort((a, b) => `${a.apellido} ${a.nombre}`.localeCompare(`${b.apellido} ${b.nombre}`, 'es'))
 
-  return { periodo: rango, destinatarios }
+  return { periodo: rango, origen, destinatarios }
 }
 
 export function renderizarGuia(params: { nombre: string; portalLink: string }): string {
@@ -154,7 +165,7 @@ export function renderizarGuia(params: { nombre: string; portalLink: string }): 
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef3f1"><tr><td align="center" style="padding:24px 10px">
   <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;background:#fff;border-radius:18px;overflow:hidden">
     <tr><td align="center" style="padding:26px 24px;background:#ea580c"><img src="${logoUrl}" alt="Cotransmeq" width="168" style="max-width:168px;height:auto"><h1 style="margin:18px 0 4px;color:#fff;font-size:24px">Guía del Portal del Conductor</h1><p style="margin:0;color:#ffedd5;font-size:14px">Formularios, nómina, servicios y días laborados</p></td></tr>
-    <tr><td style="padding:26px 24px 18px"><p style="margin:0 0 12px;font-size:17px">Señor(a) <strong>${nombre}</strong>:</p><p style="margin:0;color:#475569;font-size:15px;line-height:1.6">Cotransmeq pone a su disposición el Portal del Conductor para diligenciar formularios, consultar sus comprobantes y revisar información de la operación. Esta guía utiliza como ejemplo el preoperacional de vehículos y explica también los demás apartados del portal.</p></td></tr>
+    <tr><td style="padding:26px 24px 18px"><p style="margin:0 0 12px;font-size:17px">Señor(a) <strong>${nombre}</strong>:</p><p style="margin:0;color:#475569;font-size:15px;line-height:1.6">Cotransmeq pone a su disposición el Portal del Conductor para consultar formularios, comprobantes, servicios asignados y registrar su actividad diaria. Esta guía presenta cada apartado disponible en el portal.</p></td></tr>
     <tr><td style="padding:0 24px 24px">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px">
         <tr>
@@ -199,9 +210,9 @@ export async function enviarGuia(destinatario: AudienciaCampana, overrideTo?: st
   })
 }
 
-export async function enviarCampana(periodo: string, confirmacion: string) {
+export async function enviarCampana(periodo: string | undefined, confirmacion: string) {
   const audiencia = await listarAudiencia(periodo)
-  const esperada = `ENVIAR_GUIA_FORMULARIOS_${audiencia.periodo.periodo}`
+  const esperada = `ENVIAR_GUIA_FORMULARIOS_${audiencia.origen}_${audiencia.periodo.periodo}`
   if (confirmacion !== esperada) throw new Error(`Confirmación inválida. Se requiere ${esperada}.`)
 
   const resultados: Array<{ conductorId: string; email: string; ok: boolean; error?: string }> = []
