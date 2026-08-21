@@ -201,15 +201,28 @@ model registro_dia_laboral {
   cliente_nombre   String?     @db.VarChar(255)
   vehiculo_placa   String?     @db.VarChar(20)
   observaciones    String?     @db.Text
+  /// Vehículo que estuvo en mantenimiento ese día. Obligatorio (a nivel de
+  /// aplicación) cuando `tipo = MANTENIMIENTO`: sin placa el día no sirve para
+  /// auditar la disponibilidad de la flota ni para cruzar con la orden de
+  /// taller. Va en el padre y no en un segmento porque un día de
+  /// mantenimiento no es un recorrido: no tiene cliente, horario ni horas
+  /// conducidas, y los segmentos alimentan la liquidación.
+  /// Nullable en la BD por los registros históricos anteriores a esta regla.
+  mantenimiento_vehiculo_id    String?    @db.Uuid
+  /// Snapshot de la placa al momento del registro: si el vehículo se da de
+  /// baja o cambia de placa, el histórico debe seguir diciendo qué carro fue.
+  mantenimiento_vehiculo_placa String?    @db.VarChar(20)
   created_at       DateTime    @default(now()) @db.Timestamptz(6)
   updated_at       DateTime    @updatedAt @db.Timestamptz(6)
 
   conductor        conductores @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+  mantenimiento_vehiculo vehiculos? @relation("mantenimiento_vehiculo", fields: [mantenimiento_vehiculo_id], references: [id], onDelete: SetNull)
   segmentos        registro_dia_laboral_segmento[]
 
   @@unique([conductor_id, fecha])
   @@index([conductor_id])
   @@index([fecha])
+  @@index([mantenimiento_vehiculo_id])
 }
 
 /// Tramo/segmento de un día laborado (cambio de cliente/vehículo dentro del mismo día)
@@ -1108,6 +1121,7 @@ model vehiculos {
   recargos_planillas         recargos_planillas[]
   servicio                   servicio[]
   registro_dia_laboral_segmento registro_dia_laboral_segmento[]
+  registros_dia_mantenimiento   registro_dia_laboral[]        @relation("mantenimiento_vehiculo")
   conductores                conductores?           @relation(fields: [conductor_id], references: [id])
   usuarios                   usuarios?              @relation(fields: [propietario_id], references: [id])
   form_assignment_targets    form_assignment_target[] @relation("form_assignment_target_vehiculo")

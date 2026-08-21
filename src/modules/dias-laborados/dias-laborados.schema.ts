@@ -26,18 +26,62 @@ export const segmentoSchema = z.object({
 })
 export type SegmentoInput = z.infer<typeof segmentoSchema>
 
+// ─── Placa de un día de MANTENIMIENTO ──────────────
+// Un día de mantenimiento no es un recorrido (no tiene cliente, horario ni
+// horas), así que la placa no cabe en un segmento: va en el registro padre.
+// La placa se guarda como texto además del id porque es un snapshot — si el
+// vehículo se da de baja o cambia de placa, el histórico debe seguir diciendo
+// qué carro fue.
+export const mantenimientoVehiculoFields = {
+  mantenimiento_vehiculo_id: z.string().uuid().optional().nullable(),
+  mantenimiento_vehiculo_placa: z
+    .string()
+    .trim()
+    .min(1, 'Indica la placa del vehículo en mantenimiento')
+    .max(20)
+    .optional()
+    .nullable()
+}
+
+/**
+ * Exige placa cuando el día es de MANTENIMIENTO.
+ *
+ * Se expone como helper para que las tres rutas de escritura (portal, edición
+ * admin y carga masiva) apliquen exactamente la misma regla; si viviera
+ * duplicada en cada schema, una de las tres se quedaría atrás.
+ */
+export function exigirPlacaSiMantenimiento(
+  tipo: string | null | undefined,
+  placa: string | null | undefined,
+  ctx: z.RefinementCtx,
+  path: (string | number)[] = ['mantenimiento_vehiculo_placa']
+) {
+  if (tipo !== 'MANTENIMIENTO') return
+  if (placa && placa.trim() !== '') return
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path,
+    message: 'Un día de mantenimiento requiere la placa del vehículo'
+  })
+}
+
 // ─── Crear / actualizar registro de día ──────────────
 // Solo metadata global (tipo, fecha, observaciones).
 // Los detalles (cliente, vehículo, horarios, horas) van en `segmentos`.
-export const crearRegistroSchema = z.object({
-  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  tipo: z.enum(['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO']),
-  observaciones: z.string().optional().nullable(),
-  // Tramos: cada cambio de cliente/vehículo en el día.
-  // Para tipo LABORADO se persiste con createMany.
-  // Para otros tipos, no se requieren segmentos.
-  segmentos: z.array(segmentoSchema).optional().default([])
-})
+export const crearRegistroSchema = z
+  .object({
+    fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    tipo: z.enum(['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO']),
+    observaciones: z.string().optional().nullable(),
+    ...mantenimientoVehiculoFields,
+    // Tramos: cada cambio de cliente/vehículo en el día.
+    // Para tipo LABORADO se persiste con createMany.
+    // Para otros tipos, no se requieren segmentos.
+    segmentos: z.array(segmentoSchema).optional().default([])
+  })
+  .superRefine((v, ctx) =>
+    exigirPlacaSiMantenimiento(v.tipo, v.mantenimiento_vehiculo_placa, ctx)
+  )
 export type CrearRegistroInput = z.infer<typeof crearRegistroSchema>
 
 // ─── Query para listar registros ──────────────

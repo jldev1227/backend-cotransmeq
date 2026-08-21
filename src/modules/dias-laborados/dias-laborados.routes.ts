@@ -148,6 +148,11 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
                     observaciones: { type: 'string', nullable: true }
                   }
                 },
+                // Vehículo intervenido cuando el patrón es MANTENIMIENTO.
+                // Debe declararse aquí o ajv lo elimina del body antes de que
+                // zod pueda verlo (removeAdditional).
+                mantenimiento_vehiculo_id: { type: 'string', format: 'uuid', nullable: true },
+                mantenimiento_vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
                 observaciones: { type: 'string', nullable: true }
               }
             },
@@ -387,6 +392,10 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
             enum: ['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO']
           },
           observaciones: { type: 'string', maxLength: 500, nullable: true },
+          // Vehículo intervenido cuando el tipo final es MANTENIMIENTO.
+          // Declarado aquí porque ajv borra lo no declarado (removeAdditional).
+          mantenimiento_vehiculo_id: { type: 'string', format: 'uuid', nullable: true },
+          mantenimiento_vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
           segmento: {
             type: 'object',
             nullable: true,

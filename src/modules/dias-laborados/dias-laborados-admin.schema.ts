@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { exigirPlacaSiMantenimiento, mantenimientoVehiculoFields } from './dias-laborados.schema'
 
 // ═══════════════════════════════════════════════════════════════════
 //  REGISTRO MASIVO (ADMINISTRATIVO)
@@ -12,7 +13,7 @@ import { z } from 'zod'
 //    • LABORADO      → con vehículo, cliente, horario, km, etc.
 //    • DISPONIBLE    → solo horario de disponibilidad + pernocte
 //    • DESCANSO      → solo observaciones
-//    • MANTENIMIENTO → solo observaciones
+//    • MANTENIMIENTO → placa del vehículo + observaciones
 //
 //  El backend expande (patrón × fecha) → 1 `registro_dia_laboral`
 //  (+ 1 `registro_dia_laboral_segmento` solo para LABORADO/DISPONIBLE).
@@ -58,6 +59,10 @@ const patronSchema = z
 		// Segmento con vehículo/cliente/horario. Requerido para
 		// LABORADO y DISPONIBLE; ignorado para DESCANSO/MANTENIMIENTO.
 		segmento: patronSegmentoSchema.optional(),
+		// Placa del vehículo intervenido. Obligatoria si el patrón es
+		// MANTENIMIENTO; ignorada en los demás tipos. No va dentro de
+		// `segmento` porque un mantenimiento no genera tramo.
+		...mantenimientoVehiculoFields,
 		// Observaciones opcionales a nivel del día (mismas para todas
 		// las fechas de este patrón). El backend las copia en el
 		// registro_dia_laboral padre.
@@ -81,6 +86,10 @@ const patronSchema = z
 			return h2 * 60 + m2 > h1 * 60 + m1
 		},
 		{ message: 'hora_fin debe ser posterior a hora_inicio', path: ['segmento', 'hora_fin'] }
+	)
+	.superRefine((p, ctx) =>
+		// Misma regla que el portal: un día de mantenimiento sin placa no se guarda.
+		exigirPlacaSiMantenimiento(p.tipo, p.mantenimiento_vehiculo_placa, ctx)
 	)
 export type PatronInput = z.infer<typeof patronSchema>
 
@@ -186,10 +195,16 @@ export type EditarSegmentoInput = z.infer<typeof editarSegmentoSchema>
 //   - Si el `tipo` final es DESCANSO o MANTENIMIENTO, todos
 //     los segmentos activos del día se soft-eliminan (el
 //     frontend NO debe enviar `segmento` en este caso).
+//   - Si el `tipo` final es MANTENIMIENTO se exige placa. Aquí
+//     solo se puede validar cuando el `tipo` viene explícito en
+//     el body; si llega implícito (se edita solo la observación
+//     de un día ya marcado como mantenimiento) la regla la
+//     aplica el servicio, que sí conoce el registro guardado.
 export const editarRegistroSchema = z
 	.object({
 		tipo: z.enum(['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO']).optional(),
 		observaciones: z.string().max(500).optional().nullable(),
+		...mantenimientoVehiculoFields,
 		// Tramo único opcional. Se ignora si tipo final es
 		// DESCANSO o MANTENIMIENTO.
 		segmento: z
@@ -232,5 +247,8 @@ export const editarRegistroSchema = z
 			return fin > inicio
 		},
 		{ message: 'hora_fin debe ser posterior a hora_inicio', path: ['segmento', 'hora_fin'] }
+	)
+	.superRefine((v, ctx) =>
+		exigirPlacaSiMantenimiento(v.tipo, v.mantenimiento_vehiculo_placa, ctx)
 	)
 export type EditarRegistroInput = z.infer<typeof editarRegistroSchema>

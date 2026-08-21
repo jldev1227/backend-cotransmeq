@@ -6,6 +6,7 @@ import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
 import { DiasLaboradosService } from '../dias-laborados/dias-laborados.service'
+import { crearRegistroSchema } from '../dias-laborados/dias-laborados.schema'
 import { getIO } from '../../sockets'
 import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aws'
 import { emitirTokenPortal } from './portal-token.service'
@@ -1230,6 +1231,10 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             fecha: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             tipo: { type: 'string', enum: ['LABORADO', 'DISPONIBLE', 'DESCANSO', 'MANTENIMIENTO'] },
             observaciones: { type: 'string' },
+            // Vehículo intervenido cuando el día es MANTENIMIENTO. Debe estar
+            // declarado o ajv lo borra del body antes de llegar a zod.
+            mantenimiento_vehiculo_id: { type: 'string', format: 'uuid', nullable: true },
+            mantenimiento_vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
             segmentos: {
               type: 'array',
               items: {
@@ -1258,7 +1263,21 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
-        const data = request.body as any
+
+        // El JSON schema de fastify solo cuida tipos y formatos; las reglas de
+        // negocio (p. ej. que un día de mantenimiento traiga placa) viven en el
+        // mismo zod que usan las rutas admin, para que el portal no pueda
+        // guardar lo que el dashboard rechaza.
+        const parseado = crearRegistroSchema.safeParse(request.body)
+        if (!parseado.success) {
+          const primero = parseado.error.issues[0]
+          return reply.status(400).send({
+            success: false,
+            message: primero?.message || 'Datos inválidos',
+            errors: parseado.error.issues
+          })
+        }
+        const data = parseado.data
         const fechaDate = new Date(data.fecha + 'T00:00:00.000Z')
 
         // No permitir fechas futuras
@@ -1270,12 +1289,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // Delegar al servicio oficial (maneja correctamente la tabla pivote de segmentos
         // y aplica la transacción replaceAll)
-        const registro = await DiasLaboradosService.upsertRegistro(conductor.id, {
-          fecha: data.fecha,
-          tipo: data.tipo,
-          observaciones: data.observaciones || null,
-          segmentos: data.segmentos || []
-        })
+        const registro = await DiasLaboradosService.upsertRegistro(conductor.id, data)
 
         // Emitir evento en tiempo real para que el dashboard se actualice
         try {
@@ -1295,7 +1309,11 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         return reply.send({ success: true, message: 'Registro guardado exitosamente', data: registro })
       } catch (err: any) {
-        return reply.status(500).send({
+        // El servicio lanza { statusCode, message } para los rechazos de
+        // negocio (placa de mantenimiento faltante, vehículo inexistente).
+        // Devolverlos como 500 le mostraría al conductor «error del servidor»
+        // en lugar de decirle qué le falta.
+        return reply.status(err?.statusCode || 500).send({
           success: false,
           message: err.message || 'Error al guardar registro'
         })

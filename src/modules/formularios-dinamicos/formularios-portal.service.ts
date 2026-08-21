@@ -686,9 +686,13 @@ export async function iniciarAdjunto(actor: PortalActor, input: InitAttachmentIn
     uploadUrl,
     alreadyUploaded: false,
     objectKey: plan.objectKey,
-    /// El cliente debe enviar EXACTAMENTE este valor en `x-amz-checksum-sha256`.
-    /// Se devuelve derivado por el backend para que el navegador no tenga que
-    /// convertir hex a base64 y arriesgarse a mandar el base64 del texto.
+    /// Informativo: el cliente NO debe reenviarlo como cabecera.
+    ///
+    /// `getSignedUrl` iza `x-amz-checksum-sha256` al query string y lo firma
+    /// ahí; S3 lo aplica desde la URL. Mandarlo además como cabecera HTTP lo
+    /// convierte en una cabecera `x-amz-*` ausente de `X-Amz-SignedHeaders`, y
+    /// S3 rechaza la subida entera con `403 AccessDenied: There were headers
+    /// present in the request which were not signed`.
     checksumSha256: env.FORMS_S3_NATIVE_CHECKSUM ? plan.checksumBase64 : null,
   }
 }

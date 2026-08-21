@@ -122,12 +122,69 @@ export const DiasLaboradosService = {
   },
 
   // ─────────────────────────────────────────────
+  // MANTENIMIENTO: resolver el vehículo del día
+  //
+  // Devuelve el par (id, placa) que se persiste en el registro padre:
+  //   • Si el día NO es de mantenimiento → (null, null). Se limpia siempre,
+  //     porque un día que deja de ser mantenimiento no puede conservar la
+  //     placa pegada.
+  //   • Si es de mantenimiento → se exige placa (defensa en profundidad: zod
+  //     ya la exige, pero el servicio lo vuelve a verificar porque tiene tres
+  //     rutas de entrada).
+  //
+  // La placa se guarda como TEXTO además del id: es un snapshot. Si el
+  // vehículo se da de baja o le cambian la placa, el histórico debe seguir
+  // diciendo qué carro fue. Cuando llega un id se toma la placa del catálogo
+  // (fuente de verdad); cuando solo llega texto se intenta enlazar el id por
+  // placa, y si no existe en el catálogo se acepta el texto igual — hay
+  // vehículos de terceros que entran a taller sin estar registrados.
+  // ─────────────────────────────────────────────
+  async resolverVehiculoMantenimiento(
+    tipo: string,
+    vehiculoId?: string | null,
+    placa?: string | null
+  ): Promise<{ id: string | null; placa: string | null }> {
+    if (tipo !== 'MANTENIMIENTO') return { id: null, placa: null }
+
+    const placaNormalizada = (placa ?? '').trim().toUpperCase()
+
+    if (vehiculoId) {
+      const vehiculo = await prisma.vehiculos.findUnique({
+        where: { id: vehiculoId },
+        select: { id: true, placa: true }
+      })
+      if (!vehiculo) {
+        throw { statusCode: 400, message: 'El vehículo indicado para el mantenimiento no existe' }
+      }
+      return { id: vehiculo.id, placa: vehiculo.placa }
+    }
+
+    if (!placaNormalizada) {
+      throw {
+        statusCode: 400,
+        message: 'Un día de mantenimiento requiere la placa del vehículo'
+      }
+    }
+
+    const porPlaca = await prisma.vehiculos.findFirst({
+      where: { placa: { equals: placaNormalizada, mode: 'insensitive' } },
+      select: { id: true, placa: true }
+    })
+
+    return {
+      id: porPlaca?.id ?? null,
+      placa: porPlaca?.placa ?? placaNormalizada
+    }
+  },
+
+  // ─────────────────────────────────────────────
   // REGISTROS: Crear o actualizar un día
   //
   // La tabla padre `registro_dia_laboral` SOLO guarda:
   //   - tipo (LABORADO / DISPONIBLE / DESCANSO / MANTENIMIENTO)
   //   - fecha
   //   - observaciones
+  //   - el vehículo intervenido, cuando el tipo es MANTENIMIENTO
   //
   // Todo lo demás (cliente, vehículo, horarios, horas) vive en
   // `registro_dia_laboral_segmento` (la tabla pivote).
@@ -147,8 +204,17 @@ export const DiasLaboradosService = {
 
     const segmentos = data.segmentos ?? []
 
+    // El vehículo solo aplica al día de mantenimiento. Para cualquier otro tipo
+    // se limpia explícitamente: si el conductor corrige un día que había
+    // marcado como MANTENIMIENTO, la placa no puede quedarse pegada al registro.
+    const mantenimiento = await this.resolverVehiculoMantenimiento(
+      data.tipo,
+      data.mantenimiento_vehiculo_id,
+      data.mantenimiento_vehiculo_placa
+    )
+
     const registro = await prisma.$transaction(async (tx) => {
-      // 1) Upsert del padre (solo tipo + observaciones)
+      // 1) Upsert del padre (tipo + observaciones + vehículo de mantenimiento)
       const reg = await tx.registro_dia_laboral.upsert({
         where: {
           conductor_id_fecha: {
@@ -158,14 +224,18 @@ export const DiasLaboradosService = {
         },
         update: {
           tipo: data.tipo,
-          observaciones: data.observaciones || null
+          observaciones: data.observaciones || null,
+          mantenimiento_vehiculo_id: mantenimiento.id,
+          mantenimiento_vehiculo_placa: mantenimiento.placa
         },
         create: {
           id: randomUUID(),
           conductor_id: conductorId,
           fecha,
           tipo: data.tipo,
-          observaciones: data.observaciones || null
+          observaciones: data.observaciones || null,
+          mantenimiento_vehiculo_id: mantenimiento.id,
+          mantenimiento_vehiculo_placa: mantenimiento.placa
         }
       })
 
@@ -313,6 +383,10 @@ export const DiasLaboradosService = {
       fecha: r.fecha,
       tipo: r.tipo,
       observaciones: r.observaciones,
+      // El calendario admin muestra la placa en los días de mantenimiento;
+      // si no se proyecta aquí, el aside no tiene de dónde sacarla.
+      mantenimiento_vehiculo_id: r.mantenimiento_vehiculo_id,
+      mantenimiento_vehiculo_placa: r.mantenimiento_vehiculo_placa,
       created_at: r.created_at,
       updated_at: r.updated_at,
       segmentos_count: segMap.get(r.id)?.length || 0,
@@ -443,6 +517,25 @@ export const DiasLaboradosService = {
       (f) => new Date(f + 'T00:00:00.000Z')
     )
 
+    // Resolver el vehículo de los patrones de MANTENIMIENTO ANTES de abrir la
+    // transacción: son lecturas al catálogo y no tienen por qué alargar el
+    // bloqueo. Si alguno viene sin placa, esto revienta aquí y no se toca nada.
+    const mantenimientoPorPatron = new Map<
+      (typeof patrones)[number],
+      { id: string | null; placa: string | null }
+    >()
+    for (const p of patrones) {
+      const tipoPatron = p.tipo ?? 'LABORADO'
+      mantenimientoPorPatron.set(
+        p,
+        await this.resolverVehiculoMantenimiento(
+          tipoPatron,
+          p.mantenimiento_vehiculo_id,
+          p.mantenimiento_vehiculo_placa
+        )
+      )
+    }
+
     const resultado = await prisma.$transaction(async (tx) => {
       // 3.1) Borrar existentes (cascada borra segmentos + bonos)
       if (fechasDate.length > 0) {
@@ -466,6 +559,10 @@ export const DiasLaboradosService = {
           | 'LABORADO' | 'DISPONIBLE' | 'DESCANSO' | 'MANTENIMIENTO'
         const llevaSegmento = tipoPatron === 'LABORADO' || tipoPatron === 'DISPONIBLE'
 
+        // Se resuelve una vez por patrón, no por fecha: todas las fechas del
+        // patrón comparten el mismo vehículo intervenido.
+        const mantenimiento = mantenimientoPorPatron.get(p) ?? { id: null, placa: null }
+
         for (const fechaStr of p.fechas) {
           const fecha = new Date(fechaStr + 'T00:00:00.000Z')
           const registro = await tx.registro_dia_laboral.create({
@@ -476,7 +573,11 @@ export const DiasLaboradosService = {
               conductor: { connect: { id: conductor_id } },
               fecha,
               tipo: tipoPatron,
-              observaciones: p.observaciones || null
+              observaciones: p.observaciones || null,
+              ...(mantenimiento.id
+                ? { mantenimiento_vehiculo: { connect: { id: mantenimiento.id } } }
+                : {}),
+              mantenimiento_vehiculo_placa: mantenimiento.placa
             }
           })
 
@@ -741,13 +842,30 @@ export const DiasLaboradosService = {
     const tipoFinal = input.tipo ?? existing.tipo
     const requiereSegmento = tipoFinal === 'LABORADO' || tipoFinal === 'DISPONIBLE'
 
+    // Placa del mantenimiento. El body es un PATCH: si no mandan placa pero el
+    // día ya era de mantenimiento, vale la que estaba guardada — así se puede
+    // editar solo la observación sin reenviar la placa. Lo que no se permite es
+    // terminar en MANTENIMIENTO sin placa por ningún camino, ni siquiera
+    // cambiando el tipo sin tocar el resto.
+    const mantenimiento = await this.resolverVehiculoMantenimiento(
+      tipoFinal,
+      input.mantenimiento_vehiculo_id !== undefined
+        ? input.mantenimiento_vehiculo_id
+        : existing.mantenimiento_vehiculo_id,
+      input.mantenimiento_vehiculo_placa !== undefined
+        ? input.mantenimiento_vehiculo_placa
+        : existing.mantenimiento_vehiculo_placa
+    )
+
     const updated = await prisma.$transaction(async (tx) => {
       // 1) Actualizar metadata del registro
       const regActualizado = await tx.registro_dia_laboral.update({
         where: { id: registroId },
         data: {
           tipo: input.tipo !== undefined ? input.tipo : undefined,
-          observaciones: input.observaciones !== undefined ? input.observaciones : undefined
+          observaciones: input.observaciones !== undefined ? input.observaciones : undefined,
+          mantenimiento_vehiculo_id: mantenimiento.id,
+          mantenimiento_vehiculo_placa: mantenimiento.placa
         }
       })
 
