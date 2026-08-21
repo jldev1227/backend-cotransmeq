@@ -171,8 +171,8 @@ export function renderizarGuia(params: { nombre: string; portalLink: string }): 
         <tr>
           <td width="42" valign="top" style="padding:16px 0 16px 16px;color:#a16207;font-size:20px;line-height:1">ℹ</td>
           <td style="padding:14px 16px 14px 8px">
-            <p style="margin:0 0 5px;color:#854d0e;font-size:14px;font-weight:700;line-height:1.4">Cambio de aplicación desde el día 21</p>
-            <p style="margin:0;color:#713f12;font-size:13px;line-height:1.55">A partir del día 21, la aplicación que se venía utilizando, <strong>Koco Collect</strong>, quedará inhabilitada. Desde esa fecha deberá utilizar esta alternativa propia de Cotransmeq para diligenciar sus formularios y consultar la información disponible en el Portal del Conductor.</p>
+            <p style="margin:0 0 5px;color:#854d0e;font-size:14px;font-weight:700;line-height:1.4">Cambio de aplicación desde hoy, 21 de agosto</p>
+            <p style="margin:0;color:#713f12;font-size:13px;line-height:1.55">A partir de hoy, 21 de agosto, la aplicación que se venía utilizando, <strong>Kobo Collect</strong>, quedará inhabilitada. Desde hoy deberá utilizar esta alternativa propia de Cotransmeq para diligenciar sus formularios y consultar la información disponible en el Portal del Conductor.</p>
           </td>
         </tr>
       </table>

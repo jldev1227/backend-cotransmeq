@@ -3,6 +3,41 @@ import { Readable } from 'stream'
 import * as path from 'path'
 import * as fs from 'fs'
 
+/** Caja donde se encaja el logotipo del encabezado (pt). */
+const LOGO_BOX_W = 90
+const LOGO_BOX_H = 48
+
+/**
+ * Resuelve la ruta al logotipo de Cotransmeq, o null si no hay ninguno.
+ *
+ * pdfkit solo sabe leer PNG y JPEG: el `.webp` que se usa en el frontend no
+ * sirve aquí, y por eso el encabezado salía sin logo (caía siempre al texto).
+ * `cotransmeq-logo.png` es la conversión de `logo_cotransmeq-264.webp`.
+ *
+ * Se prueban varias rutas porque el script de build (`cp -r src/assets
+ * dist/assets`) deja los assets en `dist/assets/` la primera vez y en
+ * `dist/assets/assets/` en builds posteriores. Nunca se cae a `logo.png`: en
+ * este repo ese archivo sigue siendo el logotipo de Transmeralda, y un registro
+ * de asistencia con la marca equivocada es peor que uno sin logotipo.
+ */
+let _logoPath: string | null | undefined
+function resolverLogoCotransmeq(): string | null {
+  if (_logoPath !== undefined) return _logoPath
+  const candidatos = [
+    '../../assets/cotransmeq-logo.png',
+    '../../assets/assets/cotransmeq-logo.png'
+  ]
+  for (const rel of candidatos) {
+    const p = path.join(__dirname, rel)
+    if (fs.existsSync(p)) {
+      _logoPath = p
+      return _logoPath
+    }
+  }
+  _logoPath = null
+  return _logoPath
+}
+
 interface FormularioData {
   tematica: string
   objetivo?: string
@@ -51,21 +86,19 @@ export class PDFGeneratorService {
 
         // Header con Logo
         try {
-          // In production (dist folder), assets are at dist/assets
-          // In development (src folder), assets are at src/assets
-          const isDist = __dirname.includes('/dist/')
-          const logoPath = isDist 
-            ? path.join(__dirname, '../../assets/transmeralda-logo.webp')
-            : path.join(__dirname, '../../assets/transmeralda-logo.webp')
-          
-          if (fs.existsSync(logoPath)) {
-            // Logo en la esquina superior izquierda (reducido 14%)
-            doc.image(logoPath, 40, 30, { 
-              width: 155,
-              height: 43
+          const logoPath = resolverLogoCotransmeq()
+
+          if (logoPath) {
+            // Logo en la esquina superior izquierda. Se usa `fit` en vez de
+            // width/height fijos para respetar la relación de aspecto del
+            // logotipo (177x113); forzar 155x43 lo deformaba.
+            doc.image(logoPath, 40, 30, {
+              fit: [LOGO_BOX_W, LOGO_BOX_H],
+              align: 'left',
+              valign: 'center'
             })
           } else {
-            console.error('Logo not found at:', logoPath)
+            console.error('[PDFAsistencia] Logo de Cotransmeq no encontrado')
             // Fallback to text
             doc
               .fontSize(20)
