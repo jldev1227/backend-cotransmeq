@@ -117,7 +117,10 @@ export const EmailService = {
    * Envía un email genérico (helper expuesto para uso desde otros módulos)
    */
   async sendEmail(params: { from?: string; to: string[]; subject: string; html: string; bcc?: string[]; attachments?: EmailAttachment[] }) {
-    return sendEmail({ from: params.from ?? env.SMTP_FROM ?? 'noreply@cotransmeq.com', ...params })
+    const defaultFrom = env.RESEND_API_KEY
+      ? env.RESEND_FROM ?? 'Cotransmeq <noreply@cotransmeq.com>'
+      : env.SMTP_FROM ?? 'Cotransmeq <noreply@cotransmeq.com>'
+    return sendEmail({ from: params.from ?? defaultFrom, ...params })
   },
 
   async sendMagicLink({ to, conductorNombre, conductorApellido, token }: SendMagicLinkParams) {
