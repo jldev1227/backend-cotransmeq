@@ -148,6 +148,26 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
     return payload
   })
 
+  // ── Sonda de conectividad ────────────────────────────────────────────────
+
+  /**
+   * Responde lo mínimo para demostrar que se llegó al servidor.
+   *
+   * La outbox del portal necesita distinguir «no hay red» de «la interfaz dice
+   * que sí pero no llega nada» —portal cautivo de hotel, datos agotados—, así
+   * que sondea antes de cada ronda de sincronización. Preguntaba por `base`, que
+   * arma la lista completa de asignaciones con sus borradores: una consulta cara
+   * y repetida para responder un sí/no que no necesita ningún dato.
+   *
+   * Aquí no se toca la base de datos. Llegar al handler ya prueba las dos cosas
+   * que importan: hay ruta hasta el servidor y el token del portal es válido,
+   * porque `portalAuthMiddleware` corre antes.
+   *
+   * Va declarada antes que `/:assignmentId` por legibilidad; el router de
+   * Fastify prioriza el segmento estático igualmente.
+   */
+  app.get(`${base}/ping`, async (_request, reply) => reply.send({ success: true }))
+
   // ── Listado y definición ─────────────────────────────────────────────────
 
   app.get(base, async (request, reply) => {
