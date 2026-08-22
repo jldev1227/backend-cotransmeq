@@ -18,16 +18,25 @@ recibe y persiste, y la bandeja del Oficial de Cumplimiento en el dashboard.
 | `GC-FR-05` | `accionistas` | sarlaft | 10 · 39 | 4 |
 | `GC-FR-06` | `personal` | sarlaft | 6 · 25 | 2 de 4 ofrecidos |
 | `SLFT-PTEE-FR-12` | `autorizacion_propietario` | individual | 12 · 72 | 6 de 11 ofrecidos |
+| `GC-FOR-13` | `declaracion_empresa_transporte` | individual | 7 · 13 | 1 condicional de 2 ofrecidos |
 
-Los de categoría `sarlaft` aparecen en el selector público. `SLFT-PTEE-FR-12`
-es un **formato individual**: no se lista, vive en su propia ruta y se pide por
-código. Es además el único con **dos firmas** (propietario del vehículo y
-tercero autorizado).
+Los de categoría `sarlaft` aparecen en el selector público. `SLFT-PTEE-FR-12` y
+`GC-FOR-13` son **formatos individuales**: no se listan, viven en su propia ruta
+y se piden por código. `SLFT-PTEE-FR-12` es además el único con **dos firmas**
+(propietario del vehículo y tercero autorizado).
+
+`GC-FOR-13` se documenta aparte en
+[`README_DECLARACION_EMPRESA_TRANSPORTE.md`](./README_DECLARACION_EMPRESA_TRANSPORTE.md)
+porque es el único que **no usa el generador HTML genérico**: se dibuja sobre el
+PDF controlado de la marca, se archiva el binario exacto que se entrega y se
+versiona cada emisión. También es el único cuyos anexos dependen de una
+respuesta condicional y no del tipo de cliente.
 
 ### Series de radicado
 
 - `SARLAFT-<año>-CLI-#####` · `-ACC-#####` · `-PER-#####`
 - `AUTPROP-<año>-#####` (serie propia de SLFT-PTEE-FR-12)
+- `DECL-TRA-<año>-#####` (serie propia de GC-FOR-13)
 
 El correlativo se calcula por conteo anual; ante colisión con el índice único
 de `radicado` el servicio reintenta hasta 5 veces con el correlativo desplazado.
@@ -42,7 +51,8 @@ de `radicado` el servicio reintenta hasta 5 veces con el correlativo desplazado.
 |---|---|---|
 | GET | `/api/public/formularios-sarlaft` | Catálogo (solo categoría `sarlaft`) |
 | GET | `/api/public/formularios-sarlaft/:codigo` | Estructura completa del formato |
-| GET | `/api/public/formularios-sarlaft/:codigo/documentos` | Anexos requeridos (acepta `?tipo_cliente=`) |
+| GET | `/api/public/formularios-sarlaft/:codigo/documentos` | Anexos requeridos (acepta `?tipo_cliente=` y, para GC-FOR-13, `?alertas=`) |
+| GET | `/api/public/formularios-sarlaft/documentos/descargar?token=` | Descarga temporal del documento generado (GC-FOR-13) |
 | GET | `/api/public/formularios-sarlaft/contacto?tipo=` | Canal de atención por tipo |
 | POST | `/api/public/formularios-sarlaft` | Envío `multipart/form-data` |
 

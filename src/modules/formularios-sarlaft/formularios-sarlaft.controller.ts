@@ -3,6 +3,7 @@ import { FormulariosSarlaftService } from './formularios-sarlaft.service'
 import { submitFormularioSarlaftSchema, type ArchivoUpload } from './formularios-sarlaft.schema'
 import { listarFormularios, getFormularioPorCodigo, getDocumentosRequeridos } from './formularios-sarlaft.constants'
 import { CONFIG_POR_TIPO, type TipoFormularioSarlaft } from './sarlaft-config'
+import { DeclaracionTransporteDocumentosService } from './declaracion-transporte-documentos.service'
 
 /** Razón social que se muestra al público en los formularios y notificaciones.
  *  Se deja configurable para no tener que tocar código si cambia el nombre
@@ -14,7 +15,8 @@ const TIPOS_FORMULARIO: TipoFormularioSarlaft[] = [
   'cliente_proveedor',
   'accionistas',
   'personal',
-  'autorizacion_propietario'
+  'autorizacion_propietario',
+  'declaracion_empresa_transporte'
 ]
 
 export const FormulariosSarlaftController = {
@@ -81,7 +83,7 @@ export const FormulariosSarlaftController = {
    */
   async obtenerDocumentosRequeridos(request: FastifyRequest, reply: FastifyReply) {
     const { codigo } = request.params as { codigo: string }
-    const query = request.query as { tipo_cliente?: string }
+    const query = request.query as { tipo_cliente?: string; alertas?: string }
     const formulario = getFormularioPorCodigo(codigo)
     if (!formulario) {
       return reply.status(404).send({ success: false, error: 'Formulario no encontrado' })
@@ -89,7 +91,14 @@ export const FormulariosSarlaftController = {
     const tipoCliente = query.tipo_cliente === 'Persona Natural' || query.tipo_cliente === 'Persona Jurídica'
       ? query.tipo_cliente
       : null
-    const docs = getDocumentosRequeridos(formulario.tipo, tipoCliente)
+    // La declaración de empresa de transporte decide sus anexos a partir de una
+    // respuesta condicional, así que el front manda el estado de alertas para
+    // que la lista llegue ya resuelta. El resto de formatos lo ignora.
+    const respuestasParciales: Record<string, unknown> = {}
+    if (typeof query.alertas === 'string' && query.alertas.trim()) {
+      respuestasParciales['DET-CNF-02'] = query.alertas.trim()
+    }
+    const docs = getDocumentosRequeridos(formulario.tipo, tipoCliente, respuestasParciales)
     return reply.send({
       success: true,
       documentos: docs,
@@ -264,6 +273,89 @@ export const FormulariosSarlaftController = {
       return reply.send(data.buffer)
     } catch (err: any) {
       request.log.error({ err }, 'Error al generar ZIP de evidencia SARLAFT')
+      return reply.status(500).send({ success: false, error: err.message })
+    }
+  },
+
+  /**
+   * GET /api/public/formularios-sarlaft/documentos/descargar?token=...
+   *
+   * Descarga de un solo documento mediante un token aleatorio de un único
+   * propósito. El radicado por sí solo NO es credencial: viaja por correo y
+   * está impreso en el propio PDF.
+   *
+   * Todos los motivos de rechazo (token inexistente, vencido, revocado o ya
+   * consumido) devuelven la misma respuesta 404, para no convertir el endpoint
+   * en un oráculo que confirme qué tokens existieron.
+   */
+  async descargarDocumentoPublico(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { token } = request.query as { token?: string }
+      if (!token) {
+        return reply.status(400).send({ success: false, error: 'Falta el token de descarga.' })
+      }
+
+      const canje = await DeclaracionTransporteDocumentosService.canjearTokenDescarga(token)
+      if (!canje?.documento) {
+        return reply.status(404).send({
+          success: false,
+          error: 'El enlace de descarga no es válido o ya venció.'
+        })
+      }
+
+      const buffer = await DeclaracionTransporteDocumentosService.leerBinario(
+        canje.documento.s3_key
+      )
+      if (!buffer) {
+        return reply.status(404).send({ success: false, error: 'Documento no disponible.' })
+      }
+
+      const nombre =
+        `${canje.documento.codigo_template}_v${canje.documento.version_documento}.pdf`.replace(
+          /[^\w.-]/g,
+          '_'
+        )
+      reply.header('Content-Type', canje.documento.mime_type || 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${nombre}"`)
+      reply.header('Content-Length', buffer.length.toString())
+      // El documento lleva datos personales: no debe quedar en caché de
+      // proxies ni del navegador después de consumido el enlace.
+      reply.header('Cache-Control', 'no-store, private')
+      reply.header('X-Content-Type-Options', 'nosniff')
+      return reply.send(buffer)
+    } catch (err: any) {
+      // Nunca se registra el token.
+      request.log.error({ err: err?.message }, 'Error en descarga pública de documento SARLAFT')
+      return reply.status(500).send({ success: false, error: 'No se pudo procesar la descarga.' })
+    }
+  },
+
+  /**
+   * GET /api/formularios-sarlaft/:id/documentos-generados/:docId/pdf
+   * Descarga una versión documental concreta. Auth requerida.
+   */
+  async descargarVersionDocumental(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { docId } = request.params as { docId: string }
+      const fila = await DeclaracionTransporteDocumentosService.obtenerVersion(docId)
+      if (!fila) return reply.status(404).send({ success: false, error: 'Versión no encontrada' })
+
+      const buffer = await DeclaracionTransporteDocumentosService.leerBinario(fila.s3_key)
+      if (!buffer) {
+        return reply.status(404).send({ success: false, error: 'Documento no disponible.' })
+      }
+
+      const nombre =
+        `${fila.codigo_template}_v${fila.version_documento}_${fila.estado_documental}.pdf`.replace(
+          /[^\w.-]/g,
+          '_'
+        )
+      reply.header('Content-Type', fila.mime_type || 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${nombre}"`)
+      reply.header('Content-Length', buffer.length.toString())
+      return reply.send(buffer)
+    } catch (err: any) {
+      request.log.error({ err }, 'Error al descargar versión documental SARLAFT')
       return reply.status(500).send({ success: false, error: err.message })
     }
   },

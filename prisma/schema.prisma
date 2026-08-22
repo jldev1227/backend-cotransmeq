@@ -1036,6 +1036,7 @@ model usuarios {
   sesiones                                                                    sesiones[]
   notificaciones                                                             notificacion[]
   formularios_sarlaft_evaluados                                               formulario_sarlaft_ptee[]          @relation("formularios_sarlaft_evaluador")
+  sarlaft_documentos_generados                                                formulario_sarlaft_ptee_documento_generado[]     @relation("sarlaft_documentos_generados_por")
   form_definitions_creadas                                                    form_definition[]                  @relation("form_definition_created_by")
   form_definitions_actualizadas                                               form_definition[]                  @relation("form_definition_updated_by")
   form_versions_creadas                                                       form_version[]                     @relation("form_version_created_by")
@@ -1792,7 +1793,8 @@ model formulario_sarlaft_ptee {
   created_at   DateTime                            @default(now()) @db.Timestamptz(6)
   updated_at   DateTime                            @updatedAt @db.Timestamptz(6)
   evaluado_por usuarios?                           @relation("formularios_sarlaft_evaluador", fields: [evaluado_por_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  documentos   formulario_sarlaft_ptee_documento[] @relation("formulario_sarlaft_documentos")
+  documentos            formulario_sarlaft_ptee_documento[]         @relation("formulario_sarlaft_documentos")
+  documentos_generados  formulario_sarlaft_ptee_documento_generado[] @relation("formulario_sarlaft_documentos_generados")
 
   @@index([tipo_formulario])
   @@index([numero_documento])
@@ -1818,6 +1820,97 @@ model formulario_sarlaft_ptee_documento {
   @@unique([formulario_id, tipo_documento])
   @@index([formulario_id])
   @@map("formulario_sarlaft_ptee_documento")
+}
+
+/// Versiones inmutables del PDF generado sobre el formato controlado de la marca.
+///
+/// Se persiste el binario EXACTO que se entregó, no una receta para regenerarlo:
+/// regenerar desde el JSON produciría otro archivo (otra fecha, otro hash) y no
+/// serviría como evidencia de qué firmó el declarante.
+///
+/// La versión 1 (`recibida`) nunca se actualiza. Cada decisión final del Oficial
+/// de Cumplimiento inserta una fila nueva (`evaluada`) con su propio hash.
+model formulario_sarlaft_ptee_documento_generado {
+  id            String @id @default(uuid()) @db.Uuid
+  formulario_id String @db.Uuid
+
+  /// Marca dueña del documento. Redundante con el despliegue, pero deja la
+  /// evidencia autodescriptiva si alguna vez se consolidan las dos bases.
+  marca String @db.VarChar(30)
+  /// Familia de documento generado. Hoy solo `declaracion_empresa_transporte`.
+  clase String @db.VarChar(50)
+
+  /// Secuencial por (formulario, clase). Empieza en 1.
+  version_documento Int
+  /// `recibida` (sin resultado marcado) o `evaluada` (con la decisión final).
+  estado_documental String @db.VarChar(20)
+
+  /// Identidad del formato controlado usado como base.
+  codigo_template  String @db.VarChar(30)
+  version_template String @db.VarChar(20)
+  template_sha256  String @db.VarChar(64)
+
+  s3_key       String @db.VarChar(500)
+  mime_type    String @default("application/pdf") @db.VarChar(100)
+  tamano_bytes BigInt
+  pdf_sha256   String @db.VarChar(64)
+
+  /// Usuario que emitió la versión evaluada. Null en la versión recibida,
+  /// que la produce el propio envío público.
+  generado_por_id String? @db.Uuid
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  formulario   formulario_sarlaft_ptee                     @relation("formulario_sarlaft_documentos_generados", fields: [formulario_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  generado_por usuarios?                                   @relation("sarlaft_documentos_generados_por", fields: [generado_por_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  entregas     formulario_sarlaft_ptee_documento_entrega[] @relation("formulario_sarlaft_documento_entregas")
+
+  @@unique([formulario_id, clase, version_documento])
+  @@index([formulario_id])
+  @@index([created_at(sort: Desc)])
+  @@index([pdf_sha256])
+  @@map("formulario_sarlaft_ptee_documento_generado")
+}
+
+/// Intentos de entrega de una versión documental: correo al declarante,
+/// notificación interna y descargas por enlace temporal.
+///
+/// El token del enlace público NUNCA se guarda en claro: solo su SHA-256, de
+/// modo que un volcado de esta tabla no permita descargar los documentos.
+model formulario_sarlaft_ptee_documento_entrega {
+  id                    String @id @default(uuid()) @db.Uuid
+  documento_generado_id String @db.Uuid
+
+  /// `email_declarante` | `email_interno` | `descarga`
+  canal String @db.VarChar(20)
+  /// Destinatario del correo. Null en el canal `descarga`.
+  destinatario String? @db.VarChar(255)
+  /// `pendiente` | `enviado` | `fallido` | `descargado` | `revocado`
+  estado String @default("pendiente") @db.VarChar(20)
+
+  proveedor           String? @db.VarChar(30)
+  provider_message_id String? @db.VarChar(255)
+  intento             Int     @default(1)
+  error_codigo        String? @db.VarChar(80)
+
+  /// SHA-256 hex del token de descarga. Nunca el token.
+  token_hash   String?   @db.VarChar(64)
+  expires_at   DateTime? @db.Timestamptz(6)
+  completed_at DateTime? @db.Timestamptz(6)
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  documento_generado formulario_sarlaft_ptee_documento_generado @relation("formulario_sarlaft_documento_entregas", fields: [documento_generado_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Hace idempotente el reintento: un mismo documento, canal y destinatario
+  /// no puede duplicar el intento N.
+  @@unique([documento_generado_id, canal, destinatario, intento])
+  @@unique([token_hash])
+  @@index([documento_generado_id])
+  @@index([estado])
+  @@index([expires_at])
+  @@map("formulario_sarlaft_ptee_documento_entrega")
 }
 
 // ============================================================================

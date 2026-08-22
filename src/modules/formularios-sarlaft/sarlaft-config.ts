@@ -19,6 +19,7 @@ export type TipoFormularioSarlaft =
   | 'accionistas'
   | 'personal'
   | 'autorizacion_propietario'
+  | 'declaracion_empresa_transporte'
 
 export interface ContactoConfig {
   /** Lista de correos a los que se envía la notificación del formulario. */
@@ -127,6 +128,17 @@ export const CONFIG_POR_TIPO: Record<TipoFormularioSarlaft, ContactoConfig> = {
   // el Oficial de Cumplimiento antes de cualquier desembolso.
   autorizacion_propietario: {
     emails: emailsDeEnv('SARLAFT_EMAILS_AUTORIZACION_PROPIETARIO', DESTINATARIOS),
+    area_responsable: 'Cumplimiento',
+    telefono_principal: TELEFONO_PRINCIPAL,
+    telefono_wa: TELEFONO_WA,
+    correo_publico: CORREO_REPORTES
+  },
+  // Declaración de empresa de transporte (GC-FOR-13) — la declara un proveedor
+  // de transporte tercerizado, así que la reciben los mismos dos buzones
+  // autorizados. El override por entorno sigue filtrado por CANALES_AUTORIZADOS:
+  // el correo de QA NO se agrega a esa lista blanca.
+  declaracion_empresa_transporte: {
+    emails: emailsDeEnv('SARLAFT_EMAILS_DECLARACION_TRANSPORTE', DESTINATARIOS),
     area_responsable: 'Cumplimiento',
     telefono_principal: TELEFONO_PRINCIPAL,
     telefono_wa: TELEFONO_WA,

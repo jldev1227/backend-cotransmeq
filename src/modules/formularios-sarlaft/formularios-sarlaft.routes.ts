@@ -56,7 +56,10 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
         params: {
           type: 'object',
           properties: {
-            codigo: { type: 'string', enum: ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12'] }
+            codigo: {
+              type: 'string',
+              enum: ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12', 'GC-FOR-13']
+            }
           },
           required: ['codigo']
         },
@@ -91,7 +94,13 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
         querystring: {
           type: 'object',
           properties: {
-            tipo_cliente: { type: 'string', enum: ['Persona Natural', 'Persona Jurídica'] }
+            tipo_cliente: { type: 'string', enum: ['Persona Natural', 'Persona Jurídica'] },
+            // Estado de alertas de la declaración de empresa de transporte: de
+            // él depende si el anexo de alertas es obligatorio.
+            alertas: {
+              type: 'string',
+              enum: ['No existen alertas pendientes', 'Existen alertas informadas en documento anexo']
+            }
           }
         }
       }
@@ -111,7 +120,13 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
           properties: {
             tipo: {
               type: 'string',
-              enum: ['cliente_proveedor', 'accionistas', 'personal', 'autorizacion_propietario']
+              enum: [
+                'cliente_proveedor',
+                'accionistas',
+                'personal',
+                'autorizacion_propietario',
+                'declaracion_empresa_transporte'
+              ]
             }
           },
           required: ['tipo']
@@ -119,6 +134,26 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
       }
     },
     FormulariosSarlaftController.obtenerContactoPublico
+  )
+
+  // Descarga pública de un documento generado, mediante token temporal.
+  // Sin auth por diseño: la credencial es el token, que se entrega una sola vez
+  // al declarante y del que en base de datos solo vive su hash.
+  app.get(
+    '/public/formularios-sarlaft/documentos/descargar',
+    {
+      schema: {
+        description:
+          'Descarga temporal del documento generado. Requiere el token de un solo propósito entregado al declarante.',
+        tags: ['formularios-sarlaft-publicos'],
+        querystring: {
+          type: 'object',
+          properties: { token: { type: 'string', minLength: 20, maxLength: 128 } },
+          required: ['token']
+        }
+      }
+    },
+    FormulariosSarlaftController.descargarDocumentoPublico as any
   )
 
   // Recepción del envío (submit) — multipart con archivos.
@@ -174,7 +209,13 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
             search: { type: 'string' },
             tipo_formulario: {
               type: 'string',
-              enum: ['cliente_proveedor', 'accionistas', 'personal', 'autorizacion_propietario']
+              enum: [
+                'cliente_proveedor',
+                'accionistas',
+                'personal',
+                'autorizacion_propietario',
+                'declaracion_empresa_transporte'
+              ]
             },
             estado: { type: 'string' },
             fecha_desde: { type: 'string', format: 'date' },
@@ -241,7 +282,13 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
         body: {
           type: 'object',
           properties: {
-            estado: { type: 'string', enum: ['en_revision', 'aprobado', 'rechazado', 'escalado'] },
+            // `condicionado` es una decisión final distinta de `escalado`:
+            // cierra la evaluación (y emite versión documental), mientras que
+            // `escalado` deja el caso pendiente de decisión.
+            estado: {
+              type: 'string',
+              enum: ['en_revision', 'aprobado', 'condicionado', 'rechazado', 'escalado']
+            },
             concepto: { type: 'string', nullable: true },
             observaciones: { type: 'string', nullable: true }
           }
@@ -267,6 +314,28 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
       }
     },
     FormulariosSarlaftController.descargarPDF as any
+  )
+
+  // Descargar una versión documental concreta (recibida o evaluada)
+  app.get(
+    '/formularios-sarlaft/:id/documentos-generados/:docId/pdf',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        description:
+          'Descarga el binario archivado de una versión documental. Nunca se regenera: se sirve el mismo PDF que se entregó.',
+        tags: ['formularios-sarlaft-admin'],
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            docId: { type: 'string', format: 'uuid' }
+          },
+          required: ['id', 'docId']
+        }
+      }
+    },
+    FormulariosSarlaftController.descargarVersionDocumental as any
   )
 
   // Descargar ZIP de evidencia completa (PDF + adjuntos)

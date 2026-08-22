@@ -25,7 +25,34 @@ import {
 import { getConfigPorTipo, type TipoFormularioSarlaft } from "./sarlaft-config";
 import { PDFGeneratorSarlaftService } from "./pdf-generator-sarlaft-html.service";
 import { SarlaftEvidenciaService } from "./evidencia-sarlaft.service";
+import { DeclaracionTransportePdfService } from "./declaracion-transporte-pdf.service";
+import { DeclaracionTransporteEmailService } from "./declaracion-transporte-email.service";
+import {
+  DeclaracionTransporteDocumentosService,
+  type DocumentoGeneradoDTO,
+} from "./declaracion-transporte-documentos.service";
+import {
+  CAMPOS as CAMPOS_DECL,
+  esDecisionFinal,
+  extraerDatosClaveDeclaracion,
+  limpiarRespuestas,
+  normalizarCorreo,
+  validarDeclaracionTransporte,
+} from "./declaracion-transporte.validacion";
+import {
+  avisoSandboxHtml,
+  copiaDeclaranteHabilitada,
+  resolverDestino,
+  ttlDescargaPublica,
+} from "./sarlaft-email-mode";
 import crypto from "crypto";
+
+/** Tipo lógico del formato que se dibuja sobre el PDF controlado de la marca.
+ *  Es el único que NO usa el generador HTML genérico. */
+const TIPO_DECLARACION = "declaracion_empresa_transporte";
+
+const MENSAJE_RECIBIDO =
+  "Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de COTRANSMEQ S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.";
 
 /** Una firma manuscrita capturada en el formulario. */
 export interface FirmaCapturada {
@@ -55,6 +82,7 @@ const FIRMANTES: Record<string, { label: string; nombreId: string }> = {
   "PER-ENC-04": { label: "QUIEN AUTORIZA", nombreId: "PER-ENC-03" },
   "AUT-FIR-07": { label: "PROPIETARIO DEL VEHÍCULO", nombreId: "AUT-FIR-03" },
   "AUT-FIR-12": { label: "TERCERO AUTORIZADO", nombreId: "AUT-FIR-08" },
+  "DET-FIR-01": { label: "REPRESENTANTE LEGAL", nombreId: "DET-REP-01" },
 };
 
 /**
@@ -93,7 +121,11 @@ const RADICADO_PREFIJO: Record<string, { serie: string; tipo: string }> = {
   accionistas: { serie: "SARLAFT", tipo: "ACC" },
   personal: { serie: "SARLAFT", tipo: "PER" },
   autorizacion_propietario: { serie: "AUTPROP", tipo: "PRO" },
+  declaracion_empresa_transporte: { serie: "DECL-TRA", tipo: "DEC" },
 };
+
+/** Series cuyo radicado es `SERIE-AAAA-#####`, sin el segmento de tipo. */
+const SERIES_SIN_TIPO = new Set(["AUTPROP", "DECL-TRA"]);
 
 /**
  * Construye el radicado del envío. El correlativo se calcula por conteo, así
@@ -121,7 +153,7 @@ async function generarRadicado(
   });
 
   const correlativo = String(count + 1 + intento).padStart(5, "0");
-  return serie === "AUTPROP"
+  return SERIES_SIN_TIPO.has(serie)
     ? `${serie}-${year}-${correlativo}`
     : `${serie}-${year}-${tipo}-${correlativo}`;
 }
@@ -158,6 +190,12 @@ function extraerDatosClave(
       correo: firstString(respuestas["ACC-EMP-05"]),
       telefono: firstString(respuestas["ACC-EMP-04"]),
     };
+  }
+
+  if (formulario.tipo === TIPO_DECLARACION) {
+    // El titular del trámite es la empresa de transporte; el correo y el
+    // teléfono son los del representante legal, que es quien recibe la copia.
+    return extraerDatosClaveDeclaracion(respuestas);
   }
 
   if (formulario.tipo === "autorizacion_propietario") {
@@ -362,6 +400,23 @@ function getFrontendUrl(): string {
   return "http://localhost:5173";
 }
 
+/**
+ * URL pública de ESTE backend, usada para construir el enlace temporal de
+ * descarga. No sirve `getFrontendUrl()`: el enlace lo atiende el API, no el
+ * landing, y apuntarlo al frontend produciría un 404 en el correo.
+ */
+function getApiPublicUrl(): string {
+  const v =
+    process.env.SARLAFT_PUBLIC_API_URL?.trim() || process.env.API_PUBLIC_URL?.trim();
+  if (v) return v.replace(/\/+$/, "");
+  return `http://localhost:${process.env.PORT ?? 4000}`;
+}
+
+/** Enlace de descarga de un solo documento, con token aleatorio. */
+function urlDescargaPublica(token: string): string {
+  return `${getApiPublicUrl()}/api/public/formularios-sarlaft/documentos/descargar?token=${encodeURIComponent(token)}`;
+}
+
 // ──────────────────────────────────────────────────────────
 // Service público
 // ──────────────────────────────────────────────────────────
@@ -405,6 +460,10 @@ export const FormulariosSarlaftService = {
     const docsRequeridos = getDocumentosRequeridos(
       formulario.tipo,
       tipoCliente as any,
+      // La declaración de empresa de transporte decide sus anexos por
+      // respuesta condicional, no por tipo de cliente. Los otros cuatro
+      // formatos ignoran este tercer argumento.
+      input.respuestas,
     );
     const docsRequeridosIds = new Set(docsRequeridos.map((d) => d.id));
     // Separamos los docs que el usuario está obligado a adjuntar (true) de
@@ -425,6 +484,23 @@ export const FormulariosSarlaftService = {
       }
       archivosSubidosPorTipo.set(tipo, archivo);
     }
+    // Reglas propias de la declaración de empresa de transporte: coherencia de
+    // confirmaciones, doble digitación del correo, observaciones condicionales
+    // y firma. Se corren aquí, con los anexos ya identificados, porque una de
+    // las reglas depende de qué archivos llegaron.
+    if (formulario.tipo === TIPO_DECLARACION) {
+      const erroresDecl = validarDeclaracionTransporte(input.respuestas, {
+        correoConfirmacion: input.correo_confirmacion ?? null,
+        anexosRecibidos: [...archivosSubidosPorTipo.keys()],
+      });
+      if (erroresDecl.length > 0) {
+        throw Object.assign(new Error("La declaración tiene datos inconsistentes"), {
+          statusCode: 422,
+          details: erroresDecl,
+        });
+      }
+    }
+
     const docsFaltantes = docsObligatorios.filter(
       (d) => !archivosSubidosPorTipo.has(d.id),
     );
@@ -442,6 +518,13 @@ export const FormulariosSarlaftService = {
 
     // 3. Extraer datos clave
     const datosClave = extraerDatosClave(formulario, input.respuestas);
+
+    // El snapshot que se archiva no lleva la confirmación de correo: es un
+    // control de captura, no una respuesta del formato.
+    const respuestasPersistidas =
+      formulario.tipo === TIPO_DECLARACION
+        ? limpiarRespuestas(input.respuestas)
+        : input.respuestas;
 
     // 4. Persistir formulario + subir archivos a S3 + crear registros de documentos
     const fechaDiligenciamiento = input.fecha_diligenciamiento
@@ -475,7 +558,7 @@ export const FormulariosSarlaftService = {
               codigo_formulario: formulario.codigo,
               version: formulario.version,
               fecha_diligenciamiento: fechaDiligenciamiento,
-              respuestas: input.respuestas,
+              respuestas: respuestasPersistidas as any,
               nombre_completo: datosClave.nombre_completo,
               tipo_documento: datosClave.tipo_documento,
               numero_documento: datosClave.numero_documento,
@@ -532,48 +615,133 @@ export const FormulariosSarlaftService = {
         });
       }
 
-      // 6. Generar PDF con las respuestas
+      // 6. Generar el documento.
+      //
+      // La declaración de empresa de transporte se dibuja sobre el PDF
+      // controlado de la marca y su generación NO es opcional: si falla, el
+      // envío no puede reportarse como recibido, porque no habría documento
+      // que entregar ni que archivar. Los otros cuatro formatos conservan el
+      // comportamiento anterior (el PDF es una cortesía del correo interno y
+      // su falla solo se registra).
       let pdfBuffer: Buffer | null = null;
-      try {
-        pdfBuffer = await PDFGeneratorSarlaftService.generarPDFSarlaft({
+      let documentoGenerado: DocumentoGeneradoDTO | null = null;
+      let descargaTemporal: { url: string; expiresAt: Date } | null = null;
+
+      if (formulario.tipo === TIPO_DECLARACION) {
+        const generado = await DeclaracionTransportePdfService.generar({
           radicado,
-          tipo_formulario: formulario.tipo,
-          version: formulario.version,
-          fecha_envio: registro.fecha_envio.toISOString(),
-          fecha_diligenciamiento: fechaDiligenciamiento?.toISOString() ?? null,
-          nombre_completo: registro.nombre_completo,
-          tipo_documento: registro.tipo_documento,
-          numero_documento: registro.numero_documento,
-          correo: registro.correo,
-          telefono: registro.telefono,
-          ip_origen: registro.ip_origen,
-          user_agent: registro.user_agent,
-          referer: registro.referer,
-          estado: registro.estado,
-          respuestas: input.respuestas,
-          documentos: documentosCreados,
-          formulario,
+          respuestas: respuestasPersistidas as Record<string, unknown>,
+          estado_documental: "recibida",
+          version_documento: 1,
+          fecha_generacion: registro.fecha_envio,
         });
-      } catch (pdfErr) {
-        console.error(
-          "[FormulariosSarlaft] No se pudo generar PDF inicial:",
-          pdfErr,
-        );
+        pdfBuffer = generado.buffer;
+
+        documentoGenerado =
+          await DeclaracionTransporteDocumentosService.registrarVersion({
+            formularioId: registro.id,
+            radicado,
+            marca: generado.template.marca,
+            pdf: generado.buffer,
+            pdfSha256: generado.sha256,
+            nombreArchivo: generado.nombre_archivo,
+            estadoDocumental: "recibida",
+            versionDocumento: 1,
+            template: generado.template,
+          });
+
+        const { token, expiresAt } =
+          await DeclaracionTransporteDocumentosService.crearTokenDescarga(
+            documentoGenerado.id,
+            ttlDescargaPublica(),
+          );
+        descargaTemporal = { url: urlDescargaPublica(token), expiresAt };
+      } else {
+        try {
+          pdfBuffer = await PDFGeneratorSarlaftService.generarPDFSarlaft({
+            radicado,
+            tipo_formulario: formulario.tipo,
+            version: formulario.version,
+            fecha_envio: registro.fecha_envio.toISOString(),
+            fecha_diligenciamiento: fechaDiligenciamiento?.toISOString() ?? null,
+            nombre_completo: registro.nombre_completo,
+            tipo_documento: registro.tipo_documento,
+            numero_documento: registro.numero_documento,
+            correo: registro.correo,
+            telefono: registro.telefono,
+            ip_origen: registro.ip_origen,
+            user_agent: registro.user_agent,
+            referer: registro.referer,
+            estado: registro.estado,
+            respuestas: input.respuestas,
+            documentos: documentosCreados,
+            formulario,
+          });
+        } catch (pdfErr) {
+          console.error(
+            "[FormulariosSarlaft] No se pudo generar PDF inicial:",
+            pdfErr,
+          );
+        }
       }
 
-      // 7. Email de notificación al destinatario configurado
+      // 7. Notificación interna. Su falla no borra el radicado ni el documento:
+      //    el trámite ya está recibido y la entrega queda reintentable.
       try {
         await this.notificarOficialCumplimiento(
           registradoToDTO(registro),
           formulario,
           documentosCreados,
           pdfBuffer,
+          documentoGenerado,
         );
       } catch (err) {
         console.error(
           "[FormulariosSarlaft] No se pudo enviar email de notificación:",
           err,
         );
+      }
+
+      // 8. Copia al declarante. Deshabilitada por defecto (ver
+      //    `copiaDeclaranteHabilitada`): el único correo que sale es la
+      //    notificación interna. Si el negocio la reactiva, es un correo
+      //    distinto del interno — destinatario, contenido y adjuntos no se
+      //    comparten — y lleva SOLO el PDF generado.
+      let entregaEmail: {
+        destinatario_enmascarado: string;
+        estado: string;
+        provider_message_id: string | null;
+      } | null = null;
+
+      // Solo si el negocio la tiene habilitada. Por defecto está apagada: el
+      // trámite se revisa internamente y el declarante conserva su copia desde
+      // la pantalla de confirmación, no por correo.
+      if (
+        formulario.tipo === TIPO_DECLARACION &&
+        documentoGenerado &&
+        pdfBuffer &&
+        copiaDeclaranteHabilitada()
+      ) {
+        const correoDeclarante = String(
+          (respuestasPersistidas as Record<string, unknown>)[CAMPOS_DECL.CORREO] ?? "",
+        ).trim();
+        const r = await DeclaracionTransporteEmailService.entregarCopiaDeclarante({
+          documentoGeneradoId: documentoGenerado.id,
+          destinatario: correoDeclarante,
+          radicado: registro.radicado,
+          codigoFormulario: formulario.codigo,
+          versionFormato: formulario.version,
+          razonSocial: registro.nombre_completo,
+          pdf: pdfBuffer,
+          nombreArchivo: documentoGenerado.nombre_archivo,
+          pdfSha256: documentoGenerado.pdf_sha256,
+          descarga: descargaTemporal,
+        });
+        entregaEmail = {
+          destinatario_enmascarado: r.destinatario_enmascarado,
+          estado: r.estado,
+          provider_message_id: r.provider_message_id,
+        };
       }
 
       return {
@@ -583,8 +751,20 @@ export const FormulariosSarlaftService = {
         codigo_formulario: registro.codigo_formulario,
         nombre_completo: registro.nombre_completo,
         documentos_adjuntos: archivosSubidosPorTipo.size,
-        mensaje:
-          "Formulario y documentos recibidos exitosamente. El Oficial de Cumplimiento de COTRANSMEQ S.A.S. revisará la información y se pondrá en contacto si requiere aclaraciones.",
+        ...(documentoGenerado && descargaTemporal
+          ? {
+              documento: {
+                id: documentoGenerado.id,
+                nombre_archivo: documentoGenerado.nombre_archivo,
+                sha256: documentoGenerado.pdf_sha256,
+                version_documento: documentoGenerado.version_documento,
+                download_url: descargaTemporal.url,
+                expires_at: descargaTemporal.expiresAt.toISOString(),
+              },
+            }
+          : {}),
+        ...(entregaEmail ? { entrega_email: entregaEmail } : {}),
+        mensaje: MENSAJE_RECIBIDO,
       };
     } catch (err) {
       // Si algo falla después de subir archivos a S3, los limpiamos
@@ -592,6 +772,27 @@ export const FormulariosSarlaftService = {
         try {
           await deleteFromS3(key);
         } catch {}
+      }
+      // Para la declaración de empresa de transporte el documento generado es
+      // parte de la transacción funcional: un radicado sin PDF no es un envío
+      // recibido a medias, es un envío que no ocurrió. Se borra el registro
+      // para que el declarante pueda corregir y reenviar sin quedar con un
+      // número de radicado que no corresponde a ninguna evidencia.
+      //
+      // El borrado se limita a este tipo y a un registro creado en ESTA
+      // llamada; los otros cuatro formatos conservan su comportamiento, donde
+      // una falla de PDF solo se registra en el log.
+      if (registroCreado && formulario.tipo === TIPO_DECLARACION) {
+        try {
+          await prisma.formulario_sarlaft_ptee.delete({
+            where: { id: registroCreado.id },
+          });
+        } catch (limpiezaErr) {
+          console.error(
+            `[FormulariosSarlaft] No se pudo revertir el radicado ${registroCreado.radicado} tras un fallo de generación:`,
+            limpiezaErr,
+          );
+        }
       }
       throw err;
     }
@@ -613,18 +814,25 @@ export const FormulariosSarlaftService = {
       tamano_bytes: string;
     }>,
     pdfBuffer: Buffer | null,
+    /** Versión documental recién emitida, si el formato la produce. Permite
+     *  dejar su hash en el correo interno y registrar la entrega. */
+    documentoGenerado?: DocumentoGeneradoDTO | null,
   ) {
     const cfg = getConfigPorTipo(
       registro.tipo_formulario as TipoFormularioSarlaft,
     );
     const serie = formulario.categoria === "sarlaft" ? "SARLAFT" : "PTEE";
-    const subject = `[${serie} ${registro.codigo_formulario}] Nuevo formulario recibido — Radicado ${registro.radicado}`;
+    // En sandbox el destino se sustituye por el buzón de pruebas y el asunto
+    // se prefija. Nunca se usa BCC para copiar a los destinatarios reales.
+    const destino = resolverDestino(cfg.emails);
+    const subject = `${destino.prefijoAsunto}[${serie} ${registro.codigo_formulario}] Nuevo formulario recibido — Radicado ${registro.radicado}`;
 
     const tipoLabel: Record<string, string> = {
       cliente_proveedor: "Cliente / Proveedor",
       accionistas: "Accionistas",
       personal: "Vinculación de Personal",
       autorizacion_propietario: "Autorización del Propietario",
+      declaracion_empresa_transporte: "Declaración de empresa de transporte",
     };
 
     const frontendUrl = getFrontendUrl();
@@ -659,6 +867,7 @@ export const FormulariosSarlaftService = {
 <body>
   <div class="container">
     <div class="card">
+      ${avisoSandboxHtml(destino)}
       <div class="header">
         <span class="badge">${registro.codigo_formulario}</span>
       </div>
@@ -698,6 +907,18 @@ export const FormulariosSarlaftService = {
           <td class="label">Adjuntos</td>
           <td class="value">${documentos.length} archivo${documentos.length === 1 ? "" : "s"}</td>
         </tr>
+        ${
+          documentoGenerado
+            ? `<tr>
+          <td class="label">Documento generado</td>
+          <td class="value">${documentoGenerado.codigo_template} v${documentoGenerado.version_template} · versión documental ${documentoGenerado.version_documento} (${documentoGenerado.estado_documental})</td>
+        </tr>
+        <tr>
+          <td class="label">SHA-256 del PDF</td>
+          <td class="value" style="font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;">${documentoGenerado.pdf_sha256}</td>
+        </tr>`
+            : ""
+        }
       </table>
 
       <a href="${dashboardLink}" class="cta">
@@ -730,7 +951,8 @@ export const FormulariosSarlaftService = {
     const attachments: Attachment[] = [];
     if (pdfBuffer && pdfBuffer.length > 0) {
       attachments.push({
-        filename: `SARLAFT_${registro.radicado}.pdf`,
+        filename:
+          documentoGenerado?.nombre_archivo ?? `SARLAFT_${registro.radicado}.pdf`,
         content: pdfBuffer,
         contentType: "application/pdf",
       });
@@ -803,13 +1025,33 @@ export const FormulariosSarlaftService = {
     // y van directo al Oficial de Cumplimiento — no se debe hacer copia
     // oculta a otras áreas. El NOTIF_BCC_EMAIL del .env aplica SOLO a las
     // notificaciones de conductores (desprendibles / primas).
-    await EmailService.sendEmail({
-      to: cfg.emails,
+    const res = await EmailService.sendEmail({
+      to: destino.to,
       subject,
       html,
       attachments,
       bcc: undefined,
     } as any);
+
+    // Trazabilidad de la notificación interna. Solo aplica cuando el formato
+    // produce una versión documental: es la fila a la que se cuelga el intento.
+    if (documentoGenerado) {
+      await DeclaracionTransporteDocumentosService.registrarEntrega({
+        documentoGeneradoId: documentoGenerado.id,
+        canal: "email_interno",
+        // En sandbox se registra el destinatario EFECTIVO, no el productivo:
+        // la evidencia debe decir a dónde salió el correo de verdad.
+        destinatario: destino.to[0] ?? null,
+        estado: "enviado",
+        proveedor: process.env.RESEND_API_KEY ? "resend" : "smtp",
+        providerMessageId: (res as { id?: string } | null)?.id ?? null,
+      }).catch((err) => {
+        console.error(
+          "[FormulariosSarlaft] No se pudo registrar la entrega interna:",
+          err,
+        );
+      });
+    }
   },
 
   /**
@@ -903,6 +1145,51 @@ export const FormulariosSarlaftService = {
     });
     if (!f) return null;
 
+    // Las versiones documentales viven en su propia tabla y traen su historial
+    // de entregas: es lo que permite al dashboard mostrar hash, versión y a
+    // dónde salió cada copia sin recalcular nada.
+    const generados =
+      await prisma.formulario_sarlaft_ptee_documento_generado.findMany({
+        where: { formulario_id: id },
+        orderBy: { version_documento: "desc" },
+        include: {
+          entregas: { orderBy: { created_at: "asc" } },
+          generado_por: { select: { id: true, nombre: true } },
+        },
+      });
+
+    const documentosGenerados = generados.map((g) => ({
+      id: g.id,
+      clase: g.clase,
+      marca: g.marca,
+      version_documento: g.version_documento,
+      estado_documental: g.estado_documental,
+      codigo_template: g.codigo_template,
+      version_template: g.version_template,
+      template_sha256: g.template_sha256,
+      pdf_sha256: g.pdf_sha256,
+      mime_type: g.mime_type,
+      tamano_bytes: g.tamano_bytes.toString(),
+      created_at: g.created_at.toISOString(),
+      generado_por: g.generado_por
+        ? { id: g.generado_por.id, nombre: g.generado_por.nombre }
+        : null,
+      // El token de descarga NUNCA sale de aquí: solo su estado y vigencia.
+      entregas: g.entregas.map((e) => ({
+        id: e.id,
+        canal: e.canal,
+        destinatario: e.destinatario,
+        estado: e.estado,
+        proveedor: e.proveedor,
+        provider_message_id: e.provider_message_id,
+        intento: e.intento,
+        error_codigo: e.error_codigo,
+        expires_at: e.expires_at?.toISOString() ?? null,
+        completed_at: e.completed_at?.toISOString() ?? null,
+        created_at: e.created_at.toISOString(),
+      })),
+    }));
+
     return {
       id: f.id,
       radicado: f.radicado,
@@ -945,6 +1232,9 @@ export const FormulariosSarlaftService = {
         hash_sha256: d.hash_sha256,
         created_at: d.created_at.toISOString(),
       })),
+      /** Versiones inmutables del documento generado, de la más reciente a la
+       *  más antigua. Vacío para los formatos que no usan template. */
+      documentos_generados: documentosGenerados,
       created_at: f.created_at.toISOString(),
       updated_at: f.updated_at.toISOString(),
     };
@@ -982,7 +1272,7 @@ export const FormulariosSarlaftService = {
       userId: string;
     },
   ) {
-    return prisma.formulario_sarlaft_ptee.update({
+    const actualizado = await prisma.formulario_sarlaft_ptee.update({
       where: { id },
       data: {
         ...(data.estado && { estado: data.estado }),
@@ -996,6 +1286,67 @@ export const FormulariosSarlaftService = {
         evaluado_at: new Date(),
       },
     });
+
+    // Una decisión final emite una versión documental NUEVA con la casilla de
+    // resultado marcada. La versión recibida no se toca jamás: es la evidencia
+    // de qué firmó el declarante, y sobrescribirla destruiría esa prueba.
+    //
+    // `en_revision` y `escalado` no emiten versión: son etapas, no decisiones.
+    // En particular `escalado` NO equivale a `condicionado`.
+    if (
+      actualizado.tipo_formulario === TIPO_DECLARACION &&
+      esDecisionFinal(actualizado.estado)
+    ) {
+      try {
+        await this.emitirVersionEvaluada(actualizado, data.userId);
+      } catch (err) {
+        // La decisión administrativa ya quedó registrada; si la emisión del
+        // documento falla se informa, pero no se revierte la evaluación ni se
+        // devuelve un 500 que haga pensar al usuario que no se guardó nada.
+        console.error(
+          `[FormulariosSarlaft] No se pudo emitir la versión evaluada del radicado ${actualizado.radicado}:`,
+          err,
+        );
+      }
+    }
+
+    return actualizado;
+  },
+
+  /**
+   * Genera y archiva la versión `evaluada` del documento.
+   *
+   * Cada llamada crea una versión nueva; el índice único
+   * `(formulario_id, clase, version_documento)` impide que dos decisiones
+   * simultáneas se pisen o reescriban una versión existente.
+   */
+  async emitirVersionEvaluada(registro: any, userId: string | null) {
+    const version =
+      await DeclaracionTransporteDocumentosService.siguienteVersion(registro.id);
+
+    const generado = await DeclaracionTransportePdfService.generar({
+      radicado: registro.radicado,
+      respuestas: (registro.respuestas ?? {}) as Record<string, unknown>,
+      estado_documental: "evaluada",
+      estado_administrativo: registro.estado,
+      version_documento: version,
+    });
+
+    const documento =
+      await DeclaracionTransporteDocumentosService.registrarVersion({
+        formularioId: registro.id,
+        radicado: registro.radicado,
+        marca: generado.template.marca,
+        pdf: generado.buffer,
+        pdfSha256: generado.sha256,
+        nombreArchivo: generado.nombre_archivo,
+        estadoDocumental: "evaluada",
+        versionDocumento: version,
+        template: generado.template,
+        generadoPorId: userId,
+      });
+
+    return documento;
   },
 
   /**
@@ -1013,6 +1364,34 @@ export const FormulariosSarlaftService = {
     if (!detalle) return null;
     const formulario = getFormularioPorCodigo(detalle.codigo_formulario as any);
     if (!formulario) return null;
+
+    // Para la declaración de empresa de transporte se devuelve el binario
+    // ARCHIVADO, no uno regenerado: regenerar produciría otro archivo, con otra
+    // fecha de creación y otro hash, y dejaría de coincidir con la evidencia
+    // que se entregó y se registró.
+    if (detalle.tipo_formulario === TIPO_DECLARACION) {
+      const versiones = detalle.documentos_generados ?? [];
+      const ultima = versiones[0];
+      if (!ultima) return null;
+      const fila = await DeclaracionTransporteDocumentosService.obtenerVersion(
+        ultima.id,
+      );
+      if (!fila) return null;
+      const buffer = await DeclaracionTransporteDocumentosService.leerBinario(
+        fila.s3_key,
+      );
+      if (!buffer) return null;
+      return {
+        buffer,
+        radicado: detalle.radicado,
+        tipo_formulario: detalle.tipo_formulario,
+        nombre_archivo: `${fila.codigo_template}_${detalle.radicado}_v${fila.version_documento}.pdf`.replace(
+          /[^\w.-]/g,
+          "_",
+        ),
+      };
+    }
+
     const buffer = await PDFGeneratorSarlaftService.generarPDFSarlaft({
       radicado: detalle.radicado,
       tipo_formulario: detalle.tipo_formulario as any,

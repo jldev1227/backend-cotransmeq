@@ -4,7 +4,8 @@ export const tipoFormularioEnum = z.enum([
   'cliente_proveedor',
   'accionistas',
   'personal',
-  'autorizacion_propietario'
+  'autorizacion_propietario',
+  'declaracion_empresa_transporte'
 ])
 
 export const tipoDocumentoEnum = z.enum([
@@ -24,7 +25,10 @@ export const tipoDocumentoEnum = z.enum([
   'cert_tradicion_vehiculo',
   'contrato_relacion_juridica',
   'formulario_conocimiento_tercero',
-  'otros_anexos'
+  'otros_anexos',
+  // Declaración de empresa de transporte (GC-FOR-13)
+  'anexo_alertas',
+  'relacion_vehiculos'
 ])
 
 // Schema base para una respuesta individual.
@@ -34,9 +38,20 @@ const filaTablaSchema = z.record(z.string(), respuestaValorSchema)
 
 // Schema del JSON payload (llega como string en multipart, lo parseamos)
 export const submitFormularioSarlaftSchema = z.object({
-  codigo_formulario: z.enum(['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12']),
+  codigo_formulario: z.enum(['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12', 'GC-FOR-13']),
   fecha_diligenciamiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   respuestas: z.record(z.string(), z.union([respuestaValorSchema, filaTablaSchema, z.array(filaTablaSchema)])),
+  /**
+   * Doble digitación del correo de entrega. Viaja FUERA de `respuestas` a
+   * propósito: es un control de captura, no una respuesta del formato, y no
+   * debe quedar en el snapshot que se archiva. El backend la compara con
+   * `DET-REP-04` y la descarta; validarla solo en el navegador no basta
+   * porque el PDF se entrega a esa dirección.
+   *
+   * Solo la usa la declaración de empresa de transporte; los otros cuatro
+   * formatos la omiten y siguen igual.
+   */
+  correo_confirmacion: z.string().trim().max(254).optional(),
   contexto: z.object({
     user_agent: z.string().optional(),
     referer: z.string().optional()

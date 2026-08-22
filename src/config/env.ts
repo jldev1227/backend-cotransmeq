@@ -84,7 +84,35 @@ const envSchema = z.object({
 
   // Orígenes permitidos para Socket.IO, separados por coma. Vacío = '*'
   // (comportamiento anterior). Conviene fijarlo antes de pasar a 'enforce'.
-  SOCKET_CORS_ORIGINS: z.string().optional()
+  SOCKET_CORS_ORIGINS: z.string().optional(),
+
+  // ── Correo de los formularios SARLAFT + PTEE ────────────────────────
+  //
+  // `sandbox` redirige TODOS los correos SARLAFT de la ejecución al buzón de
+  // `SARLAFT_TEST_RECIPIENT`, prefija el asunto con [SANDBOX] y menciona los
+  // destinatarios reales solo enmascarados. Existe para poder probar el flujo
+  // completo (incluida la copia al declarante) sin alcanzar a un proveedor.
+  //
+  // Está PROHIBIDO en producción: con NODE_ENV=production el resolutor lanza
+  // en vez de redirigir en silencio (ver `sarlaft-email-mode.ts`). El
+  // destinatario de prueba NO se agrega a CANALES_AUTORIZADOS y nunca se usa BCC.
+  SARLAFT_EMAIL_MODE: z.enum(['produccion', 'sandbox']).optional().default('produccion'),
+  SARLAFT_TEST_RECIPIENT: z.string().optional(),
+
+  // Copia del PDF al correo del declarante. Apagada por decisión de negocio:
+  // el trámite se revisa internamente y el declarante conserva su copia por el
+  // enlace temporal de descarga, no por correo. Si alguna vez se activa, el
+  // correo lleva SOLO el PDF final: nunca cédulas, RUT, anexos ni la firma
+  // como imagen suelta.
+  SARLAFT_CLIENT_COPY_ENABLED: z.string().optional().default('false'),
+
+  // Vigencia del enlace temporal de descarga, en segundos (tope de 24 h).
+  SARLAFT_PUBLIC_DOWNLOAD_TTL_SECONDS: z.string().optional().default('3600'),
+
+  // URL pública de ESTE backend, usada para construir el enlace de descarga
+  // que viaja en el correo. Si falta, se cae a http://localhost:PORT, que solo
+  // sirve en desarrollo.
+  SARLAFT_PUBLIC_API_URL: z.string().optional()
 })
 
 export const env = envSchema.parse(process.env)

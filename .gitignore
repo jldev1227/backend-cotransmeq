@@ -39,3 +39,9 @@ coverage
 # Build outputs
 build/
 out/
+# Salidas de la revisión visual de PDFs (declaración de empresa de transporte)
+tests/declaracion-transporte-output/
+
+# Respaldos locales del .env (contienen credenciales; nunca se versionan)
+.env.bak-*
+.env.backup*

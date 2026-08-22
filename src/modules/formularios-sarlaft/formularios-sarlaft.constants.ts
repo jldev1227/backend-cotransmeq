@@ -9,6 +9,12 @@
 //  - 'individual' → formatos que viven en su propia ruta y NO aparecen en ese
 //                   selector (ej. SLFT-PTEE-FR-12, Autorización del Propietario).
 
+import {
+  ANEXO_ALERTAS,
+  ANEXO_RELACION_VEHICULOS,
+  documentosDeclaracionTransporte
+} from './declaracion-transporte.validacion'
+
 export type TipoRespuesta =
   | 'texto_corto'
   | 'texto_largo'
@@ -64,13 +70,19 @@ export interface SeccionDefinicion {
   preguntas: PreguntaDefinicion[]
 }
 
-export type CodigoFormulario = 'GC-FR-04' | 'GC-FR-05' | 'GC-FR-06' | 'SLFT-PTEE-FR-12'
+export type CodigoFormulario =
+  | 'GC-FR-04'
+  | 'GC-FR-05'
+  | 'GC-FR-06'
+  | 'SLFT-PTEE-FR-12'
+  | 'GC-FOR-13'
 
 export type TipoFormulario =
   | 'cliente_proveedor'
   | 'accionistas'
   | 'personal'
   | 'autorizacion_propietario'
+  | 'declaracion_empresa_transporte'
 
 export interface FormularioDefinicion {
   codigo: CodigoFormulario
@@ -1120,13 +1132,212 @@ const FORMULARIO_AUTORIZACION_PROPIETARIO: FormularioDefinicion = {
 }
 
 // ──────────────────────────────────────────────────────────
+// GC-FOR-13 — DECLARACIÓN SARLAFT/PTEE PARA EMPRESA DE TRANSPORTE
+//
+// Formato individual: NO pertenece al grupo de formularios de conocimiento
+// SARLAFT y por eso no aparece en el selector público (`categoria: 'individual'`).
+// Se diligencia desde `/declaracion-empresa-transporte` en el landing.
+//
+// El documento final NO lo arma el generador HTML genérico: se dibuja sobre el
+// PDF controlado de la marca (ver `declaracion-transporte-pdf.service.ts`). Por
+// eso los IDs de pregunta son estables y están mapeados uno a uno a una
+// coordenada del formato; renombrarlos rompe el diligenciamiento del PDF.
+//
+// La sección "Resultado" del formato no se pregunta aquí: es la decisión
+// interna del Oficial de Cumplimiento y se marca al emitir la versión evaluada.
+// ──────────────────────────────────────────────────────────
+const FORMULARIO_DECLARACION_TRANSPORTE: FormularioDefinicion = {
+  codigo: 'GC-FOR-13',
+  nombre_formato: 'DECLARACION_SARLAFT_PTEE_EMPRESA_TRANSPORTE',
+  titulo: 'Declaración SARLAFT y PTEE para empresa de transporte',
+  version: '01',
+  // El formato GC-FOR-13 no trae fecha de vigencia visible en el encabezado.
+  // Se deja vacío a propósito: inventar una fecha en un documento controlado
+  // sería declarar una vigencia que el formato no tiene.
+  fecha_documento: '',
+  archivo_origen: 'DECLARACION PROVEEDOR EMPRESA DE TRANSPORTE.pdf',
+  tipo: 'declaracion_empresa_transporte',
+  categoria: 'individual',
+  secciones: [
+    {
+      seccion: 'Datos del documento',
+      tipo_bloque: 'seccion_normal',
+      preguntas: [
+        {
+          id: 'DET-ENC-01',
+          pregunta: 'Fecha de diligenciamiento',
+          tipo_respuesta: 'fecha',
+          modo_respuesta: 'DD/MM/AAAA',
+          opciones: null,
+          obligatorio: true
+        }
+      ]
+    },
+    {
+      seccion: 'Identificación del proveedor',
+      tipo_bloque: 'seccion_normal',
+      nota: 'Empresa de transporte que presta el servicio tercerizado.',
+      preguntas: [
+        {
+          id: 'DET-EMP-01',
+          pregunta: 'Razón social del proveedor',
+          tipo_respuesta: 'texto_corto',
+          modo_respuesta: 'Texto libre',
+          opciones: null,
+          obligatorio: true,
+          nota: 'Tal como aparece en el certificado de existencia y representación legal. Máximo 55 caracteres para que quepa en el formato.'
+        },
+        {
+          id: 'DET-EMP-02',
+          pregunta: 'NIT',
+          tipo_respuesta: 'texto_corto',
+          modo_respuesta: 'Texto libre',
+          opciones: null,
+          obligatorio: true,
+          formato: 'documento'
+        }
+      ]
+    },
+    {
+      seccion: '1. Datos de quien declara',
+      tipo_bloque: 'seccion_normal',
+      nota: 'Debe diligenciarlo el representante legal de la empresa de transporte.',
+      preguntas: [
+        {
+          id: 'DET-REP-01',
+          pregunta: 'Nombre del representante legal',
+          tipo_respuesta: 'texto_corto',
+          modo_respuesta: 'Texto libre',
+          opciones: null,
+          obligatorio: true
+        },
+        {
+          id: 'DET-REP-02',
+          pregunta: 'Cédula del representante legal',
+          tipo_respuesta: 'texto_corto',
+          modo_respuesta: 'Texto libre',
+          opciones: null,
+          obligatorio: true,
+          formato: 'documento'
+        },
+        {
+          id: 'DET-REP-03',
+          pregunta: 'Teléfono',
+          tipo_respuesta: 'texto_corto',
+          modo_respuesta: 'Texto libre',
+          opciones: null,
+          obligatorio: true,
+          formato: 'telefono'
+        },
+        {
+          id: 'DET-REP-04',
+          pregunta: 'Correo electrónico',
+          tipo_respuesta: 'texto_corto',
+          modo_respuesta: 'Correo electrónico',
+          opciones: null,
+          obligatorio: true,
+          nota: 'Queda impreso en la declaración y es el canal por el que la empresa contacta al declarante. Se pide dos veces para evitar errores de digitación.'
+        }
+      ]
+    },
+    {
+      seccion: '2. Declaración y compromiso',
+      tipo_bloque: 'seccion_normal',
+      nota:
+        'El texto completo de la declaración y de los ocho compromisos está impreso en el formato GC-FOR-13 ' +
+        'que se genera al enviar. Aceptarlo aquí equivale a suscribirlo.',
+      preguntas: [
+        {
+          id: 'DET-ACK-01',
+          pregunta:
+            'En mi calidad de representante legal, declaro que la información es veraz y acepto los compromisos del formato',
+          tipo_respuesta: 'seleccion_unica',
+          modo_respuesta: 'Selección única',
+          opciones: ['Sí, declaro que la información es veraz y acepto los compromisos del formato'],
+          obligatorio: true
+        }
+      ]
+    },
+    {
+      seccion: '3. Confirmación rápida',
+      tipo_bloque: 'seccion_normal',
+      preguntas: [
+        {
+          id: 'DET-CNF-01',
+          pregunta: 'Todos los vehículos relacionados fueron revisados antes de su asignación',
+          tipo_respuesta: 'seleccion_unica',
+          modo_respuesta: 'Selección única',
+          opciones: ['Sí', 'No'],
+          obligatorio: true,
+          nota: 'Si respondes No, debes explicarlo en las alertas u observaciones.'
+        },
+        {
+          id: 'DET-CNF-02',
+          pregunta: 'Estado de alertas',
+          tipo_respuesta: 'seleccion_unica',
+          modo_respuesta: 'Selección única',
+          opciones: [
+            'No existen alertas pendientes',
+            'Existen alertas informadas en documento anexo'
+          ],
+          obligatorio: true,
+          nota: 'Las dos opciones son excluyentes. Si existen alertas, debes describirlas y adjuntar el documento anexo.'
+        },
+        {
+          id: 'DET-CNF-03',
+          pregunta: 'Los soportes están disponibles y vigentes',
+          tipo_respuesta: 'seleccion_unica',
+          modo_respuesta: 'Selección única',
+          opciones: ['Sí', 'No'],
+          obligatorio: true,
+          nota: 'Si respondes No, debes explicarlo en las alertas u observaciones.'
+        }
+      ]
+    },
+    {
+      seccion: '4. Alertas u observaciones',
+      tipo_bloque: 'seccion_normal',
+      preguntas: [
+        {
+          id: 'DET-OBS-01',
+          pregunta: 'Alertas u observaciones',
+          tipo_respuesta: 'texto_largo',
+          modo_respuesta: 'Texto libre (máximo 260 caracteres)',
+          opciones: null,
+          obligatorio: false,
+          nota:
+            'Obligatorio si existen alertas, si los vehículos no fueron revisados o si los soportes no están vigentes. ' +
+            'El formato tiene dos renglones: para el detalle extenso usa el documento anexo.'
+        }
+      ]
+    },
+    {
+      seccion: '5. Firma y validación',
+      tipo_bloque: 'seccion_normal',
+      nota: 'Firma el representante legal identificado en la sección 1.',
+      preguntas: [
+        {
+          id: 'DET-FIR-01',
+          pregunta: 'Firma del representante legal',
+          tipo_respuesta: 'firma',
+          modo_respuesta: 'Firma manuscrita o digital',
+          opciones: null,
+          obligatorio: true
+        }
+      ]
+    }
+  ]
+}
+
+// ──────────────────────────────────────────────────────────
 // Registry público
 // ──────────────────────────────────────────────────────────
 export const FORMULARIOS: Record<string, FormularioDefinicion> = {
   'GC-FR-04': FORMULARIO_CLIENTE_PROVEEDOR,
   'GC-FR-05': FORMULARIO_ACCIONISTAS,
   'GC-FR-06': FORMULARIO_PERSONAL,
-  'SLFT-PTEE-FR-12': FORMULARIO_AUTORIZACION_PROPIETARIO
+  'SLFT-PTEE-FR-12': FORMULARIO_AUTORIZACION_PROPIETARIO,
+  'GC-FOR-13': FORMULARIO_DECLARACION_TRANSPORTE
 }
 
 export function getFormularioPorCodigo(codigo: string): FormularioDefinicion | null {
@@ -1175,6 +1386,12 @@ export const TIPOS_FORMULARIO: Array<{
     tipo: 'autorizacion_propietario',
     titulo: 'Autorización del Propietario',
     descripcion: 'Para propietarios que autorizan la facturación y/o el pago a un tercero diferente del propietario del vehículo.'
+  },
+  {
+    codigo: 'GC-FOR-13',
+    tipo: 'declaracion_empresa_transporte',
+    titulo: 'Declaración de empresa de transporte',
+    descripcion: 'Para empresas de transporte tercerizadas que declaran el control de los vehículos, propietarios y conductores que incorporan al servicio de COTRANSMEQ S.A.S.'
   }
 ]
 
@@ -1192,6 +1409,14 @@ export const TIPO_DOCUMENTO = {
  *  Se mantienen en un catálogo aparte a propósito: `getDocumentosRequeridos`
  *  para los formularios SARLAFT recorre `DOCUMENTOS_REQUERIDOS` completo, así
  *  que mezclarlos ahí los filtraría a Cliente/Proveedor y Accionistas. */
+/** Anexos propios de la declaración de empresa de transporte. El catálogo real
+ *  lo produce `documentosDeclaracionTransporte`, porque la obligatoriedad
+ *  depende de las respuestas y no del tipo de cliente. */
+export const TIPO_DOCUMENTO_DECLARACION_TRANSPORTE = {
+  ANEXO_ALERTAS: ANEXO_ALERTAS,
+  RELACION_VEHICULOS: ANEXO_RELACION_VEHICULOS
+} as const
+
 export const TIPO_DOCUMENTO_AUTORIZACION = {
   IDENTIDAD_PROPIETARIO: 'identidad_propietario',
   IDENTIDAD_TERCERO: 'identidad_tercero',
@@ -1211,7 +1436,13 @@ export type TipoDocumentoSarlaftId = (typeof TIPO_DOCUMENTO)[keyof typeof TIPO_D
 export type TipoDocumentoAutorizacionId =
   (typeof TIPO_DOCUMENTO_AUTORIZACION)[keyof typeof TIPO_DOCUMENTO_AUTORIZACION]
 
-export type TipoDocumentoId = TipoDocumentoSarlaftId | TipoDocumentoAutorizacionId
+export type TipoDocumentoDeclaracionTransporteId =
+  (typeof TIPO_DOCUMENTO_DECLARACION_TRANSPORTE)[keyof typeof TIPO_DOCUMENTO_DECLARACION_TRANSPORTE]
+
+export type TipoDocumentoId =
+  | TipoDocumentoSarlaftId
+  | TipoDocumentoAutorizacionId
+  | TipoDocumentoDeclaracionTransporteId
 
 export interface DocumentoRequerido {
   id: TipoDocumentoId
@@ -1365,8 +1596,17 @@ export const DOCUMENTOS_AUTORIZACION_PROPIETARIO: DocumentoRequerido[] = [
  */
 export function getDocumentosRequeridos(
   tipoFormulario: FormularioDefinicion['tipo'],
-  tipoCliente?: 'Persona Natural' | 'Persona Jurídica' | null
+  tipoCliente?: 'Persona Natural' | 'Persona Jurídica' | null,
+  respuestas?: Record<string, unknown> | null
 ): DocumentoRequerido[] {
+  // La declaración de empresa de transporte es el primer formato cuya lista de
+  // anexos NO depende del tipo de cliente sino de una respuesta condicional
+  // (`DET-CNF-02`), así que necesita ver las respuestas. Los demás formatos
+  // ignoran el tercer parámetro y siguen comportándose igual que antes.
+  if (tipoFormulario === 'declaracion_empresa_transporte') {
+    return documentosDeclaracionTransporte(respuestas ?? {}) as DocumentoRequerido[]
+  }
+
   if (tipoFormulario === 'autorizacion_propietario') {
     return DOCUMENTOS_AUTORIZACION_PROPIETARIO.map((d) => ({ ...d }))
   }
