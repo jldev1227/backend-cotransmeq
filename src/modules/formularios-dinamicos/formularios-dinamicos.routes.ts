@@ -3,6 +3,7 @@ import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { FormulariosController } from './formularios-dinamicos.controller'
 import { snapshotMetricas } from './formularios-dinamicos.observabilidad'
+import { FormulariosDocumentoPdfService } from './formularios-documento-pdf.service'
 import {
   destinatarioPorId,
   enviarCampana,
@@ -121,6 +122,25 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
   app.get('/formularios/submissions/:id', puedeLeer, FormulariosController.obtenerEnvio)
   app.get('/formularios/submissions', puedeLeer, FormulariosController.listarEnvios)
   app.post('/formularios/submissions/:id/void', puedeEditar, FormulariosController.anularEnvio)
+
+  /**
+   * PDF del documento de un envío.
+   *
+   * Recibe el cuerpo y la hoja de estilos que el cliente YA tiene en pantalla y
+   * solo pone Chromium. Es la única forma de que el PDF sea idéntico al preview
+   * sin reimplementar en el servidor los diecinueve tipos de campo y su
+   * disposición adaptativa; ese segundo renderizador divergiría del primero a la
+   * primera modificación.
+   *
+   * `bodyLimit` explícito: el de Fastify es 1 MiB y un preoperacional de 131
+   * ítems con su hoja de estilos lo roza. Sin esto el fallo llega como un 413
+   * genérico antes de tocar el handler.
+   */
+  app.post(
+    '/formularios/documento/pdf',
+    { bodyLimit: 8 * 1024 * 1024, ...puedeLeer },
+    FormulariosDocumentoPdfService.renderizar,
+  )
 
   // ── Asignaciones (antes de `/:formId`) ───────────────────────────────────
   app.get('/formularios/asignaciones', puedeLeer, FormulariosController.listarAsignaciones)
