@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { ConductoresService } from './conductores.service'
+import { ValorEnumInvalidoError } from './conductores.enums'
 import { getIo } from '../../sockets'
 
 interface ObtenerTodosQuery {
@@ -40,6 +41,18 @@ interface ConductorBody {
   foto_url?: string
 }
 
+/**
+ * ¿Es un valor fuera del enum de `conductores`?
+ *
+ * Se mira el `code` y no el texto: el resto de este controlador decide el 400
+ * con `message.includes('ya existe')`, y encadenar más comparaciones de texto
+ * es lo que hace que un día alguien reescriba un mensaje y la respuesta pase a
+ * 500 sin que nadie lo note.
+ */
+function esEnumInvalido(error: any): error is ValorEnumInvalidoError {
+  return error?.code === 'ENUM_CONDUCTOR_INVALIDO'
+}
+
 export const ConductoresController = {
   // GET /conductores
   async obtenerTodos(
@@ -66,6 +79,14 @@ export const ConductoresController = {
       })
     } catch (error: any) {
       console.error('Error al obtener conductores:', error)
+      /// Un `?estado=` que no existe es un filtro mal formado, no un fallo del
+      /// servidor: sin esto la lista devolvía 500 al filtrar.
+      if (esEnumInvalido(error)) {
+        return reply.status(400).send({
+          success: false,
+          message: error.message
+        })
+      }
       return reply.status(500).send({
         success: false,
         message: 'Error al obtener conductores',
@@ -143,7 +164,14 @@ export const ConductoresController = {
       })
     } catch (error: any) {
       console.error('Error al crear conductor:', error)
-      
+
+      if (esEnumInvalido(error)) {
+        return reply.status(400).send({
+          success: false,
+          message: error.message
+        })
+      }
+
       if (error.message.includes('ya existe')) {
         return reply.status(400).send({
           success: false,
@@ -178,7 +206,14 @@ export const ConductoresController = {
       })
     } catch (error: any) {
       console.error('Error al actualizar conductor:', error)
-      
+
+      if (esEnumInvalido(error)) {
+        return reply.status(400).send({
+          success: false,
+          message: error.message
+        })
+      }
+
       if (error.message === 'Conductor no encontrado') {
         return reply.status(404).send({
           success: false,
@@ -230,6 +265,13 @@ export const ConductoresController = {
       
       if (error.message === 'Conductor no encontrado') {
         return reply.status(404).send({
+          success: false,
+          message: error.message
+        })
+      }
+
+      if (esEnumInvalido(error)) {
+        return reply.status(400).send({
           success: false,
           message: error.message
         })

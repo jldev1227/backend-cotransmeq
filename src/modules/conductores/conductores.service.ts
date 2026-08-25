@@ -1,6 +1,12 @@
 import { prisma } from "../../config/prisma";
 import { getS3SignedUrl, uploadToS3, deleteFromS3 } from "../../config/aws";
 import { randomUUID } from "crypto";
+import {
+  normalizarCampoConductor,
+  normalizarEstado,
+  normalizarSedeTrabajo,
+  normalizarTipoSangre,
+} from "./conductores.enums";
 
 export const ConductoresService = {
   // Listado LIVIANO para alimentar <select> del modal admin
@@ -55,13 +61,18 @@ export const ConductoresService = {
     };
 
     // Filtro por estado
+    //
+    // Normalizado igual que la escritura: el listado manda el filtro con el
+    // vocabulario del dashboard (`?estado=ACTIVO`) y sin traducir Prisma
+    // rechazaba la consulta entera — la pantalla se caía al filtrar, no solo
+    // al guardar.
     if (filters?.estado) {
-      where.estado = filters.estado;
+      where.estado = normalizarEstado(filters.estado);
     }
 
     // Filtro por sede
     if (filters?.sede_trabajo) {
-      where.sede_trabajo = filters.sede_trabajo;
+      where.sede_trabajo = normalizarSedeTrabajo(filters.sede_trabajo);
     }
 
     // Búsqueda por nombre, apellido o número de identificación
@@ -276,15 +287,18 @@ export const ConductoresService = {
         cargo: data.cargo || "CONDUCTOR",
         fecha_ingreso: fechaIngreso,
         salario_base: data.salario_base || null,
-        estado: data.estado || "activo",
+        // Los tres campos ENUM pasan por el normalizador: lo que llega es el
+        // vocabulario del dashboard (`ACTIVO`, `O_POSITIVO`) y la base espera
+        // sus propias etiquetas. Ver `conductores.enums.ts`.
+        estado: normalizarEstado(data.estado) ?? "activo",
         eps: data.eps || null,
         fondo_pension: data.fondo_pension || null,
         arl: data.arl || null,
         tipo_contrato: data.tipo_contrato || null,
         categoria_licencia: data.categoria_licencia || null,
         vencimiento_licencia: vencimientoLicencia,
-        sede_trabajo: data.sede_trabajo || null,
-        tipo_sangre: data.tipo_sangre || null,
+        sede_trabajo: normalizarSedeTrabajo(data.sede_trabajo),
+        tipo_sangre: normalizarTipoSangre(data.tipo_sangre),
         creado_por_id,
         created_at: new Date(),
         updated_at: new Date(),
@@ -407,7 +421,11 @@ export const ConductoresService = {
         continue;
       }
 
-      cleanData[field] = data[field];
+      // Los campos ENUM (`estado`, `sede_trabajo`, `tipo_sangre`) se traducen
+      // a la etiqueta que espera Postgres; el resto pasa tal cual. Va dentro
+      // del bucle, y no con tres `if` sueltos arriba, para que la lista de
+      // qué campo es enum viva en un solo sitio.
+      cleanData[field] = normalizarCampoConductor(field, data[field]);
     }
 
     const conductor = await prisma.conductores.update({
@@ -432,10 +450,13 @@ export const ConductoresService = {
       throw new Error("Conductor no encontrado");
     }
 
+    const normalizado = normalizarEstado(estado);
+    if (!normalizado) throw new Error("El estado es obligatorio");
+
     const conductor = await prisma.conductores.update({
       where: { id },
       data: {
-        estado: estado as any,
+        estado: normalizado,
         actualizado_por_id,
         updated_at: new Date(),
       },
