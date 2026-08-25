@@ -195,8 +195,22 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
       : [],
   ])
 
-  const borradorPorAsignacion = new Map<string, (typeof borradores)[number]>()
-  for (const b of borradores) if (!borradorPorAsignacion.has(b.assignment_id)) borradorPorAsignacion.set(b.assignment_id, b)
+  /**
+   * TODOS los borradores de cada asignación, no solo el último.
+   *
+   * Quedarse con uno era un embudo real: un conductor que atiende varios
+   * vehículos lleva un preoperacional por cada uno, y con `ONE_PER_CONTEXT` eso
+   * es lo normal, no una excepción. Reportando solo el más reciente, el resto
+   * existía en la base y en el teléfono pero no había forma de llegar a él —y
+   * uno atascado (por ejemplo con fotos sin subir) bloqueaba la vista de los
+   * demás. Vienen ya ordenados por `updated_at desc`.
+   */
+  const borradoresPorAsignacion = new Map<string, (typeof borradores)[number][]>()
+  for (const b of borradores) {
+    const lista = borradoresPorAsignacion.get(b.assignment_id)
+    if (lista) lista.push(b)
+    else borradoresPorAsignacion.set(b.assignment_id, [b])
+  }
 
   const data = vigentes.map((a) => {
     const businessDate = businessDateFor(now, a.timezone || BUSINESS_TIMEZONE)
@@ -214,7 +228,8 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
     const agotado =
       (a.limit_policy === 'ONE_PER_PERIOD' || a.frequency === 'ONCE') && enviadosPeriodo > 0
 
-    const borrador = borradorPorAsignacion.get(a.id)
+    const borradoresDe = borradoresPorAsignacion.get(a.id) ?? []
+    const borrador = borradoresDe[0]
     const settings = (a.settings_json ?? {}) as Record<string, unknown>
     const contextSchema = (a.context_schema_json ?? {}) as Record<string, { required?: boolean }>
 
@@ -231,6 +246,8 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
       submittedThisPeriod: enviadosPeriodo,
       periodKey,
       businessDate,
+      /// `draft` se conserva —el más reciente— para no romper a ningún cliente
+      /// desplegado que aún lo lea; `drafts` es la lista completa.
       draft: borrador
         ? {
             clientSubmissionId: borrador.client_submission_id,
@@ -239,6 +256,12 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
             context: borrador.context_json,
           }
         : null,
+      drafts: borradoresDe.map((b) => ({
+        clientSubmissionId: b.client_submission_id,
+        updatedAt: b.updated_at.toISOString(),
+        progress: Number((b.device_json as any)?.progress ?? 0) || 0,
+        context: b.context_json,
+      })),
       allowOffline: settings.allowOffline !== false,
       requiresContext: Object.entries(contextSchema)
         .filter(([, v]) => v?.required)
@@ -252,7 +275,9 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
     meta: {
       today: businessDateFor(now),
       pending: data.filter((d) => d.dueState === 'AVAILABLE').length,
-      drafts: data.filter((d) => d.draft).length,
+      /// Cuenta BORRADORES, no asignaciones con borrador: con varios por
+      /// asignación las dos cifras dejan de coincidir y la que importa es esta.
+      drafts: data.reduce((sum, d) => sum + d.drafts.length, 0),
     },
   }
 }

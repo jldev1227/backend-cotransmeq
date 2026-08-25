@@ -325,15 +325,47 @@ export function toAssignmentDto(row: any) {
 // ─── Envíos ──────────────────────────────────────────────────────────────────
 
 /**
+ * Envoltura con la que un BORRADOR guarda su respuesta.
+ *
+ * `escribirRespuestasCrudas` no tipa nada: mete el valor entero en `value_json`
+ * bajo `draftValue`, o los tokens marcados bajo `draftOptionValues`. Es
+ * deliberado —un número a medio teclear ("12,") no es un decimal válido y
+ * tiparlo perdería lo que el conductor llevaba escrito— pero deja los borradores
+ * en un formato DISJUNTO del de los envíos entregados, que usan las columnas
+ * tipadas y `form_answer_options`.
+ */
+function envolturaDeBorrador(
+  valueJson: unknown,
+): { draftValue?: unknown; draftOptionValues?: unknown } | null {
+  if (valueJson == null || typeof valueJson !== 'object' || Array.isArray(valueJson)) return null
+  const claves = Object.keys(valueJson)
+  /// Se exige que la envoltura sea EXACTAMENTE una de las dos formas conocidas:
+  /// un campo cuyo valor legítimo fuera un objeto con más claves no debe
+  /// desenvolverse y perder el resto de su contenido.
+  if (claves.length !== 1) return null
+  if (claves[0] !== 'draftValue' && claves[0] !== 'draftOptionValues') return null
+  return valueJson as { draftValue?: unknown; draftOptionValues?: unknown }
+}
+
+/**
  * Respuesta con su valor ya desnormalizado en un único campo `value`.
  *
  * La base guarda el escalar en la columna que corresponde al tipo (seis
  * columnas mutuamente excluyentes por `ck_form_answers_single_scalar`), pero el
  * cliente solo quiere "el valor": obligarle a mirar seis columnas y adivinar
  * cuál está poblada duplicaría la tabla de tipos en el frontend.
+ *
+ * Los borradores se deshacen aquí de su envoltura, y no en cada consumidor: sin
+ * esto el panel recibía `{"draftOptionValues":["B"]}` donde esperaba `["B"]`, y
+ * un preoperacional al 100 % con 131 respuestas se veía ENTERO en blanco.
  */
 export function toAnswerDto(row: any) {
-  const optionValues: string[] = (row.options ?? []).map((o: any) => o.option?.value ?? o.option_id)
+  const envoltura = envolturaDeBorrador(row.value_json)
+
+  const optionValues: string[] =
+    envoltura && Array.isArray(envoltura.draftOptionValues)
+      ? envoltura.draftOptionValues.map((v: unknown) => String(v))
+      : (row.options ?? []).map((o: any) => o.option?.value ?? o.option_id)
 
   let value: unknown = null
   if (row.value_text != null) value = row.value_text
@@ -341,6 +373,7 @@ export function toAnswerDto(row: any) {
   else if (row.value_boolean != null) value = row.value_boolean
   else if (row.value_date != null) value = dateOnly(row.value_date)
   else if (row.value_datetime != null) value = iso(row.value_datetime)
+  else if (envoltura) value = 'draftValue' in envoltura ? envoltura.draftValue : optionValues
   else if (row.value_json != null) value = row.value_json
   else if (optionValues.length > 0) value = optionValues
 
@@ -403,6 +436,7 @@ export function toSubmissionSummaryDto(row: any) {
     context: json(row.context_json),
     startedAt: iso(row.started_at),
     submittedAt: iso(row.submitted_at),
+    updatedAt: iso(row.updated_at),
     voidedAt: iso(row.voided_at),
     voidReason: row.void_reason ?? null,
     conductor: row.conductor

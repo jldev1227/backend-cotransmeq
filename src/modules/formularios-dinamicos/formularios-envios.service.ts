@@ -39,6 +39,9 @@ const listSelect = {
   context_json: true,
   started_at: true,
   submitted_at: true,
+  /// Última escritura. En un borrador es lo único que dice hasta cuándo alcanzó
+  /// a respaldar el teléfono; `submitted_at` es NULL mientras no se entregue.
+  updated_at: true,
   voided_at: true,
   void_reason: true,
   conductor: { select: { id: true, nombre: true, apellido: true, numero_identificacion: true } },
