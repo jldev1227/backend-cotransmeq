@@ -640,20 +640,62 @@ async function calcularBreakdownParaPlanilla(planillaId: string): Promise<{
   };
 
   // 5. Convertir los días al formato del algoritmo (DiaLaboralRecargo)
-  const diasFormateados: DiaLaboralRecargo[] = planilla.dias_laborales_planillas.map(
-    (d) => ({
-      id: d.id,
-      dia: String(d.dia),
-      mes: String(mes),
-      año: String(año),
-      hora_inicio: Number(d.hora_inicio) || 0,
-      hora_fin: Number(d.hora_fin) || 0,
-      es_domingo: d.es_domingo,
-      es_festivo: d.es_festivo,
-      pernocte: d.pernocte,
-      disponibilidad: d.disponibilidad,
-      continua_siguiente_dia: d.continua_siguiente_dia || false
-    })
+  //
+  // El contexto son TODOS los días del conductor en el mes, no solo los de esta
+  // planilla. Un turno partido por la medianoche puede quedar repartido entre
+  // dos planillas —a Wilson Mejía el tramo 18:00-24:00 del 21 de julio y el
+  // 00:00-06:00 del 22 le quedaron en planillas distintas— y mirando una sola
+  // la continuidad es invisible: las horas de la madrugada volvían a abrir
+  // jornada y se pagaban como recargo nocturno ordinario en vez de extra.
+  //
+  // El breakdown que se devuelve sigue siendo el de los días de ESTA planilla
+  // (paso 6). Los días ajenos entran solo como contexto para que
+  // `calcularRecargosConContinuacion` vea el turno completo.
+  const diasOtrasPlanillas = await prisma.dias_laborales_planillas.findMany({
+    where: {
+      deleted_at: null,
+      recargo_planilla_id: { not: planillaId },
+      recargos_planillas: {
+        deleted_at: null,
+        conductor_id: planilla.conductor_id,
+        mes,
+        a_o: año
+      }
+    },
+    orderBy: [{ dia: "asc" }, { hora_inicio: "asc" }]
+  });
+
+  const aFormato = (d: {
+    id: string;
+    dia: number;
+    hora_inicio: unknown;
+    hora_fin: unknown;
+    es_domingo: boolean;
+    es_festivo: boolean;
+    pernocte: boolean;
+    disponibilidad: boolean;
+    continua_siguiente_dia: boolean | null;
+  }): DiaLaboralRecargo => ({
+    id: d.id,
+    dia: String(d.dia),
+    mes: String(mes),
+    año: String(año),
+    hora_inicio: Number(d.hora_inicio) || 0,
+    hora_fin: Number(d.hora_fin) || 0,
+    es_domingo: d.es_domingo,
+    es_festivo: d.es_festivo,
+    pernocte: d.pernocte,
+    disponibilidad: d.disponibilidad,
+    continua_siguiente_dia: d.continua_siguiente_dia || false
+  });
+
+  const diasFormateados: DiaLaboralRecargo[] = [
+    ...planilla.dias_laborales_planillas.map(aFormato),
+    ...diasOtrasPlanillas.map(aFormato)
+  ].sort(
+    (a, b) =>
+      Number(a.dia) - Number(b.dia) ||
+      Number(a.hora_inicio) - Number(b.hora_inicio)
   );
 
   // 6. Calcular breakdown por día
@@ -1738,10 +1780,21 @@ export const RecargosService = {
    */
   async _ejecutarBulkRecalc(state: BulkRecalcBatchState): Promise<void> {
     const { batchId, userId, ids } = state;
-    const io = getIo();
     const room = `user-${userId}`;
     const emit = async (event: string, payload: any) => {
       try {
+        /// `getIo()` va DENTRO del try, no fuera.
+        ///
+        /// Estaba resuelto una sola vez al entrar en la función: si Socket.IO
+        /// no estaba inicializado, lanzaba ahí mismo y el batch entero moría
+        /// sin recalcular ni un solo recargo, reportando `failed`. Pasa en todo
+        /// contexto sin servidor HTTP —un script de importación, un cron, un
+        /// test— justo donde el recálculo masivo es más útil.
+        ///
+        /// El cálculo es el objetivo; el aviso de progreso es decoración. Sin
+        /// sockets se pierden los eventos y el batch termina igual: el cliente
+        /// tiene `getBatchStatus` para consultar el resultado.
+        const io = getIo();
         // Verificar cuántos sockets hay en el room ANTES de emitir.
         // Si es 0, el cliente no se unió al room y los eventos se
         // perderán. Logueamos para diagnóstico y emitimos un fallback
@@ -1787,7 +1840,9 @@ export const RecargosService = {
             // (`recargo-recalculado`) para que el canvas actualice la
             // columna "Valor a Pagar" en paralelo al progress.
             try {
-              io.to(`user-${userId}`).emit("recargo-recalculado", {
+              /// Igual que en `emit`: se resuelve aquí dentro para que la
+              /// ausencia de Socket.IO no interrumpa el recálculo.
+              getIo().to(`user-${userId}`).emit("recargo-recalculado", {
                 recargoId: id,
                 conductorId: recalcResult.planilla.conductor_id,
                 empresaId: recalcResult.planilla.empresa_id,

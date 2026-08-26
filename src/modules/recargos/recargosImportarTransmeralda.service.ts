@@ -311,16 +311,10 @@ export const RecargosImportarTransmeraldaService = {
       : []
     const tmEmpById = new Map(empresasTM.map((e) => [e.id, e]))
 
-    // Resolver placas en TM con todos sus datos (para crear en CM)
-    const vehiculoIdsTM = Array.from(
-      new Set(planillasTM.map((p) => p.vehiculo_id).filter(Boolean))
-    )
-    const vehiculosTM = vehiculoIdsTM.length
-      ? await tm.vehiculos.findMany({
-          where: { id: { in: vehiculoIdsTM } },
-        })
-      : []
-    const tmVehById = new Map(vehiculosTM.map((v) => [v.id, v]))
+    /// El preview NO necesita los datos completos del vehículo en TM: la
+    /// placa ya viene por el `include` de `vehiculos` y es lo único que se
+    /// compara contra Cotransmeq. Traer la fila entera era un round-trip a
+    /// la BD remota cuyo resultado no se leía en ninguna parte.
 
     // 3. Queries a Cotransmeq
     const [conductoresCM, vehiculosCM, empresasCM] = await Promise.all([
@@ -511,7 +505,12 @@ export const RecargosImportarTransmeraldaService = {
       else if (!conductorDestino) motivos.push('Conductor no existe en Cotransmeq')
       else if (!conductorActivoEnCM)
         motivos.push('Conductor inactivo en Cotransmeq')
-      if (!p.numero_planilla) motivos.push('Sin número de planilla')
+      /// Se evalúa el numero NORMALIZADO, no el crudo: `normalizarNumeroPlanillaTM`
+      /// devuelve '' para un valor que es solo espacios, y el import lo rechaza
+      /// por esa vía. Mirando el crudo, una planilla con numero "   " salía
+      /// importable en el preview y luego el import la omitía sin que el
+      /// usuario entendiera por qué.
+      if (!numeroNormalizado) motivos.push('Sin número de planilla')
 
       return {
         source_id: p.id,
@@ -556,10 +555,12 @@ export const RecargosImportarTransmeraldaService = {
     const noImportables = itemsFiltrados.filter(
       (i) => !i.ya_importado && i.motivo_no_importable !== null
     ).length
-    // Cuántas se quedaron fuera por el filtro de conductor inactivo
-    // (antes del filtro de `motivo_no_importable`).
+    /// Cuántas dejó fuera REALMENTE el filtro de 5b. Antes se contaba todo
+    /// `!conductor_activo_en_destino`, lo que sumaba también las planillas ya
+    /// importadas (que el filtro sí conserva), así que el número que veía el
+    /// usuario era mayor que las filas que faltaban en la tabla.
     const filtradasPorConductorInactivo = items.filter(
-      (i) => !i.conductor_activo_en_destino
+      (i) => !i.conductor_activo_en_destino && !i.ya_importado
     ).length
 
     return {
@@ -832,6 +833,19 @@ export const RecargosImportarTransmeraldaService = {
       empresasCM.map((e) => [e.nombre || '', e.id])
     )
 
+    /// Creaciones de empresa EN VUELO, indexadas por nombre.
+    ///
+    /// `empresas` no tiene UNIQUE por `nombre`, así que no hay red de
+    /// seguridad en la BD: dos workers del pool que necesitaran la misma
+    /// empresa nueva fallaban los dos el `empByNombre.get()` —el primero aún
+    /// no había terminado su `create`— y creaban dos filas con el mismo
+    /// nombre. A partir de ahí las planillas del lote quedaban repartidas
+    /// entre dos empresas duplicadas.
+    ///
+    /// Compartiendo la promesa, el segundo worker espera a la creación del
+    /// primero y reutiliza su id.
+    const empresasEnVuelo = new Map<string, Promise<string>>()
+
     const now = new Date()
     const importadas: Array<{ source_id: string; new_id: string; numero_planilla: string }> = []
     const omitidas: Array<{ source_id: string; motivo: string }> = []
@@ -987,31 +1001,45 @@ export const RecargosImportarTransmeraldaService = {
           ? empByNombre.get(empresaTM.nombre)
           : null
         if (!empresaIdCM && empresaTM?.nombre) {
-          // `clientes` no tiene UNIQUE por nombre en el schema, así que
-          // hacemos check-then-create dentro de un try/catch para tolerar
-          // carreras concurrentes.
-          const nuevaEmpresa = await prisma.clientes.create({
-            data: {
-              id: randomUUID(),
-              nombre: empresaTM.nombre,
-              nit: empresaTM.nit,
-              representante: empresaTM.representante,
-              cedula: empresaTM.cedula,
-              telefono: empresaTM.telefono,
-              direccion: empresaTM.direccion,
-              requiere_osi: empresaTM.requiere_osi ?? false,
-              paga_recargos: empresaTM.paga_recargos ?? false,
-              tipo: empresaTM.tipo || 'EMPRESA',
-              correo: empresaTM.correo,
-              oculto: false,
-              createdAt: now,
-              updatedAt: now
-            } as any,
-            select: { id: true, nombre: true }
-          })
-          empresaIdCM = nuevaEmpresa.id
-          empByNombre.set(empresaTM.nombre, nuevaEmpresa.id)
-          empresasCreadas++
+          const nombreEmpresa = empresaTM.nombre
+          let creacion = empresasEnVuelo.get(nombreEmpresa)
+          if (!creacion) {
+            creacion = (async () => {
+              /// Se reconsulta antes de crear: la empresa pudo entrar por
+              /// `crearEntidadesFaltantes` o por otra corrida desde que se
+              /// cargó `empresasCM` al principio de esta importación.
+              const existente = await prisma.clientes.findFirst({
+                where: { nombre: nombreEmpresa },
+                select: { id: true }
+              })
+              if (existente) return existente.id
+
+              const nuevaEmpresa = await prisma.clientes.create({
+                data: {
+                  id: randomUUID(),
+                  nombre: nombreEmpresa,
+                  nit: empresaTM.nit,
+                  representante: empresaTM.representante,
+                  cedula: empresaTM.cedula,
+                  telefono: empresaTM.telefono,
+                  direccion: empresaTM.direccion,
+                  requiere_osi: empresaTM.requiere_osi ?? false,
+                  paga_recargos: empresaTM.paga_recargos ?? false,
+                  tipo: empresaTM.tipo || 'EMPRESA',
+                  correo: empresaTM.correo,
+                  oculto: false,
+                  createdAt: now,
+                  updatedAt: now
+                } as any,
+                select: { id: true }
+              })
+              empresasCreadas++
+              return nuevaEmpresa.id
+            })()
+            empresasEnVuelo.set(nombreEmpresa, creacion)
+          }
+          empresaIdCM = await creacion
+          empByNombre.set(nombreEmpresa, empresaIdCM)
         }
         if (!empresaIdCM) {
           omitidas.push({ source_id: p.id, motivo: 'Empresa no encontrada en TM' })
@@ -1053,10 +1081,20 @@ export const RecargosImportarTransmeraldaService = {
           })
           return
         }
-        // Marcamos la key legacy para que, si en el mismo batch vienen
-        // dos TM planillas con misma key y NINGUNA tiene source_id en
-        // CM, no se importen duplicadas.
-        dedupKey.add(key)
+        /// NO se agrega `key` a `dedupKey`. Esa marca hacía que, de dos
+        /// planillas de TM que comparten (conductor, número, mes, año) pero
+        /// son registros DISTINTOS, solo entrara la primera del lote y la
+        /// segunda se descartara como «ya importada». Es el mismo caso que
+        /// `obtenerPreview` ya documenta y contempla —TM-7204 de JONATHAN
+        /// HERNANDEZ cubre dos rangos de días en julio, TM-7292 de JOSE RAUL
+        /// HERNANDEZ otros dos— así que el preview ofrecía las dos filas como
+        /// importables y el import se comía una en silencio.
+        ///
+        /// `dedupKey` sigue conteniendo las keys de los registros LEGACY de
+        /// Cotransmeq (los que no tienen `imported_from_transmeralda_id`), que
+        /// es para lo que existe. La idempotencia entre corridas no depende de
+        /// esta marca sino de `imported_from_transmeralda_id`: al reimportar,
+        /// ambas planillas matchean por su id de origen en `cmBySourceId`.
 
         // Crear recargo_planilla + dias_laborales_planillas
         const newRecargoId = randomUUID()

@@ -226,9 +226,6 @@ export function calcularRecargosDia(
       umbrales.finNocturno,
     );
     const esExtra = horasAcumuladas >= jornadaOrdinaria;
-    console.log(
-      `DEBUG main: horaActual=${horaActual} hAcum=${horasAcumuladas} esExtra=${esExtra} es_domingo_o_festivo=${es_domingo_o_festivo} jornadaOrd=${jornadaOrdinaria}`,
-    );
 
     if (es_domingo_o_festivo) {
       if (esExtra) {
@@ -236,9 +233,6 @@ export function calcularRecargosDia(
           hefn += fraccion;
         } else {
           hefd += fraccion;
-          console.log(
-            `DEBUG if-esExtra: horaActual=${horaActual} fraccion=${fraccion} hAcum=${horasAcumuladas}`,
-          );
         }
       } else {
         const horasRestantesJornada = jornadaOrdinaria - horasAcumuladas;
@@ -522,6 +516,49 @@ function normalizarHoraAbsoluta(hora: number): number {
  *
  * Reglas completas en el JSDoc del frontend.
  */
+
+/**
+ * ¿El día `siguiente` es la segunda mitad del turno de `previo`?
+ *
+ * `continua_siguiente_dia` es una marca manual y en la práctica viene en false
+ * en todas las planillas, así que la continuidad se deduce del horario. Un turno
+ * partido por la medianoche se reconoce porque el primer tramo cierra a las
+ * 24:00, el segundo abre a las 00:00 del día siguiente, y el primero arrancó de
+ * tarde o de noche.
+ *
+ * La condición de la tarde es la que separa los dos casos que se confunden:
+ *   18:00→24:00 + 00:00→06:00  es UN turno nocturno de 12 h, y las horas de la
+ *                              madrugada ya van por encima de la jornada.
+ *   09:00→24:00 + 00:00→08:00  son DOS turnos: el primero es un día largo y el
+ *                              segundo abre jornada nueva.
+ * Sin ese corte, jornadas ordinarias de la madrugada se pagaban como extra.
+ */
+const INICIO_TURNO_NOCTURNO = 12;
+
+function horaNum(v: string | number | undefined | null): number {
+  if (v === undefined || v === null || v === "") return NaN;
+  return typeof v === "string" ? parseFloat(v) : v;
+}
+
+export function continuaPorHorario(
+  previo: DiaLaboralRecargo,
+  siguiente: DiaLaboralRecargo,
+): boolean {
+  const pIni = horaNum(previo.hora_inicio);
+  const pFin = horaNum(previo.hora_fin);
+  const sIni = horaNum(siguiente.hora_inicio);
+  if (isNaN(pIni) || isNaN(pFin) || isNaN(sIni)) return false;
+  if (Math.abs(pFin - 24) > 0.001) return false;
+  if (Math.abs(sIni) > 0.001) return false;
+  if (pIni < INICIO_TURNO_NOCTURNO) return false;
+  // Deben ser días calendario consecutivos.
+  const a = Number(previo.dia), b = Number(siguiente.dia);
+  if (!a || !b) return false;
+  const mesA = Number(previo.mes), mesB = Number(siguiente.mes);
+  if (mesA === mesB) return b === a + 1;
+  return b === 1 && mesB === mesA + 1;
+}
+
 export function calcularRecargosConContinuacion(params: {
   dia: DiaLaboralRecargo;
   diasLaborales: DiaLaboralRecargo[];
@@ -612,7 +649,7 @@ export function calcularRecargosConContinuacion(params: {
 
   if (currentIdx > 0) {
     diaAnterior = diasLaborales[currentIdx - 1];
-    if (diaAnterior.continua_siguiente_dia) {
+    if (diaAnterior.continua_siguiente_dia || continuaPorHorario(diaAnterior, dia)) {
       esContinuacion = true;
     }
   }
@@ -733,7 +770,7 @@ export function calcularRecargosConContinuacion(params: {
   // - 21 jun (7-18): counted 8, HEFD 0.67, RD 7.33. ✓
   // - 21 jun (8-18): counted 8, HEFD 0.67, RD 7.33. ✓
   // - 21 jun (5-18): counted 10, HEFD 2.67, RD 6.33, RNDF 1. ✓
-  const antesSkipped = inicioTurnoNorm < 8 ? 1 : 0;
+  const antesSkipped = 0; /// ver esAntesJornadaFestiva
   // Cuántas horas de almuerzo se skipean (12-13 en día)
   const lunchSkippedBase = inicioTurnoNorm < 13 && finNorm > 12 ? 1 : 0;
   // Total trabajadas (puede exceder 24 en turnos continuos, pero aquí es single-day)
@@ -753,12 +790,6 @@ export function calcularRecargosConContinuacion(params: {
   const lunchSkipped = skipAlmuerzo ? lunchSkippedBase : 0;
   const countedSinDespues = totalTrabajadas - antesSkipped - lunchSkipped;
   const skipDespues1 = countedSinDespues > umbralesDia1.jornadaFestiva;
-  console.log(
-    `TEST: turnoInicio=${turnoInicio} turnoFin=${turnoFin} inicioTurnoNorm=${inicioTurnoNorm} finNorm=${finNorm}`,
-  );
-  console.log(
-    `TEST: totalTrabajadas=${totalTrabajadas} antesSkipped=${antesSkipped} skipAlmuerzo=${skipAlmuerzo} skipDespues1=${skipDespues1}`,
-  );
   const ALMUERZO_INICIO = 12;
   const ALMUERZO_FIN = 13;
 
@@ -844,6 +875,7 @@ export function calcularRecargosConContinuacion(params: {
   const phantomEnd = phantomStart + phantomAntes;
 
   function esPhantomAntes(hora: number): boolean {
+    return false; /// ver esAntesJornadaFestiva
     if (phantomAntes <= 0.001) return false;
     const esFestivoAqui = hora < puntoCorte ? esDomFestDia1 : esDomFestDia2;
     if (!esFestivoAqui) return false;
@@ -854,10 +886,11 @@ export function calcularRecargosConContinuacion(params: {
   // Declaradas aquí (después de las constantes y variables) para que
   // TypeScript no se queje de hoisting.
   function esAntesJornadaFestiva(hora: number): boolean {
-    const esFestivoAqui = hora < puntoCorte ? esDomFestDia1 : esDomFestDia2;
-    if (!esFestivoAqui) return false;
-    const h = normalizarHoraAbsoluta(hora);
-    return h >= ANTES_JORNADA_FESTIVA_INICIO && h < ANTES_JORNADA_FESTIVA_FIN;
+    /// Desactivado: descontaba siempre la hora 06:00-07:00 de los días festivos,
+    /// y una hora más ("phantom") a cualquier turno que arrancara antes de las
+    /// 08:00 aunque no tocara esa franja. Un domingo de 04:00 a 07:30 perdía así
+    /// 1 h de recargo dominical: RD=0,5 donde corresponden 1,5.
+    return false;
   }
 
   // Si counted - 1 (después de saltar 17-18) > cap, se skipea 19-20.
@@ -890,9 +923,11 @@ export function calcularRecargosConContinuacion(params: {
     }
 
     const diaCalendario = horaActual < puntoCorte ? 1 : 2;
-    if (ultimoDiaContado !== null && diaCalendario !== ultimoDiaContado) {
-      horasAcumuladas = 0;
-    }
+    /// La jornada NO se reinicia al cruzar la medianoche: un turno que arranca
+    /// a las 18:00 y termina a las 06:00 es UNA jornada, así que las horas de
+    /// la madrugada ya van por encima del tope y son extra, no ordinarias.
+    /// Reiniciando el acumulador, esas horas salían como recargo nocturno
+    /// ordinario (35%) en vez de hora extra nocturna (75%).
     ultimoDiaContado = diaCalendario;
 
     const umbralExtras = jornadaParaFecha(horaActual);
@@ -998,9 +1033,13 @@ export function calcularRecargosConContinuacion(params: {
         ? umbralesAqui.jornadaFestiva
         : umbralesAqui.jornadaNormal;
 
-      if (ultimoDiaF !== null && diaF !== ultimoDiaF) {
-        hAcum = 0;
-      }
+      /// Tampoco aquí se reinicia la jornada al cambiar de día calendario.
+      /// Este post-proceso recalcula la base dominical (RD/RNDF) por su cuenta,
+      /// así que si conserva el reinicio y el bucle principal no, los dos dejan
+      /// de coincidir en qué hora es ordinaria: el principal la cuenta como
+      /// extra (HEFD/HEFN) y este la vuelve a contar como base, y la hora
+      /// termina pagada dos veces. Ocurría en turnos festivos que continúan
+      /// desde el día anterior: un turno de 7 h llegaba a facturar 14.
       ultimoDiaF = diaF;
 
       if (esMiDia && esDomFest) {
