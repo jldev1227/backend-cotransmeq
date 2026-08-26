@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { FormulariosSarlaftController } from './formularios-sarlaft.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { ESTADOS_ADMINISTRATIVOS } from './declaracion-transporte.validacion'
 
 /**
  * Rutas para los formularios SARLAFT + PTEE.
@@ -285,9 +286,13 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
             // `condicionado` es una decisión final distinta de `escalado`:
             // cierra la evaluación (y emite versión documental), mientras que
             // `escalado` deja el caso pendiente de decisión.
+            //
+            // La lista se toma de ESTADOS_ADMINISTRATIVOS para que no vuelva a
+            // desincronizarse: incluye `recibido`, que es el estado inicial y
+            // el que el dashboard reenvía cuando solo se edita el concepto.
             estado: {
               type: 'string',
-              enum: ['en_revision', 'aprobado', 'condicionado', 'rechazado', 'escalado']
+              enum: [...ESTADOS_ADMINISTRATIVOS]
             },
             concepto: { type: 'string', nullable: true },
             observaciones: { type: 'string', nullable: true }

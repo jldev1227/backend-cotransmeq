@@ -284,14 +284,22 @@ export function extraerDatosClaveDeclaracion(respuestas: Respuestas): {
   }
 }
 
-/** Estados administrativos que emiten una versión evaluada del documento. */
-export type EstadoAdministrativo =
-  | 'recibido'
-  | 'en_revision'
-  | 'aprobado'
-  | 'condicionado'
-  | 'rechazado'
-  | 'escalado'
+/** Estados administrativos válidos, en orden de avance del trámite.
+ *
+ *  Fuente única: el schema de la ruta de evaluación se valida contra esta
+ *  lista, así que agregar un estado aquí basta para que el PATCH lo acepte.
+ *  `recibido` es el estado inicial con el que nace el radicado, y el
+ *  dashboard lo reenvía tal cual cuando solo se edita el concepto. */
+export const ESTADOS_ADMINISTRATIVOS = [
+  'recibido',
+  'en_revision',
+  'aprobado',
+  'condicionado',
+  'rechazado',
+  'escalado'
+] as const
+
+export type EstadoAdministrativo = (typeof ESTADOS_ADMINISTRATIVOS)[number]
 
 export type MarcaResultado = 'aprobado' | 'condicionado' | 'no_aprobado' | null
 
