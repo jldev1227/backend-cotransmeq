@@ -34,7 +34,7 @@ docker build \
 docker tag "${RELEASE_IMAGE}" "${PRODUCTION_IMAGE}"
 
 compose_up() {
-	BACKEND_ENV_FILE="${BACKEND_ENV_FILE}" docker compose \
+	env BACKEND_ENV_FILE="${BACKEND_ENV_FILE}" docker compose \
 		--project-name backend-cotransmeq \
 		-f "${COMPOSE_FILE}" \
 		up -d --no-deps --force-recreate backend
