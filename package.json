@@ -12,6 +12,8 @@
     "seed": "tsx prisma/seed.ts",
     "seeds:formularios:inventario": "tsx prisma/seeds/formularios-hseq/inventario.ts",
     "seeds:formularios:cargar": "tsx prisma/seeds/formularios-hseq/cargar.ts",
+    "operadoras:inventario": "tsx scripts/operadoras-inventario.ts",
+    "seeds:operadoras:cargar": "tsx prisma/seeds/operadoras/cargar.ts",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
@@ -21,7 +23,8 @@
     "migrate:fixed": "tsx scripts/migrate-fixed.ts",
     "sync:vehiculos": "node scripts/sync-vehiculo-estados.js",
     "sync:vehiculos:ts": "tsx scripts/sync-vehiculo-estados.ts",
-    "test:declaracion-transporte": "vitest run --config vitest.declaracion.config.ts"
+    "test:declaracion-transporte": "vitest run --config vitest.declaracion.config.ts",
+    "test:formularios": "vitest run --config vitest.formularios.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

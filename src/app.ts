@@ -26,6 +26,7 @@ import { primasRoutes } from './modules/primas/primas.routes'
 import { extractosRoutes } from './modules/extractos/extractos.routes'
 import { salidasNCRoutes } from './modules/salidas-nc/salidas-nc.routes'
 import { liquidacionesServiciosRoutes } from './modules/liquidaciones-servicios/liquidaciones-servicios.routes'
+import { operadorasRoutes } from './modules/operadoras/operadoras.routes'
 import { induccionesRoutes } from './modules/inducciones/inducciones.routes'
 import { diasLaboradosRoutes } from './modules/dias-laborados/dias-laborados.routes'
 import { desprendibleFirmaRoutes } from './modules/liquidaciones/desprendible-firma.routes'
@@ -53,6 +54,7 @@ import { liquidacionesTercerosMensualRoutes } from './modules/liquidaciones-terc
 import { formulariosSarlaftRoutes } from './modules/formularios-sarlaft/formularios-sarlaft.routes'
 import { formulariosDinamicosRoutes } from './modules/formularios-dinamicos/formularios-dinamicos.routes'
 import { formulariosPortalRoutes } from './modules/formularios-dinamicos/formularios-portal.routes'
+import { formulariosMisRoutes } from './modules/formularios-dinamicos/formularios-mis.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -141,6 +143,7 @@ export function buildApp() {
     app.register(extractosRoutes, { prefix: '/api' })
     app.register(salidasNCRoutes, { prefix: '/api' })
     app.register(liquidacionesServiciosRoutes, { prefix: '/api' })
+    app.register(operadorasRoutes, { prefix: '/api' })
     app.register(diasLaboradosRoutes, { prefix: '/api' })
     app.register(pesvRoutes, { prefix: '/api' })
     app.register(actividadesPesvRoutes, { prefix: '/api' })
@@ -182,12 +185,21 @@ export function buildApp() {
     // Formularios públicos SARLAFT + PTEE (clientes, proveedores, accionistas, personal)
     app.register(formulariosSarlaftRoutes, { prefix: '/api' })
 
-    // Formularios dinámicos: constructor administrativo (permiso `formularios`)
-    // y API del portal del conductor (magic link). Van en dos registros porque
-    // se autentican distinto: el primero con `authMiddleware` (JWT de
-    // dashboard), el segundo con el JWT `tipo: conductor_portal`.
+    // Formularios dinámicos: tres registros porque se autentican y se autorizan
+    // distinto, no por gusto de separar.
+    //
+    //  - `formulariosDinamicosRoutes`: el CONSTRUCTOR. JWT de dashboard y
+    //    permiso de módulo `formularios` (`administracion`/`hseq`).
+    //  - `formulariosPortalRoutes`: el portal del conductor. JWT del magic link
+    //    (`tipo: conductor_portal`), sin áreas ni permisos por módulo.
+    //  - `formulariosMisRoutes`: diligenciar desde el dashboard. JWT de
+    //    dashboard, pero permiso `mis-formularios` (`general: true`): rellenar
+    //    lo que te asignaron no puede exigir el permiso de publicar formularios.
+    //
+    // Los dos últimos comparten `formularios-portal.service.ts` entero.
     app.register(formulariosDinamicosRoutes, { prefix: '/api' })
     app.register(formulariosPortalRoutes, { prefix: '/api' })
+    app.register(formulariosMisRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

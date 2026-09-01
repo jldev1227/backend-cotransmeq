@@ -1,13 +1,17 @@
 /**
  * Asignaciones.
  *
- * Una asignación es lo que hace visible un formulario para un conductor. Dos
- * invariantes la sostienen y las dos son de negocio, no de esquema:
+ * Una asignación es lo que hace visible un formulario para quien lo diligencia:
+ * conductores del portal, usuarios internos del dashboard, o —lo habitual— las
+ * dos poblaciones a la vez, con varios targets sobre la MISMA asignación. Eso
+ * es lo que evita duplicar un formato solo para cambiarle la audiencia.
+ *
+ * Dos invariantes la sostienen y las dos son de negocio, no de esquema:
  *
  *  1. **Solo apunta a una versión PUBLICADA.** Asignar un borrador dejaría a
  *     los conductores diligenciando algo que HSEQ todavía está editando.
- *  2. **Cambiar la audiencia no toca los envíos.** Quitar a un conductor del
- *     target no borra lo que ya entregó; solo deja de aparecerle.
+ *  2. **Cambiar la audiencia no toca los envíos.** Quitar a alguien del target
+ *     no borra lo que ya entregó; solo deja de aparecerle.
  *
  * Pausar/cerrar existe en vez de borrar porque el rollback funcional del módulo
  * es exactamente esto: pausar la asignación y archivar la versión, conservando
@@ -17,6 +21,7 @@
 import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
+import { AREAS, esAreaValida } from '../../config/permissions'
 import { FormError, type AssignmentStatus } from './domain'
 import { toAssignmentDto } from './formularios-dinamicos.mapper'
 import type {
@@ -31,6 +36,7 @@ const assignmentInclude = {
     include: {
       conductor: { select: { id: true, nombre: true, apellido: true } },
       vehiculo: { select: { id: true, placa: true } },
+      usuario: { select: { id: true, nombre: true, correo: true } },
     },
     orderBy: { created_at: 'asc' },
   },
@@ -93,6 +99,7 @@ export async function obtenerAsignacion(id: string) {
 async function verificarTargets(targets: CrearAsignacionInput['targets']): Promise<void> {
   const conductorIds = [...new Set(targets.map((t) => t.conductorId).filter(Boolean))] as string[]
   const vehicleIds = [...new Set(targets.map((t) => t.vehicleId).filter(Boolean))] as string[]
+  const usuarioIds = [...new Set(targets.map((t) => t.usuarioId).filter(Boolean))] as string[]
 
   if (conductorIds.length) {
     const encontrados = await prisma.conductores.findMany({
@@ -120,6 +127,37 @@ async function verificarTargets(targets: CrearAsignacionInput['targets']): Promi
         vehicleIds: faltan,
       })
     }
+  }
+
+  if (usuarioIds.length) {
+    /// `activo: true` y no solo "existe": a un usuario dado de baja no debe
+    /// aparecerle nada, y `condicionAcceso` ya lo filtra igual. Aceptarlo aquí
+    /// crearía un target que nunca alcanza a nadie.
+    const encontrados = await prisma.usuarios.findMany({
+      where: { id: { in: usuarioIds }, activo: true },
+      select: { id: true },
+    })
+    const vistos = new Set(encontrados.map((u) => u.id))
+    const faltan = usuarioIds.filter((id) => !vistos.has(id))
+    if (faltan.length) {
+      throw new FormError('ASSIGNMENT_NOT_AVAILABLE', 'Hay usuarios del target que no existen o están inactivos.', {
+        usuarioIds: faltan,
+      })
+    }
+  }
+
+  /// Las áreas se validan contra la lista canónica de `config/permissions.ts` y
+  /// no contra un literal local: cuando se añadió `mantenimiento` había cuatro
+  /// copias del array y tres se quedaron sin actualizar. Un área inventada
+  /// pasaría el CHECK de la base (es un VARCHAR) y crearía un target mudo.
+  const areasInvalidas = [
+    ...new Set(targets.filter((t) => t.type === 'AREA').map((t) => t.area).filter(Boolean) as string[]),
+  ].filter((a) => !esAreaValida(a))
+  if (areasInvalidas.length) {
+    throw new FormError('ASSIGNMENT_NOT_AVAILABLE', 'Hay áreas del target que no existen.', {
+      areas: areasInvalidas,
+      validas: AREAS,
+    })
   }
 }
 
@@ -194,6 +232,9 @@ export async function crearAsignacion(input: CrearAsignacionInput, actor: AdminA
         vehicle_id: t.vehicleId ?? null,
         sede: t.sede ?? null,
         group_key: t.groupKey ?? null,
+        usuario_id: t.usuarioId ?? null,
+        area: t.area ?? null,
+        cargo: t.cargo?.trim() || null,
       })),
     })
   })
@@ -258,6 +299,9 @@ export async function actualizarAsignacion(id: string, input: ActualizarAsignaci
           vehicle_id: t.vehicleId ?? null,
           sede: t.sede ?? null,
           group_key: t.groupKey ?? null,
+          usuario_id: t.usuarioId ?? null,
+          area: t.area ?? null,
+          cargo: t.cargo?.trim() || null,
         })),
       })
     }
