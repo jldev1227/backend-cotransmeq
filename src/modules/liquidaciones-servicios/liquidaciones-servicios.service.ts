@@ -758,7 +758,9 @@ export const LiquidacionesServiciosService = {
 
   async listar(filtros: FiltrosLiquidacionServicios) {
     const page = Number(filtros.page) || 1;
-    const limit = Number(filtros.limit) || 10;
+    /// El canvas pide el histórico entero de un tirón (~520 filas). El tope
+    /// evita que un `?limit=999999` se traduzca en un `take` sin freno.
+    const limit = Math.min(Number(filtros.limit) || 10, 2000);
     const skip = (page - 1) * limit;
 
     const where: any = { deleted_at: null };
@@ -934,6 +936,17 @@ export const LiquidacionesServiciosService = {
           aprobado_por: { select: { id: true, nombre: true, correo: true } },
           _count: { select: { items: true } },
           items: { select: { placa: true } },
+          /// La factura viaja embebida (igual que en el historial de terceros)
+          /// para que el canvas no tenga que encadenar un POST /batch-info por
+          /// cada página de 500 filas. Solo interesa la factura viva.
+          factura_items: {
+            where: { factura: { estado: "ACTIVA", deleted_at: null } },
+            select: {
+              factura: {
+                select: { id: true, numero_factura: true, estado: true },
+              },
+            },
+          },
         },
         orderBy,
         skip,

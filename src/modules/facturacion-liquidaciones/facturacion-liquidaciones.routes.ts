@@ -17,6 +17,10 @@ export async function facturacionLiquidacionesRoutes(app: FastifyInstance) {
   app.delete('/facturacion-liquidaciones/:id', FacturacionLiquidacionesController.eliminar)
   app.patch('/facturacion-liquidaciones/:id/restaurar', FacturacionLiquidacionesController.restaurar)
 
+  // Items de una factura viva: asociar / desasociar liquidaciones
+  app.post('/facturacion-liquidaciones/:id/items', FacturacionLiquidacionesController.agregarLiquidaciones)
+  app.delete('/facturacion-liquidaciones/:id/items/:liquidacionId', FacturacionLiquidacionesController.quitarLiquidacion)
+
   // Batch: info de facturas para liquidaciones
   app.post('/facturacion-liquidaciones/batch-info', FacturacionLiquidacionesController.batchFacturaInfo)
 }

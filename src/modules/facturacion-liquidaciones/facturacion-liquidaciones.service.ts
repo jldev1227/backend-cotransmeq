@@ -18,6 +18,70 @@ export interface FiltrosFacturas {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+/// `include` compartido por las operaciones que devuelven la factura entera.
+const FACTURA_INCLUDE = {
+  facturado_por: { select: { id: true, nombre: true, correo: true } },
+  anulado_por: { select: { id: true, nombre: true, correo: true } },
+  items: {
+    include: {
+      liquidacion: {
+        select: {
+          id: true,
+          consecutivo: true,
+          total: true,
+          mes: true,
+          anio: true,
+          cliente: { select: { id: true, nombre: true, nit: true } },
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * Recalcula `valor_total` sumando los items vivos de la factura y devuelve
+ * cuántos quedaron.
+ *
+ * Se suma desde la base en vez de acumular sobre el valor guardado: si una
+ * asociación anterior falló a medias, acumular arrastraría el descuadre para
+ * siempre. Recalcular hace que cada operación deje la factura consistente.
+ */
+async function recalcularValorTotal(tx: any, facturaId: string) {
+  const items = await tx.factura_liquidacion_item.findMany({
+    where: { factura_id: facturaId },
+    select: { valor_liquidacion: true },
+  });
+  const total = items.reduce(
+    (sum: number, i: any) => sum + Number(i.valor_liquidacion),
+    0,
+  );
+  await tx.factura_liquidacion_servicio.update({
+    where: { id: facturaId },
+    data: { valor_total: total },
+  });
+  return items.length;
+}
+
+/// Los Decimal de Prisma llegan al cliente como objeto; se pasan a number.
+function serializarFactura(factura: any) {
+  if (!factura) throw new Error("Factura no encontrada");
+  return {
+    ...factura,
+    valor_total: Number(factura.valor_total),
+    items: factura.items.map((i: any) => ({
+      ...i,
+      valor_liquidacion: Number(i.valor_liquidacion),
+      liquidacion: i.liquidacion
+        ? { ...i.liquidacion, total: Number(i.liquidacion.total) }
+        : null,
+    })),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SERVICIO
 // ═══════════════════════════════════════════════════════════════
 
@@ -160,6 +224,198 @@ export const FacturacionLiquidacionesService = {
             }
           : null,
       })),
+    };
+  },
+
+  /**
+   * Asociar liquidaciones a una factura que ya existe.
+   *
+   * Es el mismo contrato que `crear`, pero sobre una factura viva: mismas
+   * validaciones de estado y de doble facturación. El `valor_total` se recalcula
+   * sumando los items resultantes en lugar de acumular sobre el valor guardado,
+   * para que una asociación fallida a medias no deje la factura descuadrada.
+   */
+  async agregarLiquidaciones(
+    facturaId: string,
+    liquidacion_ids: string[],
+    userId: string,
+  ) {
+    if (!liquidacion_ids || liquidacion_ids.length === 0) {
+      throw new Error("Debe seleccionar al menos una liquidación");
+    }
+
+    const factura = await prisma.factura_liquidacion_servicio.findUnique({
+      where: { id: facturaId },
+      select: { id: true, estado: true, numero_factura: true, deleted_at: true },
+    });
+    if (!factura || factura.deleted_at) throw new Error("Factura no encontrada");
+    if (factura.estado !== "ACTIVA") {
+      throw new Error(
+        `La factura ${factura.numero_factura} está ${factura.estado.toLowerCase()}: no admite nuevas liquidaciones`,
+      );
+    }
+
+    const liquidaciones = await prisma.liquidacion_servicio.findMany({
+      where: { id: { in: liquidacion_ids }, deleted_at: null },
+      select: { id: true, consecutivo: true, estado: true, total: true },
+    });
+    if (liquidaciones.length !== liquidacion_ids.length) {
+      throw new Error("Algunas liquidaciones no fueron encontradas");
+    }
+
+    const noFacturables = liquidaciones.filter(
+      (l) => !["LIQUIDADA", "APROBADA"].includes(l.estado),
+    );
+    if (noFacturables.length > 0) {
+      const consecutivos = noFacturables.map((l) => l.consecutivo).join(", ");
+      throw new Error(
+        `Las siguientes liquidaciones no están en estado para facturar: ${consecutivos}`,
+      );
+    }
+
+    const yaFacturadas = await prisma.factura_liquidacion_item.findMany({
+      where: {
+        liquidacion_id: { in: liquidacion_ids },
+        factura: { estado: "ACTIVA" },
+      },
+      include: {
+        liquidacion: { select: { consecutivo: true } },
+        factura: { select: { numero_factura: true } },
+      },
+    });
+    if (yaFacturadas.length > 0) {
+      const detalles = yaFacturadas
+        .map(
+          (f) =>
+            `${f.liquidacion.consecutivo} (Factura: ${f.factura.numero_factura})`,
+        )
+        .join(", ");
+      throw new Error(
+        `Las siguientes liquidaciones ya están facturadas: ${detalles}`,
+      );
+    }
+
+    const actualizada = await prisma.$transaction(async (tx) => {
+      await tx.factura_liquidacion_item.createMany({
+        data: liquidaciones.map((l) => ({
+          factura_id: facturaId,
+          liquidacion_id: l.id,
+          valor_liquidacion: Number(l.total),
+        })),
+      });
+
+      await tx.liquidacion_servicio.updateMany({
+        where: { id: { in: liquidacion_ids } },
+        data: { estado: "FACTURADA", fecha_facturacion: new Date() },
+      });
+
+      await tx.historial_estado_liquidacion.createMany({
+        data: liquidaciones.map((l) => ({
+          liquidacion_id: l.id,
+          estado_anterior: l.estado,
+          estado_nuevo: "FACTURADA",
+          usuario_id: userId,
+          motivo: `Asociada a la factura ${factura.numero_factura}`,
+        })),
+      });
+
+      await recalcularValorTotal(tx, facturaId);
+
+      return tx.factura_liquidacion_servicio.findUnique({
+        where: { id: facturaId },
+        include: FACTURA_INCLUDE,
+      });
+    });
+
+    return {
+      factura: serializarFactura(actualizada),
+      liquidaciones_afectadas: liquidaciones.map((l) => ({
+        id: l.id,
+        consecutivo: l.consecutivo,
+        estado: "FACTURADA" as const,
+        factura_id: facturaId,
+        numero_factura: factura.numero_factura,
+      })),
+    };
+  },
+
+  /**
+   * Quitar una liquidación de su factura y devolverla a LIQUIDADA.
+   *
+   * Si la factura se queda sin items NO se borra sola: eso lo decide el usuario
+   * con `anular` + `eliminar`. Se avisa con `quedo_vacia` para que la UI lo diga.
+   */
+  async quitarLiquidacion(
+    facturaId: string,
+    liquidacionId: string,
+    userId: string,
+  ) {
+    const factura = await prisma.factura_liquidacion_servicio.findUnique({
+      where: { id: facturaId },
+      select: { id: true, estado: true, numero_factura: true, deleted_at: true },
+    });
+    if (!factura || factura.deleted_at) throw new Error("Factura no encontrada");
+    if (factura.estado !== "ACTIVA") {
+      throw new Error(
+        `La factura ${factura.numero_factura} está ${factura.estado.toLowerCase()}: no se pueden mover sus liquidaciones`,
+      );
+    }
+
+    const item = await prisma.factura_liquidacion_item.findUnique({
+      where: {
+        factura_id_liquidacion_id: {
+          factura_id: facturaId,
+          liquidacion_id: liquidacionId,
+        },
+      },
+      include: { liquidacion: { select: { consecutivo: true, estado: true } } },
+    });
+    if (!item) {
+      throw new Error("Esa liquidación no pertenece a esta factura");
+    }
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      await tx.factura_liquidacion_item.delete({ where: { id: item.id } });
+
+      /// Solo se revierte si sigue FACTURADA: si alguien ya la movió a mano,
+      /// pisarle el estado aquí sería peor que dejarla como está.
+      await tx.liquidacion_servicio.updateMany({
+        where: { id: liquidacionId, estado: "FACTURADA" },
+        data: { estado: "LIQUIDADA", fecha_facturacion: null },
+      });
+
+      await tx.historial_estado_liquidacion.create({
+        data: {
+          liquidacion_id: liquidacionId,
+          estado_anterior: item.liquidacion.estado,
+          estado_nuevo: "LIQUIDADA",
+          usuario_id: userId,
+          motivo: `Desasociada de la factura ${factura.numero_factura}`,
+        },
+      });
+
+      const restantes = await recalcularValorTotal(tx, facturaId);
+
+      const actualizada = await tx.factura_liquidacion_servicio.findUnique({
+        where: { id: facturaId },
+        include: FACTURA_INCLUDE,
+      });
+
+      return { actualizada, restantes };
+    });
+
+    return {
+      factura: serializarFactura(resultado.actualizada),
+      quedo_vacia: resultado.restantes === 0,
+      liquidaciones_afectadas: [
+        {
+          id: liquidacionId,
+          consecutivo: item.liquidacion.consecutivo,
+          estado: "LIQUIDADA" as const,
+          factura_id: null,
+          numero_factura: null,
+        },
+      ],
     };
   },
 
