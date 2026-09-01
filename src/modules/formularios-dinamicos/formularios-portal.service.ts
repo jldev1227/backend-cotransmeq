@@ -1,11 +1,21 @@
 /**
- * API del portal del conductor.
+ * API de diligenciamiento.
+ *
+ * Sirve a las DOS puertas de entrada: el portal del conductor
+ * (`/api/conductor-portal/formularios`, magic link) y «Mis formularios» del
+ * dashboard (`/api/mis-formularios`, usuario interno). Es un solo archivo a
+ * propósito: los límites, la idempotencia, la validación de respuestas y la
+ * cadena de adjuntos son idénticos para los dos, y duplicarlos garantizaría
+ * que uno de los dos se quedara atrás.
+ *
+ * Lo único que cambia entre ambos es el `FormActor`, y toda esa diferencia
+ * está concentrada en `condicionAcceso`, `propiedadDe` y `autorDe`.
  *
  * Tres cosas gobiernan todo este archivo:
  *
  *  1. **La identidad viene del token, nunca del payload.** Cada función recibe
- *     un `PortalActor` que el middleware derivó del JWT del magic link. Ningún
- *     `conductorId` del cuerpo de la petición autoriza nada; si lo hiciera,
+ *     un `FormActor` que el middleware derivó del JWT. Ningún `conductorId` ni
+ *     `usuarioId` del cuerpo de la petición autoriza nada; si lo hiciera,
  *     cualquiera podría enviar preoperacionales en nombre de otro.
  *
  *  2. **El envío es idempotente por `client_submission_id`.** El teléfono
@@ -43,6 +53,7 @@ import {
   type AnswerInput,
   type AttachmentInput,
   type AttachmentKind,
+  type FormActor,
   type SubmissionInput,
 } from './domain'
 import { toSubmissionDetailDto, toSubmissionSummaryDto, toVersionDto } from './formularios-dinamicos.mapper'
@@ -62,11 +73,47 @@ import type {
   ListarEnviosPortalQuery,
 } from './formularios-dinamicos.schema'
 
-/** Conductor autenticado por magic link. Sale del JWT `tipo: conductor_portal`. */
-export interface PortalActor {
-  id: string
-  cedula?: string
-  nombre?: string
+/**
+ * Alias histórico de `FormActor`.
+ *
+ * Se conserva porque las rutas del portal y sus tipos lo nombran; el tipo real
+ * vive en `domain/submissions.ts` para que también lo pueda usar la puerta del
+ * dashboard sin importar de este service.
+ */
+export type PortalActor = FormActor
+
+/**
+ * Filtro de PROPIEDAD de un envío: «este envío es de este actor».
+ *
+ * Existe como función y no como literal repetido porque aparece en nueve
+ * consultas distintas; escribirlo a mano en cada una es exactamente el error
+ * que deja una sin filtrar y expone el envío de otra persona.
+ */
+function propiedadDe(actor: FormActor): { conductor_id: string } | { usuario_id: string } {
+  return actor.kind === 'CONDUCTOR' ? { conductor_id: actor.id } : { usuario_id: actor.id }
+}
+
+/** Columnas de autor al CREAR un envío. El CHECK exige exactamente una. */
+function autorDe(actor: FormActor): { conductor_id: string | null; usuario_id: string | null } {
+  return actor.kind === 'CONDUCTOR'
+    ? { conductor_id: actor.id, usuario_id: null }
+    : { conductor_id: null, usuario_id: actor.id }
+}
+
+/**
+ * ¿Esta fila pertenece al actor?
+ *
+ * Compara la columna que corresponde al tipo de actor. Comparar solo
+ * `conductor_id` dejaría pasar cualquier envío de usuario a un conductor
+ * (ambos lados `null`), que es justo el fallo que el CHECK no puede atrapar.
+ */
+function esDelActor(fila: { conductor_id: string | null; usuario_id: string | null }, actor: FormActor): boolean {
+  return actor.kind === 'CONDUCTOR' ? fila.conductor_id === actor.id : fila.usuario_id === actor.id
+}
+
+/** Etiqueta del actor para logs y eventos. */
+export function descripcionActor(actor: FormActor): string {
+  return `${actor.kind}:${actor.id}`
 }
 
 const PREFIJO_S3 = 'formularios-dinamicos'
@@ -76,14 +123,15 @@ const PREFIJO_S3 = 'formularios-dinamicos'
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Filtro de asignaciones accesibles por un conductor.
+ * Targets que alcanzan a un CONDUCTOR concreto.
  *
- * Se construye como cláusula de Prisma y no como filtro en memoria para que la
- * lista y la comprobación de acceso a UNA asignación usen literalmente la misma
- * definición de "accesible". Si fueran dos implementaciones, una acabaría
- * dejando pasar lo que la otra oculta.
+ * `GROUP` no aparece a propósito: el tipo existe en el enum y en la UI, pero
+ * no hay ningún catálogo de grupos ni columna en `conductores` contra la que
+ * resolverlo. Añadirlo aquí sin ese catálogo haría que una asignación de grupo
+ * le apareciera a todo el mundo o a nadie, según cómo se escribiera la
+ * cláusula. Hoy no le aparece a nadie, y eso está documentado.
  */
-async function condicionAcceso(conductorId: string): Promise<Prisma.form_assignmentWhereInput> {
+async function targetsDeConductor(conductorId: string): Promise<Prisma.form_assignment_targetWhereInput[]> {
   const conductor = await prisma.conductores.findFirst({
     where: { id: conductorId, deleted_at: null },
     select: { id: true, sede_trabajo: true },
@@ -107,6 +155,58 @@ async function condicionAcceso(conductorId: string): Promise<Prisma.form_assignm
   if (conductor.sede_trabajo) {
     targetOr.push({ target_type: 'SEDE', sede: String(conductor.sede_trabajo) })
   }
+  return targetOr
+}
+
+/**
+ * Targets que alcanzan a un USUARIO interno concreto.
+ *
+ * Las áreas y el cargo se releen de la base y no se toman del JWT: un token
+ * dura días, y alguien a quien se le retiró un área seguiría viendo —y
+ * pudiendo enviar— formularios de esa área hasta que caducara. El coste es una
+ * consulta por petición; la alternativa es una fuga silenciosa.
+ */
+async function targetsDeUsuario(usuarioId: string): Promise<Prisma.form_assignment_targetWhereInput[]> {
+  const usuario = await prisma.usuarios.findFirst({
+    where: { id: usuarioId, activo: true },
+    select: { id: true, area: true, cargo: true },
+  })
+  if (!usuario) throw new FormError('FORBIDDEN', 'El usuario no existe o está inactivo.')
+
+  const targetOr: Prisma.form_assignment_targetWhereInput[] = [
+    { target_type: 'ALL_USERS' },
+    { target_type: 'USER', usuario_id: usuarioId },
+  ]
+  if (usuario.area.length) {
+    targetOr.push({ target_type: 'AREA', area: { in: usuario.area } })
+  }
+  const cargo = usuario.cargo?.trim()
+  if (cargo) {
+    /// `insensitive` porque `users.cargo` es texto libre: "Analista HSEQ" y
+    /// "ANALISTA HSEQ" son la misma persona en la práctica. No arregla las
+    /// tildes ni las erratas —para eso está `AREA`, que sí tiene lista
+    /// canónica— pero evita el fallo más común.
+    targetOr.push({ target_type: 'CARGO', cargo: { equals: cargo, mode: 'insensitive' } })
+  }
+  return targetOr
+}
+
+/**
+ * Filtro de asignaciones accesibles por un actor.
+ *
+ * Se construye como cláusula de Prisma y no como filtro en memoria para que la
+ * lista y la comprobación de acceso a UNA asignación usen literalmente la misma
+ * definición de "accesible". Si fueran dos implementaciones, una acabaría
+ * dejando pasar lo que la otra oculta.
+ *
+ * Lo único que depende del tipo de actor es el `OR` de targets. Todo lo demás
+ * —borrada, activa, versión publicada— vale igual para conductores y usuarios,
+ * y es lo que hace que una asignación con `ALL_CONDUCTORS` + `AREA` alcance a
+ * las dos poblaciones sin ninguna rama adicional.
+ */
+export async function condicionAcceso(actor: FormActor): Promise<Prisma.form_assignmentWhereInput> {
+  const targetOr =
+    actor.kind === 'CONDUCTOR' ? await targetsDeConductor(actor.id) : await targetsDeUsuario(actor.id)
 
   return {
     deleted_at: null,
@@ -161,7 +261,7 @@ const listaAssignmentSelect = {
  */
 export async function listarAsignacionesPortal(actor: PortalActor) {
   const now = new Date()
-  const where = await condicionAcceso(actor.id)
+  const where = await condicionAcceso(actor)
 
   const asignaciones = await prisma.form_assignment.findMany({
     where,
@@ -176,13 +276,13 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
     ids.length
       ? prisma.form_submission.groupBy({
           by: ['assignment_id', 'period_key'],
-          where: { conductor_id: actor.id, assignment_id: { in: ids }, status: 'SUBMITTED' },
+          where: { ...propiedadDe(actor), assignment_id: { in: ids }, status: 'SUBMITTED' },
           _count: { _all: true },
         })
       : [],
     ids.length
       ? prisma.form_submission.findMany({
-          where: { conductor_id: actor.id, assignment_id: { in: ids }, status: 'DRAFT' },
+          where: { ...propiedadDe(actor), assignment_id: { in: ids }, status: 'DRAFT' },
           select: {
             assignment_id: true,
             client_submission_id: true,
@@ -291,7 +391,7 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
  * contenido tampoco.
  */
 export async function obtenerDefinicionPortal(actor: PortalActor, assignmentId: string) {
-  const where = await condicionAcceso(actor.id)
+  const where = await condicionAcceso(actor)
   const assignment = await prisma.form_assignment.findFirst({
     where: { AND: [where, { id: assignmentId }] },
     select: listaAssignmentSelect,
@@ -347,7 +447,7 @@ export async function guardarBorradorPortal(
   clientSubmissionId: string,
   input: BackupDraftInput,
 ) {
-  const where = await condicionAcceso(actor.id)
+  const where = await condicionAcceso(actor)
   const assignment = await prisma.form_assignment.findFirst({
     where: { AND: [where, { id: input.assignmentId }] },
     select: { id: true, version_id: true, frequency: true, timezone: true },
@@ -361,11 +461,11 @@ export async function guardarBorradorPortal(
 
   const existente = await prisma.form_submission.findUnique({
     where: { client_submission_id: clientSubmissionId },
-    select: { id: true, conductor_id: true, status: true },
+    select: { id: true, conductor_id: true, usuario_id: true, status: true },
   })
 
   if (existente) {
-    if (existente.conductor_id !== actor.id) {
+    if (!esDelActor(existente, actor)) {
       throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
     }
     if (existente.status !== 'DRAFT') {
@@ -402,7 +502,7 @@ export async function guardarBorradorPortal(
           client_submission_id: clientSubmissionId,
           assignment_id: assignment.id,
           version_id: assignment.version_id,
-          conductor_id: actor.id,
+          ...autorDe(actor),
           vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
           service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
           status: 'DRAFT',
@@ -417,7 +517,7 @@ export async function guardarBorradorPortal(
           id: randomUUID(),
           submission_id: submissionId,
           event_type: 'CREATED',
-          actor_type: 'CONDUCTOR',
+          actor_type: actor.kind,
           actor_id: actor.id,
           payload_json: { source: 'draft-backup' } as Prisma.InputJsonValue,
         },
@@ -494,10 +594,10 @@ async function escribirRespuestasCrudas(
 export async function descartarBorradorPortal(actor: PortalActor, clientSubmissionId: string) {
   const existente = await prisma.form_submission.findUnique({
     where: { client_submission_id: clientSubmissionId },
-    select: { id: true, conductor_id: true, status: true },
+    select: { id: true, conductor_id: true, usuario_id: true, status: true },
   })
   if (!existente) return { id: null, deleted: false }
-  if (existente.conductor_id !== actor.id) throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
+  if (!esDelActor(existente, actor)) throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
   if (existente.status !== 'DRAFT') {
     throw new FormError('SUBMISSION_IMMUTABLE', 'Un envío entregado no se descarta.')
   }
@@ -564,7 +664,7 @@ export async function iniciarAdjunto(actor: PortalActor, input: InitAttachmentIn
         clientSubmissionId: input.clientSubmissionId,
       })
     }
-    if (submission.conductor_id !== actor.id) throw new FormError('FORBIDDEN', 'Ese envío no es tuyo.')
+    if (!esDelActor(submission, actor)) throw new FormError('FORBIDDEN', 'Ese envío no es tuyo.')
     /// Estado RELEÍDO bajo lock: es la comprobación que cierra la carrera.
     if (submission.status !== 'DRAFT') {
       throw new FormError('SUBMISSION_IMMUTABLE', 'No se añaden adjuntos a un envío ya entregado.', {
@@ -784,7 +884,7 @@ export async function completarAdjunto(
     /// con quien hay que serializar.
     const submission = await lockSubmissionPorId(tx, attachment.submission_id)
     if (!submission) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío del adjunto no existe.')
-    if (submission.conductor_id !== actor.id) throw new FormError('FORBIDDEN', 'Ese adjunto no es tuyo.')
+    if (!esDelActor(submission, actor)) throw new FormError('FORBIDDEN', 'Ese adjunto no es tuyo.')
 
     const identidad = {
       attachmentId,
@@ -905,7 +1005,7 @@ export async function completarAdjunto(
         id: randomUUID(),
         submission_id: submission.id,
         event_type: 'ATTACHMENT_ATTACHED',
-        actor_type: 'CONDUCTOR',
+        actor_type: actor.kind,
         actor_id: actor.id,
         payload_json: {
           attachmentId,
@@ -956,7 +1056,7 @@ export async function descartarAdjunto(actor: PortalActor, attachmentId: string)
 
     const submission = await lockSubmissionPorId(tx, attachment.submission_id)
     if (!submission) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío del adjunto no existe.')
-    if (submission.conductor_id !== actor.id) throw new FormError('FORBIDDEN', 'Ese adjunto no es tuyo.')
+    if (!esDelActor(submission, actor)) throw new FormError('FORBIDDEN', 'Ese adjunto no es tuyo.')
     if (submission.status !== 'DRAFT') {
       throw new FormError(
         'SUBMISSION_IMMUTABLE',
@@ -999,7 +1099,11 @@ export interface ResultadoEnvio {
   periodKey: string | null
   submittedAt: string
   idempotentReplay: boolean
-  conductorId: string
+  /// Quién lo entregó. Antes era un `conductorId` suelto; ahora el envío puede
+  /// venir de un usuario interno y el consumidor tiene que poder distinguirlo
+  /// (las rooms de socket, por ejemplo, solo existen para conductores).
+  actorKind: 'CONDUCTOR' | 'USER'
+  actorId: string
   assignmentId: string
 }
 
@@ -1021,8 +1125,8 @@ export interface ResultadoEnvio {
  * —dos pestañas, dos reintentos de la outbox— y solo el bloqueo decide cuál
  * gana.
  */
-export async function enviarSubmission(actor: PortalActor, input: SubmissionInput): Promise<ResultadoEnvio> {
-  const where = await condicionAcceso(actor.id)
+export async function enviarSubmission(actor: FormActor, input: SubmissionInput): Promise<ResultadoEnvio> {
+  const where = await condicionAcceso(actor)
   const assignment = await prisma.form_assignment.findFirst({
     where: { AND: [where, { id: input.assignmentId }] },
     select: {
@@ -1054,6 +1158,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
     select: {
       id: true,
       conductor_id: true,
+      usuario_id: true,
       status: true,
       business_date: true,
       period_key: true,
@@ -1063,7 +1168,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
     },
   })
   if (previo) {
-    if (previo.conductor_id !== actor.id) throw new FormError('FORBIDDEN', 'Ese envío no es tuyo.')
+    if (!esDelActor(previo, actor)) throw new FormError('FORBIDDEN', 'Ese envío no es tuyo.')
     if (previo.status === 'SUBMITTED' || previo.status === 'VOIDED') {
       return confirmarReplay(previo, fingerprint)
     }
@@ -1088,7 +1193,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
   }
 
   // 4. Adjuntos declarados: tienen que existir y estar verificados.
-  const adjuntos = await resolverAdjuntos(actor.id, input)
+  const adjuntos = await resolverAdjuntos(actor, input)
 
   const now = new Date()
   const businessDate = businessDateFor(now, assignment.timezone || BUSINESS_TIMEZONE)
@@ -1108,6 +1213,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
       select: {
         id: true,
         conductor_id: true,
+        usuario_id: true,
         status: true,
         business_date: true,
         period_key: true,
@@ -1136,7 +1242,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
     // sin ganar nada.
     const claveLimiteUsada = await lockLimite(tx, {
       assignmentId: assignment.id,
-      conductorId: actor.id,
+      actor,
       limitPolicy: assignment.limit_policy,
       frequency: assignment.frequency,
       periodKey,
@@ -1159,6 +1265,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
           select: {
             id: true,
             conductor_id: true,
+            usuario_id: true,
             status: true,
             business_date: true,
             period_key: true,
@@ -1175,7 +1282,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
       assignmentId: assignment.id,
       limitPolicy: assignment.limit_policy,
       frequency: assignment.frequency,
-      conductorId: actor.id,
+      actor,
       periodKey,
       contexto,
       excluirSubmissionId: actualizado?.id ?? null,
@@ -1218,7 +1325,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
           client_submission_id: input.clientSubmissionId,
           assignment_id: assignment.id,
           version_id: assignment.version_id,
-          conductor_id: actor.id,
+          ...autorDe(actor),
           started_at: input.startedAt ? new Date(input.startedAt) : now,
           ...datosComunes,
         },
@@ -1233,7 +1340,7 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
         id: randomUUID(),
         submission_id: submissionId,
         event_type: 'SUBMITTED',
-        actor_type: 'CONDUCTOR',
+        actor_type: actor.kind,
         actor_id: actor.id,
         payload_json: {
           answers: validacion.prepared.length,
@@ -1255,7 +1362,8 @@ export async function enviarSubmission(actor: PortalActor, input: SubmissionInpu
       periodKey,
       submittedAt: now.toISOString(),
       idempotentReplay: false,
-      conductorId: actor.id,
+      actorKind: actor.kind,
+      actorId: actor.id,
       assignmentId: assignment.id,
     }
   }, TX_OPCIONES)
@@ -1279,7 +1387,8 @@ function confirmarReplay(
     period_key: string | null
     submitted_at: Date | null
     assignment_id: string
-    conductor_id: string
+    conductor_id: string | null
+    usuario_id: string | null
     device_json: unknown
   },
   fingerprint: string,
@@ -1299,7 +1408,8 @@ function confirmarReplay(
     periodKey: previo.period_key,
     submittedAt: previo.submitted_at?.toISOString() ?? '',
     idempotentReplay: true,
-    conductorId: previo.conductor_id,
+    actorKind: previo.conductor_id ? 'CONDUCTOR' : 'USER',
+    actorId: (previo.conductor_id ?? previo.usuario_id)!,
     assignmentId: previo.assignment_id,
   }
 }
@@ -1319,10 +1429,14 @@ function verificarContexto(schema: Record<string, { required?: boolean }> | null
 /**
  * Aplica la política de límite.
  *
- * `ONE_PER_PERIOD` cuenta por asignación + conductor + período.
+ * `ONE_PER_PERIOD` cuenta por asignación + PERSONA + período.
  * `ONE_PER_CONTEXT` añade el contexto (para un preoperacional, el vehículo):
  * un conductor que maneja dos vehículos el mismo día debe poder entregar dos
  * preoperacionales, uno por vehículo, y una sola clave de período lo impediría.
+ *
+ * "Persona" es el actor, no el conductor: en una asignación mixta
+ * (`ALL_CONDUCTORS` + `AREA`) cada quien tiene su propio cupo, y contar por
+ * asignación haría que el primer envío del día agotara el de todos los demás.
  *
  * Los `VOIDED` NO cuentan: anular existe precisamente para permitir rehacer.
  */
@@ -1332,7 +1446,7 @@ async function verificarLimite(
     assignmentId: string
     limitPolicy: string
     frequency: string
-    conductorId: string
+    actor: FormActor
     periodKey: string | null
     contexto: Record<string, unknown>
     excluirSubmissionId: string | null
@@ -1342,7 +1456,7 @@ async function verificarLimite(
 
   const base: Prisma.form_submissionWhereInput = {
     assignment_id: params.assignmentId,
-    conductor_id: params.conductorId,
+    ...propiedadDe(params.actor),
     status: 'SUBMITTED',
     ...(params.excluirSubmissionId ? { id: { not: params.excluirSubmissionId } } : {}),
   }
@@ -1450,18 +1564,18 @@ async function verificarConjuntoAdjuntos(
 /**
  * Comprueba los adjuntos declarados en el envío.
  *
- * Todos deben existir, ser de este conductor y estar `UPLOADED`. Un adjunto
+ * Todos deben existir, ser de este actor y estar `UPLOADED`. Un adjunto
  * `PENDING` significa que la outbox se adelantó al SUBMIT: se rechaza con
  * `ATTACHMENT_MISSING` para que reintente en orden en vez de guardar un envío
  * con evidencia que nunca se subió.
  */
-async function resolverAdjuntos(conductorId: string, input: SubmissionInput) {
+async function resolverAdjuntos(actor: FormActor, input: SubmissionInput) {
   const declarados = input.attachments ?? []
   if (!declarados.length) return []
 
   const filas = await prisma.form_attachment.findMany({
     where: { client_attachment_id: { in: declarados.map((a) => a.clientAttachmentId) } },
-    include: { submission: { select: { conductor_id: true, client_submission_id: true } } },
+    include: { submission: { select: { conductor_id: true, usuario_id: true, client_submission_id: true } } },
   })
   const porClientId = new Map(filas.map((f) => [f.client_attachment_id, f]))
 
@@ -1472,7 +1586,7 @@ async function resolverAdjuntos(conductorId: string, input: SubmissionInput) {
         clientAttachmentId: declarado.clientAttachmentId,
       })
     }
-    if (fila.submission.conductor_id !== conductorId) {
+    if (!esDelActor(fila.submission, actor)) {
       throw new FormError('FORBIDDEN', 'Uno de los adjuntos no es tuyo.')
     }
     if (fila.submission.client_submission_id !== input.clientSubmissionId) {
@@ -1585,7 +1699,7 @@ async function enlazarAdjuntos(
  */
 export async function listarEnviosPortal(actor: PortalActor, query: ListarEnviosPortalQuery) {
   const where: Prisma.form_submissionWhereInput = {
-    conductor_id: actor.id,
+    ...propiedadDe(actor),
     status: { in: ['SUBMITTED', 'VOIDED'] },
     ...(query.assignmentId ? { assignment_id: query.assignmentId } : {}),
   }
@@ -1599,6 +1713,7 @@ export async function listarEnviosPortal(actor: PortalActor, query: ListarEnvios
       take: query.limit,
       include: {
         assignment: { select: { id: true, name: true, frequency: true } },
+        usuario: { select: { id: true, nombre: true, correo: true } },
         vehiculo: { select: { id: true, placa: true } },
         version: {
           select: { id: true, form_id: true, version_number: true, title: true, form: { select: { code: true } } },
@@ -1614,11 +1729,71 @@ export async function listarEnviosPortal(actor: PortalActor, query: ListarEnvios
   }
 }
 
-export async function obtenerEnvioPortal(actor: PortalActor, submissionId: string) {
+/**
+ * Relee un borrador propio, con respuestas y adjuntos, por su
+ * `client_submission_id`.
+ *
+ * El portal del conductor no la necesita: su borrador vive en IndexedDB y el
+ * backup al servidor es solo una copia de seguridad. «Mis formularios» del
+ * dashboard sí, porque ahí NO hay outbox local: si alguien recarga la página a
+ * media inspección, el servidor es lo único que conserva lo escrito.
+ *
+ * Busca por `client_submission_id` y no por `id` porque es la clave que el
+ * cliente conoce —la genera él antes de escribir nada— y es la misma con la que
+ * guarda y descarta. Pedirle el `id` interno obligaría a una consulta previa.
+ *
+ * Sin filtro de estado: sirve igual para retomar un DRAFT que para abrir el
+ * recibo de uno ya entregado.
+ */
+export async function obtenerBorrador(actor: FormActor, clientSubmissionId: string) {
   const row = await prisma.form_submission.findFirst({
-    where: { id: submissionId, conductor_id: actor.id },
+    where: { client_submission_id: clientSubmissionId, ...propiedadDe(actor) },
     include: {
       assignment: { select: { id: true, name: true, frequency: true } },
+      usuario: { select: { id: true, nombre: true, correo: true } },
+      vehiculo: { select: { id: true, placa: true } },
+      version: {
+        select: { id: true, form_id: true, version_number: true, title: true, form: { select: { code: true } } },
+      },
+      answers: {
+        orderBy: [{ row_index: 'asc' }, { created_at: 'asc' }],
+        include: {
+          field: { select: { key: true, type: true } },
+          options: { include: { option: { select: { value: true, label: true } } } },
+        },
+      },
+      attachments: { orderBy: { created_at: 'asc' } },
+      events: { orderBy: { created_at: 'asc' } },
+    },
+  })
+  /// 404 y no 403: para quien pregunta, un borrador de otro simplemente no
+  /// existe. El `where` ya lo filtró por propiedad, así que aquí no hay nada
+  /// que distinguir.
+  if (!row) throw new FormError('SUBMISSION_NOT_FOUND', 'El borrador no existe.')
+
+  const urls = new Map<string, string>()
+  for (const attachment of row.attachments) {
+    if (attachment.status !== 'UPLOADED' || !attachment.object_key) continue
+    try {
+      urls.set(attachment.id, await getS3SignedUrl(attachment.object_key))
+    } catch (err) {
+      logger.warn(
+        { type: 'forms-draft-sign-failed', attachmentId: attachment.id, error: String(err) },
+        '[formularios] no se pudo firmar el adjunto del borrador',
+      )
+    }
+  }
+
+  const version = await findVersionAggregate(prisma, row.version_id)
+  return { submission: toSubmissionDetailDto(row, urls), definition: toVersionDto(version) }
+}
+
+export async function obtenerEnvioPortal(actor: PortalActor, submissionId: string) {
+  const row = await prisma.form_submission.findFirst({
+    where: { id: submissionId, ...propiedadDe(actor) },
+    include: {
+      assignment: { select: { id: true, name: true, frequency: true } },
+      usuario: { select: { id: true, nombre: true, correo: true } },
       vehiculo: { select: { id: true, placa: true } },
       version: {
         select: { id: true, form_id: true, version_number: true, title: true, form: { select: { code: true } } },

@@ -34,6 +34,7 @@
 
 import { createHash } from 'crypto'
 import type { Prisma } from '@prisma/client'
+import type { FormActor } from './domain'
 
 /** Cliente transaccional. Solo se usa la parte de SQL crudo. */
 type Tx = Prisma.TransactionClient
@@ -92,7 +93,14 @@ export async function lockIdempotencia(tx: Tx, clientSubmissionId: string): Prom
 
 export interface LimiteLockParams {
 	assignmentId: string
-	conductorId: string
+	/**
+	 * Quién entrega. El lock lleva el TIPO además del id: un conductor y un
+	 * usuario son cupos distintos aunque compartan asignación, y si la clave
+	 * solo llevara el UUID, dos actores de familias distintas con el mismo id
+	 * —imposible hoy, pero la clave es un hash y no una FK— compartirían
+	 * cerrojo y uno bloquearía al otro sin motivo.
+	 */
+	actor: FormActor
 	limitPolicy: string
 	frequency: string
 	/** Ya resuelto con la zona de la asignación. `null` en ON_DEMAND/PER_SERVICE. */
@@ -113,10 +121,10 @@ export interface LimiteLockParams {
  * producirían dos locks distintos.
  */
 export function claveLimite(params: LimiteLockParams): string | null {
-	const { limitPolicy, frequency, periodKey, assignmentId, conductorId } = params
+	const { limitPolicy, frequency, periodKey, assignmentId, actor } = params
 
 	/// `UNLIMITED` sin `ONCE` no tiene límite que proteger: tomar el lock ahí
-	/// serializaría sin motivo a todos los conductores de una asignación a demanda.
+	/// serializaría sin motivo a todo el mundo en una asignación a demanda.
 	if (limitPolicy === 'UNLIMITED' && frequency !== 'ONCE') return null
 
 	/// `ONCE` conserva su clave canónica: el «período» es la vigencia entera de la
@@ -144,7 +152,7 @@ export function claveLimite(params: LimiteLockParams): string | null {
 		contextKey = `veh=${vehicleId ?? 'sin-vehiculo'}`
 	}
 
-	return `forms-limit:v1:${assignmentId}:${conductorId}:${limitPolicy}:${frequency}:${periodo}:${contextKey}`
+	return `forms-limit:v1:${assignmentId}:${actor.kind}:${actor.id}:${limitPolicy}:${frequency}:${periodo}:${contextKey}`
 }
 
 /**
@@ -166,7 +174,8 @@ export async function lockLimite(tx: Tx, params: LimiteLockParams): Promise<stri
 /** Lo que devuelve el lock de fila. Solo lo necesario para decidir. */
 export interface SubmissionLockRow {
 	id: string
-	conductor_id: string
+	conductor_id: string | null
+	usuario_id: string | null
 	status: string
 	version_id: string
 	assignment_id: string
@@ -190,7 +199,7 @@ export async function lockSubmissionPorClientId(
 	clientSubmissionId: string
 ): Promise<SubmissionLockRow | null> {
 	const filas = await tx.$queryRaw<SubmissionLockRow[]>`
-		SELECT id, conductor_id, status, version_id, assignment_id, client_submission_id
+		SELECT id, conductor_id, usuario_id, status, version_id, assignment_id, client_submission_id
 		FROM form_submissions
 		WHERE client_submission_id = ${clientSubmissionId}::uuid
 		FOR UPDATE
@@ -204,7 +213,7 @@ export async function lockSubmissionPorId(
 	submissionId: string
 ): Promise<SubmissionLockRow | null> {
 	const filas = await tx.$queryRaw<SubmissionLockRow[]>`
-		SELECT id, conductor_id, status, version_id, assignment_id, client_submission_id
+		SELECT id, conductor_id, usuario_id, status, version_id, assignment_id, client_submission_id
 		FROM form_submissions
 		WHERE id = ${submissionId}::uuid
 		FOR UPDATE

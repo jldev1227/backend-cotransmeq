@@ -284,10 +284,16 @@ export function toTargetDto(row: any) {
     vehicleId: row.vehicle_id ?? null,
     sede: row.sede ?? null,
     groupKey: row.group_key ?? null,
+    usuarioId: row.usuario_id ?? null,
+    area: row.area ?? null,
+    cargo: row.cargo ?? null,
     conductor: row.conductor
       ? { id: row.conductor.id, nombre: `${row.conductor.nombre} ${row.conductor.apellido}`.trim() }
       : null,
     vehiculo: row.vehiculo ? { id: row.vehiculo.id, placa: row.vehiculo.placa } : null,
+    /// El nombre resuelto: la lista de asignaciones pinta la audiencia y sin él
+    /// mostraría un UUID donde debería decir a quién le aparece.
+    usuario: row.usuario ? { id: row.usuario.id, nombre: row.usuario.nombre, correo: row.usuario.correo } : null,
   }
 }
 
@@ -420,13 +426,36 @@ export function toSubmissionEventDto(row: any) {
   }
 }
 
+/**
+ * Autor del envío, normalizado.
+ *
+ * `kind` sale de qué columna está poblada y no de un campo aparte: el CHECK
+ * `ck_form_submissions_actor` garantiza que hay exactamente una, así que la
+ * columna ES el discriminante y guardar otro más solo abriría la posibilidad
+ * de que los dos no coincidan.
+ */
+function actorDeEnvio(row: any): { kind: 'CONDUCTOR' | 'USER'; id: string; nombre: string | null } | null {
+  if (row.conductor_id) {
+    return {
+      kind: 'CONDUCTOR',
+      id: row.conductor_id,
+      nombre: row.conductor ? `${row.conductor.nombre} ${row.conductor.apellido}`.trim() : null,
+    }
+  }
+  if (row.usuario_id) {
+    return { kind: 'USER', id: row.usuario_id, nombre: row.usuario?.nombre ?? null }
+  }
+  return null
+}
+
 export function toSubmissionSummaryDto(row: any) {
   return {
     id: row.id,
     clientSubmissionId: row.client_submission_id,
     assignmentId: row.assignment_id,
     versionId: row.version_id,
-    conductorId: row.conductor_id,
+    conductorId: row.conductor_id ?? null,
+    usuarioId: row.usuario_id ?? null,
     vehicleId: row.vehicle_id ?? null,
     serviceId: row.service_id ?? null,
     supersedesSubmissionId: row.supersedes_submission_id ?? null,
@@ -446,6 +475,12 @@ export function toSubmissionSummaryDto(row: any) {
           numeroIdentificacion: row.conductor.numero_identificacion ?? null,
         }
       : null,
+    usuario: row.usuario ? { id: row.usuario.id, nombre: row.usuario.nombre, correo: row.usuario.correo } : null,
+    /// Quién diligenció, ya resuelto. `conductor`/`usuario` siguen ahí porque
+    /// hay pantallas y el PDF que los leen por nombre, pero lo que debe usar
+    /// código nuevo es esto: una sola forma de preguntar «¿de quién es?» que no
+    /// obliga a cada consumidor a probar los dos campos y elegir.
+    actor: actorDeEnvio(row),
     vehiculo: row.vehiculo ? { id: row.vehiculo.id, placa: row.vehiculo.placa } : null,
     assignment: row.assignment ? { id: row.assignment.id, name: row.assignment.name, frequency: row.assignment.frequency } : null,
     version: row.version

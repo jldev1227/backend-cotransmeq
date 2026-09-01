@@ -19,6 +19,32 @@ export type AttachmentStatus = (typeof ATTACHMENT_STATUSES)[number]
 export const ACTOR_TYPES = ['CONDUCTOR', 'USER', 'SYSTEM'] as const
 export type ActorType = (typeof ACTOR_TYPES)[number]
 
+/**
+ * Quién está diligenciando.
+ *
+ * Es una unión discriminada y no un `{ id, tipo }` suelto para que el
+ * compilador obligue a tratar los dos casos: la audiencia de un conductor se
+ * resuelve con su sede y sus vehículos, y la de un usuario con sus áreas y su
+ * cargo, y son consultas distintas.
+ *
+ * **Solo lleva la identidad, nunca los atributos de audiencia.** Las áreas y el
+ * cargo no viajan aquí a propósito: un JWT dura días y alguien a quien se le
+ * retiró un área seguiría viendo —y pudiendo enviar— formularios de esa área
+ * hasta que caducara el token. `condicionAcceso` los relee de la base en cada
+ * petición; si estuvieran en este objeto, alguien acabaría usándolos.
+ *
+ * La identidad SIEMPRE sale del token —`tipo: 'conductor_portal'` para el
+ * conductor, el JWT del dashboard para el usuario— y nunca del payload.
+ */
+export type FormActor =
+  | { kind: 'CONDUCTOR'; id: string; cedula?: string; nombre?: string }
+  | { kind: 'USER'; id: string; nombre?: string }
+
+/** `actor_type` de la bitácora para un actor dado. */
+export function actorTypeDe(actor: FormActor): ActorType {
+  return actor.kind
+}
+
 /** Tipos de evento de la bitácora `form_submission_events`. */
 export const SUBMISSION_EVENT_TYPES = [
   'CREATED',

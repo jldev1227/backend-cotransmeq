@@ -19,6 +19,38 @@ export type AccessLevel = 'full' | 'read' | 'limited'
 
 export type Area = 'administracion' | 'operaciones' | 'contabilidad' | 'facturacion' | 'talento_humano' | 'hseq'
 
+/**
+ * Lista canónica de áreas, en runtime.
+ *
+ * El tipo `Area` solo existe en compilación, y validar un target `AREA` de un
+ * formulario exige comprobar un string que llega por HTTP: sin esta lista, un
+ * área inventada pasaría el CHECK de la base —es un VARCHAR— y crearía una
+ * asignación que no le aparece a nadie, sin ningún error visible.
+ */
+export const AREAS: readonly Area[] = [
+  'administracion',
+  'operaciones',
+  'contabilidad',
+  'facturacion',
+  'talento_humano',
+  'hseq',
+]
+
+/** Etiquetas legibles de cada área (correos, UI, mensajes de error). */
+export const AREA_LABELS: Record<Area, string> = {
+  administracion: 'Administración',
+  operaciones: 'Operaciones',
+  contabilidad: 'Contabilidad',
+  facturacion: 'Facturación',
+  talento_humano: 'Talento Humano',
+  hseq: 'HSEQ',
+}
+
+/** `true` si el string es un área conocida. Útil para validar entrada cruda. */
+export function esAreaValida(valor: unknown): valor is Area {
+  return typeof valor === 'string' && (AREAS as readonly string[]).includes(valor)
+}
+
 export interface RoutePermission {
   /** Áreas con acceso completo (CRUD) */
   full: Area[]
@@ -107,6 +139,28 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     full: ['administracion', 'hseq'],
     read: ['operaciones'],
     description: 'Formularios dinámicos (constructor, asignaciones y envíos)'
+  },
+
+  /**
+   * Diligenciar lo que a uno le asignaron.
+   *
+   * Módulo APARTE de `formularios` y `general: true` a propósito. `formularios`
+   * es el constructor: publicar una versión o cambiar una asignación afecta a
+   * cientos de personas y por eso solo lo tienen `administracion` y `hseq`.
+   * Rellenar un formato que alguien te asignó no tiene nada de eso, y si
+   * dependiera del mismo permiso, a un usuario de contabilidad al que HSEQ le
+   * asigna una inspección no le aparecería la pantalla —ni siquiera podría
+   * abrirla, porque el guard resuelve el módulo por el primer segmento de la
+   * ruta—.
+   *
+   * El acceso a UNA asignación concreta no lo da este permiso: lo dan los
+   * targets de la asignación, resueltos en `condicionAcceso`. Esto solo abre la
+   * puerta de la pantalla.
+   */
+  'mis-formularios': {
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
+    general: true,
+    description: 'Diligenciar los formularios asignados a mí'
   },
 
   nomina: {

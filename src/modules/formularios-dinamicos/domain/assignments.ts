@@ -21,8 +21,46 @@ export type AssignmentFrequency = (typeof ASSIGNMENT_FREQUENCIES)[number]
 export const LIMIT_POLICIES = ['UNLIMITED', 'ONE_PER_PERIOD', 'ONE_PER_CONTEXT'] as const
 export type LimitPolicy = (typeof LIMIT_POLICIES)[number]
 
-export const TARGET_TYPES = ['ALL_CONDUCTORS', 'CONDUCTOR', 'VEHICLE', 'SEDE', 'GROUP'] as const
+/**
+ * Audiencias posibles de una asignación.
+ *
+ * Dos familias, y una asignación puede mezclarlas: las cinco primeras alcanzan
+ * a CONDUCTORES (portal por magic link) y las cuatro últimas a USUARIOS
+ * internos (dashboard). Mezclarlas es el caso normal, no la excepción: un
+ * preoperacional lo diligencian los conductores y el mismo formato de
+ * inspección lo diligencia también administración, sin duplicar el formulario.
+ *
+ * `ALL_CONDUCTORS` y `ALL_USERS` son excluyentes SOLO dentro de su familia:
+ * poner los dos es la forma de decir «esto le aparece a todo el mundo».
+ */
+export const TARGET_TYPES = [
+  'ALL_CONDUCTORS',
+  'CONDUCTOR',
+  'VEHICLE',
+  'SEDE',
+  'GROUP',
+  'ALL_USERS',
+  'USER',
+  'AREA',
+  'CARGO',
+] as const
 export type TargetType = (typeof TARGET_TYPES)[number]
+
+/** Targets que resuelven contra `conductores`. */
+export const CONDUCTOR_TARGET_TYPES = [
+  'ALL_CONDUCTORS',
+  'CONDUCTOR',
+  'VEHICLE',
+  'SEDE',
+  'GROUP',
+] as const satisfies readonly TargetType[]
+
+/** Targets que resuelven contra `users`. */
+export const USER_TARGET_TYPES = ['ALL_USERS', 'USER', 'AREA', 'CARGO'] as const satisfies readonly TargetType[]
+
+export function esTargetDeUsuario(type: TargetType): boolean {
+  return (USER_TARGET_TYPES as readonly string[]).includes(type)
+}
 
 /** Zona de negocio. Fijarla evita que UTC mueva un preoperacional de día. */
 export const BUSINESS_TIMEZONE = 'America/Bogota'
@@ -33,6 +71,9 @@ export interface AssignmentTargetInput {
   vehicleId?: string | null
   sede?: string | null
   groupKey?: string | null
+  usuarioId?: string | null
+  area?: string | null
+  cargo?: string | null
 }
 
 export interface AssignmentContextRequirement {

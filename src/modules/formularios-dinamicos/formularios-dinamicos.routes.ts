@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { prisma } from '../../config/prisma'
+import { AREAS } from '../../config/permissions'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { FormulariosController } from './formularios-dinamicos.controller'
 import { snapshotMetricas } from './formularios-dinamicos.observabilidad'
@@ -101,6 +103,36 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
     } catch (error) {
       return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_SEND_FAILED', message: error instanceof Error ? error.message : 'No fue posible enviar la campaña.' } })
     }
+  })
+
+  // ── Audiencia interna del asignador ──────────────────────────────────────
+
+  /**
+   * Usuarios internos activos y los cargos que existen, para el editor de
+   * asignaciones.
+   *
+   * Endpoint propio y no `GET /api/usuarios` por dos razones. La primera es de
+   * permisos: `usuarios` es `full: ['administracion']`, y quien asigna
+   * formularios suele ser HSEQ, así que reutilizarlo le daría un 403 en la
+   * mitad de los casos. La segunda es de superficie: el listado general
+   * devuelve teléfono, rol, permisos y último acceso; aquí basta con lo que
+   * pinta el desplegable.
+   *
+   * `cargos` sale de la misma consulta y no de una segunda: `users.cargo` es
+   * texto libre, y ofrecerlo como `datalist` es lo único que evita que un target
+   * `CARGO` se escriba distinto a como está en la ficha del usuario y no alcance
+   * a nadie.
+   */
+  app.get('/formularios/audiencia/usuarios', puedeLeer, async (_request, reply) => {
+    const usuarios = await prisma.usuarios.findMany({
+      where: { activo: true },
+      select: { id: true, nombre: true, correo: true, cargo: true, area: true },
+      orderBy: { nombre: 'asc' },
+    })
+    const cargos = [
+      ...new Set(usuarios.map((u) => u.cargo?.trim()).filter((c): c is string => Boolean(c))),
+    ].sort((a, b) => a.localeCompare(b, 'es'))
+    return reply.send({ success: true, data: { usuarios, cargos, areas: AREAS } })
   })
 
   // ── Plantillas de cards ──────────────────────────────────────────────────

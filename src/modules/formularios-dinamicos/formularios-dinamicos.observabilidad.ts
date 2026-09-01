@@ -152,10 +152,21 @@ const metrics: FormMetrics = {
  * suficientemente estable para detectar una degradación.
  */
 const VENTANA_LATENCIA = 500
-const latencias: Record<'submit' | 'listPortal' | 'saveVersion', number[]> = {
+
+/**
+ * Series separadas por PUERTA de entrada, no agregadas.
+ *
+ * `listPortal`/`submit` son el portal del conductor (móvil, red mala) y
+ * `listMis`/`submitMis` el dashboard (escritorio, cableado). Sumarlos daría un
+ * p95 sin significado: una degradación del portal quedaría diluida por el
+ * tráfico rápido del dashboard, que es justo la que hay que ver.
+ */
+const latencias: Record<'submit' | 'listPortal' | 'saveVersion' | 'listMis' | 'submitMis', number[]> = {
 	submit: [],
 	listPortal: [],
-	saveVersion: []
+	saveVersion: [],
+	listMis: [],
+	submitMis: []
 }
 
 export function observarLatencia(operacion: keyof typeof latencias, ms: number): void {
@@ -192,7 +203,9 @@ export function snapshotMetricas() {
 			saveVersion: {
 				p50: percentil(latencias.saveVersion, 50),
 				p95: percentil(latencias.saveVersion, 95)
-			}
+			},
+			listMis: { p50: percentil(latencias.listMis, 50), p95: percentil(latencias.listMis, 95) },
+			submitMis: { p50: percentil(latencias.submitMis, 50), p95: percentil(latencias.submitMis, 95) }
 		}
 	}
 }

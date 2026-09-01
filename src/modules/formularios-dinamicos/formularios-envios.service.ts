@@ -5,7 +5,8 @@
  * `SUBMITTED` es terminal. La única operación destructiva disponible es
  * `anular`, que conserva todas las respuestas y añade un evento con actor y
  * motivo. Corregir un envío es crear otro con `supersedes_submission_id`, y eso
- * lo hace el conductor desde el portal, no un administrador desde aquí.
+ * lo hace quien diligenció desde su propia pantalla, no un administrador desde
+ * aquí.
  */
 
 import { randomUUID } from 'crypto'
@@ -30,6 +31,7 @@ const listSelect = {
   assignment_id: true,
   version_id: true,
   conductor_id: true,
+  usuario_id: true,
   vehicle_id: true,
   service_id: true,
   supersedes_submission_id: true,
@@ -45,6 +47,7 @@ const listSelect = {
   voided_at: true,
   void_reason: true,
   conductor: { select: { id: true, nombre: true, apellido: true, numero_identificacion: true } },
+  usuario: { select: { id: true, nombre: true, correo: true } },
   vehiculo: { select: { id: true, placa: true } },
   assignment: { select: { id: true, name: true, frequency: true } },
   version: {
@@ -59,6 +62,7 @@ function buildWhere(query: ListarEnviosQuery): Prisma.form_submissionWhereInput 
     ...(query.assignmentId ? { assignment_id: query.assignmentId } : {}),
     ...(query.versionId ? { version_id: query.versionId } : {}),
     ...(query.conductorId ? { conductor_id: query.conductorId } : {}),
+    ...(query.usuarioId ? { usuario_id: query.usuarioId } : {}),
     ...(query.vehicleId ? { vehicle_id: query.vehicleId } : {}),
     ...(query.formId ? { version: { form_id: query.formId } } : {}),
   }
@@ -125,6 +129,7 @@ export async function obtenerEnvio(id: string): Promise<{
     where: { id },
     include: {
       conductor: { select: { id: true, nombre: true, apellido: true, numero_identificacion: true } },
+      usuario: { select: { id: true, nombre: true, correo: true } },
       vehiculo: { select: { id: true, placa: true } },
       assignment: { select: { id: true, name: true, frequency: true } },
       version: {
@@ -256,7 +261,11 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
     'estado',
     'fecha_negocio',
     'periodo',
-    'conductor',
+    /// `tipo_actor` va antes del nombre porque es lo que hace legible una
+    /// exportación mixta: sin él, "Juan Pérez" no dice si el registro salió del
+    /// portal de un conductor o del dashboard de alguien de administración.
+    'tipo_actor',
+    'diligenciado_por',
     'identificacion',
     'placa',
     'enviado_en',
@@ -314,8 +323,9 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
       dto.status,
       dto.businessDate ?? '',
       dto.periodKey ?? '',
-      dto.conductor?.nombre ?? '',
-      dto.conductor?.numeroIdentificacion ?? '',
+      dto.actor?.kind === 'USER' ? 'Usuario' : 'Conductor',
+      dto.actor?.nombre ?? '',
+      dto.conductor?.numeroIdentificacion ?? dto.usuario?.correo ?? '',
       dto.vehiculo?.placa ?? '',
       dto.submittedAt ?? '',
       dto.voidedAt ?? '',

@@ -222,6 +222,29 @@ export const actualizarPlantillaSchema = plantillaSchema.partial().refine(
 
 // ─── Asignaciones ────────────────────────────────────────────────────────────
 
+/** Columnas de valor de un target. El orden no importa; la exhaustividad sí. */
+const CAMPOS_TARGET = ['conductorId', 'vehicleId', 'sede', 'groupKey', 'usuarioId', 'area', 'cargo'] as const
+type CampoTarget = (typeof CAMPOS_TARGET)[number]
+
+/**
+ * Qué columna necesita cada tipo de target. `null` = ninguna (los dos «todos»).
+ *
+ * Es el espejo EXACTO de `ck_form_assignment_targets_value`. Si aquí y en la
+ * migración no coinciden, Zod deja pasar algo que Postgres rechaza con un error
+ * de constraint ilegible, o al revés: la API rechaza algo que la base admitiría.
+ */
+const CAMPO_POR_TIPO: Record<string, CampoTarget | null> = {
+  ALL_CONDUCTORS: null,
+  CONDUCTOR: 'conductorId',
+  VEHICLE: 'vehicleId',
+  SEDE: 'sede',
+  GROUP: 'groupKey',
+  ALL_USERS: null,
+  USER: 'usuarioId',
+  AREA: 'area',
+  CARGO: 'cargo',
+}
+
 export const targetSchema = z
   .object({
     type: z.enum(TARGET_TYPES),
@@ -229,20 +252,17 @@ export const targetSchema = z
     vehicleId: uuid.nullish(),
     sede: z.string().min(1).max(80).nullish(),
     groupKey: z.string().min(1).max(120).nullish(),
+    usuarioId: uuid.nullish(),
+    /// El valor concreto se valida contra `AREAS` en el servicio, no aquí: el
+    /// schema no debe importar la config de permisos para no acoplar las capas.
+    area: z.string().min(1).max(40).nullish(),
+    cargo: z.string().min(1).max(255).nullish(),
   })
   .superRefine((t, ctx) => {
-    /// Espejo de `ck_form_assignment_targets_value`. Se comprueba aquí también
-    /// para devolver un 400 con el campo señalado, en vez del error genérico de
-    /// constraint de Postgres.
-    const expected: Record<string, 'conductorId' | 'vehicleId' | 'sede' | 'groupKey' | null> = {
-      ALL_CONDUCTORS: null,
-      CONDUCTOR: 'conductorId',
-      VEHICLE: 'vehicleId',
-      SEDE: 'sede',
-      GROUP: 'groupKey',
-    }
-    const needed = expected[t.type]
-    for (const campo of ['conductorId', 'vehicleId', 'sede', 'groupKey'] as const) {
+    /// Se comprueba aquí además de en la base para devolver un 400 con el campo
+    /// señalado, en vez del error genérico de constraint de Postgres.
+    const needed = CAMPO_POR_TIPO[t.type]
+    for (const campo of CAMPOS_TARGET) {
       const valor = t[campo]
       if (campo === needed) {
         if (valor == null) {
@@ -313,6 +333,10 @@ export const listarEnviosSchema = paginacionSchema.extend({
   versionId: uuid.optional(),
   assignmentId: uuid.optional(),
   conductorId: uuid.optional(),
+  /// Filtra por el usuario interno que diligenció. Es el espejo de
+  /// `conductorId`: desde que una asignación puede apuntar a las dos
+  /// poblaciones, filtrar solo por conductor deja fuera media lista.
+  usuarioId: uuid.optional(),
   vehicleId: uuid.optional(),
   status: z.enum(SUBMISSION_STATUSES).optional(),
   businessDateFrom: fechaSimple.optional(),

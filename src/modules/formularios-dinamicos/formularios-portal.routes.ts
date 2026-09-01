@@ -49,6 +49,7 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
         .send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Token no autorizado para el portal.' } })
     }
     ;(request as any).portalActor = {
+      kind: 'CONDUCTOR',
       id: payload.sub,
       cedula: payload.cedula,
       nombre: payload.nombre,
@@ -348,7 +349,11 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
       /// Post-commit. `idempotentReplay` distingue "guardado ahora" de "ya
       /// estaba": el portal no debe mostrar dos confirmaciones por un reintento.
       formEvents.submissionAccepted({
-        conductorId: resultado.conductorId,
+        /// Esta ruta es la del portal: su middleware exige
+        /// `tipo === 'conductor_portal'`, así que el actor siempre es un
+        /// conductor y `actorId` es su id. La room del socket solo existe para
+        /// conductores; los envíos del dashboard no emiten por aquí.
+        conductorId: resultado.actorId,
         submissionId: resultado.submissionId,
         clientSubmissionId: input.clientSubmissionId,
         assignmentId: resultado.assignmentId,
