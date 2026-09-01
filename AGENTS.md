@@ -59,6 +59,69 @@ generación de PDF. Filtra por los archivos que tocaste:
 npx tsc --noEmit 2>&1 | grep -i "<tu-archivo>"
 ```
 
+## Migraciones Prisma
+
+**La `DATABASE_URL` del `.env` apunta a la base local (PG 18, puerto 5433), no a
+Railway.** Es a propósito. Cuando apuntaba a producción, cada `prisma migrate dev`
+de desarrollo migraba producción, y en esa base Prisma solo sabía ofrecer un
+**reset** — por eso se vaciaban las filas de `formularios_asistencia` cada cierto
+tiempo. La tabla no era el objetivo de nada: era daño colateral del reset.
+
+Tres cosas lo causaban, y las tres están arregladas:
+
+1. **El historial no era reconstruible.** 27 migraciones creaban 63 de las 116
+   tablas y no había migración inicial, así que Prisma no podía levantar la
+   shadow database y concluía «drift» siempre. Resuelto con
+   `prisma/migrations/00000000000000_baseline`, generado del esquema real.
+2. **Una migración muerta** (`09-01-2026-add-event-details`, 0 pasos aplicados
+   desde el 2026-07-30) bloqueaba por sí sola cualquier `migrate deploy`.
+3. **27 foreign keys duplicadas** — cada relación con una constraint `fk_*`
+   legada y otra canónica, de aplicar el mismo SQL dos veces a mano. Prisma solo
+   modela una por relación y chocaba al renombrar. Las depura
+   `20260826055900_depurar_fks_duplicadas`.
+
+Además, el `schema.prisma` llevaba tiempo por detrás de su propia base: le
+faltaban 15 modelos cuyas tablas sí existían. Se puso al día desde el gemelo.
+
+- Las 27 migraciones históricas están en `prisma/migrations-archivo/` y los
+  `.sql` sueltos en `prisma/legacy-sql/`. **Ya están aplicadas: no volver a
+  correrlas.** Se conservan como registro, no como historial ejecutable.
+- **Producción solo recibe `prisma migrate deploy`.** Nunca `migrate dev`, ni
+  siquiera «para ver qué diría»: el diagnóstico ya incluye la propuesta de reset.
+- Antes de cualquier migración contra Railway, un dump:
+  `pg_dump "$RAILWAY_URL" -Fc -f railway_$(date +%Y%m%d_%H%M).dump` con el cliente
+  de PG 18 (el de PG 17 no puede leer un servidor 18.6).
+- Levantar la base local:
+  ```bash
+  /opt/homebrew/opt/postgresql@18/bin/pg_ctl -D /opt/homebrew/var/postgresql@18 \
+    -o "-p 5433" -l /opt/homebrew/var/log/postgresql@18.log start
+  ```
+
+### Divergencias deliberadas frente al gemelo
+
+El `schema.prisma` es el de Transmeralda salvo tres puntos, y los tres tienen
+motivo:
+
+- **Sin `bonificaciones_backup`**: tabla residual de una migración de datos de
+  allí, sin código que la use y que aquí no existe.
+- **Con `recargos_planillas.imported_from_transmeralda_{id,at}`**: 45 filas con
+  valor. Es la trazabilidad de la importación de recargos desde Transmeralda.
+- **`tipo_servicio_tarifa_enum` sin `@map`**: aquí las etiquetas están escritas
+  con guiones bajos y allí con espacios. El identificador de Prisma es el mismo
+  en ambos, así que el código no cambia; poner los `@map` obligaría a reescribir
+  las 66 filas existentes.
+
+### Dos bugs de Prisma que muerden al generar migraciones
+
+- **`RENAME CONSTRAINT`** lo mete junto a otros subcomandos en un mismo
+  `ALTER TABLE`, y Postgres no lo admite. Si una migración generada falla con
+  `syntax error at or near ","`, separa el `RENAME CONSTRAINT` en su propia
+  sentencia.
+- **`DROP INDEX` sobre un índice que respalda una UNIQUE**: Postgres exige
+  soltar la constraint. Y ojo, la shadow database puede tenerlo como índice
+  suelto mientras la base real lo tiene como constraint — cúbrelo con un bloque
+  `DO` que mire `pg_constraint` primero, o el replay de la shadow falla.
+
 ## Formularios dinámicos
 
 El módulo del que depende que un conductor no pierda una inspección.

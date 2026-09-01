@@ -1,5 +1,10 @@
 // @ts-nocheck
 import { prisma } from "../../config/prisma";
+import {
+  reservarVersionSnapshot,
+  hashSnapshotPayload,
+  inicioVentanaAntirrebote,
+} from "../../utils/snapshot-version";
 import { randomUUID } from "crypto";
 
 // ═══════════════════════════════════════════════════════════════
@@ -35,6 +40,18 @@ export interface SnapshotPayload {
     version_origen: number;
     items_pivote_count: number;
     conceptos_count: number;
+  };
+  /**
+   * Preferencias visuales del cierre. No son datos de negocio: viajan aquí
+   * para que un revert devuelva la hoja tal y como estaba, color incluido.
+   *
+   * ⚠️ Al añadir esta clave, el PRIMER snapshot que se capture tras el
+   * despliegue mostrará `ui` como campo nuevo en su diff contra el anterior.
+   * Es ruido de una sola vez, no un cambio real de la liquidación.
+   */
+  ui?: {
+    /** `null` = la pestaña usa el color automático del estado. */
+    color_hoja: string | null;
   };
 }
 
@@ -77,7 +94,10 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
   const items = await prisma.liquidacion_tercero_final_item.findMany({
     where: { liquidacion_tercero_final_id: cierre.id, deleted_at: null },
     select: { liquidacion_tercero_id: true, orden: true },
-    orderBy: { orden: 'asc' },
+    // Desempate explícito: `orden` se repite y sin él Postgres puede devolver
+    // las filas en distinto orden entre consultas, con lo que dos payloads
+    // idénticos parecen distintos (diffs falsos y deduplicación que no acierta).
+    orderBy: [{ orden: 'asc' }, { liquidacion_tercero_id: 'asc' }],
   });
 
   const conceptos = await prisma.liquidacion_tercero_final_concepto.findMany({
@@ -87,7 +107,7 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
       valor_unitario: true, porcentaje: true, valor_total: true,
       base_calculo: true, calculado: true, observaciones: true, orden: true,
     },
-    orderBy: [{ orden: 'asc' }, { concepto: 'asc' }],
+    orderBy: [{ orden: 'asc' }, { concepto: 'asc' }, { id: 'asc' }],
   });
 
   const adicionales = Array.isArray(cierre.adicionales) ? cierre.adicionales : [];
@@ -133,6 +153,9 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
       observaciones: c.observaciones,
       orden: c.orden,
     })),
+    ui: {
+      color_hoja: cierre.color_hoja ?? null,
+    },
     meta: {
       capturado_en: new Date().toISOString(),
       capturado_por: 'system',
@@ -143,13 +166,13 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
   };
 }
 
-async function getNextVersion(liquidacionId: string): Promise<number> {
-  const last = await prisma.liquidacion_tercero_final_snapshot.findFirst({
+async function ultimaVersion(tx: any, liquidacionId: string): Promise<number | null> {
+  const last = await tx.liquidacion_tercero_final_snapshot.findFirst({
     where: { liquidacion_tercero_final_id: liquidacionId },
     orderBy: { version: 'desc' },
     select: { version: true },
   });
-  return last ? last.version + 1 : 1;
+  return last?.version ?? null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -162,7 +185,18 @@ export const LiquidacionesSnapshotsService = {
    * Captura un snapshot inmutable del estado actual del cierre.
    */
   async capturar(liquidacionId: string, opts: {
-    origen: 'manual' | 'auto' | 'revert';
+    /**
+     * `refresh-items` ya se venía escribiendo desde `refreshItems` del
+     * service de descuentos; faltaba en la unión porque aquel archivo tenía
+     * `@ts-nocheck`. La columna es VARCHAR(20), así que el dato es válido.
+     */
+    /**
+     * `items-manuales` es el hermano de `refresh-items`: mismo efecto sobre el
+     * pivote, pero con los items que ELIGIÓ el usuario en «Traer items» en vez
+     * de los que salen del filtro de periodo. Se distinguen para que el
+     * historial diga cuál de los dos caminos movió el cierre.
+     */
+    origen: 'manual' | 'auto' | 'revert' | 'refresh-items' | 'items-manuales';
     usuarioId?: string | null;
     revertidoDeId?: string | null;
   }) {
@@ -171,37 +205,61 @@ export const LiquidacionesSnapshotsService = {
     });
     if (!cierre) throw new Error('Cierre no encontrado');
 
-    const version = await getNextVersion(liquidacionId);
+    // El payload va FUERA del lock: son decenas de queries y dentro
+    // bloquearían al resto de capturas de este cierre.
     const payload = await buildPayload(cierre);
     payload.meta.capturado_por = opts.usuarioId || 'cron';
-    payload.meta.version_origen = version;
 
-    // Calcular diff contra el snapshot anterior (si existe)
     let diff: DiffResult['fields'] | null = null;
-    if (opts.origen !== 'auto') {
-      const prev = await prisma.liquidacion_tercero_final_snapshot.findFirst({
-        where: { liquidacion_tercero_final_id: liquidacionId },
-        orderBy: { version: 'desc' },
-        select: { payload: true },
-      });
-      if (prev) {
-        diff = deepDiff(prev.payload, payload);
-      }
-    }
 
-    const snapshot = await prisma.liquidacion_tercero_final_snapshot.create({
-      data: {
-        liquidacion_tercero_final_id: liquidacionId,
-        version,
-        origen: opts.origen,
-        revertido_de_id: opts.revertidoDeId || null,
-        usuario_id: opts.usuarioId || null,
-        payload: payload as any,
-        diff: diff ? (diff as any) : null,
+    // Leer la versión e insertar bajo el mismo advisory lock. Con el MAX()
+    // suelto de antes, dos capturas simultáneas del mismo cierre calculaban
+    // la misma versión y la segunda moría contra el unique
+    // (liquidacion_tercero_final_id, version).
+    const { snapshot, omitido } = await reservarVersionSnapshot({
+      scope: `snapshot:final:${liquidacionId}`,
+      ultimaVersion: (tx) => ultimaVersion(tx, liquidacionId),
+      insertar: async (tx, version) => {
+        const prev = await tx.liquidacion_tercero_final_snapshot.findFirst({
+          where: { liquidacion_tercero_final_id: liquidacionId },
+          orderBy: { version: 'desc' },
+        });
+
+        // El cron capturaba hubiera cambios o no; de ahí versiones como la
+        // 1042 repitiendo el payload entero. Si el contenido es idéntico al
+        // último snapshot, la captura `auto` no inserta: la versión anterior
+        // YA describe este estado. Manual y revert se guardan siempre.
+        if (
+          opts.origen === 'auto' &&
+          prev &&
+          hashSnapshotPayload(prev.payload) === hashSnapshotPayload(payload)
+        ) {
+          return { snapshot: prev, omitido: true };
+        }
+
+        payload.meta.version_origen = version;
+
+        // Calcular diff contra el snapshot anterior (si existe)
+        if (opts.origen !== 'auto' && prev) {
+          diff = deepDiff(prev.payload, payload);
+        }
+
+        const creado = await tx.liquidacion_tercero_final_snapshot.create({
+          data: {
+            liquidacion_tercero_final_id: liquidacionId,
+            version,
+            origen: opts.origen,
+            revertido_de_id: opts.revertidoDeId || null,
+            usuario_id: opts.usuarioId || null,
+            payload: payload as any,
+            diff: diff ? (diff as any) : null,
+          },
+        });
+        return { snapshot: creado, omitido: false };
       },
     });
 
-    return { ...snapshot, payload, diff };
+    return { ...snapshot, payload, diff, omitido };
   },
 
   /**
@@ -312,6 +370,10 @@ export const LiquidacionesSnapshotsService = {
           estado: payload.estado,
           motivo_anulacion: payload.motivo_anulacion,
           adicionales: payload.adicionales as any,
+          // Los snapshots anteriores a esta versión no llevan `ui`; en esos
+          // casos se deja el color actual en vez de borrarlo, que sería
+          // perder una preferencia por revertir a una versión antigua.
+          ...(payload.ui ? { color_hoja: payload.ui.color_hoja } : {}),
           actualizado_por_id: usuarioId,
         },
       }),
@@ -354,7 +416,7 @@ export const LiquidacionesSnapshotsService = {
   /**
    * Snapshots horarios de TODAS las liquidaciones activas.
    */
-  async capturarHorario(): Promise<{ ok: number; errors: number }> {
+  async capturarHorario(): Promise<{ ok: number; omitidos: number; errors: number }> {
     const cierres = await prisma.liquidacion_tercero_final.findMany({
       where: {
         deleted_at: null,
@@ -363,19 +425,41 @@ export const LiquidacionesSnapshotsService = {
       select: { id: true },
     });
 
+    // Antirrebote del doble disparo: el job corre in-process en cada
+    // instancia y además está expuesto como endpoint de cron, así que a la
+    // misma hora puede entrar más de una vez. Los cierres con captura `auto`
+    // reciente se saltan ANTES de construir el payload, que es lo caro. Una
+    // sola query para los 58 cierres, no una por cierre.
+    const recientes = await prisma.liquidacion_tercero_final_snapshot.findMany({
+      where: {
+        liquidacion_tercero_final_id: { in: cierres.map((c) => c.id) },
+        origen: 'auto',
+        created_at: { gte: inicioVentanaAntirrebote() },
+      },
+      select: { liquidacion_tercero_final_id: true },
+      distinct: ['liquidacion_tercero_final_id'],
+    });
+    const yaCapturados = new Set(recientes.map((r) => r.liquidacion_tercero_final_id));
+
     let ok = 0;
+    let omitidos = 0;
     let errors = 0;
 
     for (const cierre of cierres) {
+      if (yaCapturados.has(cierre.id)) {
+        omitidos++;
+        continue;
+      }
       try {
-        await this.capturar(cierre.id, { origen: 'auto' });
-        ok++;
+        const snap = await this.capturar(cierre.id, { origen: 'auto' });
+        if (snap.omitido) omitidos++;
+        else ok++;
       } catch (e) {
         errors++;
         console.error(`[snapshot-job] Error capturando ${cierre.id}:`, e);
       }
     }
 
-    return { ok, errors };
+    return { ok, omitidos, errors };
   },
 };

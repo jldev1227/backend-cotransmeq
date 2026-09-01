@@ -125,6 +125,21 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Liquidaciones de servicios'
   },
 
+  // Espejo EXACTO de `cotransmeq-app/src/lib/config/permissions.ts`. Sin estas
+  // entradas, `requirePermission('liquidaciones-terceros')` devuelve 403 a todo
+  // el mundo: `checkAccess` deniega cualquier moduleId ausente de este mapa.
+  'liquidaciones-terceros': {
+    full: ['administracion', 'operaciones'],
+    limited: ['facturacion', 'contabilidad'],
+    description: 'Liquidaciones de terceros (propietarios)'
+  },
+
+  'liquidaciones-terceros-adicionales': {
+    full: ['administracion', 'operaciones'],
+    limited: ['facturacion', 'contabilidad'],
+    description: 'Adicionales (unificados) de cierres finales de terceros'
+  },
+
   pesv: {
     full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
     general: true,

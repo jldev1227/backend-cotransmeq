@@ -53,6 +53,13 @@ import { liquidacionesTercerosMensualRoutes } from './modules/liquidaciones-terc
 import { formulariosSarlaftRoutes } from './modules/formularios-sarlaft/formularios-sarlaft.routes'
 import { formulariosDinamicosRoutes } from './modules/formularios-dinamicos/formularios-dinamicos.routes'
 import { formulariosPortalRoutes } from './modules/formularios-dinamicos/formularios-portal.routes'
+import { liquidacionesTercerosPdfRoutes } from './modules/liquidaciones-terceros-pdf/liquidaciones-terceros-pdf.routes'
+import { liquidacionesTercerosOcasionalRoutes } from './modules/liquidaciones-terceros-ocasional/liquidaciones-terceros-ocasional.routes'
+import { canvasAnotacionesRoutes } from './modules/canvas-anotaciones/canvas-anotaciones.routes'
+import { liquidacionesTercerosOcasionalSnapshotsRoutes } from './modules/liquidaciones-terceros-ocasional-snapshots/liquidaciones-terceros-ocasional-snapshots.routes'
+import { liquidacionesTercerosAdicionalesRoutes } from './modules/liquidaciones-terceros-adicionales/liquidaciones-terceros-adicionales.routes'
+import { liquidacionesTercerosAdicionalesSnapshotsRoutes } from './modules/liquidaciones-terceros-adicionales-snapshots/liquidaciones-terceros-adicionales-snapshots.routes'
+import { liquidacionesTercerosIngresosRoutes } from './modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -149,6 +156,13 @@ export function buildApp() {
     app.register(facturacionLiquidacionesRoutes, { prefix: '/api' })
     app.register(tercerosRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosPdfRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosOcasionalRoutes, { prefix: '/api' })
+    app.register(canvasAnotacionesRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosOcasionalSnapshotsRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosAdicionalesRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosAdicionalesSnapshotsRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosIngresosRoutes, { prefix: '/api' })
     app.register(pdfRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosDescuentosRoutes, { prefix: '/api' })
     app.register(notificacionesRoutes, { prefix: '/api' })

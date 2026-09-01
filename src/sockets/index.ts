@@ -8,6 +8,7 @@ import { registerBulkSaveLiquidacionTerceroGateway } from '../queue/bulk-save-li
 import { bulkSaveLiquidacionTerceroService } from '../queue/bulk-save-liquidacion-tercero.service'
 import { installSocketAuth, corsOrigins } from './auth'
 import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
+import { registerSheetGateway } from './sheet.gateway'
 
 let io: IOServer | null = null
 
@@ -98,6 +99,7 @@ export function initSockets(server: HttpServer) {
     });
   })
   registerLiquidacionTerceroGateway(io)
+  registerSheetGateway(io)
   registerFormulariosGateway(io)
   registerChatGateway(io)
   registerBorradorQueueGateway(io)
@@ -151,8 +153,84 @@ export function emitActividadPesv(event: 'actividad-pesv-created' | 'actividad-p
 }
 
 /** Emit a facturacion-liquidacion event to all connected clients */
-export function emitFacturacionLiquidacion(event: 'facturacion-created' | 'facturacion-anulada' | 'liquidacion-servicio-facturada', data: any) {
-  if (io) {
+export function emitFacturacionLiquidacion(
+  event: 'facturacion-created' | 'facturacion-anulada' | 'liquidacion-servicio-facturada',
+  data: any,
+  meta?: EventoSocketMeta,
+) {
+  emitConMeta(event, data, meta)
+}
+
+/** Construye el sobre `_evento`. `ts` siempre lo pone el servidor. */
+/**
+ * Metadatos que viajan con cada evento de dominio, bajo la clave `_evento`.
+ *
+ * POR QUÉ EXISTE: los clientes ya recibían la entidad, pero no QUIÉN la
+ * tocó ni QUÉ cambió. El feed de eventos de `/dashboard/liquidaciones-servicios`
+ * necesita ambas cosas para escribir "Juan pasó LS-045 de BORRADOR a
+ * LIQUIDADA" sin pedir nada más al servidor, y para distinguir un alta de
+ * una edición de un cambio de estado (que se pinta más discreto).
+ *
+ * Va como sobre aparte y NO mezclado con los campos de la entidad, para no
+ * colisionar nunca con una columna real ni romper a los consumidores
+ * antiguos, que siguen leyendo `data.id`, `data.estado`, etc.
+ */
+export interface EventoSocketMeta {
+  /** Qué pasó. `estado` es un `updated` que además cambió de estado. */
+  tipo: 'created' | 'updated' | 'deleted' | 'estado' | 'anulada'
+  /** A qué tab del dashboard afecta, para invalidar solo esa caché. */
+  scope: 'liquidaciones' | 'facturas' | 'terceros'
+  /** Quién lo hizo. `null` cuando la acción no viene de un request de usuario. */
+  actor: { id: string | null; nombre: string } | null
+  /**
+   * Cómo nombrar la entidad en el feed (consecutivo, nº de factura…).
+   * Se manda resuelto para que el cliente no tenga que tener la entidad
+   * cargada — el evento puede llegar de un tab que ni siquiera está abierto.
+   */
+  etiqueta: string
+  estado_anterior?: string
+  estado_nuevo?: string
+  /** ISO. Lo pone el servidor: los relojes de los clientes no coinciden. */
+  ts: string
+}
+
+/**
+ * Emite `data` con el sobre `_evento` adjunto.
+ *
+ * `data` se copia superficialmente: adjuntar `_evento` mutando el objeto de
+ * Prisma que el handler todavía va a devolver por HTTP haría que el sobre
+ * se colara en la respuesta REST.
+ */
+function emitConMeta(event: string, data: any, meta?: EventoSocketMeta) {
+  if (!io) return
+  if (!meta) {
     io.emit(event, data)
+    return
   }
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? { ...data, _evento: meta }
+      : { data, _evento: meta }
+  io.emit(event, payload)
+}
+
+export function eventoMeta(
+  meta: Omit<EventoSocketMeta, 'ts'>,
+): EventoSocketMeta {
+  return { ...meta, ts: new Date().toISOString() }
+}
+
+/**
+ * Emite un evento de items de terceros.
+ *
+ * Este módulo no emitía NADA: guardar los terceros de una liquidación no
+ * llegaba a los demás usuarios, así que el tab de Terceros solo se
+ * actualizaba recargando a mano.
+ */
+export function emitLiquidacionTercero(
+  event: 'liquidacion-tercero-updated',
+  data: any,
+  meta?: EventoSocketMeta,
+) {
+  emitConMeta(event, data, meta)
 }

@@ -169,7 +169,7 @@ export const LiquidacionesTercerosService = {
       ];
     }
 
-    const [items, total] = await Promise.all([
+    const [items, total, metadata] = await Promise.all([
       prisma.liquidacion_tercero.findMany({
         where,
         include: {
@@ -202,6 +202,7 @@ export const LiquidacionesTercerosService = {
         take: limit,
       }),
       prisma.liquidacion_tercero.count({ where }),
+      metadataHistorial(where),
     ]);
 
     return {
@@ -209,6 +210,7 @@ export const LiquidacionesTercerosService = {
       total,
       totalPages: Math.ceil(total / limit),
       page,
+      metadata,
     };
   },
 
@@ -276,3 +278,55 @@ export const LiquidacionesTercerosService = {
     return { migradas, itemsMigrados, totalLiquidacionesRevisadas: liquidaciones.length };
   },
 };
+
+/**
+ * Agregados del historial sobre TODOS los registros que casan con el
+ * filtro, no solo la página actual.
+ *
+ * POR QUÉ: las stat cards del tab de Terceros se calculaban en el cliente
+ * con `tercerosItems.reduce(...)` sobre la página (limit 50), así que
+ * "Total Facturado" era el de 50 filas y no el del filtro completo — y
+ * cambiaba al pasar de página, que es lo que delataba el problema. El tab
+ * de Liquidaciones ya resolvía esto en el servidor vía `metadata`; esto lo
+ * empareja.
+ *
+ * Se usa EXACTAMENTE el mismo `where` que la consulta paginada. Si
+ * divergieran, la tarjeta contradiría a la tabla que tiene debajo.
+ */
+async function metadataHistorial(where: any) {
+  const [agg, clientes] = await Promise.all([
+    prisma.liquidacion_tercero.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: {
+        total_facturado: true,
+        valor_admin: true,
+        valor_liquidar: true,
+        ingreso_empresa: true,
+      },
+    }),
+    // Nº de clientes distintos: se agrupa por la liquidación padre y se
+    // cuentan clientes únicos en memoria. Prisma no expone `countDistinct`
+    // sobre un campo de una relación, y el volumen de un periodo es
+    // pequeño comparado con el de los items.
+    prisma.liquidacion_tercero.findMany({
+      where,
+      select: { liquidacion: { select: { cliente_id: true } } },
+      distinct: ["liquidacion_id"],
+    }),
+  ]);
+
+  const clientesUnicos = new Set(
+    clientes.map((c: any) => c.liquidacion?.cliente_id).filter(Boolean),
+  );
+
+  return {
+    /// Nº de items que casan con el filtro (no los de la página).
+    globalCount: agg._count._all,
+    globalFacturado: toNumber(agg._sum.total_facturado),
+    globalAdmon: toNumber(agg._sum.valor_admin),
+    globalLiquidar: toNumber(agg._sum.valor_liquidar),
+    globalIngresoEmpresa: toNumber(agg._sum.ingreso_empresa),
+    globalClientes: clientesUnicos.size,
+  };
+}
