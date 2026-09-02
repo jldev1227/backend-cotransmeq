@@ -113,11 +113,83 @@ export interface FiltrosLiquidacionServicios {
   periodos?: string; // "1-2026,2-2026" format
   facturas?: string;
   placas?: string;
+  /**
+   * `"true"` → cada liquidación viaja con sus ITEMS completos (una consulta,
+   * sin N+1). Lo pide el canvas de historial, que pinta una fila por item;
+   * el listado clásico no lo manda y sigue recibiendo solo `placas[]`.
+   * Llega como string porque viene de la query HTTP.
+   */
+  include_items?: string | boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════
 // SERVICIO
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ítems normalizados y totales de una liquidación.
+ *
+ * Estaba duplicado literalmente en `crear` y `actualizar`, y el autoguardado
+ * habría sido la tercera copia. Con tres, el día que alguien cambie la fórmula
+ * del IVA o el descuento en una sola, la liquidación valdrá distinto según por
+ * dónde se guarde — y el síntoma aparecería en la factura, no en un error.
+ *
+ * Devuelve números planos; envolver en `Decimal` es cosa de cada llamante,
+ * porque `crear` y `actualizar` no coinciden en cuáles envuelven.
+ */
+function construirItemsYTotales(data: CrearLiquidacionInput) {
+  let valorServicios = 0;
+
+  const itemsData = data.items.map((item, index) => {
+    const subtotal = item.cantidad * item.valor_unitario;
+    const descuento = (subtotal * (item.porcentaje_descuento || 0)) / 100;
+    const valorFinal = subtotal - descuento;
+    valorServicios += valorFinal;
+
+    return {
+      id: randomUUID(),
+      placa: item.placa,
+      fecha_inicial: new Date(item.fecha_inicial),
+      fecha_final: new Date(item.fecha_final),
+      recorrido: item.recorrido,
+      tipo_servicio: item.tipo_servicio as any,
+      cantidad: item.cantidad,
+      valor_unitario: item.valor_unitario,
+      subtotal,
+      porcentaje_descuento: item.porcentaje_descuento || 0,
+      valor_final: valorFinal,
+      numero_planilla: item.numero_planilla || null,
+      servicio_id: item.servicio_id || null,
+      recargo_planilla_id: item.recargo_planilla_id || null,
+      valor_recargos_total: 0,
+      orden: index,
+      tercero_id: item.tercero_id || null,
+    };
+  });
+
+  // `valor_recargos` viene ya calculado del liquidador del frontend.
+  const valorRecargos = data.valor_recargos || 0;
+  const valorTransporteAdicional = data.valor_transporte_adicional || 0;
+  const subtotal =
+    valorServicios +
+    valorTransporteAdicional +
+    valorRecargos +
+    (data.valor_pernoctes || 0);
+  const porcentajeIva = data.porcentaje_iva || 0;
+  const valorIva = (subtotal * porcentajeIva) / 100;
+  const total = subtotal + valorIva;
+
+  return {
+    itemsData,
+    valorServicios,
+    valorRecargos,
+    valorTransporteAdicional,
+    subtotal,
+    porcentajeIva,
+    valorIva,
+    total,
+  };
+}
 
 /**
  * Qué liquidaciones son visibles.
@@ -566,8 +638,13 @@ export const LiquidacionesServiciosService = {
             const horas = Number(detalle.horas);
             const porcentaje = Number(tipo.porcentaje);
 
+            // Tarifas "all-in" (base + %): horas extras, adicionales y RD
+            // (Recargo Dominical/Festivo se paga completo: base + recargo).
+            // El resto (RN, RNDF) son recargos puros sumados a la base.
+            const esAllIn = tipo.es_hora_extra || tipo.adicional || tipo.codigo === 'RD';
+
             let valorCalculado = 0;
-            if (tipo.es_hora_extra || tipo.adicional) {
+            if (esAllIn) {
               valorCalculado =
                 horas * (valorHoraBase + (valorHoraBase * porcentaje) / 100);
             } else {
@@ -581,12 +658,11 @@ export const LiquidacionesServiciosService = {
                 porcentaje,
                 es_hora_extra: tipo.es_hora_extra,
                 totalHoras: 0,
-                valorUnitario:
-                  tipo.es_hora_extra || tipo.adicional
-                    ? Math.round(
-                        valorHoraBase + (valorHoraBase * porcentaje) / 100,
-                      )
-                    : Math.round((valorHoraBase * porcentaje) / 100),
+                valorUnitario: esAllIn
+                  ? Math.round(
+                      valorHoraBase + (valorHoraBase * porcentaje) / 100,
+                    )
+                  : Math.round((valorHoraBase * porcentaje) / 100),
                 valorTotal: 0,
               };
             }
@@ -812,7 +888,7 @@ export const LiquidacionesServiciosService = {
     return { available: false };
   },
 
-  // ── CRUD LIQUIDACIONES ──
+// ── CRUD LIQUIDACIONES ──
 
   /**
    * Autoguardado: crea o actualiza la liquidación como BORRADOR real.
@@ -1130,6 +1206,8 @@ export const LiquidacionesServiciosService = {
     const page = Number(filtros.page) || 1;
     const limit = Number(filtros.limit) || 10;
     const skip = (page - 1) * limit;
+    const conItems =
+      filtros.include_items === true || filtros.include_items === "true";
 
     /// `filtroVisibilidad` va en el `where` base a propósito: `whereExcluding`
     /// deriva de él, así que las listas de valores de los filtros de columna
@@ -1151,7 +1229,28 @@ export const LiquidacionesServiciosService = {
       ];
     }
     if (filtros.placa) {
-      where.items = { some: { placa: { contains: filtros.placa, mode: "insensitive" } } };
+      // ── Filtro de placa tolerante a formato ──
+      // La BD tiene items con la columna `placa` en formatos
+      // inconsistentes ("KSQ-992", "KSQ992", "KSQ 992") según cómo se
+      // crearon. El `contains` de Prisma es substring literal, así que
+      // "KSQ-992" NO matchea "KSQ992". Usamos un raw query que
+      // normaliza ambos lados (strip no-alfanumérico) antes de comparar,
+      // para que cualquier variación matchee correctamente.
+      const placaNormalized = filtros.placa
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "");
+      const matchingLiqIds = await prisma.$queryRaw<{ liquidacion_id: string }[]>`
+        SELECT DISTINCT liquidacion_id
+        FROM liquidacion_servicio_item
+        WHERE UPPER(REGEXP_REPLACE(placa, '[^A-Za-z0-9]', '', 'g')) = ${placaNormalized}
+      `;
+      const liqIds = matchingLiqIds.map((r) => r.liquidacion_id);
+      if (liqIds.length === 0) {
+        // Forzar resultado vacío: usamos un UUID inexistente
+        where.id = "00000000-0000-0000-0000-000000000000";
+      } else {
+        where.id = { in: liqIds };
+      }
     }
 
     // Sorting
@@ -1307,7 +1406,21 @@ export const LiquidacionesServiciosService = {
           liquidado_por: { select: { id: true, nombre: true, correo: true } },
           aprobado_por: { select: { id: true, nombre: true, correo: true } },
           _count: { select: { items: true } },
-          items: { select: { placa: true } },
+          items: conItems
+            ? { orderBy: { orden: "asc" as const } }
+            : { select: { placa: true } },
+          // La factura viva SIEMPRE embebida: el tipo del frontend ya la
+          // documentaba como parte de `listar`, pero nunca se incluyó y la
+          // columna N° FACTURA del canvas salía vacía. El listado clásico la
+          // resolvía aparte con POST /batch-info — un viaje extra por página.
+          factura_items: {
+            where: { factura: { estado: "ACTIVA", deleted_at: null } },
+            select: {
+              factura: {
+                select: { id: true, numero_factura: true, estado: true },
+              },
+            },
+          },
         },
         orderBy,
         skip,
@@ -1404,7 +1517,21 @@ export const LiquidacionesServiciosService = {
         valor_transporte_adicional: Number(l.valor_transporte_adicional),
         valor_administracion_ta: Number(l.valor_administracion_ta),
         total_items: l._count.items,
-        placas: [...new Set((l.items || []).map((i) => i.placa))],
+        placas: [...new Set((l.items || []).map((i: any) => i.placa))],
+        // Los Decimal de Prisma serializan como string; el canvas los suma.
+        items: conItems
+          ? (l.items || []).map((i: any) => ({
+              ...i,
+              cantidad: Number(i.cantidad),
+              valor_unitario: Number(i.valor_unitario),
+              subtotal: Number(i.subtotal),
+              porcentaje_descuento: Number(i.porcentaje_descuento),
+              valor_final: Number(i.valor_final),
+              valor_recargos_total: Number(i.valor_recargos_total),
+              valor_pernocte_unitario: Number(i.valor_pernocte_unitario),
+              valor_pernoctes_total: Number(i.valor_pernoctes_total),
+            }))
+          : undefined,
       })),
       total,
       totalPages: Math.ceil(total / limit),
@@ -1814,7 +1941,7 @@ export const LiquidacionesServiciosService = {
     // 1. Agregar Logo
     const logoPath = path.join(
       process.cwd(),
-      "src/assets/transmeralda-logo.webp",
+      "src/assets/transmeralda-logo.png",
     );
     if (fs.existsSync(logoPath)) {
       const logo = workbook.addImage({
@@ -2035,6 +2162,8 @@ export const LiquidacionesServiciosService = {
         adicional: true,
         categoria: true,
         orden_calculo: true,
+        vigencia_desde: true,
+        vigencia_hasta: true,
       },
       orderBy: { orden_calculo: "asc" },
     });
@@ -2042,6 +2171,10 @@ export const LiquidacionesServiciosService = {
     return tipos.map((t) => ({
       ...t,
       porcentaje: Number(t.porcentaje),
+      vigencia_desde:
+        t.vigencia_desde instanceof Date ? t.vigencia_desde.toISOString() : t.vigencia_desde,
+      vigencia_hasta:
+        t.vigencia_hasta instanceof Date ? t.vigencia_hasta.toISOString() : t.vigencia_hasta,
     }));
   },
 

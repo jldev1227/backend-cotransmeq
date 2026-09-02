@@ -56,17 +56,9 @@ export const FacturacionLiquidacionesService = {
       throw new Error("Algunas liquidaciones no fueron encontradas");
     }
 
-    const noFacturables = liquidaciones.filter(
-      (l) => !["LIQUIDADA", "APROBADA"].includes(l.estado),
-    );
-    if (noFacturables.length > 0) {
-      const consecutivos = noFacturables.map((l) => l.consecutivo).join(", ");
-      throw new Error(
-        `Las siguientes liquidaciones no están en estado para facturar: ${consecutivos}`,
-      );
-    }
-
-    // Ya facturadas?
+    // «Ya facturada» ANTES que «no está en estado para facturar»: una
+    // liquidación facturada incumple las dos condiciones, y el mensaje útil
+    // es en qué factura está, no que le falta un estado.
     const yaFacturadas = await prisma.factura_liquidacion_item.findMany({
       where: {
         liquidacion_id: { in: liquidacion_ids },
@@ -89,6 +81,16 @@ export const FacturacionLiquidacionesService = {
       );
     }
 
+    const noFacturables = liquidaciones.filter(
+      (l) => !["LIQUIDADA", "APROBADA"].includes(l.estado),
+    );
+    if (noFacturables.length > 0) {
+      const consecutivos = noFacturables.map((l) => l.consecutivo).join(", ");
+      throw new Error(
+        `Las siguientes liquidaciones no están en estado para facturar: ${consecutivos}`,
+      );
+    }
+
     // Calcular valor total
     const valorTotal = liquidaciones.reduce(
       (sum, l) => sum + Number(l.total),
@@ -97,6 +99,34 @@ export const FacturacionLiquidacionesService = {
 
     // Crear factura + items + cambiar estado de liquidaciones en transacción
     const factura = await prisma.$transaction(async (tx) => {
+      // ── Toma de posesión de las liquidaciones ──
+      //
+      // Las comprobaciones de arriba corren FUERA de la transacción, así que
+      // entre ellas y este punto otra petición puede haber facturado las
+      // mismas liquidaciones. Sin este paso, dos usuarios facturando a la vez
+      // recibían ambos un 201 y la liquidación acababa en DOS facturas
+      // activas — con `factura_items` duplicados y un `N° FACTURA` que
+      // dependía de cuál se leyera primero.
+      //
+      // El `updateMany` condicional actúa de cerrojo: la segunda transacción
+      // se bloquea en las mismas filas hasta que la primera confirma y, al
+      // reevaluar el `where` con la instantánea nueva (READ COMMITTED), ya no
+      // las encuentra facturables. `count` distinto del esperado ⇒ alguien se
+      // adelantó ⇒ se aborta.
+      const tomadas = await tx.liquidacion_servicio.updateMany({
+        where: {
+          id: { in: liquidacion_ids },
+          estado: { in: ["LIQUIDADA", "APROBADA"] },
+          deleted_at: null,
+        },
+        data: { estado: "FACTURADA", fecha_facturacion: new Date() },
+      });
+      if (tomadas.count !== liquidacion_ids.length) {
+        throw new Error(
+          "Las siguientes liquidaciones ya están facturadas: otra sesión se adelantó. Recarga y vuelve a intentarlo.",
+        );
+      }
+
       // Crear factura
       const fac = await tx.factura_liquidacion_servicio.create({
         data: {
@@ -128,11 +158,7 @@ export const FacturacionLiquidacionesService = {
         },
       });
 
-      // Cambiar estado de las liquidaciones a FACTURADA
-      await tx.liquidacion_servicio.updateMany({
-        where: { id: { in: liquidacion_ids } },
-        data: { estado: "FACTURADA", fecha_facturacion: new Date() },
-      });
+      // El cambio de estado ya lo hizo la toma de posesión de arriba.
 
       // Registrar historial para cada liquidación
       await tx.historial_estado_liquidacion.createMany({
@@ -204,7 +230,7 @@ export const FacturacionLiquidacionesService = {
       ];
     }
 
-    const [facturas, total] = await Promise.all([
+    const [facturas, total, metadata] = await Promise.all([
       prisma.factura_liquidacion_servicio.findMany({
         where,
         include: {
@@ -231,6 +257,7 @@ export const FacturacionLiquidacionesService = {
         take: limit,
       }),
       prisma.factura_liquidacion_servicio.count({ where }),
+      metadataFacturas(where),
     ]);
 
     return {
@@ -252,6 +279,7 @@ export const FacturacionLiquidacionesService = {
       total,
       totalPages: Math.ceil(total / limit),
       page,
+      metadata,
     };
   },
 
@@ -461,6 +489,228 @@ export const FacturacionLiquidacionesService = {
   },
 
   /**
+   * Asociar liquidaciones a una factura EXISTENTE.
+   *
+   * Mismas reglas que `crear`: la liquidación debe estar en LIQUIDADA o
+   * APROBADA y sin factura activa. La factura recalcula su `valor_total`
+   * desde sus items — no se suma incrementalmente, para que una asociación
+   * concurrente no deje el total desfasado.
+   */
+  async agregarLiquidaciones(
+    facturaId: string,
+    liquidacionIds: string[],
+    userId: string,
+  ) {
+    if (!liquidacionIds || liquidacionIds.length === 0) {
+      throw new Error("Debe seleccionar al menos una liquidación");
+    }
+
+    const factura = await prisma.factura_liquidacion_servicio.findUnique({
+      where: { id: facturaId },
+      select: { id: true, numero_factura: true, estado: true, deleted_at: true },
+    });
+    if (!factura || factura.deleted_at) throw new Error("Factura no encontrada");
+    if (factura.estado !== "ACTIVA") {
+      throw new Error(
+        `La factura ${factura.numero_factura} está anulada: no admite liquidaciones`,
+      );
+    }
+
+    const liquidaciones = await prisma.liquidacion_servicio.findMany({
+      where: { id: { in: liquidacionIds }, deleted_at: null },
+      select: { id: true, consecutivo: true, estado: true, total: true },
+    });
+    if (liquidaciones.length !== liquidacionIds.length) {
+      throw new Error("Algunas liquidaciones no fueron encontradas");
+    }
+
+    // El orden importa: «ya está facturada» va ANTES que «no está en estado
+    // para facturar». Una liquidación facturada incumple las dos condiciones,
+    // y decirle al usuario que «no está en estado» le hace buscar el estado
+    // correcto cuando lo que necesita saber es en qué factura está ya.
+    const yaFacturadas = await prisma.factura_liquidacion_item.findMany({
+      where: {
+        liquidacion_id: { in: liquidacionIds },
+        factura: { estado: "ACTIVA" },
+      },
+      include: {
+        liquidacion: { select: { consecutivo: true } },
+        factura: { select: { numero_factura: true } },
+      },
+    });
+    if (yaFacturadas.length > 0) {
+      const detalles = yaFacturadas
+        .map(
+          (f) =>
+            `${f.liquidacion.consecutivo} (Factura: ${f.factura.numero_factura})`,
+        )
+        .join(", ");
+      throw new Error(
+        `Las siguientes liquidaciones ya están facturadas: ${detalles}`,
+      );
+    }
+
+    const noFacturables = liquidaciones.filter(
+      (l) => !["LIQUIDADA", "APROBADA"].includes(l.estado),
+    );
+    if (noFacturables.length > 0) {
+      throw new Error(
+        `Las siguientes liquidaciones no están en estado para facturar: ${noFacturables
+          .map((l) => l.consecutivo)
+          .join(", ")}`,
+      );
+    }
+
+    const actualizada = await prisma.$transaction(async (tx) => {
+      // Misma toma de posesión que en `crear`: es el cerrojo que impide que
+      // dos sesiones enganchen la misma liquidación a dos facturas distintas.
+      const tomadas = await tx.liquidacion_servicio.updateMany({
+        where: {
+          id: { in: liquidacionIds },
+          estado: { in: ["LIQUIDADA", "APROBADA"] },
+          deleted_at: null,
+        },
+        data: { estado: "FACTURADA", fecha_facturacion: new Date() },
+      });
+      if (tomadas.count !== liquidacionIds.length) {
+        throw new Error(
+          "Las siguientes liquidaciones ya están facturadas: otra sesión se adelantó. Recarga y vuelve a intentarlo.",
+        );
+      }
+
+      await tx.factura_liquidacion_item.createMany({
+        data: liquidaciones.map((l) => ({
+          factura_id: facturaId,
+          liquidacion_id: l.id,
+          valor_liquidacion: Number(l.total),
+        })),
+      });
+
+      await tx.historial_estado_liquidacion.createMany({
+        data: liquidaciones.map((l) => ({
+          liquidacion_id: l.id,
+          estado_anterior: l.estado,
+          estado_nuevo: "FACTURADA",
+          usuario_id: userId,
+          motivo: `Asociada a la factura ${factura.numero_factura}`,
+        })),
+      });
+
+      const agg = await tx.factura_liquidacion_item.aggregate({
+        where: { factura_id: facturaId },
+        _sum: { valor_liquidacion: true },
+      });
+
+      return tx.factura_liquidacion_servicio.update({
+        where: { id: facturaId },
+        data: { valor_total: Number(agg._sum.valor_liquidacion ?? 0) },
+        include: facturaIncludeCompleto(),
+      });
+    });
+
+    return {
+      factura: mapFactura(actualizada),
+      liquidaciones_afectadas: liquidaciones.map((l) => ({
+        id: l.id,
+        consecutivo: l.consecutivo,
+        estado: "FACTURADA" as const,
+        factura_id: facturaId,
+        numero_factura: factura.numero_factura,
+      })),
+    };
+  },
+
+  /**
+   * Quitar UNA liquidación de su factura y devolverla a LIQUIDADA.
+   *
+   * `quedo_vacia` avisa de que la factura se quedó sin items: no se borra
+   * sola — anularla y eliminarla es una decisión del usuario.
+   */
+  async quitarLiquidacion(
+    facturaId: string,
+    liquidacionId: string,
+    userId: string,
+  ) {
+    const factura = await prisma.factura_liquidacion_servicio.findUnique({
+      where: { id: facturaId },
+      select: { id: true, numero_factura: true, estado: true, deleted_at: true },
+    });
+    if (!factura || factura.deleted_at) throw new Error("Factura no encontrada");
+    if (factura.estado !== "ACTIVA") {
+      throw new Error(
+        `La factura ${factura.numero_factura} está anulada: sus liquidaciones ya fueron revertidas`,
+      );
+    }
+
+    const item = await prisma.factura_liquidacion_item.findUnique({
+      where: {
+        factura_id_liquidacion_id: {
+          factura_id: facturaId,
+          liquidacion_id: liquidacionId,
+        },
+      },
+      include: { liquidacion: { select: { consecutivo: true, estado: true } } },
+    });
+    if (!item) {
+      throw new Error("La liquidación no pertenece a esta factura");
+    }
+
+    const actualizada = await prisma.$transaction(async (tx) => {
+      await tx.factura_liquidacion_item.delete({
+        where: {
+          factura_id_liquidacion_id: {
+            factura_id: facturaId,
+            liquidacion_id: liquidacionId,
+          },
+        },
+      });
+
+      // Solo se revierte si sigue FACTURADA: si alguien la anuló por otra
+      // vía en paralelo, no se pisa ese estado.
+      await tx.liquidacion_servicio.updateMany({
+        where: { id: liquidacionId, estado: "FACTURADA" },
+        data: { estado: "LIQUIDADA", fecha_facturacion: null },
+      });
+
+      await tx.historial_estado_liquidacion.create({
+        data: {
+          liquidacion_id: liquidacionId,
+          estado_anterior: "FACTURADA",
+          estado_nuevo: "LIQUIDADA",
+          usuario_id: userId,
+          motivo: `Quitada de la factura ${factura.numero_factura}`,
+        },
+      });
+
+      const agg = await tx.factura_liquidacion_item.aggregate({
+        where: { factura_id: facturaId },
+        _sum: { valor_liquidacion: true },
+      });
+
+      return tx.factura_liquidacion_servicio.update({
+        where: { id: facturaId },
+        data: { valor_total: Number(agg._sum.valor_liquidacion ?? 0) },
+        include: facturaIncludeCompleto(),
+      });
+    });
+
+    const mapped = mapFactura(actualizada);
+    return {
+      factura: mapped,
+      quedo_vacia: mapped.items.length === 0,
+      liquidaciones_afectadas: [
+        {
+          id: liquidacionId,
+          consecutivo: item.liquidacion?.consecutivo ?? "",
+          estado: "LIQUIDADA" as const,
+          factura_id: null,
+          numero_factura: null,
+        },
+      ],
+    };
+  },
+
+  /**
    * Obtener la factura activa asociada a una liquidación (si existe)
    */
   async obtenerFacturaDeLiquidacion(liquidacionId: string) {
@@ -511,3 +761,94 @@ export const FacturacionLiquidacionesService = {
     return map;
   },
 };
+
+
+/**
+ * Include estándar de una factura "completa", con la misma forma que
+ * devuelve `listar`: es lo que el canvas fusiona en su panel de facturas
+ * tras asociar/desasociar, y si la forma difiere la UI pinta huecos.
+ */
+function facturaIncludeCompleto() {
+  return {
+    facturado_por: { select: { id: true, nombre: true, correo: true } },
+    anulado_por: { select: { id: true, nombre: true, correo: true } },
+    _count: { select: { items: true } },
+    items: {
+      include: {
+        liquidacion: {
+          select: {
+            id: true,
+            consecutivo: true,
+            total: true,
+            mes: true,
+            anio: true,
+            cliente: { select: { id: true, nombre: true, nit: true } },
+          },
+        },
+      },
+    },
+  } as const;
+}
+
+/** Decimal → number, y `total_liquidaciones` derivado, como en `listar`. */
+function mapFactura(f: any) {
+  return {
+    ...f,
+    valor_total: Number(f.valor_total),
+    total_liquidaciones: f._count?.items ?? f.items?.length ?? 0,
+    items: (f.items ?? []).map((i: any) => ({
+      ...i,
+      valor_liquidacion: Number(i.valor_liquidacion),
+      liquidacion: i.liquidacion
+        ? { ...i.liquidacion, total: Number(i.liquidacion.total) }
+        : null,
+    })),
+  };
+}
+
+/**
+ * Agregados de la lista de facturas sobre TODOS los registros que casan con
+ * el filtro, no solo la página actual.
+ *
+ * POR QUÉ: las stat cards del tab de Facturas se calculaban en el cliente
+ * con `facturas.reduce(...)` sobre la página (15 registros), así que
+ * mostraban "Total Facturado" de 15 facturas y no del filtro completo. El
+ * tab de Liquidaciones ya lo hacía bien vía `metadata`; esto lo empareja.
+ *
+ * Se resuelve con `aggregate` + `groupBy` sobre el MISMO `where` que la
+ * consulta paginada — si divergieran, la tarjeta contradiría a la tabla.
+ */
+async function metadataFacturas(where: any) {
+  const [agg, porEstado, itemsCount] = await Promise.all([
+    prisma.factura_liquidacion_servicio.aggregate({
+      where,
+      _sum: { valor_total: true },
+      _count: { _all: true },
+    }),
+    prisma.factura_liquidacion_servicio.groupBy({
+      where,
+      by: ["estado"],
+      _count: { _all: true },
+      _sum: { valor_total: true },
+    }),
+    prisma.factura_liquidacion_item.count({ where: { factura: where } }),
+  ]);
+
+  const estadoCounts: Record<string, number> = {};
+  const estadoTotales: Record<string, number> = {};
+  for (const g of porEstado) {
+    estadoCounts[g.estado] = g._count._all;
+    estadoTotales[g.estado] = Number(g._sum.valor_total ?? 0);
+  }
+
+  return {
+    /// Nº de facturas que casan con el filtro (no las de la página).
+    globalCount: agg._count._all,
+    /// Σ valor_total de esas facturas.
+    globalTotal: Number(agg._sum.valor_total ?? 0),
+    /// Nº de liquidaciones incluidas en esas facturas.
+    globalLiquidaciones: itemsCount,
+    estadoCounts,
+    estadoTotales,
+  };
+}

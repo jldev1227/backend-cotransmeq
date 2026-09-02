@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { env } from '../../config/env'
 import { SesionesService } from '../sesiones/sesiones.service'
+import { getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 
 export const AuthService = {
   async login(correo: string, password: string, options?: { ip?: string | null; userAgent?: string | null; rememberMe?: boolean }) {
@@ -46,6 +47,11 @@ export const AuthService = {
         // los middlewares (ej. requireBonosPlanilla) puedan chequearlos
         // sin un round-trip a la BD en cada request.
         permisos: user.permisos || {}
+        /// `permisos_rutas` NO va en el token a propósito: es la palanca con la
+        /// que se recorta el acceso de alguien y tiene que hacer efecto ya. En
+        /// el JWT no aplicaría hasta el siguiente login, y estos tokens duran
+        /// 30 días (90 con «recordarme»). Los guards lo leen de la BD con una
+        /// caché de 30 s — ver `services/permisos-rutas.service.ts`.
       },
       env.JWT_SECRET,
       { expiresIn }
@@ -73,7 +79,19 @@ export const AuthService = {
     
     // Excluir password de la respuesta
     const { password: _, ...userSinPassword } = user
-    return { user: userSinPassword, token }
+
+    /// El sidebar del frontend se pintaba resolviendo los permisos por su
+    /// cuenta con una copia del mapa de módulos. En cuanto existe
+    /// `permisos_rutas` esa copia se queda corta, así que el backend manda ya
+    /// resuelto qué módulos ve el usuario y con qué nivel: quien decide el 403
+    /// es quien dice qué se pinta, y no pueden discrepar.
+    const modulos_accesibles = getAccessibleModules(
+      user.role,
+      user.area as Area[],
+      normalizarRutasOverride(user.permisos_rutas)
+    )
+
+    return { user: { ...userSinPassword, modulos_accesibles }, token }
   },
 
   async logout(token: string) {

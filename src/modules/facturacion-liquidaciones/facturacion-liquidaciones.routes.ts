@@ -13,6 +13,12 @@ export async function facturacionLiquidacionesRoutes(app: FastifyInstance) {
   app.get('/facturacion-liquidaciones/eliminadas', FacturacionLiquidacionesController.listarEliminadas)
 
   app.get('/facturacion-liquidaciones/:id', FacturacionLiquidacionesController.obtenerPorId)
+
+  // Items: asociar liquidaciones a una factura ya creada y quitarlas de ella.
+  // Los usa el carril del canvas de historial de liquidaciones de servicios.
+  app.post('/facturacion-liquidaciones/:id/items', FacturacionLiquidacionesController.agregarLiquidaciones)
+  app.delete('/facturacion-liquidaciones/:id/items/:liquidacionId', FacturacionLiquidacionesController.quitarLiquidacion)
+
   app.patch('/facturacion-liquidaciones/:id/anular', FacturacionLiquidacionesController.anular)
   app.delete('/facturacion-liquidaciones/:id', FacturacionLiquidacionesController.eliminar)
   app.patch('/facturacion-liquidaciones/:id/restaurar', FacturacionLiquidacionesController.restaurar)

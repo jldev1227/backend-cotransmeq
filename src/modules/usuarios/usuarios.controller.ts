@@ -1,6 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import { UsuariosService } from './usuarios.service'
+import { UsuariosService, UsuarioError, type CrearUsuarioInput } from './usuarios.service'
 import { createUsuarioSchema, updatePermisosSchema, updateUsuarioSchema } from './usuarios.schema'
 import { uploadToS3, deleteFromS3, getS3SignedUrl } from '../../config/aws'
 import { prisma } from '../../config/prisma'
@@ -13,10 +13,32 @@ const setBonosPlanillaSchema = z.object({
 })
 
 export const UsuariosController = {
+  /**
+   * POST /api/usuarios — alta manual de un usuario (solo administración).
+   *
+   * Devuelve 409 y no 400 cuando el correo ya existe: el cuerpo es válido, lo
+   * que falla es el estado del recurso, y la UI necesita distinguir «corrige
+   * el formulario» de «esa persona ya está dada de alta».
+   */
   async create(request: FastifyRequest, reply: FastifyReply) {
-    const data = createUsuarioSchema.parse(request.body)
-    const user = await UsuariosService.create(data.nombre, data.telefono, data.correo, data.password, data.permisos, data.ultimoAcceso)
-    reply.status(201).send(user)
+    try {
+      /// El cast es por el `strictNullChecks: false` del tsconfig: sin él zod
+      /// infiere TODAS las claves del objeto como opcionales, y `nombre`,
+      /// `correo` y `password` dejarían de encajar en `CrearUsuarioInput`
+      /// aunque `parse` ya garantice que vienen.
+      const data = createUsuarioSchema.parse(request.body) as CrearUsuarioInput
+      const user = await UsuariosService.create(data)
+      return reply.status(201).send(user)
+    } catch (err: any) {
+      if (err instanceof UsuarioError && err.codigo === 'CORREO_DUPLICADO') {
+        return reply.status(409).send({ error: 'Correo duplicado', message: err.message })
+      }
+      if (err?.issues) {
+        return reply.status(400).send({ error: 'Datos inválidos', details: err.issues })
+      }
+      request.log.error({ err }, 'Error creando usuario')
+      return reply.status(500).send({ error: 'No se pudo crear el usuario' })
+    }
   },
   async list(request: FastifyRequest, reply: FastifyReply) {
     const users = await UsuariosService.list()

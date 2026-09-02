@@ -169,7 +169,7 @@ export async function liquidacionesRoutes(app: FastifyInstance) {
             });
         }
 
-        const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
+        const frontendUrl = env.EMAIL_FRONTEND_URL || "http://localhost:5173";
         const resultados: any[] = [];
         let enviados = 0;
         let errores = 0;

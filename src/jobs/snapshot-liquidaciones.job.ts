@@ -8,7 +8,10 @@ export function startLiquidacionesSnapshotJob() {
     async () => {
       try {
         const r = await LiquidacionesSnapshotsService.capturarHorario()
-        logger.info({ ok: r.ok, errors: r.errors }, '✅ Cron snapshots liquidaciones terceros ejecutado')
+        logger.info(
+          { ok: r.ok, omitidos: r.omitidos, errors: r.errors },
+          '✅ Cron snapshots liquidaciones terceros ejecutado'
+        )
       } catch (error) {
         logger.error({ error }, '❌ Error ejecutando cron snapshots liquidaciones terceros')
       }

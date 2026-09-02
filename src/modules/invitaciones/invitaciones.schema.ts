@@ -1,8 +1,11 @@
 import { z } from 'zod'
+import { AREAS } from '../../config/permissions'
 
 export const crearInvitacionSchema = z.object({
   correo: z.string().email('Correo inválido'),
-  area: z.array(z.enum(['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'])).min(1, 'Selecciona al menos un área'),
+  /// Derivado de `config/permissions.ts`: cuando este literal era una copia,
+  /// añadir un área nueva al tipo no bastaba para poder invitar a ella.
+  area: z.array(z.enum(AREAS as unknown as [string, ...string[]])).min(1, 'Selecciona al menos un área'),
   cargo: z.string().optional(),
 })
 

@@ -7,6 +7,7 @@ import argon2 from 'argon2'
 import bcrypt from 'bcrypt'
 import { prisma } from '../../config/prisma'
 import { uploadToS3, deleteFromS3, getS3SignedUrl } from '../../config/aws'
+import { getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 
 export const AuthController = {
   async login(request: FastifyRequest, reply: FastifyReply) {
@@ -76,6 +77,15 @@ export const AuthController = {
         cargo: fullUser.cargo || null,
         firma_url: fullUser.firma_url || null,
         permisos: fullUser.permisos || {},
+        /// Se manda el JSON crudo (para que la pantalla de permisos pueda
+        /// mostrarlo tal cual) y el resultado ya resuelto por el mismo código
+        /// que decide los 403, para que el sidebar no tenga que reimplementarlo.
+        permisos_rutas: fullUser.permisos_rutas ?? null,
+        modulos_accesibles: getAccessibleModules(
+          fullUser.role,
+          (fullUser.area || []) as Area[],
+          normalizarRutasOverride(fullUser.permisos_rutas)
+        ),
         ultimo_acceso: fullUser.ultimo_acceso
       })
     } catch (error) {
@@ -157,6 +167,7 @@ export const AuthController = {
           area: true,
           cargo: true,
           permisos: true,
+          permisos_rutas: true,
           ultimo_acceso: true
         }
       })

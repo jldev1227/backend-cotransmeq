@@ -6,6 +6,8 @@ import { testDatabaseConnection } from './config/prisma'
 import { logger } from './utils/logger'
 import { startAccionesCorrectivasCronJobs } from './jobs/acciones-correctivas.cron'
 import { startLiquidacionesSnapshotJob } from './jobs/snapshot-liquidaciones.job'
+import { startAdicionalesPeriodoSnapshotJob } from './jobs/snapshot-adicionales-periodo.job'
+import { startLiquidacionesMensualSnapshotJob } from './jobs/snapshot-liquidaciones-mensual.job'
 import { startCerrarServiciosConPlanillaCron } from './jobs/cerrar-servicios-con-planilla.cron'
 
 async function start() {
@@ -21,6 +23,8 @@ async function start() {
 
     startAccionesCorrectivasCronJobs()
     startLiquidacionesSnapshotJob()
+    startLiquidacionesMensualSnapshotJob()
+    startAdicionalesPeriodoSnapshotJob()
     startCerrarServiciosConPlanillaCron()
 
     const address = await app.listen({ port: env.PORT, host: '0.0.0.0' })

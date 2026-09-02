@@ -2,10 +2,47 @@ import { FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesServiciosService } from "./liquidaciones-servicios.service";
 import {
   emitLiquidacionServicio,
-  emitLiquidacionServicioBorrador,
   emitNotificacion,
+  eventoMeta,
+  emitLiquidacionServicioBorrador,
 } from "../../sockets";
 import { NotificacionesService } from "../notificaciones/notificaciones.service";
+
+/**
+ * Traduce un choque de UNIQUE en un 409 legible, o devuelve `null` si el error
+ * no es eso.
+ *
+ * `liquidacion_servicio.consecutivo` es `@unique`, así que registrar con uno
+ * repetido revienta con `P2002`. Sin esto, el `catch` genérico devolvía
+ * `500` con `error.message`, que en Prisma es el volcado entero de la
+ * invocación —medido: 2.632 caracteres con el `create()` completo dentro— y
+ * eso es lo que acababa en el toast del usuario. Además de ilegible, expone la
+ * forma del modelo y el texto de la consulta a cualquiera que llame a la API.
+ *
+ * `409` y no `400`: el payload es válido, lo que pasa es que choca con el
+ * estado actual del recurso. Es el mismo criterio que ya usa `crearTarifa`.
+ */
+function conflictoDeUnicidad(error: any): { status: 409; body: { error: string } } | null {
+  if (error?.code !== "P2002") return null;
+  const campos: string[] = error?.meta?.target ?? [];
+  if (campos.includes("consecutivo")) {
+    return {
+      status: 409,
+      body: {
+        error:
+          "Ese consecutivo ya está en uso por otra liquidación. Cámbialo antes de registrar.",
+      },
+    };
+  }
+  return {
+    status: 409,
+    body: {
+      error: campos.length
+        ? `Ya existe una liquidación con el mismo ${campos.join(", ")}.`
+        : "Ya existe un registro con esos datos.",
+    },
+  };
+}
 
 export class LiquidacionesServiciosController {
   // ── TARIFAS ──
@@ -120,7 +157,16 @@ export class LiquidacionesServiciosController {
         request.body as any,
         userId,
       );
-      emitLiquidacionServicio("liquidacion-servicio-created", liquidacion);
+      emitLiquidacionServicio(
+        "liquidacion-servicio-created",
+        liquidacion,
+        eventoMeta({
+          tipo: "created",
+          scope: "liquidaciones",
+          actor: { id: userId ?? null, nombre: userName },
+          etiqueta: liquidacion.consecutivo,
+        }),
+      );
 
       // Notificar a todos los usuarios con acceso
       try {
@@ -148,6 +194,8 @@ export class LiquidacionesServiciosController {
 
       return reply.status(201).send(liquidacion);
     } catch (error: any) {
+      const conflicto = conflictoDeUnicidad(error);
+      if (conflicto) return reply.status(conflicto.status).send(conflicto.body);
       return reply.status(500).send({ error: error.message });
     }
   }
@@ -190,8 +238,24 @@ export class LiquidacionesServiciosController {
   static async eliminar(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
+      const userId = (request as any).user?.id;
+      const userName = (request as any).user?.nombre || "Usuario";
+      // Se lee ANTES de borrar: después no hay de dónde sacar el
+      // consecutivo para el feed de eventos.
+      const previa = await LiquidacionesServiciosService.obtenerPorId(id).catch(
+        () => null,
+      );
       const result = await LiquidacionesServiciosService.eliminar(id);
-      emitLiquidacionServicio("liquidacion-servicio-deleted", { id });
+      emitLiquidacionServicio(
+        "liquidacion-servicio-deleted",
+        { id },
+        eventoMeta({
+          tipo: "deleted",
+          scope: "liquidaciones",
+          actor: { id: userId ?? null, nombre: userName },
+          etiqueta: previa?.consecutivo ?? id.slice(0, 8),
+        }),
+      );
       return reply.send(result);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -211,6 +275,7 @@ export class LiquidacionesServiciosController {
   static async autoguardar(request: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = (request as any).user?.id;
+      const userName = (request as any).user?.nombre || "Usuario";
       if (!userId) {
         return reply.status(401).send({ error: "Sesión no válida" });
       }
@@ -220,12 +285,20 @@ export class LiquidacionesServiciosController {
         userId,
       );
 
-      emitLiquidacionServicioBorrador({
-        id: resultado.id!,
-        consecutivo: resultado.consecutivo!,
-        estado: String(resultado.estado),
-        version: resultado.version!,
-      });
+      emitLiquidacionServicioBorrador(
+        {
+          id: resultado.id!,
+          consecutivo: resultado.consecutivo!,
+          estado: String(resultado.estado),
+          version: resultado.version!,
+        },
+        eventoMeta({
+          tipo: "updated",
+          scope: "liquidaciones",
+          actor: { id: userId, nombre: userName },
+          etiqueta: resultado.consecutivo ?? "",
+        }),
+      );
 
       return reply.send(resultado);
     } catch (error: any) {
@@ -237,6 +310,10 @@ export class LiquidacionesServiciosController {
           .status(409)
           .send({ error: error.message, ...error.conflicto });
       }
+      /// El autoguardado también inserta: si el consecutivo que se está
+      /// tecleando ya existe, choca con el mismo UNIQUE que `crear`.
+      const conflicto = conflictoDeUnicidad(error);
+      if (conflicto) return reply.status(conflicto.status).send(conflicto.body);
       return reply.status(500).send({ error: error.message });
     }
   }
@@ -357,6 +434,12 @@ export class LiquidacionesServiciosController {
           ? "liquidacion-servicio-created"
           : "liquidacion-servicio-updated",
         liquidacion,
+        eventoMeta({
+          tipo: eraBorradorSinConfirmar ? "created" : "updated",
+          scope: "liquidaciones",
+          actor: { id: userId ?? null, nombre: userName },
+          etiqueta: liquidacion.consecutivo,
+        }),
       );
 
       // Notificar a todos los usuarios con acceso
@@ -391,6 +474,10 @@ export class LiquidacionesServiciosController {
       if (error.message.includes("no encontrada")) {
         return reply.status(404).send({ error: error.message });
       }
+      /// Editar el consecutivo de una liquidación existente choca con el
+      /// mismo UNIQUE que crearla.
+      const conflicto = conflictoDeUnicidad(error);
+      if (conflicto) return reply.status(conflicto.status).send(conflicto.body);
       return reply.status(500).send({ error: error.message });
     }
   }
@@ -422,7 +509,21 @@ export class LiquidacionesServiciosController {
         userId,
         motivo_anulacion,
       );
-      emitLiquidacionServicio("liquidacion-servicio-updated", result);
+      emitLiquidacionServicio(
+        "liquidacion-servicio-updated",
+        result,
+        eventoMeta({
+          tipo: "estado",
+          scope: "liquidaciones",
+          actor: { id: userId ?? null, nombre: userName },
+          etiqueta: result.consecutivo,
+          // `estadoActual` se leyó arriba, antes de mutar. Es lo que
+          // permite al feed escribir "BORRADOR → LIQUIDADA" en vez de un
+          // "actualizada" que no dice nada.
+          estado_anterior: estadoActual,
+          estado_nuevo: result.estado,
+        }),
+      );
 
       // ── Notificaciones ──
       try {
@@ -629,7 +730,19 @@ export class LiquidacionesServiciosController {
     try {
       const { id } = request.params as { id: string };
       const result = await LiquidacionesServiciosService.restaurar(id);
-      emitLiquidacionServicio("liquidacion-servicio-created", result);
+      emitLiquidacionServicio(
+        "liquidacion-servicio-created",
+        result,
+        eventoMeta({
+          tipo: "created",
+          scope: "liquidaciones",
+          actor: {
+            id: (request as any).user?.id ?? null,
+            nombre: (request as any).user?.nombre || "Usuario",
+          },
+          etiqueta: result.consecutivo,
+        }),
+      );
       return reply.send(result);
     } catch (error: any) {
       if (error.message.includes("no encontrada"))

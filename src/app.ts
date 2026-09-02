@@ -47,10 +47,19 @@ import { sesionesRoutes } from './modules/sesiones/sesiones.routes'
 import { liquidacionesTercerosRoutes } from './modules/liquidaciones-terceros/liquidaciones-terceros.routes'
 import { pdfRoutes } from './modules/pdf/pdf.routes'
 import { liquidacionesTercerosDescuentosRoutes } from './modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes'
+import { nominaCanvasRoutes } from './modules/nomina-canvas/nomina-canvas.routes'
+import { liquidacionesTercerosPdfRoutes } from './modules/liquidaciones-terceros-pdf/liquidaciones-terceros-pdf.routes'
+import { liquidacionesTercerosEnviosRoutes } from './modules/liquidaciones-terceros-envios/liquidaciones-terceros-envios.routes'
+import { liquidacionesTercerosOcasionalRoutes } from './modules/liquidaciones-terceros-ocasional/liquidaciones-terceros-ocasional.routes'
+import { canvasAnotacionesRoutes } from './modules/canvas-anotaciones/canvas-anotaciones.routes'
+import { liquidacionesTercerosOcasionalSnapshotsRoutes } from './modules/liquidaciones-terceros-ocasional-snapshots/liquidaciones-terceros-ocasional-snapshots.routes'
+import { liquidacionesTercerosAdicionalesRoutes } from './modules/liquidaciones-terceros-adicionales/liquidaciones-terceros-adicionales.routes'
+import { liquidacionesTercerosAdicionalesSnapshotsRoutes } from './modules/liquidaciones-terceros-adicionales-snapshots/liquidaciones-terceros-adicionales-snapshots.routes'
+import { liquidacionesTercerosIngresosRoutes } from './modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes'
+import { customPlacesRoutes } from './modules/custom-places/custom-places.routes'
 import { invitacionesRoutes } from './modules/invitaciones/invitaciones.routes'
 import { liquidacionesChatRoutes } from './modules/liquidaciones-chat/liquidaciones-chat.routes'
 import { liquidacionesSnapshotsRoutes } from './modules/liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.routes'
-import { liquidacionesTercerosMensualRoutes } from './modules/liquidaciones-terceros-mensual/liquidaciones-terceros-mensual.routes'
 import { formulariosSarlaftRoutes } from './modules/formularios-sarlaft/formularios-sarlaft.routes'
 import { formulariosDinamicosRoutes } from './modules/formularios-dinamicos/formularios-dinamicos.routes'
 import { formulariosPortalRoutes } from './modules/formularios-dinamicos/formularios-portal.routes'
@@ -154,12 +163,21 @@ export function buildApp() {
     app.register(liquidacionesTercerosRoutes, { prefix: '/api' })
     app.register(pdfRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosDescuentosRoutes, { prefix: '/api' })
+    app.register(nominaCanvasRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosPdfRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosEnviosRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosOcasionalRoutes, { prefix: '/api' })
+    app.register(canvasAnotacionesRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosOcasionalSnapshotsRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosAdicionalesRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosAdicionalesSnapshotsRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosIngresosRoutes, { prefix: '/api' })
+    app.register(customPlacesRoutes, { prefix: '/api' })
     app.register(notificacionesRoutes, { prefix: '/api' })
     app.register(sesionesRoutes, { prefix: '/api' })
     app.register(invitacionesRoutes, { prefix: '/api' })
     app.register(liquidacionesChatRoutes, { prefix: '/api' })
     app.register(liquidacionesSnapshotsRoutes, { prefix: '/api' })
-    app.register(liquidacionesTercerosMensualRoutes, { prefix: '/api' })
     
     // Rutas públicas de firma de desprendible (sin auth para conductor)
     app.register(desprendibleFirmaRoutes, { prefix: '/api' })
