@@ -216,6 +216,18 @@ CREATE TABLE IF NOT EXISTS "registro_dia_laboral_bono" (
     CONSTRAINT "registro_dia_laboral_bono_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "registro_dia_laboral_bono": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "registro_dia_id" UUID;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "segmento_id" UUID;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "config_liquidacion_id" UUID;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "valor" DECIMAL(10,2);
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "registro_dia_laboral_bono" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "bono_config_visual" (
     "id" UUID NOT NULL,
@@ -229,6 +241,16 @@ CREATE TABLE IF NOT EXISTS "bono_config_visual" (
     CONSTRAINT "bono_config_visual_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "bono_config_visual": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "config_liquidacion_id" UUID;
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "visible" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "bono_config_visual" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "historial_estado_liquidacion_nomina" (
     "id" UUID NOT NULL,
@@ -241,6 +263,16 @@ CREATE TABLE IF NOT EXISTS "historial_estado_liquidacion_nomina" (
 
     CONSTRAINT "historial_estado_liquidacion_nomina_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "historial_estado_liquidacion_nomina": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "liquidacion_id" UUID;
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "estado_anterior" VARCHAR(20);
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "estado_nuevo" VARCHAR(20);
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "motivo" TEXT;
+ALTER TABLE "historial_estado_liquidacion_nomina" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "nomina_periodo_snapshot" (
@@ -258,6 +290,20 @@ CREATE TABLE IF NOT EXISTS "nomina_periodo_snapshot" (
 
     CONSTRAINT "nomina_periodo_snapshot_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "nomina_periodo_snapshot": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "rama" VARCHAR(60) NOT NULL DEFAULT 'main';
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "version" INTEGER;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "origen" VARCHAR(20) NOT NULL DEFAULT 'manual';
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "revertido_de_id" UUID;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "payload" JSONB;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "diff" JSONB;
+ALTER TABLE "nomina_periodo_snapshot" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "nomina_envio" (
@@ -283,6 +329,27 @@ CREATE TABLE IF NOT EXISTS "nomina_envio" (
     CONSTRAINT "nomina_envio_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "nomina_envio": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "liquidacion_id" UUID;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "email_destino" VARCHAR(255);
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "asunto" TEXT;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "mensaje" TEXT;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "adjuntos" JSONB;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "estado" VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE';
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "error" TEXT;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "proveedor" VARCHAR(40);
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "message_id" VARCHAR(255);
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "es_prueba" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "enviado_por_id" UUID;
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "enviado_por" VARCHAR(255);
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "enviado_at" TIMESTAMPTZ(6);
+ALTER TABLE "nomina_envio" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "invitaciones_usuario" (
     "id" UUID NOT NULL,
@@ -297,6 +364,18 @@ CREATE TABLE IF NOT EXISTS "invitaciones_usuario" (
 
     CONSTRAINT "invitaciones_usuario_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "invitaciones_usuario": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "correo" VARCHAR(255);
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "token" VARCHAR(255);
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "area" TEXT[] DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "cargo" VARCHAR(255);
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "invitado_por_id" UUID;
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "estado" VARCHAR(50) NOT NULL DEFAULT 'pendiente';
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "expires_at" TIMESTAMPTZ(6);
+ALTER TABLE "invitaciones_usuario" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "salidas_no_conformes" (
@@ -348,6 +427,53 @@ CREATE TABLE IF NOT EXISTS "salidas_no_conformes" (
     CONSTRAINT "salidas_no_conformes_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "salidas_no_conformes": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "numero_snc" SERIAL;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "fecha_deteccion" DATE;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "fecha_evento" DATE;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "detectado_por" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "area_proceso" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "tipo_deteccion" "tipo_deteccion_enum";
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "tipo_deteccion_otro" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "vehiculo_placa" VARCHAR(20);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "ruta_trayecto" VARCHAR(500);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "turno_horario" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "conductor_nombre" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "conductor_cedula" VARCHAR(50);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "cliente_contrato" VARCHAR(500);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "servicio_afectado" TEXT;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "descripcion_nc" TEXT;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "clasificacion_nc" "clasificacion_nc_enum";
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "tipo_salida_nc" "tipo_salida_nc_enum";
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "tipo_salida_nc_otro" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "estado" "estado_snc_enum" NOT NULL DEFAULT 'ABIERTA';
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "cliente_id" UUID;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "autoridad_disposicion" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "descripcion_accion_tomada" TEXT;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "fecha_implementacion" DATE;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "responsable_accion" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "tratamiento_seleccionado" "tratamiento_snc_enum";
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "concesion_cliente_fecha" DATE;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "concesion_cliente_nombre" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "concesion_medio" "medio_autorizacion_enum";
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "concesion_solicitada" BOOLEAN DEFAULT false;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "condiciones_concesion" TEXT;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "cumple_requisitos" BOOLEAN;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "fecha_verificacion" DATE;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "firma_verificacion" TEXT;
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "metodo_verificacion" "metodo_verificacion_enum";
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "metodo_verificacion_otro" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "responsable_verificacion" VARCHAR(255);
+ALTER TABLE "salidas_no_conformes" ADD COLUMN IF NOT EXISTS "resultado_verificacion" TEXT;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "aprobaciones_accion" (
     "id" UUID NOT NULL,
@@ -363,6 +489,19 @@ CREATE TABLE IF NOT EXISTS "aprobaciones_accion" (
 
     CONSTRAINT "aprobaciones_accion_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "aprobaciones_accion": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "accion_id" UUID;
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "orden" INTEGER DEFAULT 1;
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "rol" VARCHAR(100);
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "aprobador_id" UUID;
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "estado" "EstadoAprobacion" NOT NULL DEFAULT 'PENDIENTE';
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "fecha" TIMESTAMPTZ(6);
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "comentario" TEXT;
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "aprobaciones_accion" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "seguimientos_causa" (
@@ -382,6 +521,21 @@ CREATE TABLE IF NOT EXISTS "seguimientos_causa" (
     CONSTRAINT "seguimientos_causa_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "seguimientos_causa": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "id" UUID NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "causa_id" UUID;
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "fecha_seguimiento" DATE;
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "estado_accion" VARCHAR(50);
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "descripcion_observaciones" TEXT;
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "evaluacion_eficaz" VARCHAR(50);
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "registrado_por_id" UUID;
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "adjunto_url" TEXT;
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "replanteo" JSONB;
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "responsable_seguimiento" VARCHAR(255);
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "cargo_responsable_seguimiento" VARCHAR(255);
+ALTER TABLE "seguimientos_causa" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "seguimientos_correccion_inmediata" (
     "id" UUID NOT NULL,
@@ -397,6 +551,19 @@ CREATE TABLE IF NOT EXISTS "seguimientos_correccion_inmediata" (
 
     CONSTRAINT "seguimientos_correccion_inmediata_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "seguimientos_correccion_inmediata": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "accion_correctiva_id" UUID;
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "fecha_seguimiento" DATE;
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "descripcion_observaciones" TEXT;
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "estado_accion" VARCHAR(50);
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "adjunto_url" TEXT;
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "replanteo" JSONB;
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "responsable_seguimiento" VARCHAR(255);
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "cargo_responsable_seguimiento" VARCHAR(255);
+ALTER TABLE "seguimientos_correccion_inmediata" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "ciclos_seguimiento_eficacia" (
@@ -417,6 +584,22 @@ CREATE TABLE IF NOT EXISTS "ciclos_seguimiento_eficacia" (
     CONSTRAINT "ciclos_seguimiento_eficacia_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "ciclos_seguimiento_eficacia": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "accion_correctiva_id" UUID;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "numero_ciclo" INTEGER;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "fecha_seguimiento" DATE;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "descripcion" TEXT;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "resultado_ciclo" VARCHAR(50);
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "responsable" VARCHAR(255);
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "cargo" VARCHAR(255);
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "criterios_cumplidos" JSONB;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "adjunto_url" TEXT;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "impedimento" TEXT;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "nueva_fecha" DATE;
+ALTER TABLE "ciclos_seguimiento_eficacia" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "evidencias_eficacia_cierre" (
     "id" UUID NOT NULL,
@@ -433,6 +616,20 @@ CREATE TABLE IF NOT EXISTS "evidencias_eficacia_cierre" (
 
     CONSTRAINT "evidencias_eficacia_cierre_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "evidencias_eficacia_cierre": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "accion_correctiva_id" UUID;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "orden" INTEGER;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "tipo_evidencia" VARCHAR(255);
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "descripcion" TEXT;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "fecha" DATE;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "estado_ubicacion" VARCHAR(50);
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "adjunto_url" TEXT;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "impedimento" TEXT;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "nueva_fecha" DATE;
+ALTER TABLE "evidencias_eficacia_cierre" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_concepto" (
@@ -455,6 +652,24 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_concepto" (
     CONSTRAINT "liquidacion_tercero_concepto_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_concepto": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "concepto" VARCHAR(100);
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "dias" DECIMAL(10,2);
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "porcentaje" DECIMAL(8,4);
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "valor_total" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "base_calculo" DECIMAL(12,2);
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "calculado" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_concepto" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "configuracion_descuento_tercero" (
     "id" UUID NOT NULL,
@@ -471,6 +686,20 @@ CREATE TABLE IF NOT EXISTS "configuracion_descuento_tercero" (
 
     CONSTRAINT "configuracion_descuento_tercero_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "configuracion_descuento_tercero": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "categoria" VARCHAR(50);
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "concepto" VARCHAR(100);
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "nombre" VARCHAR(200);
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "porcentaje" DECIMAL(8,4);
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "base_calculo" VARCHAR(100);
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "activo" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "valor_dia_conductor" DECIMAL(12,2);
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "configuracion_descuento_tercero" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final" (
@@ -504,6 +733,35 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final" (
     CONSTRAINT "liquidacion_tercero_final_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_final": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "consecutivo" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "liquidacion_servicio_id" UUID;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "placa" VARCHAR(20);
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "valor_liquidar" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "total_costos_laborales" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "total_gastos_operativos" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "total_impuestos" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "total_descuentos" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "total_pagar" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "estado" VARCHAR(20) NOT NULL DEFAULT 'BORRADOR';
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "motivo_anulacion" TEXT;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "es_multi_propietario" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "adicionales" JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "es_propietario_overrides" JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "color_hoja" VARCHAR(9);
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "historial_estado_liquidacion_tercero_final" (
     "id" UUID NOT NULL,
@@ -516,6 +774,16 @@ CREATE TABLE IF NOT EXISTS "historial_estado_liquidacion_tercero_final" (
 
     CONSTRAINT "historial_estado_liquidacion_tercero_final_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "historial_estado_liquidacion_tercero_final": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_final_id" UUID;
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "estado_anterior" VARCHAR(20);
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "estado_nuevo" VARCHAR(20);
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "motivo" TEXT;
+ALTER TABLE "historial_estado_liquidacion_tercero_final" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_envio" (
@@ -543,6 +811,30 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_envio" (
 
     CONSTRAINT "liquidacion_tercero_envio_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_tercero_envio": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(20) NOT NULL DEFAULT 'CIERRE';
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "cierre_id" UUID;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "origen_id" UUID;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "placa" VARCHAR(20);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "email_destino" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "asunto" VARCHAR(500);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "mensaje" TEXT;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "adjuntos" JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "estado" VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE';
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "error" TEXT;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "proveedor" VARCHAR(30);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "message_id" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "es_prueba" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "enviado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "enviado_por" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "enviado_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_envio" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_adicional" (
@@ -572,6 +864,31 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_adicional" (
     CONSTRAINT "liquidacion_tercero_final_adicional_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_final_adicional": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_final_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "cliente" VARCHAR(255) NOT NULL DEFAULT 'TRANSMERALDA';
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "placa" VARCHAR(20);
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "tercero_nombre" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "recorrido" VARCHAR(500);
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "fechas" VARCHAR(100);
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "cantidad" DECIMAL(10,2) NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "porcentaje_admin" DECIMAL(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "valor_admin" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "valor_liquidar" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "aplica_impuestos" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_final_adicional" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_adicional_periodo_snapshot" (
     "id" UUID NOT NULL,
@@ -589,6 +906,20 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_adicional_periodo_snapshot" (
     CONSTRAINT "liquidacion_tercero_adicional_periodo_snapshot_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_adicional_periodo_snapshot": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "rama" VARCHAR(60) NOT NULL DEFAULT 'main';
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "version" INTEGER;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "origen" VARCHAR(20) NOT NULL DEFAULT 'manual';
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "revertido_de_id" UUID;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "payload" JSONB;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "diff" JSONB;
+ALTER TABLE "liquidacion_tercero_adicional_periodo_snapshot" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_item" (
     "id" UUID NOT NULL,
@@ -601,6 +932,16 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_item" (
 
     CONSTRAINT "liquidacion_tercero_final_item_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_tercero_final_item": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_final_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "aplica_impuestos" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_final_item" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_concepto" (
@@ -626,6 +967,27 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_concepto" (
     CONSTRAINT "liquidacion_tercero_final_concepto_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_final_concepto": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_final_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "concepto" VARCHAR(100);
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "dias" DECIMAL(10,2);
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "porcentaje" DECIMAL(8,4);
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "valor_total" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "base_calculo" DECIMAL(12,2);
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "calculado" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "propietario_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_final_concepto" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_propietario" (
     "id" UUID NOT NULL,
@@ -645,6 +1007,22 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_propietario" (
     CONSTRAINT "liquidacion_tercero_final_propietario_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_final_propietario": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_final_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "nombre" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "identificacion" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "porcentaje" DECIMAL(8,4);
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "porcentaje_efectivo" DECIMAL(8,4);
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "nota" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "aplica_retenciones" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_final_propietario" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_snapshot" (
     "id" UUID NOT NULL,
@@ -661,6 +1039,19 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_final_snapshot" (
     CONSTRAINT "liquidacion_tercero_final_snapshot_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_final_snapshot": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_final_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "rama" VARCHAR(60) NOT NULL DEFAULT 'main';
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "version" INTEGER;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "origen" VARCHAR(20) NOT NULL DEFAULT 'manual';
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "revertido_de_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "payload" JSONB;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "diff" JSONB;
+ALTER TABLE "liquidacion_tercero_final_snapshot" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "excesos_velocidad" (
     "id" UUID NOT NULL,
@@ -676,6 +1067,18 @@ CREATE TABLE IF NOT EXISTS "excesos_velocidad" (
     CONSTRAINT "excesos_velocidad_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "excesos_velocidad": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "cantidad" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "excesos_velocidad" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "preoperacionales" (
     "id" UUID NOT NULL,
@@ -689,6 +1092,17 @@ CREATE TABLE IF NOT EXISTS "preoperacionales" (
 
     CONSTRAINT "preoperacionales_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "preoperacionales": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "fecha" DATE;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "realizado" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "preoperacionales" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "inducciones_visitantes" (
@@ -713,6 +1127,27 @@ CREATE TABLE IF NOT EXISTS "inducciones_visitantes" (
 
     CONSTRAINT "inducciones_visitantes_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "inducciones_visitantes": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "id" TEXT;
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "sede" "Sede";
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "fecha" TIMESTAMP(3);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "visitante_nombre" VARCHAR(255);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "visitante_cargo" VARCHAR(255);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "visitante_cedula" VARCHAR(50);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "visitante_entidad" VARCHAR(255);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "visitante_firma" TEXT;
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "temas_informados" JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "porcentaje_conformidad" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "responsable_nombre" VARCHAR(255);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "responsable_cargo" VARCHAR(255);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "responsable_cedula" VARCHAR(50);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "responsable_firma" TEXT;
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(3);
+ALTER TABLE "inducciones_visitantes" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "actividades_pesv" (
@@ -741,6 +1176,30 @@ CREATE TABLE IF NOT EXISTS "actividades_pesv" (
     CONSTRAINT "actividades_pesv_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "actividades_pesv": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "numero" INTEGER;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "unidad_programa" VARCHAR(500);
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "actividad" TEXT;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "alcance" VARCHAR(500);
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "recursos" VARCHAR(500);
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "responsable_planeacion" VARCHAR(500);
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "metodo_seguimiento" VARCHAR(500);
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "frecuencia" "enum_actividad_pesv_frecuencia" NOT NULL DEFAULT 'ANUAL';
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "fecha_limite" DATE;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "responsable_ejecucion_id" UUID;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "estado" "enum_actividad_pesv_estado" NOT NULL DEFAULT 'PENDIENTE';
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "prioridad" "enum_actividad_pesv_prioridad" NOT NULL DEFAULT 'BAJA';
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "fecha_ejecucion" DATE;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "observacion" TEXT;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "anio" INTEGER NOT NULL DEFAULT 2026;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "actividades_pesv" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "bonificaciones_backup" (
     "name" VARCHAR(255),
@@ -755,6 +1214,19 @@ CREATE TABLE IF NOT EXISTS "bonificaciones_backup" (
     "creado_por_id" UUID
 );
 
+-- Reconciliacion de "bonificaciones_backup": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "name" VARCHAR(255);
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "values" TEXT;
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "value" DECIMAL(10,2);
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6);
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "old_id" INTEGER;
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "liquidacion_id" UUID;
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "bonificaciones_backup" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "tipo_certificado" (
     "id" UUID NOT NULL,
@@ -767,6 +1239,16 @@ CREATE TABLE IF NOT EXISTS "tipo_certificado" (
 
     CONSTRAINT "tipo_certificado_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "tipo_certificado": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "nombre" VARCHAR(100);
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "descripcion" TEXT;
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "codigo" VARCHAR(50);
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "activo" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "tipo_certificado" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "certificado_archivo" (
@@ -785,6 +1267,19 @@ CREATE TABLE IF NOT EXISTS "certificado_archivo" (
     CONSTRAINT "certificado_archivo_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "certificado_archivo": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "filename" VARCHAR(255);
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "nit" VARCHAR(50);
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(50);
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "size" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "tipo_certificado_id" UUID;
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "certificado_archivo" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "certificado_tercero" (
     "id" UUID NOT NULL,
@@ -795,6 +1290,14 @@ CREATE TABLE IF NOT EXISTS "certificado_tercero" (
 
     CONSTRAINT "certificado_tercero_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "certificado_tercero": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "certificado_tercero" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "certificado_tercero" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "certificado_tercero" ADD COLUMN IF NOT EXISTS "certificado_id" UUID;
+ALTER TABLE "certificado_tercero" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "certificado_tercero" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "certificacion_envio" (
@@ -810,6 +1313,17 @@ CREATE TABLE IF NOT EXISTS "certificacion_envio" (
     CONSTRAINT "certificacion_envio_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "certificacion_envio": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "certificado_id" UUID;
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "token_acceso" VARCHAR(255);
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "email_destino" VARCHAR(255);
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "tipo_envio" VARCHAR(20) NOT NULL DEFAULT 'individual';
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "emitido_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "certificacion_envio" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "tercero_token" (
     "id" UUID NOT NULL,
@@ -821,6 +1335,15 @@ CREATE TABLE IF NOT EXISTS "tercero_token" (
 
     CONSTRAINT "tercero_token_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "tercero_token": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "tercero_token" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "tercero_token" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "tercero_token" ADD COLUMN IF NOT EXISTS "token" VARCHAR(512);
+ALTER TABLE "tercero_token" ADD COLUMN IF NOT EXISTS "expires_at" TIMESTAMPTZ(6);
+ALTER TABLE "tercero_token" ADD COLUMN IF NOT EXISTS "used" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "tercero_token" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_chat_mensaje" (
@@ -837,6 +1360,19 @@ CREATE TABLE IF NOT EXISTS "liquidacion_chat_mensaje" (
 
     CONSTRAINT "liquidacion_chat_mensaje_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_chat_mensaje": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_id" UUID;
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "contenido_cifrado" TEXT;
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "nonce" VARCHAR(24);
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(20) NOT NULL DEFAULT 'NOTA';
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "recordatorio_id" UUID;
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_chat_mensaje" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_recordatorio" (
@@ -860,6 +1396,26 @@ CREATE TABLE IF NOT EXISTS "liquidacion_recordatorio" (
 
     CONSTRAINT "liquidacion_recordatorio_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_recordatorio": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "liquidacion_origen_id" UUID;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "placa" VARCHAR(20);
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "descripcion_cifrada" TEXT;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "descripcion_nonce" VARCHAR(24);
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "monto" DECIMAL(12,2);
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "moneda" VARCHAR(3) NOT NULL DEFAULT 'COP';
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "estado" VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE';
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "prioridad" VARCHAR(10) NOT NULL DEFAULT 'MEDIA';
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "creado_por_usuario_id" UUID;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "aplicado_en_liquidacion_id" UUID;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "aplica_en" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_recordatorio" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional" (
@@ -888,6 +1444,30 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional" (
     CONSTRAINT "liquidacion_tercero_ocasional_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_ocasional": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "consecutivo" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "estado" VARCHAR(20) NOT NULL DEFAULT 'BORRADOR';
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "motivo_anulacion" TEXT;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_adicionales" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_gastos_operativos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_impuestos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_anticipos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_descuentos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_pagar" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_facturado_items" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_admin_items" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "total_liquidar_items" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_ocasional" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_adicional" (
     "id" UUID NOT NULL,
@@ -913,6 +1493,29 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_adicional" (
 
     CONSTRAINT "liquidacion_tercero_ocasional_adicional_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_tercero_ocasional_adicional": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "liquidacion_ocasional_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "cliente" VARCHAR(255) NOT NULL DEFAULT 'TRANSMERALDA';
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "placa" VARCHAR(20);
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "tercero_nombre" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "vehiculo_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "recorrido" VARCHAR(500);
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "fechas" VARCHAR(100);
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "cantidad" DECIMAL(10,2) NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "porcentaje_admin" DECIMAL(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "valor_admin" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "valor_liquidar" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "aplica_impuestos" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_ocasional_adicional" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_item" (
@@ -950,6 +1553,39 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_item" (
     CONSTRAINT "liquidacion_tercero_ocasional_item_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_ocasional_item": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "liquidacion_ocasional_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "liquidacion_servicio_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "cliente_nombre" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "consecutivo" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "placa" VARCHAR(20);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "tercero_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "tercero_nombre" VARCHAR(255);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "tercero_documento" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "recorrido" VARCHAR(500);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "fechas" VARCHAR(100);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "cantidad" DECIMAL(10,2) NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "porcentaje_admin" DECIMAL(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "valor_admin" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "total_facturado" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "valor_liquidar" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "numero_planilla" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "ingreso_extra_global" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "ingresos_extra_aval" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "ingreso_empresa" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "numero_factura" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "aplica_impuestos" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "excluido" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_ocasional_item" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_draft" (
     "id" UUID NOT NULL,
@@ -962,6 +1598,16 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_draft" (
 
     CONSTRAINT "liquidacion_tercero_ocasional_draft_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_tercero_ocasional_draft": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "liquidacion_ocasional_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "payload" JSONB;
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_ocasional_draft" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_concepto" (
@@ -988,6 +1634,28 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_concepto" (
     CONSTRAINT "liquidacion_tercero_ocasional_concepto_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_tercero_ocasional_concepto": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "liquidacion_ocasional_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(50);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "concepto" VARCHAR(100);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "conductor_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "placa_aplicada" VARCHAR(20);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "dias" DECIMAL(10,2);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "porcentaje" DECIMAL(8,4);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "valor_total" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "base_calculo" DECIMAL(12,2);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "calculado" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_tercero_ocasional_concepto" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_snapshot" (
     "id" UUID NOT NULL,
@@ -1003,6 +1671,19 @@ CREATE TABLE IF NOT EXISTS "liquidacion_tercero_ocasional_snapshot" (
 
     CONSTRAINT "liquidacion_tercero_ocasional_snapshot_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_tercero_ocasional_snapshot": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "liquidacion_ocasional_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "rama" VARCHAR(60) NOT NULL DEFAULT 'main';
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "version" INTEGER;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "origen" VARCHAR(20) NOT NULL DEFAULT 'manual';
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "revertido_de_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "usuario_id" UUID;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "payload" JSONB;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "diff" JSONB;
+ALTER TABLE "liquidacion_tercero_ocasional_snapshot" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "custom_places" (
@@ -1023,6 +1704,23 @@ CREATE TABLE IF NOT EXISTS "custom_places" (
 
     CONSTRAINT "custom_places_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "custom_places": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "nombre" VARCHAR(255);
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "categoria" VARCHAR(50);
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "descripcion" TEXT;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "direccion" TEXT;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "latitud" DECIMAL(10,6);
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "longitud" DECIMAL(10,6);
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "municipio_id" UUID;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "veces_usado" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "activo" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "custom_places" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "canvas_anotacion" (
@@ -1045,6 +1743,25 @@ CREATE TABLE IF NOT EXISTS "canvas_anotacion" (
 
     CONSTRAINT "canvas_anotacion_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "canvas_anotacion": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "scope" VARCHAR(40);
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "sheet_key" VARCHAR(80) NOT NULL DEFAULT '';
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "ancla_tipo" VARCHAR(10) NOT NULL DEFAULT 'fila';
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "ancla_ref" VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "offset_fila" INTEGER;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "columna" INTEGER;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "valor" TEXT;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "estilo" JSONB;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "canvas_anotacion" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_ingreso_transmeralda" (
@@ -1073,6 +1790,30 @@ CREATE TABLE IF NOT EXISTS "liquidacion_ingreso_transmeralda" (
     CONSTRAINT "liquidacion_ingreso_transmeralda_pkey" PRIMARY KEY ("id")
 );
 
+-- Reconciliacion de "liquidacion_ingreso_transmeralda": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "mes" INTEGER;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "anio" INTEGER;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "pct_admon_ingresos" DECIMAL(8,4) NOT NULL DEFAULT 10;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "pct_ganancia_adicionales" DECIMAL(8,4) NOT NULL DEFAULT 70;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "pct_admon_adicionales" DECIMAL(8,4) NOT NULL DEFAULT 10;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_facturado_ingresos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_admon_ingresos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_liquidar_ingresos" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_facturado_adicionales" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_admon_adicionales" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_liquidar_adicionales" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_pagar_adicionales" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "total_ingreso_transmeralda" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "creado_por_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_ingreso_transmeralda" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_ingreso_transmeralda_fila" (
     "id" UUID NOT NULL,
@@ -1094,6 +1835,25 @@ CREATE TABLE IF NOT EXISTS "liquidacion_ingreso_transmeralda_fila" (
 
     CONSTRAINT "liquidacion_ingreso_transmeralda_fila_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_ingreso_transmeralda_fila": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "liquidacion_ingreso_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "liquidacion_tercero_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "adicional_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "incluir_adicional" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "cantidad" DECIMAL(10,2) NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "pct_admon_ingresos" DECIMAL(8,4);
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "pct_ganancia" DECIMAL(8,4);
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "pct_admon_adicional" DECIMAL(8,4);
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "valor_unitario_adicional" DECIMAL(14,2);
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_ingreso_transmeralda_fila" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "liquidacion_ingreso_transmeralda_concepto" (
@@ -1118,6 +1878,27 @@ CREATE TABLE IF NOT EXISTS "liquidacion_ingreso_transmeralda_concepto" (
 
     CONSTRAINT "liquidacion_ingreso_transmeralda_concepto_pkey" PRIMARY KEY ("id")
 );
+
+-- Reconciliacion de "liquidacion_ingreso_transmeralda_concepto": si la tabla ya existia con otra forma, el
+-- CREATE de arriba no hizo nada y le faltarian columnas a los indices.
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "liquidacion_ingreso_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "hoja" VARCHAR(20);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "tipo" VARCHAR(50);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "concepto" VARCHAR(100);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "persona" VARCHAR(150);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "dias" DECIMAL(10,2);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "valor_unitario" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "porcentaje" DECIMAL(8,4);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "valor_total" DECIMAL(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "base_calculo" DECIMAL(14,2);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "observaciones" TEXT;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "orden" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "actualizado_por_id" UUID;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6);
+ALTER TABLE "liquidacion_ingreso_transmeralda_concepto" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
 
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "registro_dia_laboral_bono_registro_dia_id_idx" ON "registro_dia_laboral_bono"("registro_dia_id");
@@ -2406,3 +3187,239 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+
+
+-- ============================================================================
+-- Columnas emitidas SIN NOT NULL en la reconciliacion, porque no se puede
+-- anadir una columna obligatoria y sin DEFAULT a una tabla que ya tiene filas.
+-- Solo afecta a tablas que YA existian; en las nuevas quedan NOT NULL.
+--   registro_dia_laboral_bono.id
+--   registro_dia_laboral_bono.registro_dia_id
+--   registro_dia_laboral_bono.config_liquidacion_id
+--   registro_dia_laboral_bono.updated_at
+--   bono_config_visual.id
+--   bono_config_visual.config_liquidacion_id
+--   bono_config_visual.anio
+--   bono_config_visual.updated_at
+--   historial_estado_liquidacion_nomina.id
+--   historial_estado_liquidacion_nomina.liquidacion_id
+--   historial_estado_liquidacion_nomina.estado_nuevo
+--   nomina_periodo_snapshot.id
+--   nomina_periodo_snapshot.anio
+--   nomina_periodo_snapshot.mes
+--   nomina_periodo_snapshot.version
+--   nomina_periodo_snapshot.payload
+--   nomina_envio.id
+--   nomina_envio.liquidacion_id
+--   nomina_envio.conductor_id
+--   nomina_envio.anio
+--   nomina_envio.mes
+--   nomina_envio.email_destino
+--   invitaciones_usuario.id
+--   invitaciones_usuario.correo
+--   invitaciones_usuario.token
+--   invitaciones_usuario.invitado_por_id
+--   invitaciones_usuario.expires_at
+--   salidas_no_conformes.id
+--   salidas_no_conformes.numero_snc
+--   salidas_no_conformes.fecha_deteccion
+--   salidas_no_conformes.fecha_evento
+--   salidas_no_conformes.detectado_por
+--   salidas_no_conformes.area_proceso
+--   salidas_no_conformes.tipo_deteccion
+--   salidas_no_conformes.descripcion_nc
+--   salidas_no_conformes.clasificacion_nc
+--   salidas_no_conformes.tipo_salida_nc
+--   salidas_no_conformes.updated_at
+--   aprobaciones_accion.id
+--   aprobaciones_accion.accion_id
+--   aprobaciones_accion.rol
+--   aprobaciones_accion.updated_at
+--   seguimientos_causa.causa_id
+--   seguimientos_causa.fecha_seguimiento
+--   seguimientos_causa.estado_accion
+--   seguimientos_correccion_inmediata.id
+--   seguimientos_correccion_inmediata.accion_correctiva_id
+--   seguimientos_correccion_inmediata.fecha_seguimiento
+--   seguimientos_correccion_inmediata.estado_accion
+--   ciclos_seguimiento_eficacia.id
+--   ciclos_seguimiento_eficacia.accion_correctiva_id
+--   ciclos_seguimiento_eficacia.numero_ciclo
+--   ciclos_seguimiento_eficacia.fecha_seguimiento
+--   evidencias_eficacia_cierre.id
+--   evidencias_eficacia_cierre.accion_correctiva_id
+--   evidencias_eficacia_cierre.orden
+--   liquidacion_tercero_concepto.id
+--   liquidacion_tercero_concepto.liquidacion_tercero_id
+--   liquidacion_tercero_concepto.tipo
+--   liquidacion_tercero_concepto.concepto
+--   liquidacion_tercero_concepto.updated_at
+--   configuracion_descuento_tercero.id
+--   configuracion_descuento_tercero.categoria
+--   configuracion_descuento_tercero.concepto
+--   configuracion_descuento_tercero.nombre
+--   configuracion_descuento_tercero.porcentaje
+--   configuracion_descuento_tercero.base_calculo
+--   configuracion_descuento_tercero.updated_at
+--   liquidacion_tercero_final.id
+--   liquidacion_tercero_final.consecutivo
+--   liquidacion_tercero_final.liquidacion_servicio_id
+--   liquidacion_tercero_final.placa
+--   liquidacion_tercero_final.mes
+--   liquidacion_tercero_final.anio
+--   liquidacion_tercero_final.updated_at
+--   historial_estado_liquidacion_tercero_final.id
+--   historial_estado_liquidacion_tercero_final.liquidacion_tercero_final_id
+--   historial_estado_liquidacion_tercero_final.estado_nuevo
+--   liquidacion_tercero_envio.id
+--   liquidacion_tercero_envio.anio
+--   liquidacion_tercero_envio.mes
+--   liquidacion_tercero_envio.placa
+--   liquidacion_tercero_envio.email_destino
+--   liquidacion_tercero_envio.asunto
+--   liquidacion_tercero_final_adicional.id
+--   liquidacion_tercero_final_adicional.liquidacion_tercero_final_id
+--   liquidacion_tercero_final_adicional.placa
+--   liquidacion_tercero_final_adicional.updated_at
+--   liquidacion_tercero_adicional_periodo_snapshot.id
+--   liquidacion_tercero_adicional_periodo_snapshot.anio
+--   liquidacion_tercero_adicional_periodo_snapshot.mes
+--   liquidacion_tercero_adicional_periodo_snapshot.version
+--   liquidacion_tercero_adicional_periodo_snapshot.payload
+--   liquidacion_tercero_final_item.id
+--   liquidacion_tercero_final_item.liquidacion_tercero_final_id
+--   liquidacion_tercero_final_item.liquidacion_tercero_id
+--   liquidacion_tercero_final_concepto.id
+--   liquidacion_tercero_final_concepto.liquidacion_tercero_final_id
+--   liquidacion_tercero_final_concepto.tipo
+--   liquidacion_tercero_final_concepto.concepto
+--   liquidacion_tercero_final_concepto.updated_at
+--   liquidacion_tercero_final_propietario.id
+--   liquidacion_tercero_final_propietario.liquidacion_tercero_final_id
+--   liquidacion_tercero_final_propietario.nombre
+--   liquidacion_tercero_final_propietario.porcentaje
+--   liquidacion_tercero_final_propietario.updated_at
+--   liquidacion_tercero_final_snapshot.id
+--   liquidacion_tercero_final_snapshot.liquidacion_tercero_final_id
+--   liquidacion_tercero_final_snapshot.version
+--   liquidacion_tercero_final_snapshot.payload
+--   excesos_velocidad.id
+--   excesos_velocidad.conductor_id
+--   excesos_velocidad.vehiculo_id
+--   excesos_velocidad.mes
+--   excesos_velocidad.anio
+--   excesos_velocidad.updated_at
+--   preoperacionales.id
+--   preoperacionales.conductor_id
+--   preoperacionales.vehiculo_id
+--   preoperacionales.fecha
+--   preoperacionales.updated_at
+--   inducciones_visitantes.id
+--   inducciones_visitantes.sede
+--   inducciones_visitantes.fecha
+--   inducciones_visitantes.visitante_nombre
+--   inducciones_visitantes.visitante_cargo
+--   inducciones_visitantes.visitante_cedula
+--   inducciones_visitantes.visitante_entidad
+--   inducciones_visitantes.visitante_firma
+--   inducciones_visitantes.updated_at
+--   actividades_pesv.id
+--   actividades_pesv.numero
+--   actividades_pesv.unidad_programa
+--   actividades_pesv.actividad
+--   actividades_pesv.updated_at
+--   tipo_certificado.id
+--   tipo_certificado.nombre
+--   tipo_certificado.codigo
+--   tipo_certificado.updated_at
+--   certificado_archivo.id
+--   certificado_archivo.filename
+--   certificado_archivo.nit
+--   certificado_archivo.anio
+--   certificado_archivo.tipo
+--   certificado_archivo.updated_at
+--   certificado_tercero.id
+--   certificado_tercero.tercero_id
+--   certificado_tercero.certificado_id
+--   certificacion_envio.id
+--   certificacion_envio.tercero_id
+--   certificacion_envio.token_acceso
+--   certificacion_envio.email_destino
+--   tercero_token.id
+--   tercero_token.tercero_id
+--   tercero_token.token
+--   tercero_token.expires_at
+--   liquidacion_chat_mensaje.id
+--   liquidacion_chat_mensaje.liquidacion_tercero_id
+--   liquidacion_chat_mensaje.usuario_id
+--   liquidacion_chat_mensaje.contenido_cifrado
+--   liquidacion_chat_mensaje.nonce
+--   liquidacion_chat_mensaje.updated_at
+--   liquidacion_recordatorio.id
+--   liquidacion_recordatorio.liquidacion_origen_id
+--   liquidacion_recordatorio.placa
+--   liquidacion_recordatorio.mes
+--   liquidacion_recordatorio.anio
+--   liquidacion_recordatorio.descripcion_cifrada
+--   liquidacion_recordatorio.descripcion_nonce
+--   liquidacion_recordatorio.creado_por_usuario_id
+--   liquidacion_recordatorio.updated_at
+--   liquidacion_tercero_ocasional.id
+--   liquidacion_tercero_ocasional.consecutivo
+--   liquidacion_tercero_ocasional.mes
+--   liquidacion_tercero_ocasional.anio
+--   liquidacion_tercero_ocasional.updated_at
+--   liquidacion_tercero_ocasional_adicional.id
+--   liquidacion_tercero_ocasional_adicional.liquidacion_ocasional_id
+--   liquidacion_tercero_ocasional_adicional.placa
+--   liquidacion_tercero_ocasional_adicional.updated_at
+--   liquidacion_tercero_ocasional_item.id
+--   liquidacion_tercero_ocasional_item.liquidacion_ocasional_id
+--   liquidacion_tercero_ocasional_item.liquidacion_tercero_id
+--   liquidacion_tercero_ocasional_item.cliente_nombre
+--   liquidacion_tercero_ocasional_item.consecutivo
+--   liquidacion_tercero_ocasional_item.placa
+--   liquidacion_tercero_ocasional_item.tercero_nombre
+--   liquidacion_tercero_ocasional_item.recorrido
+--   liquidacion_tercero_ocasional_item.fechas
+--   liquidacion_tercero_ocasional_item.updated_at
+--   liquidacion_tercero_ocasional_draft.id
+--   liquidacion_tercero_ocasional_draft.liquidacion_ocasional_id
+--   liquidacion_tercero_ocasional_draft.usuario_id
+--   liquidacion_tercero_ocasional_draft.payload
+--   liquidacion_tercero_ocasional_draft.updated_at
+--   liquidacion_tercero_ocasional_concepto.id
+--   liquidacion_tercero_ocasional_concepto.liquidacion_ocasional_id
+--   liquidacion_tercero_ocasional_concepto.tipo
+--   liquidacion_tercero_ocasional_concepto.concepto
+--   liquidacion_tercero_ocasional_concepto.updated_at
+--   liquidacion_tercero_ocasional_snapshot.id
+--   liquidacion_tercero_ocasional_snapshot.liquidacion_ocasional_id
+--   liquidacion_tercero_ocasional_snapshot.version
+--   liquidacion_tercero_ocasional_snapshot.payload
+--   custom_places.id
+--   custom_places.nombre
+--   custom_places.latitud
+--   custom_places.longitud
+--   custom_places.updated_at
+--   canvas_anotacion.id
+--   canvas_anotacion.scope
+--   canvas_anotacion.anio
+--   canvas_anotacion.mes
+--   canvas_anotacion.offset_fila
+--   canvas_anotacion.columna
+--   canvas_anotacion.updated_at
+--   liquidacion_ingreso_transmeralda.id
+--   liquidacion_ingreso_transmeralda.mes
+--   liquidacion_ingreso_transmeralda.anio
+--   liquidacion_ingreso_transmeralda.updated_at
+--   liquidacion_ingreso_transmeralda_fila.id
+--   liquidacion_ingreso_transmeralda_fila.liquidacion_ingreso_id
+--   liquidacion_ingreso_transmeralda_fila.updated_at
+--   liquidacion_ingreso_transmeralda_concepto.id
+--   liquidacion_ingreso_transmeralda_concepto.liquidacion_ingreso_id
+--   liquidacion_ingreso_transmeralda_concepto.hoja
+--   liquidacion_ingreso_transmeralda_concepto.tipo
+--   liquidacion_ingreso_transmeralda_concepto.concepto
+--   liquidacion_ingreso_transmeralda_concepto.updated_at
+-- ============================================================================
