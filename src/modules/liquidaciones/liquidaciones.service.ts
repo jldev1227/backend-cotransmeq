@@ -5,6 +5,53 @@ import * as pdfMake from "pdfmake/build/pdfmake";
 import * as pdfFonts from "pdfmake/build/vfs_fonts";
 import archiver from "archiver";
 import { getIO } from "../../sockets";
+import { pdfFromHtml } from "../../services/pdf.service";
+import {
+  renderDesprendibleHtml,
+  type DatosDesprendible,
+  type LineaDesprendible,
+} from "../nomina-canvas/desprendible.template";
+
+/**
+ * `21 JUL 2026 — 20 AGO 2026` a partir de las dos fechas de la liquidación.
+ *
+ * `periodo_start` y `periodo_end` son VarChar, no Date: son lo que el usuario
+ * teclea en el formulario. Si no se pueden interpretar se devuelven tal cual,
+ * que es más útil en un documento que un «Invalid Date».
+ */
+function periodoLegible(inicio: string, fin: string): string {
+  const fmt = (iso: string): string | null => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d
+      .toLocaleDateString("es-CO", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+      .toUpperCase()
+      .replace(/\./g, "");
+  };
+  const a = fmt(inicio);
+  const b = fmt(fin);
+  if (!a || !b) return `${inicio} — ${fin}`;
+  return `${a} — ${b}`;
+}
+
+/** `Desprendible_DAYRO-RODRIGUEZ_21-JUL-2026.pdf`, sin tildes ni espacios. */
+function nombreArchivoDesprendible(d: DatosDesprendible): string {
+  const limpio = (t: string) =>
+    t
+      .normalize("NFD")
+      // Marcas combinantes por rango de escapes: los literales son
+      // invisibles en el editor y el primer reformateo se los lleva.
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Za-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toUpperCase();
+  return `Desprendible_${limpio(d.empleado.nombre)}_${limpio(d.empleado.periodo.split("—")[0] ?? "")}.pdf`;
+}
 import { RecargosService } from "../recargos/recargos.service";
 
 // Set the fonts for pdfMake
@@ -2175,34 +2222,162 @@ export const LiquidacionesService = {
     return liquidacion;
   },
 
-  // Generar un PDF de desprendible para una liquidación
+  /**
+   * PDF del desprendible de una liquidación.
+   *
+   * Antes esto devolvía un marcador de posición que decía «Test PDF - Empty
+   * Content», con un comentario de «bypassing full content generation for
+   * testing». O sea que tanto la descarga individual como el ZIP masivo
+   * llevaban tiempo entregando documentos vacíos. Ahora renderiza el
+   * desprendible de verdad con Puppeteer, igual que el módulo de terceros.
+   */
   async generatePayslipPdfBuffer(
     liquidationId: string,
   ): Promise<{ buffer: Buffer; fileName: string }> {
-    // Bypassing full content generation for testing
-    const emptyDocDefinition = {
-      content: [
-        { text: "Test PDF - Empty Content", fontSize: 18, alignment: "center" },
-        {
-          text: "This is a placeholder PDF for testing file download.",
-          fontSize: 12,
-          margin: [0, 20],
-        },
-        { text: `Requested ID: ${liquidationId}`, fontSize: 10 },
-      ],
-      defaultStyle: {
-        font: "Roboto",
-      },
-    };
-
-    const pdf = pdfMake.createPdf(emptyDocDefinition);
-    const buffer = await new Promise<Buffer>((resolve, reject) => {
-      pdf.getBuffer((result: Buffer) => resolve(result));
+    const datos = await this.datosDesprendible(liquidationId);
+    // Sin `prelude`: este repo no tiene el módulo de PDF de terceros, así que
+    // no hay fuentes embebidas ni tokens de color que inyectar. El documento
+    // sale con las fuentes del sistema y los valores por defecto de cada
+    // `var(--tpdf-*)`, que la plantilla ya trae.
+    const html = renderDesprendibleHtml(datos);
+    const buffer = await pdfFromHtml({
+      html,
+      landscape: false,
+      format: "Letter",
+      marginMm: 0,
+      // El `@page` de la plantilla manda: si no, Puppeteer impone sus
+      // márgenes y el documento sale descuadrado respecto al preview.
+      preferCSSPageSize: true,
     });
 
-    const fileName = `test_desprendible_${liquidationId.substring(0, 8)}.pdf`;
+    return { buffer, fileName: nombreArchivoDesprendible(datos) };
+  },
 
-    return { buffer, fileName };
+  /**
+   * Reúne lo que necesita la plantilla del desprendible.
+   *
+   * Los importes se leen de la liquidación tal y como está guardada: este es
+   * el documento de un periodo cerrado, no un recálculo. Si las cifras no
+   * cuadran, lo que hay que arreglar es la liquidación.
+   */
+  async datosDesprendible(liquidationId: string): Promise<DatosDesprendible> {
+    const l = await prisma.liquidaciones.findUnique({
+      where: { id: liquidationId },
+      include: {
+        conductores: true,
+        bonificaciones: true,
+        pernotes: true,
+        anticipos: true,
+        recargos: { include: { clientes: { select: { nombre: true } } } },
+        firmas_desprendibles: true,
+      },
+    });
+    if (!l) throw new Error(`Liquidación ${liquidationId} no encontrada`);
+
+    const n = (v: unknown): number => {
+      const x = Number(v);
+      return Number.isFinite(x) ? x : 0;
+    };
+
+    const devengos: LineaDesprendible[] = [
+      { concepto: "SALARIO", cantidad: l.dias_laborados, valor: n(l.salario_devengado) },
+      { concepto: "AUXILIO DE TRANSPORTE", cantidad: l.dias_laborados, valor: n(l.auxilio_transporte) },
+    ];
+    if (n(l.total_vacaciones) > 0) {
+      devengos.push({ concepto: "VACACIONES", cantidad: null, valor: n(l.total_vacaciones) });
+    }
+    if (n(l.ajuste_salarial) > 0) {
+      devengos.push({
+        concepto: "BONO NIVELACION DE SALARIO",
+        cantidad: l.dias_laborados_villanueva,
+        valor: n(l.ajuste_salarial),
+      });
+    }
+    for (const b of l.bonificaciones) {
+      // `values` es un string JSON con `[{ mes, quantity }]`.
+      let cantidad = 0;
+      try {
+        const parsed = JSON.parse(b.values ?? "[]");
+        if (Array.isArray(parsed)) cantidad = parsed.reduce((s, v: any) => s + n(v?.quantity), 0);
+      } catch {
+        cantidad = 0;
+      }
+      const valor = cantidad * n(b.value);
+      if (valor > 0) {
+        devengos.push({ concepto: String(b.name ?? "BONO").toUpperCase(), cantidad, valor });
+      }
+    }
+    for (const p of l.pernotes) {
+      const valor = n(p.cantidad) * n(p.valor);
+      if (valor > 0) devengos.push({ concepto: "PERNOTES", cantidad: n(p.cantidad), valor });
+    }
+    // Los recargos van agrupados por empresa: es lo que contabilidad necesita
+    // para imputar el gasto, y en la lista plana se pierde.
+    const porEmpresa = new Map<string, number>();
+    for (const r of l.recargos) {
+      if (r.incluir === false) continue;
+      const empresa = r.clientes?.nombre ?? "RECARGOS";
+      porEmpresa.set(empresa, (porEmpresa.get(empresa) ?? 0) + n(r.valor));
+    }
+    for (const [empresa, valor] of porEmpresa) {
+      if (valor > 0) devengos.push({ concepto: `RECARGOS ${empresa}`, cantidad: null, valor });
+    }
+    if (n(l.disponibilidad) > 0) {
+      devengos.push({ concepto: "DISPONIBILIDAD MES", cantidad: null, valor: n(l.disponibilidad) });
+    }
+    if (n(l.valor_incapacidad) > 0) {
+      devengos.push({ concepto: "INCAPACIDAD", cantidad: null, valor: n(l.valor_incapacidad) });
+    }
+    if (n(l.interes_cesantias) > 0) {
+      devengos.push({ concepto: "INTERESES DE CESANTIAS", cantidad: null, valor: n(l.interes_cesantias) });
+    }
+    if (Array.isArray(l.conceptos_adicionales)) {
+      for (const c of l.conceptos_adicionales as any[]) {
+        const valor = n(c?.valor);
+        if (valor !== 0) {
+          devengos.push({
+            concepto: String(c?.nombre ?? "CONCEPTO ADICIONAL").toUpperCase(),
+            cantidad: null,
+            valor,
+          });
+        }
+      }
+    }
+
+    const deducciones: LineaDesprendible[] = [
+      { concepto: "SALUD", cantidad: null, valor: n(l.salud) },
+      { concepto: "PENSION", cantidad: null, valor: n(l.pension) },
+    ];
+    const totalAnticipos = l.anticipos.reduce((s, a) => s + n(a.valor), 0);
+    if (totalAnticipos > 0) {
+      deducciones.push({ concepto: "ANTICIPOS", cantidad: null, valor: totalAnticipos });
+    }
+
+    const firma = l.firmas_desprendibles.find(
+      (f) => f.firma_url && f.firma_url !== "pending" && f.estado === "Activa",
+    );
+
+    const conductor = l.conductores;
+    return {
+      empresa: {
+        nombre: l.es_cotransmeq
+          ? "COOPERATIVA DE TRANSPORTADORES DEL META Y CASANARE"
+          : "TRANSPORTES Y SERVICIOS ESMERALDA S.A.S",
+        nit: l.es_cotransmeq ? "892099216-1" : "901528440-3",
+      },
+      empleado: {
+        nombre: conductor ? `${conductor.nombre} ${conductor.apellido}`.trim() : "—",
+        cedula: conductor?.numero_identificacion ?? "—",
+        cargo: conductor?.cargo ?? "CONDUCTOR",
+        periodo: periodoLegible(l.periodo_start, l.periodo_end),
+        estado: (l as any).estado_flujo ?? l.estado,
+      },
+      devengos: devengos.filter((d) => d.valor !== 0),
+      deducciones: deducciones.filter((d) => d.valor !== 0),
+      basePrestacional: n(l.salario_devengado) + n(l.total_vacaciones),
+      firmaUrl: firma?.firma_url ?? null,
+      fechaFirma: firma?.fecha_firma ? firma.fecha_firma.toISOString().slice(0, 10) : null,
+    };
   },
 
   // Generar un archivo ZIP con múltiples PDFs de desprendibles
@@ -2223,39 +2398,75 @@ export const LiquidacionesService = {
       );
     }
 
-    const archive = archiver("zip", {
-      zlib: { level: 9 }, // Sets the compression level.
-    });
+    // Se generan TODOS los PDF antes de abrir el ZIP. Si uno falla a mitad
+    // del empaquetado, el usuario se queda con un archivo truncado que
+    // parece válido; así o sale entero o sale un error que se entiende.
+    //
+    // Secuencial a propósito: cada PDF abre una pestaña de Chromium, y
+    // treinta a la vez agotan la memoria del contenedor.
+    const documentos: { buffer: Buffer; fileName: string }[] = [];
+    const fallidos: { id: string; error: string }[] = [];
 
     for (let i = 0; i < total; i++) {
       const id = liquidationIds[i];
       try {
-        const { buffer, fileName } = await this.generatePayslipPdfBuffer(id);
-        archive.append(buffer, { name: fileName });
-        if (socketId) {
-          io.to(socketId).emit("progress:update", { current: i + 1, total });
-        }
+        documentos.push(await this.generatePayslipPdfBuffer(id));
       } catch (error: any) {
-        console.error(`Error generating PDF for ${id}:`, error);
+        console.error(`[nomina-zip] fallo generando el PDF de ${id}:`, error);
+        fallidos.push({ id, error: error?.message ?? "error desconocido" });
         if (socketId) {
           io.to(socketId).emit("progress:error", {
-            message: `Error generating PDF for ${id}: ${error.message}`,
+            message: `No se pudo generar el desprendible de ${id}: ${error?.message ?? ""}`,
           });
         }
       }
+      if (socketId) {
+        io.to(socketId).emit("progress:update", { current: i + 1, total });
+      }
+    }
+
+    if (documentos.length === 0) {
+      throw new Error(
+        "No se pudo generar ningún desprendible. Revisa que las liquidaciones existan.",
+      );
+    }
+
+    const archive = archiver("zip", { zlib: { level: 6 } });
+
+    // Los listeners se enganchan ANTES de escribir nada. Con el orden
+    // anterior —finalize() y después on("data")— los primeros trozos se
+    // emitían sin nadie escuchando y el ZIP salía incompleto.
+    const buffers: Buffer[] = [];
+    const zip = new Promise<Buffer>((resolve, reject) => {
+      archive.on("data", (chunk: Buffer) => buffers.push(chunk));
+      archive.on("end", () => resolve(Buffer.concat(buffers)));
+      // `archiver` avisa de los errores por EVENTO, no rechazando una
+      // promesa: sin este manejador, un fallo tumba el proceso entero.
+      archive.on("error", (err: Error) => reject(err));
+    });
+
+    // Dos liquidaciones del mismo conductor en el mismo periodo darían el
+    // mismo nombre y una pisaría a la otra dentro del ZIP.
+    const usados = new Map<string, number>();
+    for (const doc of documentos) {
+      const veces = usados.get(doc.fileName) ?? 0;
+      usados.set(doc.fileName, veces + 1);
+      const nombre = veces === 0
+        ? doc.fileName
+        : doc.fileName.replace(/\.pdf$/i, `_${veces + 1}.pdf`);
+      archive.append(doc.buffer, { name: nombre });
     }
 
     await archive.finalize();
+    const resultado = await zip;
 
     if (socketId) {
-      io.to(socketId).emit("progress:complete");
+      io.to(socketId).emit("progress:complete", {
+        generados: documentos.length,
+        fallidos,
+      });
     }
 
-    return await new Promise<Buffer>((resolve, reject) => {
-      const buffers: Buffer[] = [];
-      archive.on("data", (chunk: Buffer) => buffers.push(chunk));
-      archive.on("end", () => resolve(Buffer.concat(buffers)));
-      archive.on("error", (err: Error) => reject(err));
-    });
+    return resultado;
   },
 };

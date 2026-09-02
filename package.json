@@ -24,7 +24,9 @@
     "sync:vehiculos": "node scripts/sync-vehiculo-estados.js",
     "sync:vehiculos:ts": "tsx scripts/sync-vehiculo-estados.ts",
     "test:declaracion-transporte": "vitest run --config vitest.declaracion.config.ts",
-    "test:formularios": "vitest run --config vitest.formularios.config.ts"
+    "test:formularios": "vitest run --config vitest.formularios.config.ts",
+    "test:nomina": "vitest run --config vitest.nomina.config.ts",
+    "nomina:contraste": "tsx scripts/nomina-contraste-excel.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
