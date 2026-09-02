@@ -18,7 +18,7 @@ import { PDF_TOKENS, pdfCssVars } from "./pdf-tokens";
 
 const ESPEJO = resolve(
   __dirname,
-  "../../../../ingreso-svelte/src/lib/styles/pdf-tokens.ts",
+  "../../../../cotransmeq-app/src/lib/styles/pdf-tokens.ts",
 );
 
 /**
