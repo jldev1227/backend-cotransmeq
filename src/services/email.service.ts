@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
 import { env } from '../config/env'
+import { AREA_LABELS } from '../config/permissions'
 
 // ═══════════════════════════════════════════════════════
 // PROVEEDOR DE EMAIL: Resend (principal) o SMTP (fallback)
@@ -58,13 +59,53 @@ export interface EmailAttachment {
 }
 
 /**
+ * `from` para Resend, con aviso si es un correo personal.
+ *
+ * Resend RECHAZA enviar desde @gmail.com y compañía: exige un dominio
+ * verificado. El fallo llega como error de API en tiempo de envío, que es
+ * tarde; este aviso lo adelanta al primer correo.
+ */
+function getFromForResend(): string {
+  const from = env.RESEND_FROM || env.SMTP_FROM || 'Cotransmeq <noreply@cotransmeq.com>'
+  const email = (from.match(/<([^>]+)>/)?.[1] ?? from).toLowerCase()
+  if (/@(gmail|yahoo|hotmail|outlook|live)\.com$/i.test(email)) {
+    console.warn(
+      `[EmailService][Resend] El from "${from}" es un correo personal. ` +
+        `Resend requiere un dominio verificado (ej: noreply@cotransmeq.com). ` +
+        `Configura RESEND_FROM en .env con un dominio verificado.`
+    )
+  }
+  return from
+}
+
+/**
+ * URL pública con la que se construyen los enlaces de los correos.
+ *
+ * NO usar `env.FRONTEND_URL` a pelo: esa variable puede llevar VARIOS orígenes
+ * separados por coma para el CORS, y concatenarla produce enlaces rotos del
+ * tipo "https://a.com,https://b.com/public/portal?token=...".
+ *
+ * Prioridad: EMAIL_FRONTEND_URL -> primer origen de FRONTEND_URL -> localhost.
+ */
+function getEmailFrontendUrl(): string {
+  if (env.EMAIL_FRONTEND_URL && env.EMAIL_FRONTEND_URL.trim()) {
+    return env.EMAIL_FRONTEND_URL.trim().replace(/\/+$/, '')
+  }
+  if (env.FRONTEND_URL && env.FRONTEND_URL.trim()) {
+    const primero = env.FRONTEND_URL.split(',').map(o => o.trim()).filter(Boolean)[0]
+    if (primero) return primero.replace(/\/+$/, '')
+  }
+  return 'http://localhost:5173'
+}
+
+/**
  * Envía un email usando el proveedor disponible (Resend o SMTP)
  */
 async function sendEmail({ from, to, subject, html, bcc, attachments }: { from: string; to: string[]; subject: string; html: string; bcc?: string[]; attachments?: EmailAttachment[] }) {
   const provider = getEmailProvider()
 
   if (provider === 'resend') {
-    const payload: any = { from, to, subject, html }
+    const payload: any = { from: getFromForResend(), to, subject, html }
     if (bcc && bcc.length > 0) payload.bcc = bcc
     if (attachments && attachments.length > 0) {
       payload.attachments = attachments.map((a) => ({
@@ -124,7 +165,7 @@ export const EmailService = {
   },
 
   async sendMagicLink({ to, conductorNombre, conductorApellido, token }: SendMagicLinkParams) {
-    const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = getEmailFrontendUrl()
     const magicLink = `${frontendUrl}/public/dias-laborados?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
     const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
@@ -263,7 +304,7 @@ export const EmailService = {
   },
 
   async sendPortalAccessLink({ to, conductorNombre, conductorApellido, token }: SendMagicLinkParams) {
-    const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = getEmailFrontendUrl()
     const portalLink = `${frontendUrl}/public/portal?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
     const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
@@ -406,18 +447,12 @@ export const EmailService = {
     area: string[]
     token: string
   }) {
-    const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = getEmailFrontendUrl()
     const inviteLink = `${frontendUrl}/invite/${token}`
     const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
-    const areaLabels: Record<string, string> = {
-      administracion: 'Administración',
-      operaciones: 'Operaciones',
-      contabilidad: 'Contabilidad',
-      facturacion: 'Facturación',
-      talento_humano: 'Talento Humano',
-      hseq: 'HSEQ'
-    }
-    const areasText = area.map(a => areaLabels[a] || a).join(', ')
+    // Mapa de `config/permissions.ts` en vez de una copia local: la copia se
+    // quedaba sin las áreas nuevas (`mantenimiento`) y las pintaba en crudo.
+    const areasText = area.map(a => (AREA_LABELS as Record<string, string>)[a] || a).join(', ')
 
     const html = `
 <!DOCTYPE html>
@@ -554,7 +589,7 @@ export const EmailService = {
     monto: string
     portalLink: string
   }) {
-    const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = getEmailFrontendUrl()
     const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
 
     const html = `
@@ -777,7 +812,7 @@ export const EmailService = {
     token: string
     mensaje_personalizado?: string
   }) {
-    const frontendUrl = env.FRONTEND_URL || 'http://localhost:5173'
+    const frontendUrl = getEmailFrontendUrl()
     const accessLink = `${frontendUrl}/public/certificados?token=${token}`
     const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
 

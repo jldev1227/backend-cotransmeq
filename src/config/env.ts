@@ -45,6 +45,43 @@ const envSchema = z.object({
   // Prefijo del número de planilla auto-generado (TM = Transmeralda, CM = Cotransmeq)
   PLANILLA_PREFIX: z.string().trim().min(1).max(5).optional().default('TM'),
 
+  // ── Envíos por correo de liquidaciones de terceros (canvas de cierres) ──
+  // El requisito es que el tercero vea el correo COMO ENVIADO POR contabilidad
+  // y que al responder, la respuesta llegue a ese buzón.
+  //
+  // Dos maneras de lograrlo, en orden de preferencia:
+  //  1. SMTP directo del Gmail de contabilidad (CONTABILIDAD_SMTP_USER +
+  //     app password). El From ES el propio Gmail, sin ambigüedad posible.
+  //     Gmail limita ~500 envíos/día por cuenta.
+  //  2. Resend con dominio verificado (RESEND_FROM) + Reply-To al Gmail de
+  //     contabilidad. Resend NO permite From @gmail.com; el nombre visible
+  //     se fuerza a LIQ_EMAIL_FROM_NAME y las respuestas van al Reply-To.
+  CONTABILIDAD_SMTP_USER: z.string().optional(),
+  CONTABILIDAD_SMTP_PASSWORD: z.string().optional(),
+  // Nombre visible del remitente en ambos proveedores.
+  LIQ_EMAIL_FROM_NAME: z.string().optional().default('Contabilidad Cotransmeq S.A.S.'),
+  // Buzón que recibe las respuestas de los terceros. Sin default a propósito:
+  // transmeralda lo trae apuntando a su propio Gmail de contabilidad, y
+  // heredarlo mandaría las respuestas de los terceros de cotransmeq a la otra
+  // empresa. Vacío = sin Reply-To, que es lo que hace el `|| undefined` de
+  // envios-email.service.
+  LIQ_EMAIL_REPLY_TO: z.string().optional().default(''),
+  // Copia oculta de constancia. Vacío = sin BCC, por el mismo motivo que
+  // Reply-To. En envíos de PRUEBA nunca se manda BCC.
+  LIQ_EMAIL_BCC: z.string().optional().default(''),
+  // Pausa entre envíos del lote. Resend limita a 2 req/s; 800ms deja margen.
+  ENVIO_LIQ_DELAY_MS: z.string().transform(s => Number(s)).default('800'),
+  ENVIO_LIQ_MAX_QUEUE: z.string().transform(s => Number(s)).default('5'),
+  ENVIO_LIQ_JOB_TTL_MS: z.string().transform(s => Number(s)).default('600000'),
+
+  // Modo del middleware de permisos por área.
+  //   'warn'    → deja pasar y deja rastro en logs de quién habría sido cortado.
+  //   'enforce' → rechaza con 403.
+  // El default es el permisivo A PROPÓSITO: pasar a 'enforce' tiene que ser una
+  // decisión explícita tomada después de mirar los logs, no algo que ocurre
+  // solo por desplegar. El 401 por falta de autenticación se aplica SIEMPRE.
+  PERMISSIONS_MODE: z.enum(['warn', 'enforce']).optional().default('warn'),
+
   // URL de la base de datos Transmeralda (mismo schema, instancia distinta).
   // Se usa para importar recargos desde Transmeralda hacia Cotransmeq.
   // Si no se define, los endpoints /importar-desde-transmeralda/* devuelven 503.

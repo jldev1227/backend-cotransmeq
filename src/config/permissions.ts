@@ -8,7 +8,8 @@
  * - facturacion
  * - talento_humano
  * - hseq
- * 
+ * - mantenimiento
+ *
  * Niveles de acceso:
  * - full: CRUD completo
  * - read: Solo lectura/consulta
@@ -17,15 +18,21 @@
 
 export type AccessLevel = 'full' | 'read' | 'limited'
 
-export type Area = 'administracion' | 'operaciones' | 'contabilidad' | 'facturacion' | 'talento_humano' | 'hseq'
+export type Area =
+  | 'administracion'
+  | 'operaciones'
+  | 'contabilidad'
+  | 'facturacion'
+  | 'talento_humano'
+  | 'hseq'
+  | 'mantenimiento'
 
 /**
- * Lista canónica de áreas, en runtime.
- *
- * El tipo `Area` solo existe en compilación, y validar un target `AREA` de un
- * formulario exige comprobar un string que llega por HTTP: sin esta lista, un
- * área inventada pasaría el CHECK de la base —es un VARCHAR— y crearía una
- * asignación que no le aparece a nadie, sin ningún error visible.
+ * Lista canónica de áreas. Existe para que los esquemas zod y los formularios
+ * no repitan el literal en seis sitios: cuando se añadió `mantenimiento` había
+ * ya cuatro copias del array (`usuarios.schema.ts`, `invitaciones.schema.ts`,
+ * el mapa de etiquetas del correo y el frontend) y las tres primeras se
+ * olvidaron, así que el alta rechazaba con 400 un área que el tipo sí admitía.
  */
 export const AREAS: readonly Area[] = [
   'administracion',
@@ -34,6 +41,7 @@ export const AREAS: readonly Area[] = [
   'facturacion',
   'talento_humano',
   'hseq',
+  'mantenimiento',
 ]
 
 /** Etiquetas legibles de cada área (correos, UI, mensajes de error). */
@@ -44,6 +52,7 @@ export const AREA_LABELS: Record<Area, string> = {
   facturacion: 'Facturación',
   talento_humano: 'Talento Humano',
   hseq: 'HSEQ',
+  mantenimiento: 'Mantenimiento',
 }
 
 /** `true` si el string es un área conocida. Útil para validar entrada cruda. */
@@ -70,19 +79,19 @@ export interface RoutePermission {
  */
 export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   perfil: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     general: true,
     description: 'Mi perfil'
   },
 
   flota: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     general: true,
     description: 'Gestión de flota vehicular'
   },
 
   conductores: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     general: true,
     description: 'Gestión de conductores'
   },
@@ -100,7 +109,7 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   },
 
   clientes: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'hseq'],
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'hseq', 'mantenimiento'],
     general: true,
     description: 'Gestión de clientes/empresas'
   },
@@ -158,7 +167,7 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
    * puerta de la pantalla.
    */
   'mis-formularios': {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     general: true,
     description: 'Diligenciar los formularios asignados a mí'
   },
@@ -179,8 +188,23 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Liquidaciones de servicios'
   },
 
+  // Espejo EXACTO de `ingreso-svelte/src/lib/config/permissions.ts`.
+  // Faltaban en el backend, así que `requirePermission('liquidaciones-terceros')`
+  // habría devuelto 403 a todo el mundo: `checkAccess` deniega cualquier
+  // moduleId ausente de este mapa.
+  'liquidaciones-terceros': {
+    full: ['administracion', 'operaciones'],
+    limited: ['facturacion', 'contabilidad'],
+    description: 'Liquidaciones de terceros (propietarios)'
+  },
+  'liquidaciones-terceros-adicionales': {
+    full: ['administracion', 'operaciones'],
+    limited: ['facturacion', 'contabilidad'],
+    description: 'Adicionales (unificados) de cierres finales de terceros'
+  },
+
   pesv: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq'],
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     general: true,
     description: 'Plan Estratégico de Seguridad Vial'
   },
@@ -207,16 +231,87 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
 }
 
 /**
- * Verifica si un usuario tiene acceso a un módulo dado su role y area
+ * Permisos por ruta asignados a UN usuario concreto (`users.permisos_rutas`).
+ * Las claves son moduleId de `ROUTE_PERMISSIONS`; el valor, el nivel exacto.
+ */
+export type RutasOverride = Record<string, AccessLevel>
+
+/** Módulo que nunca se puede quitar: sin él el usuario no puede ni ver su ficha. */
+const MODULO_SIEMPRE_ACCESIBLE = 'perfil'
+
+const NIVELES_VALIDOS: readonly AccessLevel[] = ['full', 'read', 'limited']
+
+/**
+ * Normaliza `permisos_rutas` tal como viene de la BD (JSONB, sin garantías de
+ * forma). Descarta claves que no son módulos conocidos y niveles que no son
+ * `full|read|limited`: un JSON escrito a mano con `"formularios": true` no debe
+ * conceder nada, pero tampoco tumbar la petición con una excepción.
+ *
+ * Devuelve `null` si no queda ninguna clave utilizable, que es exactamente el
+ * caso «no hay lista blanca, aplica las reglas por área».
+ */
+export function normalizarRutasOverride(valor: unknown): RutasOverride | null {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return null
+
+  const limpio: RutasOverride = {}
+  for (const [moduleId, nivel] of Object.entries(valor as Record<string, unknown>)) {
+    if (!ROUTE_PERMISSIONS[moduleId]) continue
+    if (!NIVELES_VALIDOS.includes(nivel as AccessLevel)) continue
+    limpio[moduleId] = nivel as AccessLevel
+  }
+
+  return Object.keys(limpio).length > 0 ? limpio : null
+}
+
+/**
+ * Verifica si un usuario tiene acceso a un módulo dado su role y area.
+ *
+ * @param rutasOverride Lista blanca por usuario (`users.permisos_rutas`).
+ *
+ * Semántica del override — esto es lo importante:
+ *
+ *  - `null`, `undefined` o `{}` → NO hay override. Se aplican las reglas por
+ *    área de siempre, tal cual estaban antes de existir esta columna.
+ *
+ *  - Con ≥1 clave → **sustituye por completo** a las reglas por área. No suma
+ *    ni resta sobre ellas: sólo los módulos listados son accesibles, y con
+ *    exactamente el nivel que diga el valor. Un usuario de `administracion`
+ *    con `{"flota":"read"}` pierde todo lo demás y sobre flota sólo lee.
+ *    Se hizo así a propósito: la alternativa (mezclar área + override) obliga
+ *    a razonar sobre dos fuentes a la vez para responder «¿por qué ve esto?»,
+ *    y era justo lo que se quería quitar de encima.
+ *
+ *  - Excepciones a la lista blanca:
+ *      · `perfil` sigue accesible siempre (si no, el usuario no puede ni
+ *        cambiar su contraseña ni subir su firma).
+ *      · `role === 'admin'` conserva acceso total. Un admin bloqueado por su
+ *        propio JSON no tendría cómo desbloquearse.
+ *      · `general: true` NO exime: la gracia del override es poder recortar
+ *        también los módulos que hoy ve todo el mundo (flota, conductores…).
  */
 export function checkAccess(
   userRole: string | null | undefined,
   userAreas: Area[] | Area | null | undefined,
-  moduleId: string
+  moduleId: string,
+  rutasOverride?: RutasOverride | null
 ): { allowed: boolean; level: AccessLevel | null } {
   const permission = ROUTE_PERMISSIONS[moduleId]
   if (!permission) {
     return { allowed: false, level: null }
+  }
+
+  const override = normalizarRutasOverride(rutasOverride)
+  if (override) {
+    // Un admin nunca se queda fuera, aunque su JSON no liste el módulo.
+    if (userRole === 'admin') {
+      return { allowed: true, level: 'full' }
+    }
+    if (moduleId === MODULO_SIEMPRE_ACCESIBLE) {
+      return { allowed: true, level: 'full' }
+    }
+
+    const nivel = override[moduleId]
+    return nivel ? { allowed: true, level: nivel } : { allowed: false, level: null }
   }
 
   // Si es general, cualquier usuario autenticado tiene acceso
@@ -249,16 +344,22 @@ export function checkAccess(
 }
 
 /**
- * Obtiene todos los módulos accesibles para un usuario
+ * Obtiene todos los módulos accesibles para un usuario.
+ *
+ * `rutasOverride` se respeta con la misma semántica que en `checkAccess`, y por
+ * eso se recorre `ROUTE_PERMISSIONS` en vez del propio override: así las claves
+ * que alguien haya metido a mano y no correspondan a ningún módulo real se caen
+ * solas, y el sidebar del frontend nunca pinta una entrada que la API no sirve.
  */
 export function getAccessibleModules(
   userRole: string | null | undefined,
-  userAreas: Area[] | Area | null | undefined
+  userAreas: Area[] | Area | null | undefined,
+  rutasOverride?: RutasOverride | null
 ): Record<string, AccessLevel> {
   const modules: Record<string, AccessLevel> = {}
 
   for (const [moduleId] of Object.entries(ROUTE_PERMISSIONS)) {
-    const { allowed, level } = checkAccess(userRole, userAreas, moduleId)
+    const { allowed, level } = checkAccess(userRole, userAreas, moduleId, rutasOverride)
     if (allowed && level) {
       modules[moduleId] = level
     }

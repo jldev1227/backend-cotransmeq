@@ -6,7 +6,10 @@ import { registerBorradorQueueGateway } from '../queue/borrador-queue.gateway'
 import { borradorQueueService } from '../queue/borrador-queue.service'
 import { registerBulkSaveLiquidacionTerceroGateway } from '../queue/bulk-save-liquidacion-tercero.gateway'
 import { bulkSaveLiquidacionTerceroService } from '../queue/bulk-save-liquidacion-tercero.service'
+import { envioLiquidacionesQueueService } from '../queue/envio-liquidaciones-queue.service'
+import { envioNominaQueueService } from '../queue/envio-nomina-queue.service'
 import { installSocketAuth, corsOrigins } from './auth'
+import { registerSheetGateway } from './sheet.gateway'
 import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
 
 let io: IOServer | null = null
@@ -22,17 +25,16 @@ export function initSockets(server: HttpServer) {
   console.log('🔌 [initSockets] INICIANDO SOCKET.IO SERVER')
   console.log('═══════════════════════════════════════════════════════')
   
-  io = new IOServer(server, { cors: { origin: corsOrigins(), methods: ['GET', 'POST'] } })
+  io = new IOServer(server, {
+    cors: { origin: corsOrigins(), methods: ['GET', 'POST'] }
+  })
 
   // Verificación de identidad en el handshake. Va ANTES de cualquier
   // `io.on('connection')` para que los handlers ya tengan `socket.data.user`.
-  // El gateway de formularios dinámicos la exige (`getSocketUser`); el resto
-  // de gateways sigue funcionando igual porque el modo por defecto es
-  // `permissive` (ver SOCKET_AUTH_MODE en config/env.ts).
   installSocketAuth(io)
 
   console.log('✅ [initSockets] Socket.IO server creado')
-  
+
   io.on('connection', socket => {
     console.log(`🔗 [sockets] ✓ NUEVA CONEXIÓN: socket.id=${socket.id}`)
     console.log(`   Rooms actuales: [${Array.from(socket.rooms).join(', ')}]`)
@@ -98,17 +100,38 @@ export function initSockets(server: HttpServer) {
     });
   })
   registerLiquidacionTerceroGateway(io)
+  registerSheetGateway(io)
   registerFormulariosGateway(io)
   registerChatGateway(io)
   registerBorradorQueueGateway(io)
   registerBulkSaveLiquidacionTerceroGateway(io)
 
-  // Wire up queue emitter
-  borradorQueueService.setEmitter((userId, event, data) => {
-    io.to(`user-${userId}`).emit(event, data)
+  // Wire up queue emitter.
+  //
+  // La cola de borradores emite a dos destinos distintos: el progreso al
+  // usuario que lanzó el job, y las altas de hoja al room del libro, que es
+  // donde están todos los que tienen ese periodo abierto.
+  borradorQueueService.setEmitter((target, event, data) => {
+    if (target.room) io.to(target.room).emit(event, data)
+    if (target.userId) io.to(`user-${target.userId}`).emit(event, data)
   })
   bulkSaveLiquidacionTerceroService.setEmitter((userId, event, data) => {
     io.to(`user-${userId}`).emit(event, data)
+  })
+  // Cola de envíos por correo de liquidaciones de terceros: el progreso va
+  // al usuario que lanzó; el estado ENVIADO/ERROR de cada cierre, al room
+  // del libro del periodo, para que todos los canvas lo pinten en vivo.
+  envioLiquidacionesQueueService.setEmitter((target, event, data) => {
+    if (target.room) io.to(target.room).emit(event, data)
+    if (target.userId) io.to(`user-${target.userId}`).emit(event, data)
+  })
+  // Cola de envíos de desprendibles de nómina. Mismo reparto: el progreso
+  // del lote va a quien lo lanzó, y el ENVIADO/ERROR de cada desprendible al
+  // room del libro del periodo, para que los canvas abiertos lo pinten sin
+  // recargar.
+  envioNominaQueueService.setEmitter((target, event, data) => {
+    if (target.room) io.to(target.room).emit(event, data)
+    if (target.userId) io.to(`user-${target.userId}`).emit(event, data)
   })
 
   return io
@@ -130,32 +153,105 @@ export function emitToUser(userId: string, event: string, data: any) {
 }
 
 /**
+ * Metadatos que viajan con cada evento de dominio, bajo la clave `_evento`.
+ *
+ * POR QUÉ EXISTE: los clientes ya recibían la entidad, pero no QUIÉN la
+ * tocó ni QUÉ cambió. El feed de eventos de `/dashboard/liquidaciones-servicios`
+ * necesita ambas cosas para escribir "Juan pasó LS-045 de BORRADOR a
+ * LIQUIDADA" sin pedir nada más al servidor, y para distinguir un alta de
+ * una edición de un cambio de estado (que se pinta más discreto).
+ *
+ * Va como sobre aparte y NO mezclado con los campos de la entidad, para no
+ * colisionar nunca con una columna real ni romper a los consumidores
+ * antiguos, que siguen leyendo `data.id`, `data.estado`, etc.
+ */
+export interface EventoSocketMeta {
+  /** Qué pasó. `estado` es un `updated` que además cambió de estado. */
+  tipo: 'created' | 'updated' | 'deleted' | 'estado' | 'anulada'
+  /** A qué tab del dashboard afecta, para invalidar solo esa caché. */
+  scope: 'liquidaciones' | 'facturas' | 'terceros'
+  /** Quién lo hizo. `null` cuando la acción no viene de un request de usuario. */
+  actor: { id: string | null; nombre: string } | null
+  /**
+   * Cómo nombrar la entidad en el feed (consecutivo, nº de factura…).
+   * Se manda resuelto para que el cliente no tenga que tener la entidad
+   * cargada — el evento puede llegar de un tab que ni siquiera está abierto.
+   */
+  etiqueta: string
+  estado_anterior?: string
+  estado_nuevo?: string
+  /** ISO. Lo pone el servidor: los relojes de los clientes no coinciden. */
+  ts: string
+}
+
+/** Construye el sobre `_evento`. `ts` siempre lo pone el servidor. */
+export function eventoMeta(
+  meta: Omit<EventoSocketMeta, 'ts'>,
+): EventoSocketMeta {
+  return { ...meta, ts: new Date().toISOString() }
+}
+
+/**
+ * Emite `data` con el sobre `_evento` adjunto.
+ *
+ * `data` se copia superficialmente: adjuntar `_evento` mutando el objeto de
+ * Prisma que el handler todavía va a devolver por HTTP haría que el sobre
+ * se colara en la respuesta REST.
+ */
+function emitConMeta(event: string, data: any, meta?: EventoSocketMeta) {
+  if (!io) return
+  if (!meta) {
+    io.emit(event, data)
+    return
+  }
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? { ...data, _evento: meta }
+      : { data, _evento: meta }
+  io.emit(event, payload)
+}
+
+/**
  * Un borrador se autoguardó.
  *
  * Evento APARTE de `liquidacion-servicio-created/updated` a propósito. Esos dos
- * los escuchan el listado y el canvas para pintar la fila y avisar al usuario;
- * si el autoguardado los usara, cada tecleo repintaría la pantalla de todo el
- * mundo y anunciaría una liquidación que todavía no existe para ellos.
+ * los escuchan el listado y el canvas para pintar la fila y para avisar al
+ * usuario; si el autoguardado los usara, cada tecleo repintaría la hoja de todo
+ * el mundo y anunciaría una liquidación que todavía no existe para ellos.
  *
  * Hoy no lo escucha nadie, y así debe quedarse hasta que haya algo concreto que
- * quiera enterarse. Que no rompa nada al añadirlo es justamente el punto.
+ * quiera enterarse (por ejemplo, la propia pestaña del autor en otro
+ * dispositivo). Que no rompa nada al añadirlo es justamente el punto.
  */
-export function emitLiquidacionServicioBorrador(data: {
-  id: string
-  consecutivo: string
-  estado: string
-  version: number
-}) {
-  if (io) {
-    io.emit('liquidacion-servicio-borrador', data)
-  }
+export function emitLiquidacionServicioBorrador(
+  data: { id: string; consecutivo: string; estado: string; version: number },
+  meta?: EventoSocketMeta,
+) {
+  emitConMeta('liquidacion-servicio-borrador', data, meta)
 }
 
 /** Emit a liquidacion-servicio event to all connected clients */
-export function emitLiquidacionServicio(event: 'liquidacion-servicio-created' | 'liquidacion-servicio-updated' | 'liquidacion-servicio-deleted', data: any) {
-  if (io) {
-    io.emit(event, data)
-  }
+export function emitLiquidacionServicio(
+  event: 'liquidacion-servicio-created' | 'liquidacion-servicio-updated' | 'liquidacion-servicio-deleted',
+  data: any,
+  meta?: EventoSocketMeta,
+) {
+  emitConMeta(event, data, meta)
+}
+
+/**
+ * Emite un evento de items de terceros.
+ *
+ * Este módulo no emitía NADA: guardar los terceros de una liquidación no
+ * llegaba a los demás usuarios, así que el tab de Terceros solo se
+ * actualizaba recargando a mano.
+ */
+export function emitLiquidacionTercero(
+  event: 'liquidacion-tercero-updated',
+  data: any,
+  meta?: EventoSocketMeta,
+) {
+  emitConMeta(event, data, meta)
 }
 
 /** Emit a notification to all connected clients (filtered client-side by usuario_id) */
@@ -173,8 +269,14 @@ export function emitActividadPesv(event: 'actividad-pesv-created' | 'actividad-p
 }
 
 /** Emit a facturacion-liquidacion event to all connected clients */
-export function emitFacturacionLiquidacion(event: 'facturacion-created' | 'facturacion-anulada' | 'liquidacion-servicio-facturada', data: any) {
-  if (io) {
-    io.emit(event, data)
-  }
+export function emitFacturacionLiquidacion(
+  event:
+    | 'facturacion-created'
+    | 'facturacion-updated'
+    | 'facturacion-anulada'
+    | 'liquidacion-servicio-facturada',
+  data: any,
+  meta?: EventoSocketMeta,
+) {
+  emitConMeta(event, data, meta)
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { randomUUID } from "crypto";
 import { LiquidacionesTercerosDescuentosService } from "../modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.service";
 
