@@ -20,6 +20,7 @@ model Evaluacion {
   created_at     DateTime    @default(now()) @db.Timestamptz(6)
   updated_at     DateTime    @updatedAt @db.Timestamptz(6)
   resultados     Resultado[]
+  deleted_at     DateTime?   @db.Timestamptz(6)
 }
 
 model Pregunta {
@@ -122,56 +123,62 @@ model bonificaciones {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model conductores {
-  nombre                  String                         @db.VarChar(255)
-  apellido                String                         @db.VarChar(255)
-  tipo_identificacion     String                         @db.VarChar(255)
-  numero_identificacion   String?                        @unique @db.VarChar(255)
-  email                   String?                        @unique @db.VarChar(255)
-  telefono                String?                        @db.VarChar(255)
-  fecha_nacimiento        DateTime?                      @db.Date
-  genero                  String?                        @db.VarChar(255)
-  direccion               String?                        @db.VarChar(255)
-  fecha_ingreso           DateTime?                      @db.Date
-  salario_base            Decimal?                       @db.Decimal(10, 2)
-  eps                     String?                        @db.VarChar(255)
-  fondo_pension           String?                        @db.VarChar(255)
-  arl                     String?                        @db.VarChar(255)
-  termino_contrato        String?
-  fecha_terminacion       String?
-  licencia_conduccion     Json?
-  ultimo_acceso           DateTime?                      @db.Timestamptz(6)
-  permisos                Json?                          @default("{\"verViajes\": true, \"verDocumentos\": true, \"actualizarPerfil\": true, \"verMantenimientos\": true}")
-  cargo                   String                         @default("CONDUCTOR") @db.VarChar(255)
-  categoria_licencia      String?                        @db.VarChar(255)
-  created_at              DateTime                       @db.Timestamptz(6)
-  foto_url                String?                        @db.VarChar(255)
-  password                String?                        @db.VarChar(255)
-  tipo_contrato           String?                        @db.VarChar(255)
-  updated_at              DateTime                       @db.Timestamptz(6)
-  vencimiento_licencia    DateTime?                      @db.Date
-  id                      String                         @id @db.Uuid
-  estado                  enum_conductores_estado        @default(activo)
-  sede_trabajo            enum_conductores_sede_trabajo?
-  tipo_sangre             tipo_sangre_enum?
-  creado_por_id           String?                        @db.Uuid
-  actualizado_por_id      String?                        @db.Uuid
-  oculto                  Boolean                        @default(false)
-  nomina                  Boolean                        @default(false)
-  deleted_at              DateTime?                      @db.Timestamptz(6)
-  anticipos               anticipos[]
-  usuarios                usuarios?                      @relation(fields: [creado_por_id], references: [id])
-  firmas_desprendibles    firmas_desprendibles[]
-  firmas_primas           firmas_primas[]
-  documentos_compartidos  documentos_compartidos[]
-  liquidaciones           liquidaciones[]
-  primas                  primas[]
-  recargos_planillas      recargos_planillas[]
-  servicio                servicio[]
-  vehiculos               vehiculos[]
-  conductor_token         conductor_token[]
-  registro_dia_laboral    registro_dia_laboral[]
-  form_assignment_targets form_assignment_target[]       @relation("form_assignment_target_conductor")
-  form_submissions        form_submission[]              @relation("form_submission_conductor")
+  nombre                                 String                                   @db.VarChar(255)
+  apellido                               String                                   @db.VarChar(255)
+  tipo_identificacion                    String                                   @db.VarChar(255)
+  numero_identificacion                  String?                                  @unique @db.VarChar(255)
+  email                                  String?                                  @unique @db.VarChar(255)
+  telefono                               String?                                  @db.VarChar(255)
+  fecha_nacimiento                       DateTime?                                @db.Date
+  genero                                 String?                                  @db.VarChar(255)
+  direccion                              String?                                  @db.VarChar(255)
+  fecha_ingreso                          DateTime?                                @db.Date
+  salario_base                           Decimal?                                 @db.Decimal(10, 2)
+  eps                                    String?                                  @db.VarChar(255)
+  fondo_pension                          String?                                  @db.VarChar(255)
+  arl                                    String?                                  @db.VarChar(255)
+  termino_contrato                       String?
+  fecha_terminacion                      String?
+  licencia_conduccion                    Json?
+  ultimo_acceso                          DateTime?                                @db.Timestamptz(6)
+  permisos                               Json?                                    @default("{\"verViajes\": true, \"verDocumentos\": true, \"actualizarPerfil\": true, \"verMantenimientos\": true}")
+  cargo                                  String                                   @default("CONDUCTOR") @db.VarChar(255)
+  categoria_licencia                     String?                                  @db.VarChar(255)
+  created_at                             DateTime                                 @db.Timestamptz(6)
+  foto_url                               String?                                  @db.VarChar(255)
+  password                               String?                                  @db.VarChar(255)
+  tipo_contrato                          String?                                  @db.VarChar(255)
+  updated_at                             DateTime                                 @db.Timestamptz(6)
+  vencimiento_licencia                   DateTime?                                @db.Date
+  id                                     String                                   @id @db.Uuid
+  estado                                 enum_conductores_estado                  @default(activo)
+  sede_trabajo                           enum_conductores_sede_trabajo?
+  tipo_sangre                            tipo_sangre_enum?
+  creado_por_id                          String?                                  @db.Uuid
+  actualizado_por_id                     String?                                  @db.Uuid
+  oculto                                 Boolean                                  @default(false)
+  nomina                                 Boolean                                  @default(false)
+  deleted_at                             DateTime?                                @db.Timestamptz(6)
+  anticipos                              anticipos[]
+  usuarios                               usuarios?                                @relation(fields: [creado_por_id], references: [id])
+  firmas_desprendibles                   firmas_desprendibles[]
+  firmas_primas                          firmas_primas[]
+  documentos_compartidos                 documentos_compartidos[]
+  liquidaciones                          liquidaciones[]
+  primas                                 primas[]
+  recargos_planillas                     recargos_planillas[]
+  servicio                               servicio[]
+  vehiculos                              vehiculos[]
+  conductor_token                        conductor_token[]
+  registro_dia_laboral                   registro_dia_laboral[]
+  form_assignment_targets                form_assignment_target[]                 @relation("form_assignment_target_conductor")
+  form_submissions                       form_submission[]                        @relation("form_submission_conductor")
+  excesos_velocidad                      excesos_velocidad[]
+  preoperacionales                       preoperacionales[]
+  salidas_no_conformes                   salidas_no_conformes[]
+  liquidacion_tercero_concepto           liquidacion_tercero_concepto[]
+  liquidacion_tercero_final_concepto     liquidacion_tercero_final_concepto[]
+  liquidacion_tercero_ocasional_concepto liquidacion_tercero_ocasional_concepto[] @relation("ocasional_concepto_conductor")
 }
 
 model conductor_token {
@@ -219,10 +226,14 @@ model registro_dia_laboral {
   mantenimiento_vehiculo vehiculos?                      @relation("mantenimiento_vehiculo", fields: [mantenimiento_vehiculo_id], references: [id], onDelete: SetNull)
   segmentos              registro_dia_laboral_segmento[]
 
+  deleted_at DateTime?                   @db.Timestamptz(6)
+  bonos      registro_dia_laboral_bono[]
+
   @@unique([conductor_id, fecha])
   @@index([conductor_id])
   @@index([fecha])
   @@index([mantenimiento_vehiculo_id])
+  @@index([deleted_at])
 }
 
 /// Tramo/segmento de un día laborado (cambio de cliente/vehículo dentro del mismo día)
@@ -250,14 +261,18 @@ model registro_dia_laboral_segmento {
   created_at           DateTime @default(now()) @db.Timestamptz(6)
   updated_at           DateTime @updatedAt @db.Timestamptz(6)
 
-  registro registro_dia_laboral @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
-  cliente  clientes?            @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
-  vehiculo vehiculos?           @relation(fields: [vehiculo_id], references: [id], onDelete: SetNull)
+  registro_dia registro_dia_laboral @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
+  cliente      clientes?            @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+  vehiculo     vehiculos?           @relation(fields: [vehiculo_id], references: [id], onDelete: SetNull)
+
+  deleted_at DateTime?                   @db.Timestamptz(6)
+  bonos      registro_dia_laboral_bono[]
 
   @@index([registro_dia_id])
   @@index([cliente_id])
   @@index([vehiculo_id])
   @@index([registro_dia_id, orden])
+  @@index([deleted_at])
 }
 
 model configuracion_liquidador {
@@ -284,6 +299,8 @@ model configuraciones_liquidacion {
   updated_at DateTime                              @db.Timestamptz(6)
   deleted_at DateTime?                             @db.Timestamptz(6)
   anio       Int?                                  @default(2025)
+  bonos      registro_dia_laboral_bono[]
+  visual     bono_config_visual[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -312,6 +329,9 @@ model configuraciones_salarios {
   usuarios               usuarios?                           @relation(fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clientes               clientes?                           @relation(fields: [empresa_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   detalles_recargos_dias detalles_recargos_dias[]
+
+  jornada_normal_horas  Decimal @default(10.33) @db.Decimal(4, 2)
+  jornada_festiva_horas Decimal @default(7.33) @db.Decimal(4, 2)
 
   @@index([activo, vigencia_desde], map: "idx_config_salario_activo_vigencia")
   @@index([empresa_id, vigencia_desde], map: "idx_config_salario_empresa_vigencia")
@@ -401,6 +421,12 @@ model dias_laborales_planillas {
   users_dias_laborales_planillas_creado_por_idTousers      usuarios?                @relation("dias_laborales_planillas_creado_por_idTousers", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   recargos_planillas                                       recargos_planillas       @relation(fields: [recargo_planilla_id], references: [id], onDelete: Cascade)
 
+  horas_sueno              Decimal? @db.Decimal(4, 2)
+  excesos_velocidad_dia    Int?     @default(0)
+  preoperacional_realizado Boolean? @default(false)
+  siniestros               Int?     @default(0)
+  siniestros_detalle       String?
+
   @@unique([recargo_planilla_id, dia], map: "idx_dia_laboral_planilla_dia")
 }
 
@@ -488,6 +514,8 @@ model clientes {
   liquidacion_servicio          liquidacion_servicio[]
   registro_dia_laboral_segmento registro_dia_laboral_segmento[]
 
+  salidas_no_conformes salidas_no_conformes[]
+
   @@map("empresas")
 }
 
@@ -513,10 +541,13 @@ model firmas_desprendibles {
   users_firmas_desprendibles_creado_por_idTousers      usuarios?                        @relation("firmas_desprendibles_creado_por_idTousers", fields: [creado_por_id], references: [id])
   liquidaciones                                        liquidaciones                    @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
 
+  expires_at DateTime? @db.Timestamptz(6)
+
   @@unique([liquidacion_id, conductor_id], map: "uk_firmas_desprendibles_liquidacion_conductor")
   @@index([conductor_id], map: "idx_firmas_desprendibles_conductor_id")
   @@index([fecha_firma], map: "idx_firmas_desprendibles_fecha_firma")
   @@index([liquidacion_id], map: "idx_firmas_desprendibles_liquidacion_id")
+  @@index([token], map: "idx_firmas_desprendibles_token")
 }
 
 /// Firmas de los conductores para sus desprendibles de prima
@@ -579,66 +610,73 @@ model liquidacion_vehiculo {
 }
 
 model liquidaciones {
-  salud                                         Decimal                   @default(0.00) @db.Decimal(10, 2)
-  pension                                       Decimal                   @default(0.00) @db.Decimal(10, 2)
-  cesantias                                     Decimal                   @default(0.00) @db.Decimal(10, 2)
+  salud                                         Decimal                               @default(0.00) @db.Decimal(10, 2)
+  pension                                       Decimal                               @default(0.00) @db.Decimal(10, 2)
+  cesantias                                     Decimal                               @default(0.00) @db.Decimal(10, 2)
   observaciones                                 String?
-  ajuste_parex                                  Decimal                   @default(0) @db.Decimal(10, 2)
-  ajuste_geopark                                Decimal                   @default(0) @db.Decimal(10, 2)
-  ajuste_recargos_config                        Json?                     @db.Json
-  ajuste_salarial                               Decimal                   @default(0) @db.Decimal(10, 2)
-  ajuste_salarial_por_dia                       Boolean                   @default(false)
-  auxilio_transporte                            Decimal                   @default(0) @db.Decimal(10, 2)
-  conceptos_adicionales                         Json?                     @db.Json
-  created_at                                    DateTime                  @db.Timestamptz(6)
-  dias_laborados                                Int                       @default(0)
-  dias_laborados_anual                          Int                       @default(0)
-  dias_laborados_villanueva                     Int                       @default(0)
-  fecha_liquidacion                             DateTime?                 @db.Timestamptz(6)
-  interes_cesantias                             Decimal                   @default(0) @db.Decimal(10, 2)
+  ajuste_parex                                  Decimal                               @default(0) @db.Decimal(10, 2)
+  ajuste_geopark                                Decimal                               @default(0) @db.Decimal(10, 2)
+  ajuste_recargos_config                        Json?                                 @db.Json
+  ajuste_salarial                               Decimal                               @default(0) @db.Decimal(10, 2)
+  ajuste_salarial_por_dia                       Boolean                               @default(false)
+  auxilio_transporte                            Decimal                               @default(0) @db.Decimal(10, 2)
+  conceptos_adicionales                         Json?                                 @db.Json
+  created_at                                    DateTime                              @db.Timestamptz(6)
+  dias_laborados                                Int                                   @default(0)
+  dias_laborados_anual                          Int                                   @default(0)
+  dias_laborados_villanueva                     Int                                   @default(0)
+  fecha_liquidacion                             DateTime?                             @db.Timestamptz(6)
+  interes_cesantias                             Decimal                               @default(0) @db.Decimal(10, 2)
   old_id                                        Int?
-  periodo_end                                   String                    @db.VarChar(255)
-  periodo_end_incapacidad                       String?                   @db.VarChar(255)
-  periodo_end_vacaciones                        String?                   @db.VarChar(255)
-  periodo_start                                 String                    @db.VarChar(255)
-  periodo_start_incapacidad                     String?                   @db.VarChar(255)
-  periodo_start_vacaciones                      String?                   @db.VarChar(255)
-  salario_devengado                             Decimal                   @default(0) @db.Decimal(10, 2)
-  sueldo_total                                  Decimal                   @default(0) @db.Decimal(10, 2)
-  total_anticipos                               Decimal                   @default(0) @db.Decimal(10, 2)
-  total_bonificaciones                          Decimal                   @default(0) @db.Decimal(10, 2)
-  total_pernotes                                Decimal                   @default(0) @db.Decimal(10, 2)
-  total_recargos                                Decimal                   @default(0) @db.Decimal(10, 2)
-  total_vacaciones                              Decimal                   @default(0) @db.Decimal(10, 2)
-  updated_at                                    DateTime                  @db.Timestamptz(6)
-  valor_incapacidad                             Decimal                   @default(0) @db.Decimal(10, 2)
-  id                                            String                    @id @db.Uuid
-  estado                                        enum_liquidaciones_estado @default(Pendiente)
-  conductor_id                                  String?                   @db.Uuid
-  creado_por_id                                 String?                   @db.Uuid
-  actualizado_por_id                            String?                   @db.Uuid
-  liquidado_por_id                              String?                   @db.Uuid
-  disponibilidad                                Decimal?                  @default(0) @db.Decimal(10, 2)
+  periodo_end                                   String                                @db.VarChar(255)
+  periodo_end_incapacidad                       String?                               @db.VarChar(255)
+  periodo_end_vacaciones                        String?                               @db.VarChar(255)
+  periodo_start                                 String                                @db.VarChar(255)
+  periodo_start_incapacidad                     String?                               @db.VarChar(255)
+  periodo_start_vacaciones                      String?                               @db.VarChar(255)
+  salario_devengado                             Decimal                               @default(0) @db.Decimal(10, 2)
+  sueldo_total                                  Decimal                               @default(0) @db.Decimal(10, 2)
+  total_anticipos                               Decimal                               @default(0) @db.Decimal(10, 2)
+  total_bonificaciones                          Decimal                               @default(0) @db.Decimal(10, 2)
+  total_pernotes                                Decimal                               @default(0) @db.Decimal(10, 2)
+  total_recargos                                Decimal                               @default(0) @db.Decimal(10, 2)
+  total_vacaciones                              Decimal                               @default(0) @db.Decimal(10, 2)
+  updated_at                                    DateTime                              @db.Timestamptz(6)
+  valor_incapacidad                             Decimal                               @default(0) @db.Decimal(10, 2)
+  id                                            String                                @id @db.Uuid
+  estado                                        enum_liquidaciones_estado             @default(Pendiente)
+  conductor_id                                  String?                               @db.Uuid
+  creado_por_id                                 String?                               @db.Uuid
+  actualizado_por_id                            String?                               @db.Uuid
+  liquidado_por_id                              String?                               @db.Uuid
+  disponibilidad                                Decimal?                              @default(0) @db.Decimal(10, 2)
   dias_ajuste_deducciones                       Int?
-  ajuste_parex_recargos_completos               Boolean                   @default(false)
-  share_token                                   String?                   @unique @db.VarChar(64)
-  share_token_expires_at                        DateTime?                 @db.Timestamptz(6)
-  desprendible_visible                          Boolean                   @default(false)
+  ajuste_parex_recargos_completos               Boolean                               @default(false)
+  share_token                                   String?                               @unique @db.VarChar(64)
+  share_token_expires_at                        DateTime?                             @db.Timestamptz(6)
+  desprendible_visible                          Boolean                               @default(false)
   anticipos                                     anticipos[]
   bonificaciones                                bonificaciones[]
   firmas_desprendibles                          firmas_desprendibles[]
   liquidacion_vehiculo                          liquidacion_vehiculo[]
-  users_liquidaciones_actualizado_por_idTousers usuarios?                 @relation("liquidaciones_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id])
-  conductores                                   conductores?              @relation(fields: [conductor_id], references: [id])
-  users_liquidaciones_creado_por_idTousers      usuarios?                 @relation("liquidaciones_creado_por_idTousers", fields: [creado_por_id], references: [id])
-  users_liquidaciones_liquidado_por_idTousers   usuarios?                 @relation("liquidaciones_liquidado_por_idTousers", fields: [liquidado_por_id], references: [id])
+  users_liquidaciones_actualizado_por_idTousers usuarios?                             @relation("liquidaciones_actualizado_por_idTousers", fields: [actualizado_por_id], references: [id])
+  conductores                                   conductores?                          @relation(fields: [conductor_id], references: [id])
+  users_liquidaciones_creado_por_idTousers      usuarios?                             @relation("liquidaciones_creado_por_idTousers", fields: [creado_por_id], references: [id])
+  users_liquidaciones_liquidado_por_idTousers   usuarios?                             @relation("liquidaciones_liquidado_por_idTousers", fields: [liquidado_por_id], references: [id])
   mantenimientos                                mantenimientos[]
   pernotes                                      pernotes[]
   recargos                                      recargos[]
-  mostrar_recargos                              Boolean                   @default(false)
-  es_cotransmeq                                 Boolean                   @default(false)
-  descontar_salud_salario                       Boolean                   @default(false)
-  descontar_pension_salario                     Boolean                   @default(false)
+  mostrar_recargos                              Boolean                               @default(false)
+  es_cotransmeq                                 Boolean                               @default(false)
+  descontar_salud_salario                       Boolean                               @default(false)
+  descontar_pension_salario                     Boolean                               @default(false)
+  version                                       Int                                   @default(1)
+  estado_flujo                                  String                                @default("BORRADOR") @db.VarChar(20)
+  motivo_anulacion                              String?
+  historial_estado                              historial_estado_liquidacion_nomina[]
+  envios                                        nomina_envio[]
+
+  @@index([estado_flujo], map: "idx_liquidaciones_estado_flujo")
 }
 
 /// Primas de servicios independientes (desprendible separado de la liquidación)
@@ -699,17 +737,18 @@ model mantenimientos {
 
 model municipios {
   codigo_departamento                       Int
-  nombre_departamento                       String     @db.VarChar(255)
-  codigo_municipio                          Int        @unique
-  nombre_municipio                          String     @db.VarChar(255)
-  longitud                                  Decimal    @db.Decimal(10, 6)
-  latitud                                   Decimal    @db.Decimal(10, 6)
-  created_at                                DateTime   @db.Timestamptz(6)
-  updated_at                                DateTime   @db.Timestamptz(6)
-  id                                        String     @id @db.Uuid
-  tipo                                      String     @db.VarChar(255)
-  servicios_servicio_destino_idTomunicipios servicio[] @relation("servicios_destino_idTomunicipios")
-  servicios_servicio_origen_idTomunicipios  servicio[] @relation("servicios_origen_idTomunicipios")
+  nombre_departamento                       String          @db.VarChar(255)
+  codigo_municipio                          Int             @unique
+  nombre_municipio                          String          @db.VarChar(255)
+  longitud                                  Decimal         @db.Decimal(10, 6)
+  latitud                                   Decimal         @db.Decimal(10, 6)
+  created_at                                DateTime        @db.Timestamptz(6)
+  updated_at                                DateTime        @db.Timestamptz(6)
+  id                                        String          @id @db.Uuid
+  tipo                                      String          @db.VarChar(255)
+  servicios_servicio_destino_idTomunicipios servicio[]      @relation("servicios_destino_idTomunicipios")
+  servicios_servicio_origen_idTomunicipios  servicio[]      @relation("servicios_origen_idTomunicipios")
+  custom_places                             custom_places[]
 }
 
 model pernotes {
@@ -752,7 +791,11 @@ model recargos {
   liquidaciones          liquidaciones? @relation(fields: [liquidacion_id], references: [id])
   vehiculos              vehiculos?     @relation(fields: [vehiculo_id], references: [id])
 
+  recargos_planillas recargos_planillas? @relation(fields: [origen_planilla_id], references: [id], onDelete: SetNull)
+
   @@unique([liquidacion_id, origen_planilla_id], map: "uniq_recargo_origen_planilla")
+  @@index([liquidacion_id])
+  @@index([es_automatico])
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -813,6 +856,7 @@ model recargos_planillas {
   vehiculos                                          vehiculos                      @relation(fields: [vehiculo_id], references: [id])
   servicio                                           servicio?                      @relation(fields: [servicio_id], references: [id], onDelete: SetNull)
   snapshots_recargos_planillas                       snapshots_recargos_planillas[]
+  recargos                                           recargos[]
 }
 
 model servicio_historicos {
@@ -978,6 +1022,7 @@ model tipos_recargos {
   @@index([categoria, activo], map: "idx_tipo_recargo_categoria")
   @@index([orden_calculo, activo], map: "idx_tipo_recargo_orden")
   @@index([codigo, activo], map: "idx_tipos_recargos_codigo_activo")
+  @@index([codigo, activo, vigencia_desde, vigencia_hasta], map: "idx_tipos_recargos_codigo_vigencia")
 }
 
 model usuarios {
@@ -1048,6 +1093,44 @@ model usuarios {
   form_assignment_targets_dirigidos                                           form_assignment_target[]                     @relation("form_assignment_target_usuario")
   form_submissions_diligenciadas                                              form_submission[]                            @relation("form_submission_usuario")
 
+  permisos_rutas                                   Json?
+  acciones_estado_registrado                       acciones_correctivas_preventivas[]               @relation("acciones_estado_registrado")
+  aprobaciones_accion                              aprobaciones_accion[]
+  actividades_pesv_actualizado                     actividades_pesv[]                               @relation("actividades_pesv_actualizado_por")
+  actividades_pesv_creado_por                      actividades_pesv[]                               @relation("actividades_pesv_creado_por")
+  actividades_pesv_responsable                     actividades_pesv[]                               @relation("actividades_pesv_responsable")
+  bonos_dia_laboral_creados                        registro_dia_laboral_bono[]                      @relation("bonos_creados_por")
+  bono_config_visual_creados                       bono_config_visual[]                             @relation("bono_config_visual_creado_por")
+  custom_places_creado_por                         custom_places[]                                  @relation("custom_places_creado_por")
+  inducciones_visitantes                           inducciones_visitantes[]
+  liquidacion_tercero_final_creado_por             liquidacion_tercero_final[]                      @relation("liquidacion_tercero_final_creado_por")
+  liquidacion_tercero_final_actualizado_por        liquidacion_tercero_final[]                      @relation("liquidacion_tercero_final_actualizado_por")
+  lt_final_adicional_creado_por                    liquidacion_tercero_final_adicional[]            @relation("lt_final_adicional_creado_por")
+  lt_final_adicional_actualizado_por               liquidacion_tercero_final_adicional[]            @relation("lt_final_adicional_actualizado_por")
+  lt_adicional_periodo_snapshots                   liquidacion_tercero_adicional_periodo_snapshot[] @relation("snapshot_adicional_periodo_usuario")
+  historial_estado_lt_final                        historial_estado_liquidacion_tercero_final[]     @relation("historial_estado_lt_final_usuario")
+  historial_estado_nomina                          historial_estado_liquidacion_nomina[]            @relation("historial_estado_nomina_usuario")
+  snapshots_nomina_periodo                         nomina_periodo_snapshot[]                        @relation("nomina_snapshot_usuario")
+  liquidacion_tercero_ocasional_creado_por         liquidacion_tercero_ocasional[]                  @relation("liquidacion_tercero_ocasional_creado_por")
+  liquidacion_tercero_ocasional_actualizado_por    liquidacion_tercero_ocasional[]                  @relation("liquidacion_tercero_ocasional_actualizado_por")
+  liquidacion_ingreso_transmeralda_creado_por      liquidacion_ingreso_transmeralda[]               @relation("liquidacion_ingreso_transmeralda_creado_por")
+  liquidacion_ingreso_transmeralda_actualizado_por liquidacion_ingreso_transmeralda[]               @relation("liquidacion_ingreso_transmeralda_actualizado_por")
+  liquidacion_ingreso_fila_actualizado_por         liquidacion_ingreso_transmeralda_fila[]          @relation("liquidacion_ingreso_fila_actualizado_por")
+  liquidacion_ingreso_concepto_actualizado_por     liquidacion_ingreso_transmeralda_concepto[]      @relation("liquidacion_ingreso_concepto_actualizado_por")
+  salidas_no_conformes                             salidas_no_conformes[]
+  seguimientos_causa                               seguimientos_causa[]
+  es_invitado                                      Boolean                                          @default(false)
+  invitado_por_id                                  String?                                          @db.Uuid
+  invitaciones_enviadas                            invitaciones_usuario[]                           @relation("invitaciones_enviadas")
+  chat_mensajes                                    liquidacion_chat_mensaje[]
+  recordatorios_creados                            liquidacion_recordatorio[]                       @relation("recordatorio_creado_por")
+  snapshot_liquidacion_tercero                     liquidacion_tercero_final_snapshot[]             @relation("snapshot_usuario")
+  snapshot_liquidacion_tercero_ocasional           liquidacion_tercero_ocasional_snapshot[]         @relation("snapshot_ocasional_usuario")
+  canvas_anotaciones_creadas                       canvas_anotacion[]                               @relation("canvas_anotacion_creado_por")
+  canvas_anotaciones_actualizadas                  canvas_anotacion[]                               @relation("canvas_anotacion_actualizado_por")
+  ocasional_drafts                                 liquidacion_tercero_ocasional_draft[]            @relation("ocasional_draft_usuario")
+  ocasional_concepto_actualizado_por               liquidacion_tercero_ocasional_concepto[]         @relation("ocasional_concepto_actualizado_por")
+
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
   @@map("users")
@@ -1092,44 +1175,49 @@ model notificacion {
 }
 
 model vehiculos {
-  placa                         String                          @unique @db.VarChar(255)
-  marca                         String?                         @db.VarChar(255)
-  linea                         String?                         @db.VarChar(255)
-  modelo                        String?                         @db.VarChar(255)
-  color                         String?                         @db.VarChar(255)
-  clase_vehiculo                String                          @db.VarChar(255)
-  tipo_carroceria               String?                         @db.VarChar(255)
-  combustible                   String?                         @db.VarChar(255)
-  numero_motor                  String?                         @db.VarChar(255)
-  vin                           String?                         @db.VarChar(255)
-  numero_serie                  String?                         @db.VarChar(255)
-  numero_chasis                 String?                         @db.VarChar(255)
-  propietario_nombre            String?                         @db.VarChar(255)
-  propietario_identificacion    String?                         @db.VarChar(255)
-  kilometraje                   Int?                            @default(0)
-  fecha_matricula               String?                         @db.VarChar(255)
-  created_at                    DateTime                        @db.Timestamptz(6)
-  propietario_id                String?                         @db.Uuid
-  updated_at                    DateTime                        @db.Timestamptz(6)
-  deleted_at                    DateTime?                       @db.Timestamptz(6)
-  id                            String                          @id @db.Uuid
-  estado                        enum_vehiculos_estado           @default(disponible)
-  conductor_id                  String?                         @db.Uuid
-  oculto                        Boolean                         @default(false)
-  bonificaciones                bonificaciones[]
-  documento                     documento[]
-  liquidacion_vehiculo          liquidacion_vehiculo[]
-  mantenimientos                mantenimientos[]
-  pernotes                      pernotes[]
-  recargos                      recargos[]
-  recargos_planillas            recargos_planillas[]
-  servicio                      servicio[]
-  registro_dia_laboral_segmento registro_dia_laboral_segmento[]
-  registros_dia_mantenimiento   registro_dia_laboral[]          @relation("mantenimiento_vehiculo")
-  conductores                   conductores?                    @relation(fields: [conductor_id], references: [id])
-  usuarios                      usuarios?                       @relation(fields: [propietario_id], references: [id])
-  form_assignment_targets       form_assignment_target[]        @relation("form_assignment_target_vehiculo")
-  form_submissions              form_submission[]               @relation("form_submission_vehiculo")
+  placa                                     String                                    @unique @db.VarChar(255)
+  marca                                     String?                                   @db.VarChar(255)
+  linea                                     String?                                   @db.VarChar(255)
+  modelo                                    String?                                   @db.VarChar(255)
+  color                                     String?                                   @db.VarChar(255)
+  clase_vehiculo                            String                                    @db.VarChar(255)
+  tipo_carroceria                           String?                                   @db.VarChar(255)
+  combustible                               String?                                   @db.VarChar(255)
+  numero_motor                              String?                                   @db.VarChar(255)
+  vin                                       String?                                   @db.VarChar(255)
+  numero_serie                              String?                                   @db.VarChar(255)
+  numero_chasis                             String?                                   @db.VarChar(255)
+  propietario_nombre                        String?                                   @db.VarChar(255)
+  propietario_identificacion                String?                                   @db.VarChar(255)
+  kilometraje                               Int?                                      @default(0)
+  fecha_matricula                           String?                                   @db.VarChar(255)
+  created_at                                DateTime                                  @db.Timestamptz(6)
+  propietario_id                            String?                                   @db.Uuid
+  updated_at                                DateTime                                  @db.Timestamptz(6)
+  deleted_at                                DateTime?                                 @db.Timestamptz(6)
+  id                                        String                                    @id @db.Uuid
+  estado                                    enum_vehiculos_estado                     @default(disponible)
+  conductor_id                              String?                                   @db.Uuid
+  oculto                                    Boolean                                   @default(false)
+  bonificaciones                            bonificaciones[]
+  documento                                 documento[]
+  liquidacion_vehiculo                      liquidacion_vehiculo[]
+  mantenimientos                            mantenimientos[]
+  pernotes                                  pernotes[]
+  recargos                                  recargos[]
+  recargos_planillas                        recargos_planillas[]
+  servicio                                  servicio[]
+  registro_dia_laboral_segmento             registro_dia_laboral_segmento[]
+  registros_dia_mantenimiento               registro_dia_laboral[]                    @relation("mantenimiento_vehiculo")
+  conductores                               conductores?                              @relation(fields: [conductor_id], references: [id])
+  usuarios                                  usuarios?                                 @relation(fields: [propietario_id], references: [id])
+  form_assignment_targets                   form_assignment_target[]                  @relation("form_assignment_target_vehiculo")
+  form_submissions                          form_submission[]                         @relation("form_submission_vehiculo")
+  excesos_velocidad                         excesos_velocidad[]
+  liquidacion_tercero_final                 liquidacion_tercero_final[]
+  liquidaciones_tercero_ocasional_adicional liquidacion_tercero_ocasional_adicional[] @relation("ocasional_adicional_vehiculo")
+  preoperacionales                          preoperacionales[]
+  salidas_no_conformes                      salidas_no_conformes[]
 }
 
 /// Formularios de asistencia creados por administradores
@@ -1447,9 +1535,43 @@ model acciones_correctivas_preventivas {
   usuarios usuarios?                  @relation(fields: [creado_por_id], references: [id])
   causas   causas_accion_correctiva[]
 
+  fuente_genero_hallazgo_otros     String?                             @db.VarChar(255)
+  tipo_hallazgo_otros              String?                             @db.VarChar(255)
+  hallazgo_tipo                    HallazgoTipo?
+  aplica_correccion_inmediata      Boolean?                            @default(true)
+  justificacion_no_correccion      String?
+  responsable_correccion           String?                             @db.VarChar(255)
+  registrado_por_id                String?                             @db.Uuid
+  fecha_limite_cierre_accion       DateTime?                           @db.Date
+  responsable_ejecucion            String?                             @db.VarChar(255)
+  fecha_seguimiento                DateTime?                           @db.Date
+  estado_accion                    String?                             @db.VarChar(100)
+  estado_global                    ActionStatusGlobal                  @default(EN_PROCESO)
+  estado_aprobacion                String?                             @default("PENDIENTE") @db.VarChar(20)
+  fecha_actualizacion_estado       DateTime?                           @db.Date
+  observaciones                    String?
+  matriz_a_actualizar              String?                             @db.VarChar(255)
+  fecha_limite_evaluacion_eficacia DateTime?                           @db.Date
+  cargo_responsable_cierre         String?                             @db.VarChar(255)
+  observaciones_cierre             String?
+  evaluaciones_eficacia            Json?
+  aplica_reapertura                Boolean?                            @default(false)
+  fecha_reapertura                 DateTime?                           @db.Date
+  razon_reapertura                 String?
+  accion_origen_reapertura         String?                             @db.VarChar(50)
+  deleted_at                       DateTime?                           @db.Timestamptz(6)
+  registrado_por                   usuarios?                           @relation("acciones_estado_registrado", fields: [registrado_por_id], references: [id])
+  seguimientos_correccion          seguimientos_correccion_inmediata[]
+  ciclos_eficacia                  ciclos_seguimiento_eficacia[]
+  evidencias_eficacia              evidencias_eficacia_cierre[]
+  aprobaciones                     aprobaciones_accion[]
+
   @@index([accion_numero])
   @@index([tipo_accion_ejecutar])
   @@index([fecha_identificacion_hallazgo])
+  @@index([estado_global])
+  @@index([hallazgo_tipo])
+  @@index([deleted_at])
 }
 
 model causas_accion_correctiva {
@@ -1469,9 +1591,23 @@ model causas_accion_correctiva {
 
   accion_correctiva acciones_correctivas_preventivas @relation(fields: [accion_correctiva_id], references: [id], onDelete: Cascade)
 
+  es_causa_raiz                Boolean?             @default(false)
+  fecha_evaluacion_eficacia    DateTime?            @db.Date
+  criterio_evaluacion_eficacia String?
+  analisis_evidencias_cierre   String?
+  evaluacion_cierre_eficaz     String?              @db.VarChar(50)
+  soporte_cierre_eficaz        String?
+  fecha_cierre                 DateTime?            @db.Date
+  responsable_cierre           String?              @db.VarChar(255)
+  sugerencia_ia                Json?
+  seguimientos                 seguimientos_causa[]
+
   @@unique([accion_correctiva_id, orden])
   @@index([accion_correctiva_id])
   @@index([estado_seguimiento])
+  @@index([evaluacion_cierre_eficaz])
+  @@index([fecha_cierre])
+  @@index([estado_seguimiento], map: "idx_causas_estado_seguimiento")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1481,6 +1617,8 @@ model causas_accion_correctiva {
 enum enum_terceros_tipo_persona {
   PERSONA
   EMPRESA
+  PROPIETARIO_VEHICULO
+  PROVEEDOR
 }
 
 enum enum_terceros_regimen {
@@ -1509,6 +1647,16 @@ model terceros {
 
   items_liquidacion     liquidacion_servicio_item[] @relation("item_tercero")
   liquidaciones_tercero liquidacion_tercero[]       @relation("liquidacion_tercero_tercero")
+
+  liquidaciones_tercero_final               liquidacion_tercero_final[]
+  liquidaciones_tercero_ocasional_adicional liquidacion_tercero_ocasional_adicional[] @relation("ocasional_adicional_tercero")
+  liquidaciones_tercero_ocasional_item      liquidacion_tercero_ocasional_item[]      @relation("ocasional_item_tercero")
+  liquidaciones_tercero_final_propietario   liquidacion_tercero_final_propietario[]
+  certificados_archivo                      certificado_archivo[]
+  certificaciones_envio                     certificacion_envio[]
+  tercero_tokens                            tercero_token[]
+  vinculos_certificado                      certificado_tercero[]
+  envios_liquidacion                        liquidacion_tercero_envio[]
 
   @@index([nombre_completo])
   @@index([identificacion])
@@ -1689,6 +1837,8 @@ model liquidacion_servicio {
   operadora_rel              operadoras?                      @relation(fields: [operadora_id], references: [id], onDelete: Restrict)
   drafts                     liquidacion_servicio_draft[]
 
+  liquidaciones_tercero_final liquidacion_tercero_final[]
+
   @@index([cliente_id])
   @@index([mes, anio])
   @@index([estado])
@@ -1757,6 +1907,19 @@ model liquidacion_tercero {
   liquidacion          liquidacion_servicio       @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
   item                 liquidacion_servicio_item? @relation(fields: [item_id], references: [id], onDelete: SetNull)
   tercero              terceros?                  @relation("liquidacion_tercero_tercero", fields: [tercero_id], references: [id])
+
+  mes                     Int?
+  anio                    Int?
+  total_costos_laborales  Decimal                                 @default(0) @db.Decimal(12, 2)
+  total_gastos_operativos Decimal                                 @default(0) @db.Decimal(12, 2)
+  total_impuestos         Decimal                                 @default(0) @db.Decimal(12, 2)
+  total_descuentos        Decimal                                 @default(0) @db.Decimal(12, 2)
+  total_pagar             Decimal                                 @default(0) @db.Decimal(12, 2)
+  estado                  String                                  @default("BORRADOR") @db.VarChar(20)
+  conceptos               liquidacion_tercero_concepto[]
+  finales                 liquidacion_tercero_final_item[]
+  ocasionales_items       liquidacion_tercero_ocasional_item[]    @relation("ocasional_item_pivote")
+  ingreso_filas           liquidacion_ingreso_transmeralda_fila[] @relation("liquidacion_ingreso_fila_item")
 
   @@index([liquidacion_id])
   @@index([tercero_id])
@@ -2428,4 +2591,1508 @@ model form_submission_event {
 
   @@index([submission_id, created_at], map: "idx_form_events_submission_time")
   @@map("form_submission_events")
+}
+
+// ===== Portado desde backend-nest (paridad Transmeralda) =====
+
+model registro_dia_laboral_bono {
+  id                    String                         @id @default(uuid()) @db.Uuid
+  registro_dia_id       String                         @db.Uuid
+  segmento_id           String?                        @db.Uuid
+  config_liquidacion_id String                         @db.Uuid
+  valor                 Decimal?                       @db.Decimal(10, 2)
+  creado_por_id         String?                        @db.Uuid
+  observaciones         String?
+  created_at            DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                       @updatedAt @db.Timestamptz(6)
+  registro_dia          registro_dia_laboral           @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
+  segmento              registro_dia_laboral_segmento? @relation(fields: [segmento_id], references: [id], onDelete: Cascade)
+  config_liquidacion    configuraciones_liquidacion    @relation(fields: [config_liquidacion_id], references: [id], onDelete: Restrict)
+  creado_por            usuarios?                      @relation("bonos_creados_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([registro_dia_id])
+  @@index([segmento_id])
+  @@index([config_liquidacion_id])
+  @@index([creado_por_id])
+}
+
+model bono_config_visual {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  config_liquidacion_id String                      @db.Uuid
+  anio                  Int
+  visible               Boolean                     @default(true)
+  creado_por_id         String?                     @db.Uuid
+  created_at            DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                    @updatedAt @db.Timestamptz(6)
+  config_liquidacion    configuraciones_liquidacion @relation(fields: [config_liquidacion_id], references: [id], onDelete: Cascade)
+  creado_por            usuarios?                   @relation("bono_config_visual_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@unique([config_liquidacion_id, anio])
+  @@index([anio, visible])
+}
+
+model historial_estado_liquidacion_nomina {
+  id              String        @id @default(uuid()) @db.Uuid
+  liquidacion_id  String        @db.Uuid
+  estado_anterior String?       @db.VarChar(20)
+  estado_nuevo    String        @db.VarChar(20)
+  /// Null cuando el cambio lo hace un proceso automático, no una persona.
+  usuario_id      String?       @db.Uuid
+  motivo          String?
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  liquidacion     liquidaciones @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+  usuario         usuarios?     @relation("historial_estado_nomina_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+
+  @@index([liquidacion_id, created_at])
+  @@index([usuario_id])
+}
+
+model nomina_periodo_snapshot {
+  id              String                    @id @default(uuid()) @db.Uuid
+  anio            Int
+  mes             Int
+  /// Rama lógica. "main" = estado vigente; cualquier otra es histórico.
+  rama            String                    @default("main") @db.VarChar(60)
+  /// Autoincremental por periodo. version=1 es la más antigua.
+  version         Int
+  /// "manual" (cambio explícito), "auto" (cron horario), "revert".
+  origen          String                    @default("manual") @db.VarChar(20)
+  /// Snapshot desde el que se revirtió, cuando origen=revert.
+  revertido_de_id String?                   @db.Uuid
+  /// Null solo en los "auto" del cron.
+  usuario_id      String?                   @db.Uuid
+  /// El libro completo: cabecera del periodo, hojas, conceptos y totales.
+  payload         Json                      @db.JsonB
+  /// Resumen de cambios respecto a la versión anterior.
+  diff            Json?                     @db.JsonB
+  created_at      DateTime                  @default(now()) @db.Timestamptz(6)
+  usuario         usuarios?                 @relation("nomina_snapshot_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+  revertido_de    nomina_periodo_snapshot?  @relation("nomina_snapshot_revertido_de", fields: [revertido_de_id], references: [id], onDelete: SetNull)
+  revertidos      nomina_periodo_snapshot[] @relation("nomina_snapshot_revertido_de")
+
+  @@unique([anio, mes, version])
+  @@index([anio, mes, rama])
+  @@index([created_at])
+  @@index([usuario_id])
+}
+
+model nomina_envio {
+  id             String        @id @default(uuid()) @db.Uuid
+  liquidacion_id String        @db.Uuid
+  conductor_id   String        @db.Uuid
+  /// Denormalizados para poder listar el periodo sin joins.
+  anio           Int
+  mes            Int
+  /// `to` y `cc` unidos por ", ".
+  email_destino  String        @db.VarChar(255)
+  asunto         String?
+  mensaje        String?
+  /// `[{ filename, size, tipo }]`.
+  adjuntos       Json?         @db.JsonB
+  /// PENDIENTE | ENVIANDO | ENVIADO | ERROR
+  estado         String        @default("PENDIENTE") @db.VarChar(20)
+  error          String?
+  proveedor      String?       @db.VarChar(40)
+  message_id     String?       @db.VarChar(255)
+  /// Los de prueba no cuentan como "enviado al conductor".
+  es_prueba      Boolean       @default(false)
+  /// Sin FK a usuarios a propósito: el nombre se congela al momento del envío
+  /// y la constancia sobrevive a que se borre la cuenta.
+  enviado_por_id String?       @db.Uuid
+  enviado_por    String?       @db.VarChar(255)
+  enviado_at     DateTime?     @db.Timestamptz(6)
+  created_at     DateTime      @default(now()) @db.Timestamptz(6)
+  liquidacion    liquidaciones @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
+
+  @@index([liquidacion_id])
+  @@index([anio, mes])
+  @@index([conductor_id])
+  @@index([estado])
+  @@index([enviado_at])
+}
+
+model invitaciones_usuario {
+  id              String   @id @default(uuid()) @db.Uuid
+  correo          String   @db.VarChar(255)
+  token           String   @unique @db.VarChar(255)
+  area            String[] @default([])
+  cargo           String?  @db.VarChar(255)
+  invitado_por_id String   @db.Uuid
+  estado          String   @default("pendiente") @db.VarChar(50)
+  expires_at      DateTime @db.Timestamptz(6)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  invitado_por    usuarios @relation("invitaciones_enviadas", fields: [invitado_por_id], references: [id])
+}
+
+model salidas_no_conformes {
+  id                        String                    @id @default(uuid()) @db.Uuid
+  numero_snc                Int                       @unique @default(autoincrement())
+  fecha_deteccion           DateTime                  @db.Date
+  fecha_evento              DateTime                  @db.Date
+  detectado_por             String                    @db.VarChar(255)
+  area_proceso              String                    @db.VarChar(255)
+  tipo_deteccion            tipo_deteccion_enum
+  tipo_deteccion_otro       String?                   @db.VarChar(255)
+  vehiculo_placa            String?                   @db.VarChar(20)
+  ruta_trayecto             String?                   @db.VarChar(500)
+  turno_horario             String?                   @db.VarChar(255)
+  conductor_nombre          String?                   @db.VarChar(255)
+  conductor_cedula          String?                   @db.VarChar(50)
+  cliente_contrato          String?                   @db.VarChar(500)
+  servicio_afectado         String?
+  descripcion_nc            String
+  clasificacion_nc          clasificacion_nc_enum
+  tipo_salida_nc            tipo_salida_nc_enum
+  tipo_salida_nc_otro       String?                   @db.VarChar(255)
+  estado                    estado_snc_enum           @default(ABIERTA)
+  observaciones             String?
+  conductor_id              String?                   @db.Uuid
+  vehiculo_id               String?                   @db.Uuid
+  cliente_id                String?                   @db.Uuid
+  creado_por_id             String?                   @db.Uuid
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                  @updatedAt @db.Timestamptz(6)
+  autoridad_disposicion     String?                   @db.VarChar(255)
+  descripcion_accion_tomada String?
+  fecha_implementacion      DateTime?                 @db.Date
+  responsable_accion        String?                   @db.VarChar(255)
+  tratamiento_seleccionado  tratamiento_snc_enum?
+  concesion_cliente_fecha   DateTime?                 @db.Date
+  concesion_cliente_nombre  String?                   @db.VarChar(255)
+  concesion_medio           medio_autorizacion_enum?
+  concesion_solicitada      Boolean?                  @default(false)
+  condiciones_concesion     String?
+  cumple_requisitos         Boolean?
+  fecha_verificacion        DateTime?                 @db.Date
+  firma_verificacion        String?
+  metodo_verificacion       metodo_verificacion_enum?
+  metodo_verificacion_otro  String?                   @db.VarChar(255)
+  responsable_verificacion  String?                   @db.VarChar(255)
+  resultado_verificacion    String?
+  cliente                   clientes?                 @relation(fields: [cliente_id], references: [id])
+  conductor                 conductores?              @relation(fields: [conductor_id], references: [id])
+  creado_por                usuarios?                 @relation(fields: [creado_por_id], references: [id])
+  vehiculo                  vehiculos?                @relation(fields: [vehiculo_id], references: [id])
+
+  @@index([numero_snc])
+  @@index([fecha_deteccion])
+  @@index([clasificacion_nc])
+  @@index([estado])
+  @@index([conductor_id])
+  @@index([vehiculo_id])
+}
+
+model aprobaciones_accion {
+  id           String                           @id @default(uuid()) @db.Uuid
+  accion_id    String                           @db.Uuid
+  orden        Int?                             @default(1)
+  rol          String                           @db.VarChar(100)
+  aprobador_id String?                          @db.Uuid
+  estado       EstadoAprobacion                 @default(PENDIENTE)
+  fecha        DateTime?                        @db.Timestamptz(6)
+  comentario   String?
+  created_at   DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime                         @updatedAt @db.Timestamptz(6)
+  accion       acciones_correctivas_preventivas @relation(fields: [accion_id], references: [id], onDelete: Cascade)
+  aprobador    usuarios?                        @relation(fields: [aprobador_id], references: [id])
+
+  @@unique([accion_id])
+  @@index([accion_id])
+  @@index([estado])
+}
+
+model seguimientos_causa {
+  id                            String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  causa_id                      String                   @db.Uuid
+  fecha_seguimiento             DateTime                 @db.Date
+  estado_accion                 String                   @db.VarChar(50)
+  descripcion_observaciones     String?
+  evaluacion_eficaz             String?                  @db.VarChar(50)
+  registrado_por_id             String?                  @db.Uuid
+  adjunto_url                   String?                  @db.Text
+  replanteo                     Json?
+  responsable_seguimiento       String?                  @db.VarChar(255)
+  cargo_responsable_seguimiento String?                  @db.VarChar(255)
+  created_at                    DateTime                 @default(now()) @db.Timestamptz(6)
+  causa                         causas_accion_correctiva @relation(fields: [causa_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "seguimientos_causa_causa_fk")
+  registrado_por                usuarios?                @relation(fields: [registrado_por_id], references: [id], onUpdate: NoAction, map: "seguimientos_causa_usuario_fk")
+
+  @@index([causa_id])
+  @@index([estado_accion], map: "seguimientos_causa_estado_idx")
+  @@index([fecha_seguimiento], map: "seguimientos_causa_fecha_idx")
+}
+
+model seguimientos_correccion_inmediata {
+  id                            String                           @id @default(uuid()) @db.Uuid
+  accion_correctiva_id          String                           @db.Uuid
+  fecha_seguimiento             DateTime                         @db.Date
+  descripcion_observaciones     String?
+  estado_accion                 String                           @db.VarChar(50)
+  adjunto_url                   String?                          @db.Text
+  replanteo                     Json?
+  responsable_seguimiento       String?                          @db.VarChar(255)
+  cargo_responsable_seguimiento String?                          @db.VarChar(255)
+  created_at                    DateTime                         @default(now()) @db.Timestamptz(6)
+  accion_correctiva             acciones_correctivas_preventivas @relation(fields: [accion_correctiva_id], references: [id], onDelete: Cascade)
+
+  @@index([accion_correctiva_id])
+  @@index([fecha_seguimiento])
+}
+
+model ciclos_seguimiento_eficacia {
+  id                   String                           @id @default(uuid()) @db.Uuid
+  accion_correctiva_id String                           @db.Uuid
+  numero_ciclo         Int
+  fecha_seguimiento    DateTime                         @db.Date
+  descripcion          String?
+  resultado_ciclo      String?                          @db.VarChar(50)
+  responsable          String?                          @db.VarChar(255)
+  cargo                String?                          @db.VarChar(255)
+  criterios_cumplidos  Json?
+  adjunto_url          String?                          @db.Text
+  impedimento          String?
+  nueva_fecha          DateTime?                        @db.Date
+  created_at           DateTime                         @default(now()) @db.Timestamptz(6)
+  accion_correctiva    acciones_correctivas_preventivas @relation(fields: [accion_correctiva_id], references: [id], onDelete: Cascade)
+
+  @@unique([accion_correctiva_id, numero_ciclo])
+  @@index([accion_correctiva_id])
+}
+
+model evidencias_eficacia_cierre {
+  id                   String                           @id @default(uuid()) @db.Uuid
+  accion_correctiva_id String                           @db.Uuid
+  orden                Int
+  tipo_evidencia       String?                          @db.VarChar(255)
+  descripcion          String?
+  fecha                DateTime?                        @db.Date
+  estado_ubicacion     String?                          @db.VarChar(50)
+  adjunto_url          String?                          @db.Text
+  impedimento          String?
+  nueva_fecha          DateTime?                        @db.Date
+  created_at           DateTime                         @default(now()) @db.Timestamptz(6)
+  accion_correctiva    acciones_correctivas_preventivas @relation(fields: [accion_correctiva_id], references: [id], onDelete: Cascade)
+
+  @@unique([accion_correctiva_id, orden])
+  @@index([accion_correctiva_id])
+}
+
+model liquidacion_tercero_concepto {
+  id                     String              @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_id String              @db.Uuid
+  tipo                   String              @db.VarChar(50)
+  concepto               String              @db.VarChar(100)
+  conductor_id           String?             @db.Uuid
+  dias                   Decimal?            @db.Decimal(10, 2)
+  valor_unitario         Decimal             @default(0) @db.Decimal(12, 2)
+  porcentaje             Decimal?            @db.Decimal(8, 4)
+  valor_total            Decimal             @default(0) @db.Decimal(12, 2)
+  base_calculo           Decimal?            @db.Decimal(12, 2)
+  calculado              Boolean             @default(false)
+  observaciones          String?             @db.Text
+  orden                  Int                 @default(0)
+  created_at             DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime            @updatedAt @db.Timestamptz(6)
+  liquidacion_tercero    liquidacion_tercero @relation(fields: [liquidacion_tercero_id], references: [id], onDelete: Cascade)
+  conductor              conductores?        @relation(fields: [conductor_id], references: [id], onDelete: SetNull)
+
+  @@index([liquidacion_tercero_id])
+  @@index([conductor_id])
+  @@index([tipo])
+  @@index([concepto])
+}
+
+model configuracion_descuento_tercero {
+  id                  String   @id @default(uuid()) @db.Uuid
+  categoria           String   @db.VarChar(50)
+  concepto            String   @unique @db.VarChar(100)
+  nombre              String   @db.VarChar(200)
+  porcentaje          Decimal  @db.Decimal(8, 4)
+  base_calculo        String   @db.VarChar(100)
+  activo              Boolean  @default(true)
+  orden               Int      @default(0)
+  valor_dia_conductor Decimal? @db.Decimal(12, 2)
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([categoria])
+  @@index([activo])
+}
+
+model liquidacion_tercero_final {
+  id                       String                                       @id @default(uuid()) @db.Uuid
+  consecutivo              String                                       @unique @db.VarChar(50)
+  liquidacion_servicio_id  String                                       @db.Uuid
+  tercero_id               String?                                      @db.Uuid
+  vehiculo_id              String?                                      @db.Uuid
+  placa                    String                                       @db.VarChar(20)
+  mes                      Int
+  anio                     Int
+  valor_liquidar           Decimal                                      @default(0) @db.Decimal(12, 2)
+  total_costos_laborales   Decimal                                      @default(0) @db.Decimal(12, 2)
+  total_gastos_operativos  Decimal                                      @default(0) @db.Decimal(12, 2)
+  total_impuestos          Decimal                                      @default(0) @db.Decimal(12, 2)
+  total_descuentos         Decimal                                      @default(0) @db.Decimal(12, 2)
+  total_pagar              Decimal                                      @default(0) @db.Decimal(12, 2)
+  estado                   String                                       @default("BORRADOR") @db.VarChar(20)
+  motivo_anulacion         String?
+  creado_por_id            String?                                      @db.Uuid
+  actualizado_por_id       String?                                      @db.Uuid
+  /// Marca el cierre como multi-propietario. Cuando `true`, el reparto del
+  /// valor a pagar se hace porcentualmente entre los N copropietarios
+  /// listados en `liquidacion_tercero_final_propietario`, y los conceptos
+  /// de IMPUESTO se prorratean una vez por copropietario. Los porcentajes
+  /// NO se validan contra 100% — el usuario puede excederse (ej. 115%).
+  es_multi_propietario     Boolean                                      @default(false)
+  /// DEPRECADO — sustituido por la tabla `liquidacion_tercero_final_adicional`.
+  ///
+  /// Se conserva como respaldo del backfill y porque el canvas del cierre
+  /// final individual (fuera del alcance de la migración) todavía escribe
+  /// aquí vía socket. Mientras ambos convivan, el gateway hace DOBLE
+  /// ESCRITURA (JSONB + tabla) para que no diverjan.
+  /// TODO(2026-Q4): migrar el canvas individual a la tabla y dropear esta
+  /// columna en una segunda migración.
+  adicionales              Json                                         @default("[]") @db.JsonB
+  /// Override manual del flag `es_propietario` por conductor en esta liquidación.
+  /// Map: { "conductorId": true | false }.
+  /// Si el conductor no aparece en el map, se usa la auto-detección
+  /// (conductor.numero_identificacion == vehiculo.propietario_identificacion).
+  /// Solo aplica a DOTACION (excluye al propietario de los días base).
+  es_propietario_overrides Json                                         @default("{}") @db.JsonB
+  /// Concurrencia optimista del cambio de estado. Evita que dos usuarios
+  /// aprueben/anulen a la vez desde el header del canvas y uno pise al otro.
+  version                  Int                                          @default(1)
+  /// Color de la pestaña en el canvas de cierres finales (#RRGGBB o
+  /// #RRGGBBAA). NULL = automático, derivado del estado con la misma paleta
+  /// que los badges del header. Con valor = override manual del usuario, que
+  /// gana sobre el estado y sobrevive a las recargas.
+  color_hoja               String?                                      @db.VarChar(9)
+  created_at               DateTime                                     @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                                     @updatedAt @db.Timestamptz(6)
+  deleted_at               DateTime?                                    @db.Timestamptz(6)
+  liquidacion_servicio     liquidacion_servicio                         @relation(fields: [liquidacion_servicio_id], references: [id], onDelete: Cascade)
+  tercero                  terceros?                                    @relation(fields: [tercero_id], references: [id])
+  vehiculo                 vehiculos?                                   @relation(fields: [vehiculo_id], references: [id])
+  usuarios_creado_por      usuarios?                                    @relation("liquidacion_tercero_final_creado_por", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_actualizado_por usuarios?                                    @relation("liquidacion_tercero_final_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items                    liquidacion_tercero_final_item[]
+  conceptos                liquidacion_tercero_final_concepto[]
+  propietarios             liquidacion_tercero_final_propietario[]
+  adicionales_filas        liquidacion_tercero_final_adicional[]
+  chat_mensajes            liquidacion_chat_mensaje[]
+  recordatorios_origen     liquidacion_recordatorio[]                   @relation("recordatorio_origen")
+  recordatorios_aplicados  liquidacion_recordatorio[]                   @relation("recordatorio_aplicado")
+  snapshots                liquidacion_tercero_final_snapshot[]
+  historial_estados        historial_estado_liquidacion_tercero_final[]
+  envios                   liquidacion_tercero_envio[]
+
+  @@index([liquidacion_servicio_id])
+  @@index([tercero_id])
+  @@index([vehiculo_id])
+  @@index([placa])
+  @@index([anio, mes])
+  @@index([estado])
+  /// Consulta del canvas: todos los cierres de un periodo, ordenados por
+  /// placa. El `@@index([anio, mes])` existente no cubre el orden ni filtra
+  /// los soft-deleted, que son la mayoría en periodos antiguos.
+  @@index([anio, mes, placa], map: "idx_lt_final_periodo_placa")
+}
+
+model historial_estado_liquidacion_tercero_final {
+  id                           String   @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String   @db.Uuid
+  estado_anterior              String?  @db.VarChar(20)
+  estado_nuevo                 String   @db.VarChar(20)
+  /// NULL si el cambio lo hizo un proceso automático.
+  usuario_id                   String?  @db.Uuid
+  /// Obligatorio de facto al pasar a ANULADA (lo valida el service).
+  motivo                       String?
+  created_at                   DateTime @default(now()) @db.Timestamptz(6)
+
+  liquidacion_tercero_final liquidacion_tercero_final @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  usuario                   usuarios?                 @relation("historial_estado_lt_final_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+
+  @@index([liquidacion_tercero_final_id, created_at], map: "idx_hist_estado_lt_final_cierre")
+  @@index([usuario_id], map: "idx_hist_estado_lt_final_usuario")
+}
+
+model liquidacion_tercero_envio {
+  id             String    @id @default(uuid()) @db.Uuid
+  /// CIERRE | INGRESO | OCASIONAL — de qué canvas salió el envío.
+  tipo           String    @default("CIERRE") @db.VarChar(20)
+  /// Solo para tipo CIERRE (FK al cierre final).
+  cierre_id      String?   @db.Uuid
+  /// Cabecera del periodo para INGRESO/OCASIONAL. Sin FK a propósito: el
+  /// historial debe sobrevivir a que se borre el borrador del mes.
+  origen_id      String?   @db.Uuid
+  tercero_id     String?   @db.Uuid
+  anio           Int
+  mes            Int
+  /// Placa del cierre, o la hoja (INGRESOS/ADICIONALES/OCASIONALES).
+  placa          String    @db.VarChar(20)
+  email_destino  String    @db.VarChar(255)
+  asunto         String    @db.VarChar(500)
+  /// Mensaje personalizado que escribió quien envió (texto plano).
+  mensaje        String?
+  /// Nombres y tamaños de los adjuntos: [{ filename, size, tipo }].
+  adjuntos       Json      @default("[]") @db.JsonB
+  /// PENDIENTE | ENVIANDO | ENVIADO | ERROR
+  estado         String    @default("PENDIENTE") @db.VarChar(20)
+  error          String?
+  /// resend | smtp-contabilidad | smtp
+  proveedor      String?   @db.VarChar(30)
+  message_id     String?   @db.VarChar(255)
+  es_prueba      Boolean   @default(false)
+  /// Sin FK a usuarios a propósito: el log debe sobrevivir a bajas de
+  /// usuario y el nombre se congela al momento del envío.
+  enviado_por_id String?   @db.Uuid
+  enviado_por    String?   @db.VarChar(255)
+  enviado_at     DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+
+  cierre  liquidacion_tercero_final? @relation(fields: [cierre_id], references: [id], onDelete: Cascade)
+  tercero terceros?                  @relation(fields: [tercero_id], references: [id], onDelete: SetNull)
+
+  @@index([cierre_id])
+  @@index([tipo, anio, mes])
+  @@index([tercero_id])
+  @@index([anio, mes])
+  @@index([estado])
+  @@index([enviado_at])
+}
+
+model liquidacion_tercero_final_adicional {
+  id                           String    @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String    @db.Uuid
+  /// Posición dentro del cierre. Es presentación, NO identidad.
+  orden                        Int       @default(0)
+  cliente                      String    @default("TRANSMERALDA") @db.VarChar(255)
+  placa                        String    @db.VarChar(20)
+  tercero_id                   String?   @db.Uuid
+  tercero_nombre               String?   @db.VarChar(255)
+  vehiculo_id                  String?   @db.Uuid
+  recorrido                    String?   @db.VarChar(500)
+  fechas                       String?   @db.VarChar(100)
+  valor_unitario               Decimal   @default(0) @db.Decimal(12, 2)
+  cantidad                     Decimal   @default(1) @db.Decimal(10, 2)
+  porcentaje_admin             Decimal   @default(0) @db.Decimal(5, 2)
+  valor_admin                  Decimal   @default(0) @db.Decimal(12, 2)
+  valor_liquidar               Decimal   @default(0) @db.Decimal(12, 2)
+  /// true si la fila entra en la base de impuestos ICA/AT/SB/RETE_FUENTE.
+  aplica_impuestos             Boolean   @default(true)
+  /// Concurrencia optimista. Se incrementa en cada UPDATE aceptado.
+  version                      Int       @default(1)
+  creado_por_id                String?   @db.Uuid
+  actualizado_por_id           String?   @db.Uuid
+  created_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at                   DateTime? @db.Timestamptz(6)
+
+  cierre                   liquidacion_tercero_final               @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  usuarios_creado_por      usuarios?                               @relation("lt_final_adicional_creado_por", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_actualizado_por usuarios?                               @relation("lt_final_adicional_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingreso_filas            liquidacion_ingreso_transmeralda_fila[] @relation("liquidacion_ingreso_fila_adicional")
+
+  // Nombres explícitos: los autogenerados se truncan a 63 caracteres y
+  // ambos índices colapsarían al mismo identificador.
+  @@index([liquidacion_tercero_final_id], map: "idx_lt_final_adicional_cierre")
+  @@index([liquidacion_tercero_final_id, orden], map: "idx_lt_final_adicional_cierre_orden")
+  @@index([deleted_at], map: "idx_lt_final_adicional_deleted_at")
+}
+
+model liquidacion_tercero_adicional_periodo_snapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  anio            Int
+  mes             Int
+  /// "main" = vigente. Otra rama = histórico.
+  rama            String   @default("main") @db.VarChar(60)
+  version         Int
+  /// "manual" | "auto" (cron) | "revert"
+  origen          String   @default("manual") @db.VarChar(20)
+  /// Snapshot desde el que se revirtió (cuando origen=revert).
+  revertido_de_id String?  @db.Uuid
+  /// Null solo en "auto" del cron.
+  usuario_id      String?  @db.Uuid
+  payload         Json     @db.JsonB
+  /// Resumen de cambios respecto a la versión anterior.
+  diff            Json?    @db.JsonB
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  usuario      usuarios?                                        @relation("snapshot_adicional_periodo_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+  revertido_de liquidacion_tercero_adicional_periodo_snapshot?  @relation("snapshot_adicional_periodo_revertido_de", fields: [revertido_de_id], references: [id], onDelete: SetNull)
+  revertidos   liquidacion_tercero_adicional_periodo_snapshot[] @relation("snapshot_adicional_periodo_revertido_de")
+
+  @@unique([anio, mes, version], map: "uniq_lt_adic_periodo_snapshot_version")
+  @@index([anio, mes, rama], map: "idx_lt_adic_periodo_snapshot_periodo")
+  @@index([created_at], map: "idx_lt_adic_periodo_snapshot_created")
+  @@index([usuario_id], map: "idx_lt_adic_periodo_snapshot_usuario")
+}
+
+model liquidacion_tercero_final_item {
+  id                           String                    @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String                    @db.Uuid
+  liquidacion_tercero_id       String                    @db.Uuid
+  orden                        Int                       @default(0)
+  aplica_impuestos             Boolean                   @default(true)
+  created_at                   DateTime                  @default(now()) @db.Timestamptz(6)
+  deleted_at                   DateTime?                 @db.Timestamptz(6)
+  liquidacion_tercero_final    liquidacion_tercero_final @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  liquidacion_tercero          liquidacion_tercero       @relation(fields: [liquidacion_tercero_id], references: [id], onDelete: Cascade)
+
+  @@unique([liquidacion_tercero_final_id, liquidacion_tercero_id])
+  @@index([liquidacion_tercero_final_id])
+  @@index([liquidacion_tercero_id])
+}
+
+model liquidacion_tercero_final_concepto {
+  id                           String                                 @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String                                 @db.Uuid
+  tipo                         String                                 @db.VarChar(50)
+  concepto                     String                                 @db.VarChar(100)
+  conductor_id                 String?                                @db.Uuid
+  dias                         Decimal?                               @db.Decimal(10, 2)
+  valor_unitario               Decimal                                @default(0) @db.Decimal(12, 2)
+  porcentaje                   Decimal?                               @db.Decimal(8, 4)
+  valor_total                  Decimal                                @default(0) @db.Decimal(12, 2)
+  base_calculo                 Decimal?                               @db.Decimal(12, 2)
+  calculado                    Boolean                                @default(false)
+  observaciones                String?
+  /// Cuando el cierre es multi-propietario, esta FK agrupa cada fila de
+  /// impuesto al copropietario que la paga. NULL cuando el cierre es de un
+  /// solo propietario (legacy / single-propietario).
+  propietario_id               String?                                @db.Uuid
+  orden                        Int                                    @default(0)
+  /// Concurrencia optimista para la edición por celda del canvas de cierres
+  /// finales. El UPDATE exige `WHERE version = base_version`; 0 filas
+  /// afectadas significa que otro usuario escribió antes.
+  version                      Int                                    @default(1)
+  created_at                   DateTime                               @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                               @updatedAt @db.Timestamptz(6)
+  deleted_at                   DateTime?                              @db.Timestamptz(6)
+  liquidacion_tercero_final    liquidacion_tercero_final              @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  conductor                    conductores?                           @relation(fields: [conductor_id], references: [id], onDelete: SetNull)
+  propietario                  liquidacion_tercero_final_propietario? @relation(fields: [propietario_id], references: [id], onDelete: Cascade)
+
+  @@index([liquidacion_tercero_final_id])
+  @@index([conductor_id])
+  @@index([tipo])
+  @@index([concepto])
+  @@index([propietario_id])
+}
+
+model liquidacion_tercero_final_propietario {
+  id                           String                               @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String                               @db.Uuid
+  tercero_id                   String?                              @db.Uuid
+  nombre                       String                               @db.VarChar(255)
+  identificacion               String?                              @db.VarChar(50)
+  /// Porcentaje (0–9999.9999%) del valor a pagar que le corresponde.
+  porcentaje                   Decimal                              @db.Decimal(8, 4)
+  /// Porcentaje efectivo de la cascada por orden: el propietario con menor
+  /// `orden` toma su `porcentaje` del total; los demás reparten el remanente
+  /// (100 − p1) proporcionalmente a sus `porcentaje` declarados.
+  /// Ej. 15/50/50 → 15/42.5/42.5. NULL = pendiente de recálculo (se resuelve
+  /// en memoria al serializar y se persiste al guardar/recalcular).
+  porcentaje_efectivo          Decimal?                             @db.Decimal(8, 4)
+  /// Concepto/nota de pago libre del copropietario, ej.
+  /// "ABONAR A CRÉDITO BANCOOMEVA". Se muestra junto a su valor en la hoja.
+  nota                         String?                              @db.VarChar(255)
+  /// Si al copropietario se le calculan retenciones sobre su valor a
+  /// facturar. FALSE para pagos internos por concepto (ej. abono a crédito):
+  /// no generan egreso real y no tributan.
+  aplica_retenciones           Boolean                              @default(true)
+  orden                        Int                                  @default(0)
+  created_at                   DateTime                             @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                             @updatedAt @db.Timestamptz(6)
+  deleted_at                   DateTime?                            @db.Timestamptz(6)
+  liquidacion_tercero_final    liquidacion_tercero_final            @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  tercero                      terceros?                            @relation(fields: [tercero_id], references: [id], onDelete: SetNull)
+  conceptos                    liquidacion_tercero_final_concepto[]
+
+  @@index([liquidacion_tercero_final_id])
+  @@index([tercero_id])
+  @@index([deleted_at])
+}
+
+model liquidacion_tercero_final_snapshot {
+  id                           String   @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String   @db.Uuid
+  /// Rama lógica. "main" = estado vigente. Cualquier otra rama representa
+  /// un snapshot histórico no vigente.
+  rama                         String   @default("main") @db.VarChar(60)
+  /// Auto-incremental por liquidación. version=1 es la más antigua.
+  version                      Int
+  /// "manual" (cambio explícito), "auto" (cron horario), "revert"
+  /// (al revertir a un snapshot anterior se genera uno nuevo).
+  origen                       String   @default("manual") @db.VarChar(20)
+  /// Referencia al snapshot desde el que se revirtió (cuando origen=revert).
+  revertido_de_id              String?  @db.Uuid
+  /// ID del usuario que originó el snapshot. null solo en "auto" del cron.
+  usuario_id                   String?  @db.Uuid
+  /// Snapshot completo: cabecera + totales + items pivote + conceptos + adicionales.
+  payload                      Json     @db.JsonB
+  /// Resumen de cambios respecto a la versión anterior.
+  diff                         Json?    @db.JsonB
+  created_at                   DateTime @default(now()) @db.Timestamptz(6)
+
+  liquidacion_tercero_final liquidacion_tercero_final            @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  usuario                   usuarios?                            @relation("snapshot_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+  revertido_de              liquidacion_tercero_final_snapshot?  @relation("snapshot_revertido_de", fields: [revertido_de_id], references: [id], onDelete: SetNull)
+  revertidos                liquidacion_tercero_final_snapshot[] @relation("snapshot_revertido_de")
+
+  @@unique([liquidacion_tercero_final_id, version])
+  @@index([liquidacion_tercero_final_id, rama])
+  @@index([created_at])
+  @@index([usuario_id])
+}
+
+model excesos_velocidad {
+  id            String      @id @default(uuid()) @db.Uuid
+  conductor_id  String      @db.Uuid
+  vehiculo_id   String      @db.Uuid
+  mes           Int
+  anio          Int
+  cantidad      Int         @default(0)
+  observaciones String?
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime    @updatedAt @db.Timestamptz(6)
+  conductor     conductores @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+  vehiculo      vehiculos   @relation(fields: [vehiculo_id], references: [id], onDelete: Cascade)
+
+  @@unique([conductor_id, vehiculo_id, mes, anio])
+  @@index([conductor_id])
+  @@index([vehiculo_id])
+  @@index([mes, anio])
+}
+
+model preoperacionales {
+  id            String      @id @default(uuid()) @db.Uuid
+  conductor_id  String      @db.Uuid
+  vehiculo_id   String      @db.Uuid
+  fecha         DateTime    @db.Date
+  realizado     Boolean     @default(true)
+  observaciones String?
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime    @updatedAt @db.Timestamptz(6)
+  conductor     conductores @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+  vehiculo      vehiculos   @relation(fields: [vehiculo_id], references: [id], onDelete: Cascade)
+
+  @@unique([conductor_id, vehiculo_id, fecha])
+  @@index([conductor_id])
+  @@index([vehiculo_id])
+  @@index([fecha])
+}
+
+model inducciones_visitantes {
+  id                     String    @id @default(cuid())
+  sede                   Sede
+  fecha                  DateTime
+  visitante_nombre       String    @db.VarChar(255)
+  visitante_cargo        String    @db.VarChar(255)
+  visitante_cedula       String    @db.VarChar(50)
+  visitante_entidad      String    @db.VarChar(255)
+  visitante_firma        String
+  temas_informados       Json      @default("{}")
+  porcentaje_conformidad Int       @default(0)
+  responsable_nombre     String?   @db.VarChar(255)
+  responsable_cargo      String?   @db.VarChar(255)
+  responsable_cedula     String?   @db.VarChar(50)
+  responsable_firma      String?
+  observaciones          String?
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+  creado_por_id          String?   @db.Uuid
+  creado_por             usuarios? @relation(fields: [creado_por_id], references: [id])
+
+  @@index([fecha(sort: Desc)])
+  @@index([sede])
+  @@index([visitante_cedula])
+}
+
+model actividades_pesv {
+  id                       String                         @id @default(uuid()) @db.Uuid
+  numero                   Int
+  unidad_programa          String                         @db.VarChar(500)
+  actividad                String
+  alcance                  String?                        @db.VarChar(500)
+  recursos                 String?                        @db.VarChar(500)
+  responsable_planeacion   String?                        @db.VarChar(500)
+  metodo_seguimiento       String?                        @db.VarChar(500)
+  frecuencia               enum_actividad_pesv_frecuencia @default(ANUAL)
+  fecha_limite             DateTime?                      @db.Date
+  responsable_ejecucion_id String?                        @db.Uuid
+  estado                   enum_actividad_pesv_estado     @default(PENDIENTE)
+  prioridad                enum_actividad_pesv_prioridad  @default(BAJA)
+  fecha_ejecucion          DateTime?                      @db.Date
+  observacion              String?
+  anio                     Int                            @default(2026)
+  deleted_at               DateTime?                      @db.Timestamptz(6)
+  creado_por_id            String?                        @db.Uuid
+  actualizado_por_id       String?                        @db.Uuid
+  created_at               DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                       @updatedAt @db.Timestamptz(6)
+  actualizado_por          usuarios?                      @relation("actividades_pesv_actualizado_por", fields: [actualizado_por_id], references: [id])
+  creado_por               usuarios?                      @relation("actividades_pesv_creado_por", fields: [creado_por_id], references: [id])
+  responsable_ejecucion    usuarios?                      @relation("actividades_pesv_responsable", fields: [responsable_ejecucion_id], references: [id])
+
+  @@index([estado])
+  @@index([prioridad])
+  @@index([anio])
+  @@index([responsable_ejecucion_id])
+  @@index([deleted_at])
+  @@index([frecuencia])
+}
+
+model bonificaciones_backup {
+  name           String?   @db.VarChar(255)
+  values         String?
+  value          Decimal?  @db.Decimal(10, 2)
+  created_at     DateTime? @db.Timestamptz(6)
+  old_id         Int?
+  updated_at     DateTime? @db.Timestamptz(6)
+  id             String?   @db.Uuid
+  liquidacion_id String?   @db.Uuid
+  vehiculo_id    String?   @db.Uuid
+  creado_por_id  String?   @db.Uuid
+
+  @@ignore
+}
+
+model tipo_certificado {
+  id          String                @id @default(uuid()) @db.Uuid
+  nombre      String                @db.VarChar(100)
+  descripcion String?
+  codigo      String                @unique @db.VarChar(50)
+  activo      Boolean               @default(true)
+  created_at  DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime              @updatedAt @db.Timestamptz(6)
+  archivos    certificado_archivo[]
+
+  @@index([codigo])
+  @@index([activo])
+}
+
+model certificado_archivo {
+  id                  String                @id @default(uuid()) @db.Uuid
+  s3_key              String                @unique @db.VarChar(512)
+  filename            String                @db.VarChar(255)
+  nit                 String                @db.VarChar(50)
+  anio                Int
+  tipo                String                @db.VarChar(50)
+  size                Int                   @default(0)
+  tercero_id          String?               @db.Uuid
+  tipo_certificado_id String?               @db.Uuid
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @updatedAt @db.Timestamptz(6)
+  tercero             terceros?             @relation(fields: [tercero_id], references: [id], onDelete: SetNull)
+  tipo_certificado    tipo_certificado?     @relation(fields: [tipo_certificado_id], references: [id], onDelete: SetNull)
+  certificaciones     certificacion_envio[]
+  vinculos            certificado_tercero[]
+
+  @@index([nit])
+  @@index([anio])
+  @@index([tercero_id])
+  @@index([tipo_certificado_id])
+  @@index([tipo])
+  @@index([created_at(sort: Desc)])
+}
+
+model certificado_tercero {
+  id             String              @id @default(uuid()) @db.Uuid
+  tercero_id     String              @db.Uuid
+  certificado_id String              @db.Uuid
+  creado_por_id  String?             @db.Uuid
+  created_at     DateTime            @default(now()) @db.Timestamptz(6)
+  tercero        terceros            @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
+  certificado    certificado_archivo @relation(fields: [certificado_id], references: [id], onDelete: Cascade)
+
+  @@unique([tercero_id, certificado_id])
+  @@index([tercero_id])
+  @@index([certificado_id])
+}
+
+model certificacion_envio {
+  id             String               @id @default(uuid()) @db.Uuid
+  tercero_id     String               @db.Uuid
+  certificado_id String?              @db.Uuid
+  token_acceso   String               @unique @db.VarChar(255)
+  email_destino  String               @db.VarChar(255)
+  tipo_envio     String               @default("individual") @db.VarChar(20)
+  emitido_at     DateTime             @default(now()) @db.Timestamptz(6)
+  created_at     DateTime             @default(now()) @db.Timestamptz(6)
+  tercero        terceros             @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
+  certificado    certificado_archivo? @relation(fields: [certificado_id], references: [id], onDelete: SetNull)
+
+  @@index([tercero_id])
+  @@index([token_acceso])
+  @@index([email_destino])
+  @@index([emitido_at])
+  @@index([tipo_envio])
+  @@index([certificado_id])
+}
+
+model tercero_token {
+  id         String   @id @default(uuid()) @db.Uuid
+  tercero_id String   @db.Uuid
+  token      String   @unique @db.VarChar(512)
+  expires_at DateTime @db.Timestamptz(6)
+  used       Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  tercero    terceros @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([tercero_id])
+  @@index([expires_at])
+}
+
+enum enum_users_area {
+  administracion
+  operaciones
+  contabilidad
+  facturacion
+  talento_humano
+  hseq
+}
+
+enum clasificacion_nc_enum {
+  CRITICA
+  MAYOR
+  MENOR
+}
+
+enum tipo_deteccion_enum {
+  DURANTE_SERVICIO
+  POST_SERVICIO
+  AUDITORIA_INTERVENTORIA
+  REPORTE_CLIENTE
+  OTRO
+}
+
+enum tipo_salida_nc_enum {
+  GPS_SISTEMA_TECNOLOGICO
+  INCUMPLIMIENTO_RUTA_HORARIO_DESTINO
+  VEHICULO_DIFERENTE_SIN_APROBACION
+  FALLA_MECANICA_ELECTRICA
+  DOCUMENTACION_VENCIDA_INCOMPLETA
+  CONDUCTOR_NO_APTO_INFRACCION_VIAL
+  QUEJA_CLIENTE
+  HALLAZGO_AUDITORIA_INTERVENTORIA_CLIENTE
+  PERSONAL_NO_AUTORIZADO_TRANSPORTADO
+  OTRO
+}
+
+enum estado_snc_enum {
+  ABIERTA
+  EN_TRATAMIENTO
+  CERRADA
+}
+
+enum tratamiento_snc_enum {
+  CORRECCION
+  CONTENCION
+  SUSPENSION
+  CONCESION
+}
+
+enum medio_autorizacion_enum {
+  ESCRITO
+  CORREO
+  ACTA
+}
+
+enum metodo_verificacion_enum {
+  REVISION_DOCUMENTAL
+  VERIFICACION_OPERATIVA_CAMPO
+  CONFIRMACION_GPS_PLATAFORMA
+  CONFIRMACION_CLIENTE_INTERVENTOR
+  OTRO
+}
+
+enum Sede {
+  yopal
+  villanueva
+  ambas
+  lugar_prestacion
+}
+
+enum enum_actividad_pesv_estado {
+  PENDIENTE
+  EN_PROGRESO
+  COMPLETADA
+  VENCIDA
+  CANCELADA
+}
+
+enum enum_actividad_pesv_prioridad {
+  BAJA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
+enum enum_actividad_pesv_frecuencia {
+  UNICA
+  DIARIA
+  SEMANAL
+  QUINCENAL
+  MENSUAL
+  BIMESTRAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+enum HallazgoTipo {
+  NC_MAYOR
+  NC_MENOR
+  OBSERVACION
+  MEJORA
+}
+
+enum EstadoAprobacion {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum ActionStatusGlobal {
+  EN_PROCESO
+  VENCIDA
+  CUMPLIDA
+  REPLANTEADA
+}
+
+model liquidacion_chat_mensaje {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_id String                    @db.Uuid
+  usuario_id             String                    @db.Uuid
+  contenido_cifrado      String                    @db.Text
+  nonce                  String                    @db.VarChar(24)
+  tipo                   String                    @default("NOTA") @db.VarChar(20)
+  recordatorio_id        String?                   @db.Uuid
+  deleted_at             DateTime?                 @db.Timestamptz(6)
+  created_at             DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                  @updatedAt @db.Timestamptz(6)
+  liquidacion_tercero    liquidacion_tercero_final @relation(fields: [liquidacion_tercero_id], references: [id], onDelete: Cascade)
+  usuario                usuarios                  @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([liquidacion_tercero_id])
+  @@index([usuario_id])
+  @@index([tipo])
+  @@index([created_at])
+}
+
+model liquidacion_recordatorio {
+  id                         String                     @id @default(uuid()) @db.Uuid
+  liquidacion_origen_id      String                     @db.Uuid
+  placa                      String                     @db.VarChar(20)
+  mes                        Int
+  anio                       Int
+  descripcion_cifrada        String                     @db.Text
+  descripcion_nonce          String                     @db.VarChar(24)
+  monto                      Decimal?                   @db.Decimal(12, 2)
+  moneda                     String                     @default("COP") @db.VarChar(3)
+  estado                     String                     @default("PENDIENTE") @db.VarChar(20)
+  prioridad                  String                     @default("MEDIA") @db.VarChar(10)
+  creado_por_usuario_id      String                     @db.Uuid
+  aplicado_en_liquidacion_id String?                    @db.Uuid
+  aplica_en                  DateTime?                  @db.Timestamptz(6)
+  deleted_at                 DateTime?                  @db.Timestamptz(6)
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @updatedAt @db.Timestamptz(6)
+  liquidacion_origen         liquidacion_tercero_final  @relation("recordatorio_origen", fields: [liquidacion_origen_id], references: [id], onDelete: Cascade)
+  creado_por                 usuarios                   @relation("recordatorio_creado_por", fields: [creado_por_usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  aplicado_en_liquidacion    liquidacion_tercero_final? @relation("recordatorio_aplicado", fields: [aplicado_en_liquidacion_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([placa, mes, anio])
+  @@index([estado])
+  @@index([creado_por_usuario_id])
+  @@index([liquidacion_origen_id])
+  @@index([aplicado_en_liquidacion_id])
+}
+
+model liquidacion_tercero_ocasional {
+  id               String  @id @default(uuid()) @db.Uuid
+  /// Consecutivo único formato LOC-{mes}-{anio}-{seq}, ej: LOC-07-2026-0001
+  consecutivo      String  @unique @db.VarChar(50)
+  /// Mes y año que consolida esta liquidación.
+  mes              Int
+  anio             Int
+  estado           String  @default("BORRADOR") @db.VarChar(20)
+  motivo_anulacion String? @db.Text
+  observaciones    String? @db.Text
+
+  // ── Totales derivados (denormalizados para listar rápido) ──
+  /// Suma de `valor_liquidar` de todos los adicionales.
+  total_adicionales       Decimal @default(0) @db.Decimal(14, 2)
+  /// Suma de conceptos tipo GASTO_OPERATIVO (PAPELERIA, GASTOS_DIVERSOS, etc).
+  total_gastos_operativos Decimal @default(0) @db.Decimal(14, 2)
+  /// Suma de conceptos tipo IMPUESTO.
+  total_impuestos         Decimal @default(0) @db.Decimal(14, 2)
+  /// Suma de conceptos tipo ANTICIPO.
+  total_anticipos         Decimal @default(0) @db.Decimal(14, 2)
+  /// total_gastos_operativos + total_impuestos + total_anticipos.
+  total_descuentos        Decimal @default(0) @db.Decimal(14, 2)
+  /// total_adicionales - total_descuentos (puede ser negativo).
+  total_pagar             Decimal @default(0) @db.Decimal(14, 2)
+  /// Total facturado de TODOS los items (espejo del Excel: Σ total_facturado).
+  total_facturado_items   Decimal @default(0) @db.Decimal(14, 2)
+  /// Total administración de TODOS los items (Σ valor_admin).
+  total_admin_items       Decimal @default(0) @db.Decimal(14, 2)
+  /// Total a liquidar de TODOS los items no excluidos (Σ valor_liquidar).
+  total_liquidar_items    Decimal @default(0) @db.Decimal(14, 2)
+
+  // ── Auditoría ──
+  creado_por_id      String?   @db.Uuid
+  actualizado_por_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+
+  // ── Relaciones ──
+  creado_por      usuarios?                                 @relation("liquidacion_tercero_ocasional_creado_por", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actualizado_por usuarios?                                 @relation("liquidacion_tercero_ocasional_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adicionales     liquidacion_tercero_ocasional_adicional[]
+  conceptos       liquidacion_tercero_ocasional_concepto[]
+  items           liquidacion_tercero_ocasional_item[]
+  drafts          liquidacion_tercero_ocasional_draft[]
+  snapshots       liquidacion_tercero_ocasional_snapshot[]
+
+  @@unique([mes, anio], name: "uniq_ocasional_periodo")
+  @@index([mes, anio])
+  @@index([estado])
+  @@index([deleted_at])
+  @@index([creado_por_id])
+  @@index([actualizado_por_id])
+}
+
+model liquidacion_tercero_ocasional_adicional {
+  id                       String  @id @default(uuid()) @db.Uuid
+  liquidacion_ocasional_id String  @db.Uuid
+  /// Cliente para el cual se hizo el servicio adicional. Default "TRANSMERALDA".
+  cliente                  String  @default("TRANSMERALDA") @db.VarChar(255)
+  /// Placa objetivo del adicional.
+  placa                    String  @db.VarChar(20)
+  /// Tercero / propietario de placa asociado (opcional, se resuelve
+  /// por la placa si está null en guardado).
+  tercero_id               String? @db.Uuid
+  tercero_nombre           String? @db.VarChar(255)
+  vehiculo_id              String? @db.Uuid
+  recorrido                String? @db.VarChar(500)
+  fechas                   String? @db.VarChar(100)
+  valor_unitario           Decimal @default(0) @db.Decimal(12, 2)
+  cantidad                 Decimal @default(1) @db.Decimal(10, 2)
+  porcentaje_admin         Decimal @default(0) @db.Decimal(5, 2)
+  /// valor_unitario * cantidad * porcentaje_admin / 100 (calculado en backend).
+  valor_admin              Decimal @default(0) @db.Decimal(12, 2)
+  /// (valor_unitario * cantidad) - valor_admin (neto a liquidar al tercero).
+  valor_liquidar           Decimal @default(0) @db.Decimal(12, 2)
+  /// Si false, el adicional NO entra en la base de RETENCION_ICA,
+  /// AVISOS_TABLEROS, SOBRETASA_BOMBERIL ni RETENCION_FUENTE al
+  /// recalcular impuestos.
+  aplica_impuestos         Boolean @default(true)
+  orden                    Int     @default(0)
+  /// Concurrencia optimista para la edición por celda del canvas.
+  version                  Int     @default(1)
+
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  // ── Relaciones ──
+  liquidacion_ocasional liquidacion_tercero_ocasional @relation(fields: [liquidacion_ocasional_id], references: [id], onDelete: Cascade)
+  tercero               terceros?                     @relation("ocasional_adicional_tercero", fields: [tercero_id], references: [id], onDelete: SetNull)
+  vehiculo              vehiculos?                    @relation("ocasional_adicional_vehiculo", fields: [vehiculo_id], references: [id], onDelete: SetNull)
+
+  @@index([liquidacion_ocasional_id])
+  @@index([placa])
+  @@index([tercero_id])
+  @@index([deleted_at])
+  @@index([liquidacion_ocasional_id, placa], map: "idx_ocasional_adicional_liquidacion_placa")
+}
+
+model liquidacion_tercero_ocasional_item {
+  id                       String    @id @default(uuid()) @db.Uuid
+  liquidacion_ocasional_id String    @db.Uuid
+  /// Pivote original del que se extrajo el item. AHORA OBLIGATORIO — el
+  /// item del ocasional SIEMPRE proviene de un `liquidacion_tercero`.
+  liquidacion_tercero_id   String    @db.Uuid
+  liquidacion_servicio_id  String?   @db.Uuid
+  cliente_nombre           String    @db.VarChar(255)
+  consecutivo              String    @db.VarChar(50)
+  placa                    String    @db.VarChar(20)
+  tercero_id               String?   @db.Uuid
+  tercero_nombre           String    @db.VarChar(255)
+  /// Para modal selector: documento / NIT del tercero
+  tercero_documento        String?   @db.VarChar(50)
+  recorrido                String    @db.VarChar(500)
+  fechas                   String    @db.VarChar(100)
+  valor_unitario           Decimal   @default(0) @db.Decimal(12, 2)
+  cantidad                 Decimal   @default(1) @db.Decimal(10, 2)
+  porcentaje_admin         Decimal   @default(0) @db.Decimal(5, 2)
+  valor_admin              Decimal   @default(0) @db.Decimal(12, 2)
+  total_facturado          Decimal   @default(0) @db.Decimal(12, 2)
+  valor_liquidar           Decimal   @default(0) @db.Decimal(12, 2)
+  numero_planilla          String?   @db.VarChar(50)
+  ingreso_extra_global     Decimal   @default(0) @db.Decimal(12, 2)
+  ingresos_extra_aval      Decimal   @default(0) @db.Decimal(12, 2)
+  ingreso_empresa          Decimal   @default(0) @db.Decimal(12, 2)
+  numero_factura           String?   @db.VarChar(50)
+  /// true si el item entra en la base de impuestos ICA/AT/SB/RETE_FUENTE.
+  aplica_impuestos         Boolean   @default(true)
+  /// true si el usuario tachó el item con la X (soft-excluido del cálculo).
+  excluido                 Boolean   @default(false)
+  orden                    Int       @default(0)
+  /// Concurrencia optimista para la edición por celda del canvas.
+  version                  Int       @default(1)
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at               DateTime? @db.Timestamptz(6)
+
+  liquidacion_ocasional liquidacion_tercero_ocasional @relation(fields: [liquidacion_ocasional_id], references: [id], onDelete: Cascade)
+  liquidacion_tercero   liquidacion_tercero?          @relation("ocasional_item_pivote", fields: [liquidacion_tercero_id], references: [id], onDelete: Restrict)
+  tercero               terceros?                     @relation("ocasional_item_tercero", fields: [tercero_id], references: [id], onDelete: SetNull)
+
+  /// Idempotente: una sola fila ocasional por (cabecera, item_pivote).
+  @@unique([liquidacion_ocasional_id, liquidacion_tercero_id], name: "uniq_ocasional_item_pivote")
+  @@index([liquidacion_ocasional_id], map: "idx_ocasional_item_liquidacion_ocasional")
+  @@index([placa])
+  @@index([tercero_id])
+  @@index([deleted_at])
+  @@index([liquidacion_ocasional_id, excluido], map: "idx_ocasional_item_liquidacion_excluido")
+}
+
+model liquidacion_tercero_ocasional_draft {
+  id                       String   @id @default(uuid()) @db.Uuid
+  liquidacion_ocasional_id String   @db.Uuid
+  usuario_id               String   @db.Uuid
+  /// Estado serializado del canvas Univer
+  payload                  Json     @db.JsonB
+  /// Versión incremental del draft
+  version                  Int      @default(1)
+  created_at               DateTime @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime @updatedAt @db.Timestamptz(6)
+
+  liquidacion_ocasional liquidacion_tercero_ocasional @relation(fields: [liquidacion_ocasional_id], references: [id], onDelete: Cascade)
+  usuario               usuarios                      @relation("ocasional_draft_usuario", fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  /// Solo se conserva el último draft por (cabecera, usuario)
+  @@unique([liquidacion_ocasional_id, usuario_id], name: "uniq_ocasional_draft_user")
+  @@index([liquidacion_ocasional_id])
+  @@index([updated_at])
+}
+
+model liquidacion_tercero_ocasional_concepto {
+  id                       String    @id @default(uuid()) @db.Uuid
+  liquidacion_ocasional_id String    @db.Uuid
+  tipo                     String    @db.VarChar(50)
+  concepto                 String    @db.VarChar(100)
+  /// Opcional: si se quiere asociar el concepto a un conductor específico
+  /// (típico para COSTO_LABORAL, pero la tabla ocasional no incluye costos
+  /// laborales — el campo queda para futura extensión si aplica).
+  conductor_id             String?   @db.Uuid
+  /// Placa destino del concepto. Si null, se distribuye prorrateado.
+  placa_aplicada           String?   @db.VarChar(20)
+  dias                     Decimal?  @db.Decimal(10, 2)
+  valor_unitario           Decimal   @default(0) @db.Decimal(12, 2)
+  porcentaje               Decimal?  @db.Decimal(8, 4)
+  valor_total              Decimal   @default(0) @db.Decimal(12, 2)
+  base_calculo             Decimal?  @db.Decimal(12, 2)
+  /// true si fue calculado por backend; false si fue cargado manual por el usuario.
+  calculado                Boolean   @default(false)
+  observaciones            String?   @db.Text
+  orden                    Int       @default(0)
+  /// Concurrencia optimista para la edición por celda del canvas.
+  version                  Int       @default(1)
+  actualizado_por_id       String?   @db.Uuid
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at               DateTime? @db.Timestamptz(6)
+
+  liquidacion_ocasional liquidacion_tercero_ocasional @relation(fields: [liquidacion_ocasional_id], references: [id], onDelete: Cascade)
+  conductor             conductores?                  @relation("ocasional_concepto_conductor", fields: [conductor_id], references: [id], onDelete: SetNull)
+  actualizado_por       usuarios?                     @relation("ocasional_concepto_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([liquidacion_ocasional_id])
+  @@index([tipo])
+  @@index([concepto])
+  @@index([placa_aplicada])
+  @@index([conductor_id])
+  @@index([deleted_at])
+}
+
+model liquidacion_tercero_ocasional_snapshot {
+  id                       String   @id @default(uuid()) @db.Uuid
+  liquidacion_ocasional_id String   @db.Uuid
+  /// "main" = vigente. Otra rama = histórico.
+  rama                     String   @default("main") @db.VarChar(60)
+  version                  Int
+  /// "manual" | "auto" (cron) | "revert"
+  origen                   String   @default("manual") @db.VarChar(20)
+  /// Snapshot desde el que se revirtió (cuando origen=revert).
+  revertido_de_id          String?  @db.Uuid
+  /// Null solo en "auto" del cron.
+  usuario_id               String?  @db.Uuid
+  /// Snapshot completo: cabecera + adicionales + conceptos + totales.
+  payload                  Json     @db.JsonB
+  /// Resumen de cambios respecto a la versión anterior.
+  diff                     Json?    @db.JsonB
+  created_at               DateTime @default(now()) @db.Timestamptz(6)
+
+  liquidacion_ocasional liquidacion_tercero_ocasional            @relation(fields: [liquidacion_ocasional_id], references: [id], onDelete: Cascade)
+  usuario               usuarios?                                @relation("snapshot_ocasional_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+  revertido_de          liquidacion_tercero_ocasional_snapshot?  @relation("snapshot_ocasional_revertido_de", fields: [revertido_de_id], references: [id], onDelete: SetNull)
+  revertidos            liquidacion_tercero_ocasional_snapshot[] @relation("snapshot_ocasional_revertido_de")
+
+  @@unique([liquidacion_ocasional_id, version])
+  @@index([liquidacion_ocasional_id, rama])
+  @@index([created_at])
+  @@index([usuario_id])
+}
+
+model custom_places {
+  id            String    @id @default(uuid()) @db.Uuid
+  nombre        String    @db.VarChar(255)
+  /// Categoría opcional: POZO, CAMPAMENTO, PATIO, VEREDA, FINCA, OTRO
+  categoria     String?   @db.VarChar(50)
+  descripcion   String?
+  direccion     String?
+  latitud       Decimal   @db.Decimal(10, 6)
+  longitud      Decimal   @db.Decimal(10, 6)
+  municipio_id  String?   @db.Uuid
+  creado_por_id String?   @db.Uuid
+  /// Contador de veces que se ha seleccionado este lugar (para ranking futuro)
+  veces_usado   Int       @default(0)
+  activo        Boolean   @default(true)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  municipios municipios? @relation(fields: [municipio_id], references: [id], onDelete: SetNull)
+  creado_por usuarios?   @relation("custom_places_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([nombre], map: "idx_custom_places_nombre")
+  @@index([categoria], map: "idx_custom_places_categoria")
+  @@index([activo, deleted_at], map: "idx_custom_places_activo")
+  @@index([creado_por_id], map: "idx_custom_places_creado_por")
+}
+
+model canvas_anotacion {
+  id        String @id @default(uuid()) @db.Uuid
+  /// 'cierres-finales' | 'ocasional' | 'adicionales' | 'ingresos'
+  scope     String @db.VarChar(40)
+  anio      Int
+  mes       Int
+  /// Hoja dentro del libro. En `cierres-finales` es el id del cierre (una
+  /// hoja por placa); en los libros anuales va '' porque el mes ya identifica
+  /// la hoja. Cadena vacía y no NULL: en Postgres NULL nunca es igual a NULL,
+  /// así que un UNIQUE con NULL dejaría insertar duplicados.
+  sheet_key String @default("") @db.VarChar(80)
+
+  /// Cómo se localiza la celda cuando la hoja cambia de forma.
+  ///
+  /// `fila`: la celda vive en el bloque estructurado o bajo él. `offset_fila`
+  ///   cuenta filas desde el final de la tabla de items CON SIGNO, así que toda
+  ///   esa zona —descuentos, gastos, impuestos y el área libre— se desplaza en
+  ///   bloque cuando entran o salen items, y lo escrito baja con su sección. El
+  ///   ancla está por debajo de casi toda la hoja, de modo que la mayoría de
+  ///   estas celdas tienen offset NEGATIVO; es lo normal, no un error.
+  ///
+  /// `item`: la celda vive AL LADO de una fila de item. Se ancla al id de ese
+  ///   item (`ancla_ref`), así lo sigue aunque cambie de posición al reordenar
+  ///   o al refrescar. Con fila absoluta, la nota acabaría junto a otro item.
+  ///
+  /// `clave`: la celda es una que el builder declara POR NOMBRE (`ancla_ref`),
+  ///   como el % de ADMON de ocasionales. Un parámetro del cálculo que vive en
+  ///   la hoja porque no tiene columna propia.
+  ///
+  /// `top`: la celda vive POR ENCIMA de la tabla de items — la cabecera. Esa
+  ///   franja no se mueve, así que aquí `offset_fila` SÍ es la fila absoluta.
+  ancla_tipo String @default("fila") @db.VarChar(10)
+  /// Id del item (`item`) o nombre declarado por el builder (`clave`). Cadena
+  /// vacía en el resto: en Postgres NULL nunca es igual a NULL y rompería el
+  /// UNIQUE.
+  ancla_ref  String @default("") @db.VarChar(64)
+
+  /// Con `ancla_tipo = 'fila'`, filas respecto al final de la tabla de items,
+  /// con signo. Con `'top'`, la fila absoluta. Sin uso en `'item'` y `'clave'`.
+  offset_fila Int
+  /// Columna absoluta (el ancho de cada canvas es fijo).
+  columna     Int
+
+  /// Lo que escribió el usuario. NULL = anotación borrada (se conserva la
+  /// fila para no perder el historial de `version`).
+  valor  String? @db.Text
+  /// Estilo opcional de la celda (resaltado, color de fondo…).
+  estilo Json?   @db.JsonB
+
+  /// Compare-and-swap: mismo contrato que el resto de celdas del canvas.
+  version Int @default(1)
+
+  creado_por_id      String?  @db.Uuid
+  actualizado_por_id String?  @db.Uuid
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @updatedAt @db.Timestamptz(6)
+
+  creado_por      usuarios? @relation("canvas_anotacion_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+  actualizado_por usuarios? @relation("canvas_anotacion_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: SetNull)
+
+  @@unique([scope, anio, mes, sheet_key, ancla_tipo, ancla_ref, offset_fila, columna], name: "uniq_anotacion_celda")
+  @@index([scope, anio, mes])
+  @@index([scope, anio, mes, sheet_key])
+}
+
+model liquidacion_ingreso_transmeralda {
+  id            String  @id @default(uuid()) @db.Uuid
+  mes           Int
+  anio          Int
+  observaciones String? @db.Text
+
+  /// % de administración de la hoja de INGRESOS (ADMON = TOTAL × esto).
+  pct_admon_ingresos       Decimal @default(10) @db.Decimal(8, 4)
+  /// % con el que el V/UNIDAD de un ingreso baja a la hoja de ADICIONALES.
+  /// En el Excel de referencia es el 70 %.
+  pct_ganancia_adicionales Decimal @default(70) @db.Decimal(8, 4)
+  /// % de administración de la hoja de ADICIONALES.
+  pct_admon_adicionales    Decimal @default(10) @db.Decimal(8, 4)
+
+  // ── Totales cacheados ──
+  total_facturado_ingresos    Decimal @default(0) @db.Decimal(14, 2)
+  total_admon_ingresos        Decimal @default(0) @db.Decimal(14, 2)
+  total_liquidar_ingresos     Decimal @default(0) @db.Decimal(14, 2)
+  total_facturado_adicionales Decimal @default(0) @db.Decimal(14, 2)
+  total_admon_adicionales     Decimal @default(0) @db.Decimal(14, 2)
+  total_liquidar_adicionales  Decimal @default(0) @db.Decimal(14, 2)
+  /// TRANSPORTE POR PAGAR de la hoja de ADICIONALES. Es exactamente lo que
+  /// la hoja de INGRESOS resta como «TOTAL DESCUENTOS LIQUIDACIÓN
+  /// ADICIONALES <MES> <AÑO>»: el circuito entre las dos hojas pasa por aquí.
+  total_pagar_adicionales     Decimal @default(0) @db.Decimal(14, 2)
+  /// Última fila de la hoja de INGRESOS: TOTAL INGRESO TRANSMERALDA.
+  total_ingreso_transmeralda  Decimal @default(0) @db.Decimal(14, 2)
+
+  version            Int       @default(1)
+  creado_por_id      String?   @db.Uuid
+  actualizado_por_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+
+  creado_por      usuarios? @relation("liquidacion_ingreso_transmeralda_creado_por", fields: [creado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actualizado_por usuarios? @relation("liquidacion_ingreso_transmeralda_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  filas     liquidacion_ingreso_transmeralda_fila[]
+  conceptos liquidacion_ingreso_transmeralda_concepto[]
+
+  @@unique([mes, anio], name: "uniq_ingreso_transmeralda_periodo")
+  @@index([mes, anio])
+  @@index([deleted_at])
+  @@index([creado_por_id])
+  @@index([actualizado_por_id])
+}
+
+model liquidacion_ingreso_transmeralda_fila {
+  id                     String  @id @default(uuid()) @db.Uuid
+  liquidacion_ingreso_id String  @db.Uuid
+  /// Item de `liquidacion_tercero` del que sale la fila de la hoja.
+  ///
+  /// NULLABLE desde que la hoja también lista ADICIONALES de los cierres
+  /// finales: esos no son items de una liquidación de servicio y no tienen
+  /// dónde apuntar aquí. Exactamente uno de los dos punteros va relleno, y lo
+  /// impone el CHECK `chk_ingreso_fila_origen` — no basta con la convención,
+  /// porque una fila con los dos en NULL quedaría huérfana y sin forma de
+  /// saber a qué pertenecía.
+  liquidacion_tercero_id String? @db.Uuid
+  /// Adicional de un cierre final (`liquidacion_tercero_final_adicional`).
+  /// Excluyente con `liquidacion_tercero_id`.
+  adicional_id           String? @db.Uuid
+
+  /// `true` ⇒ la fila baja a la hoja de ADICIONALES. Es la columna INCLUIR.
+  incluir_adicional Boolean @default(false)
+  /// CANT de la hoja de INGRESOS.
+  cantidad          Decimal @default(1) @db.Decimal(10, 2)
+
+  /// Overrides opcionales; `null` = hereda el de la cabecera. Se guardan
+  /// aparte y no como copia del valor efectivo para que cambiar el % de la
+  /// cabecera siga arrastrando a todas las filas que nadie pisó a mano.
+  pct_admon_ingresos       Decimal? @db.Decimal(8, 4)
+  pct_ganancia             Decimal? @db.Decimal(8, 4)
+  pct_admon_adicional      Decimal? @db.Decimal(8, 4)
+  /// V/UNIDAD escrito a mano en la hoja de ADICIONALES. Cuando está, manda
+  /// sobre el % de ganancia: el Excel de referencia tiene una fila así, y sin
+  /// esto habría que retorcer el porcentaje hasta que cuadrara el número.
+  valor_unitario_adicional Decimal? @db.Decimal(14, 2)
+
+  orden   Int @default(0)
+  version Int @default(1)
+
+  actualizado_por_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+
+  liquidacion_ingreso liquidacion_ingreso_transmeralda     @relation(fields: [liquidacion_ingreso_id], references: [id], onDelete: Cascade)
+  item                liquidacion_tercero?                 @relation("liquidacion_ingreso_fila_item", fields: [liquidacion_tercero_id], references: [id], onDelete: Cascade)
+  adicional           liquidacion_tercero_final_adicional? @relation("liquidacion_ingreso_fila_adicional", fields: [adicional_id], references: [id], onDelete: Cascade)
+  actualizado_por     usuarios?                            @relation("liquidacion_ingreso_fila_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // Dos únicos y no uno compuesto: en Postgres un UNIQUE deja pasar tantos
+  // NULL como quiera, así que cada índice restringe solo a las filas de su
+  // clase y las de la otra —con su puntero en NULL— no compiten entre sí.
+  // El primero SIN `map`: su índice ya existe en la base como
+  // `liquidacion_ingreso_transmeralda_fila_liquidacion_ingreso_i_key`, el
+  // nombre truncado que le puso Prisma, y mapearlo ahora sería renombrarlo.
+  // El segundo sí lo lleva, porque el nombre por defecto colisionaría con ese
+  // al truncar a 63 caracteres.
+  @@unique([liquidacion_ingreso_id, liquidacion_tercero_id], name: "uniq_ingreso_fila_item")
+  @@unique([liquidacion_ingreso_id, adicional_id], name: "uniq_ingreso_fila_adicional", map: "uniq_ingreso_fila_adicional")
+  @@index([liquidacion_ingreso_id])
+  @@index([liquidacion_tercero_id])
+  @@index([adicional_id])
+  @@index([incluir_adicional])
+  @@index([deleted_at])
+}
+
+model liquidacion_ingreso_transmeralda_concepto {
+  id                     String  @id @default(uuid()) @db.Uuid
+  liquidacion_ingreso_id String  @db.Uuid
+  /// `INGRESOS` | `ADICIONALES`.
+  hoja                   String  @db.VarChar(20)
+  /// `COSTO_LABORAL` | `GASTO_OPERATIVO` | `ANTICIPO` | `IMPUESTO`.
+  ///
+  /// Hubo un quinto, `PRESTAMO`, para el bloque «PRESTAMOS Y PAGO HORAS
+  /// EXTRAS» del Excel. Este documento no liquida ninguno de los dos —eso
+  /// vive en los cierres—, así que eran cuatro filas por hoja que siempre
+  /// sumaban cero. El schema no cambia (la columna es VARCHAR sin CHECK):
+  /// lo que se retiró es el sembrado en el canvas y el valor del enum de
+  /// entrada, y las filas viejas se borran con la migración de datos
+  /// `20-08-2026-ingresos-sin-prestamos`.
+  tipo                   String  @db.VarChar(50)
+  concepto               String  @db.VarChar(100)
+  /// Persona del bloque «PERSONAL PARA LA EJECUCIÓN» (el «NOMBRE: …» del
+  /// Excel). Agrupa los conceptos laborales; `null` en el resto.
+  persona                String? @db.VarChar(150)
+
+  dias           Decimal? @db.Decimal(10, 2)
+  valor_unitario Decimal  @default(0) @db.Decimal(14, 2)
+  porcentaje     Decimal? @db.Decimal(8, 4)
+  valor_total    Decimal  @default(0) @db.Decimal(14, 2)
+  base_calculo   Decimal? @db.Decimal(14, 2)
+  observaciones  String?  @db.Text
+  orden          Int      @default(0)
+  version        Int      @default(1)
+
+  actualizado_por_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+
+  liquidacion_ingreso liquidacion_ingreso_transmeralda @relation(fields: [liquidacion_ingreso_id], references: [id], onDelete: Cascade)
+  actualizado_por     usuarios?                        @relation("liquidacion_ingreso_concepto_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // Nombres explícitos: los que genera Prisma se truncan al mismo string y
+  // chocan entre sí (el prefijo del modelo agota el límite de 63 caracteres).
+  @@index([liquidacion_ingreso_id], map: "idx_ingreso_concepto_cabecera")
+  @@index([liquidacion_ingreso_id, hoja], map: "idx_ingreso_concepto_hoja")
+  @@index([tipo], map: "idx_ingreso_concepto_tipo")
+  @@index([deleted_at], map: "idx_ingreso_concepto_deleted")
 }
