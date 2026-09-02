@@ -1,6 +1,10 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesServiciosService } from "./liquidaciones-servicios.service";
-import { emitLiquidacionServicio, emitNotificacion } from "../../sockets";
+import {
+  emitLiquidacionServicio,
+  emitLiquidacionServicioBorrador,
+  emitNotificacion,
+} from "../../sockets";
 import { NotificacionesService } from "../notificaciones/notificaciones.service";
 
 export class LiquidacionesServiciosController {
@@ -150,9 +154,20 @@ export class LiquidacionesServiciosController {
 
   static async listar(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const result = await LiquidacionesServiciosService.listar(
-        request.query as any,
-      );
+      const usuario = (request as any).user;
+      const areas = Array.isArray(usuario?.area)
+        ? usuario.area
+        : usuario?.area
+          ? [usuario.area]
+          : [];
+      const result = await LiquidacionesServiciosService.listar({
+        ...(request.query as any),
+        /// De la sesión y no del query string: si el cliente pudiera declarar
+        /// el `usuario_id`, cualquiera leería los borradores de cualquiera.
+        usuario_id: usuario?.id,
+        puede_ver_no_confirmadas_ajenas:
+          usuario?.role === "admin" || areas.includes("administracion"),
+      });
       return reply.send(result);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -183,17 +198,166 @@ export class LiquidacionesServiciosController {
     }
   }
 
+  /**
+   * Autoguardado del formulario.
+   *
+   * Deliberadamente NO hace lo que hacen `crear` y `actualizar`: ni emite
+   * `liquidacion-servicio-created/updated` —que van por `io.emit` global, así
+   * que cada tecleo llegaría a todos los clientes— ni dispara el fan-out de
+   * notificaciones a los aprobadores. Está aquí y no como una rama con un flag
+   * dentro de `crear` para que esa diferencia sea estructural y no dependa de
+   * que nadie borre un `if`.
+   */
+  static async autoguardar(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = (request as any).user?.id;
+      if (!userId) {
+        return reply.status(401).send({ error: "Sesión no válida" });
+      }
+
+      const resultado = await LiquidacionesServiciosService.autoguardar(
+        request.body as any,
+        userId,
+      );
+
+      emitLiquidacionServicioBorrador({
+        id: resultado.id!,
+        consecutivo: resultado.consecutivo!,
+        estado: String(resultado.estado),
+        version: resultado.version!,
+      });
+
+      return reply.send(resultado);
+    } catch (error: any) {
+      /// 409 con el motivo, no un 500 genérico: el editor necesita saber si
+      /// debe recargar (`version`), avisar de que ya no es un borrador
+      /// (`estado`) o rendirse (`borrada`).
+      if (error.conflicto) {
+        return reply
+          .status(409)
+          .send({ error: error.message, ...error.conflicto });
+      }
+      return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  // ── BORRADOR PREVIO ──
+  //
+  // `liquidacion_id` viaja en el cuerpo o en la ruta, y `null` significa «el
+  // borrador de una liquidación que todavía no existe». El `usuario_id` sale
+  // SIEMPRE de la sesión: un borrador es privado de quien lo escribe.
+
+  static async guardarDraft(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = (request as any).user?.id;
+      if (!userId) return reply.status(401).send({ error: "Sesión no válida" });
+
+      const { liquidacion_id, payload } = request.body as any;
+      if (!payload) {
+        return reply.status(400).send({ error: "Falta el payload del borrador" });
+      }
+
+      const r = await LiquidacionesServiciosService.guardarDraft(
+        userId,
+        liquidacion_id ?? null,
+        payload,
+      );
+      return reply.send(r);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  static async obtenerDraft(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = (request as any).user?.id;
+      if (!userId) return reply.status(401).send({ error: "Sesión no válida" });
+
+      const { id } = request.params as any;
+      const draft = await LiquidacionesServiciosService.obtenerDraft(
+        userId,
+        id ?? null,
+      );
+      /// 200 con `null` y no 404: «no hay borrador» es una respuesta normal al
+      /// abrir el formulario, no un error que el cliente deba tratar aparte.
+      return reply.send(draft);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  static async eliminarDraft(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = (request as any).user?.id;
+      if (!userId) return reply.status(401).send({ error: "Sesión no válida" });
+
+      const { id } = request.params as any;
+      const r = await LiquidacionesServiciosService.eliminarDraft(
+        userId,
+        id ?? null,
+      );
+      return reply.send(r);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  }
+
   static async actualizar(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
       const userId = (request as any).user?.id;
       const userName = (request as any).user?.nombre || "Usuario";
+
+      // Mismo criterio que `cambiarEstado`, que sí lo aplicaba: una
+      // liquidación aprobada o facturada solo la toca Administración. Sin
+      // esto, un PUT sobrescribía una aprobada sin preguntar — y el editor
+      // llegaba a mandarlo solo, restaurando un borrador local viejo encima
+      // de lo que ya estaba aprobado.
+      const userAreas: string[] = ((request as any).user?.area || []).map(
+        (a: string) => a.toUpperCase(),
+      );
+      const esAdministracion = userAreas.includes("ADMINISTRACION");
+      const previa = await LiquidacionesServiciosService.obtenerPorId(id);
+
+      if (previa.deleted_at || previa.estado === "ANULADA") {
+        return reply.status(403).send({
+          error:
+            "La liquidación está anulada o eliminada. Restáurala antes de editarla.",
+        });
+      }
+      if (
+        (previa.estado === "APROBADA" || previa.estado === "FACTURADA") &&
+        !esAdministracion
+      ) {
+        return reply.status(403).send({
+          error: `La liquidación está en ${previa.estado.toLowerCase()}. Solo Administración puede modificarla.`,
+        });
+      }
+
+      /// Si venía sin confirmar, este PUT es el primer Guardar explícito: la
+      /// liquidación pasa a existir para el resto del mundo AHORA. Se lee antes
+      /// de actualizar porque `actualizar` no distingue los dos casos.
+      const eraBorradorSinConfirmar = !previa.confirmada_at;
+
       const liquidacion = await LiquidacionesServiciosService.actualizar(
         id,
         request.body as any,
         userId,
       );
-      emitLiquidacionServicio("liquidacion-servicio-updated", liquidacion);
+
+      if (eraBorradorSinConfirmar) {
+        await LiquidacionesServiciosService.confirmar(id);
+      }
+
+      /// «created» y no «updated» cuando se confirma: para todos los demás la
+      /// liquidación nace en este momento, y un feed que dijera «actualizó»
+      /// hablaría de algo que nunca vieron aparecer.
+      emitLiquidacionServicio(
+        eraBorradorSinConfirmar
+          ? "liquidacion-servicio-created"
+          : "liquidacion-servicio-updated",
+        liquidacion,
+      );
 
       // Notificar a todos los usuarios con acceso
       try {

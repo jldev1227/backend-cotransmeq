@@ -83,6 +83,19 @@ export interface CrearLiquidacionInput {
 export interface FiltrosLiquidacionServicios {
   page?: number;
   limit?: number;
+  /**
+   * Incluir los borradores que nadie ha guardado a propósito todavía
+   * (`confirmada_at IS NULL`). Un usuario normal solo recibe los propios; una
+   * sesión administrativa puede verlos todos para recuperar autoguardados.
+   */
+  incluir_no_confirmadas?: boolean | string;
+  /// Id del usuario que consulta. Lo pone el controlador desde la sesión,
+  /// nunca el cliente: si viniera del query string, cualquiera podría leer los
+  /// borradores de cualquiera.
+  usuario_id?: string;
+  /// Solo lo establece el controlador a partir de la sesión. Permite que un
+  /// administrador rescate autoguardados abandonados por otros usuarios.
+  puede_ver_no_confirmadas_ajenas?: boolean;
   cliente_id?: string;
   estado?: EstadoLiquidacionServicio;
   mes?: number;
@@ -105,6 +118,79 @@ export interface FiltrosLiquidacionServicios {
 // ═══════════════════════════════════════════════════════════════
 // SERVICIO
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Qué liquidaciones son visibles.
+ *
+ * Por defecto, solo las confirmadas: una fila con `confirmada_at IS NULL` nació
+ * de un autoguardado y nadie ha pulsado Guardar, así que para el resto del
+ * mundo todavía no existe. Sin este filtro, el listado y el canvas de todos se
+ * llenarían de liquidaciones a medio escribir en cuanto alguien abre el
+ * formulario — que es lo que puede hundir la funcionalidad socialmente.
+ *
+ * La excepción es el propio autor, y solo si la pide: es lo que le permite
+ * volver a un borrador que dejó a medias. Administración puede pedirlos todos
+ * para detectar y recuperar trabajo abandonado.
+ */
+function filtroVisibilidad(filtros: FiltrosLiquidacionServicios) {
+  const incluir =
+    filtros.incluir_no_confirmadas === true ||
+    filtros.incluir_no_confirmadas === "true";
+  if (incluir && filtros.usuario_id) {
+    if (filtros.puede_ver_no_confirmadas_ajenas) return {};
+    return {
+      OR: [
+        { confirmada_at: { not: null } },
+        { creado_por_id: filtros.usuario_id },
+      ],
+    };
+  }
+  return { confirmada_at: { not: null } };
+}
+
+/**
+ * Resuelve la operadora a las DOS columnas: la FK nueva y el texto heredado.
+ *
+ * Se escriben las dos durante la transición. El texto lo siguen leyendo el
+ * canvas del historial y el exportador de Excel, y quitarlo a la vez que se
+ * añade la FK dejaría la columna OPERADORA vacía en el Excel del cierre — que
+ * es algo que nadie mira hasta que lo ve el cliente, un mes después.
+ *
+ * Acepta `operadora_id` (lo que manda el editor nuevo) o `operadora` como
+ * texto (lo que mandan los clientes viejos), y sale con las dos coherentes.
+ *
+ * TOLERANTE A PROPÓSITO: si la tabla `operadoras` todavía no existe —el SQL de
+ * `migrations/31-08-2026-operadoras-catalogo.sql` se aplica a mano y puede ir
+ * por detrás del despliegue— cae al comportamiento de antes en vez de romper
+ * el alta. Esta red se quita cuando el SQL esté aplicado en los dos entornos.
+ */
+async function resolverOperadora(data: any): Promise<{
+  operadora: string | null;
+  operadora_id: string | null;
+}> {
+  const texto = typeof data?.operadora === "string" ? data.operadora.trim() : "";
+  const id = data?.operadora_id ?? null;
+
+  if (!id && !texto) return { operadora: null, operadora_id: null };
+
+  try {
+    const encontrada = id
+      ? await prisma.operadoras.findUnique({ where: { id } })
+      : await prisma.operadoras.findUnique({
+          where: { codigo: texto.toUpperCase() },
+        });
+
+    if (encontrada) {
+      return { operadora: encontrada.codigo, operadora_id: encontrada.id };
+    }
+    /// Texto que no está en el catálogo: se conserva tal cual y sin FK. Pasa
+    /// con las liquidaciones anteriores al catálogo, y forzar aquí un valor
+    /// sería inventarse a quién se le atribuyó el servicio.
+    return { operadora: texto || null, operadora_id: null };
+  } catch {
+    return { operadora: texto || null, operadora_id: null };
+  }
+}
 
 export const LiquidacionesServiciosService = {
   // ── Helper: crear snapshot de una liquidación ──
@@ -630,6 +716,90 @@ export const LiquidacionesServiciosService = {
     };
   },
 
+  // ── BORRADOR PREVIO ──
+  //
+  // Solo para la fase en la que la fila real todavía no puede existir. En
+  // cuanto el autoguardado crea la liquidación, el borrador «nuevo» del usuario
+  // se borra y a partir de ahí la verdad es la fila.
+
+  /**
+   * Guarda (o pisa) el borrador del usuario.
+   *
+   * `findFirst` + `create`/`update` en transacción, y no `upsert`, porque la
+   * unicidad real son dos índices PARCIALES que Prisma no sabe expresar (ver
+   * el modelo). Sin la transacción, dos pestañas del mismo usuario podrían
+   * crear dos borradores «nuevos» a la vez y el índice parcial rechazaría uno
+   * con un error feo en vez de simplemente pisarlo.
+   */
+  async guardarDraft(
+    usuarioId: string,
+    liquidacionId: string | null,
+    payload: any,
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const existente = await tx.liquidacion_servicio_draft.findFirst({
+        where: { usuario_id: usuarioId, liquidacion_id: liquidacionId },
+      });
+
+      if (existente) {
+        const actualizado = await tx.liquidacion_servicio_draft.update({
+          where: { id: existente.id },
+          data: { payload, version: existente.version + 1 },
+        });
+        return { ok: true, id: actualizado.id, version: actualizado.version };
+      }
+
+      const creado = await tx.liquidacion_servicio_draft.create({
+        data: {
+          usuario_id: usuarioId,
+          liquidacion_id: liquidacionId,
+          payload,
+          version: 1,
+        },
+      });
+      return { ok: true, id: creado.id, version: creado.version };
+    });
+  },
+
+  async obtenerDraft(usuarioId: string, liquidacionId: string | null) {
+    const draft = await prisma.liquidacion_servicio_draft.findFirst({
+      where: { usuario_id: usuarioId, liquidacion_id: liquidacionId },
+    });
+    if (!draft) return null;
+    return {
+      id: draft.id,
+      payload: draft.payload,
+      version: draft.version,
+      updated_at: draft.updated_at,
+    };
+  },
+
+  /**
+   * `deleteMany` y no `delete`: borrar un borrador que ya no está es un
+   * no-op deseable, no un error. Se llama tras guardar de verdad y al cancelar,
+   * y en los dos casos puede no existir.
+   */
+  async eliminarDraft(usuarioId: string, liquidacionId: string | null) {
+    const { count } = await prisma.liquidacion_servicio_draft.deleteMany({
+      where: { usuario_id: usuarioId, liquidacion_id: liquidacionId },
+    });
+    return { ok: true, eliminados: count };
+  },
+
+  /**
+   * Barrido de borradores viejos.
+   *
+   * Sin esto la tabla solo crece: un borrador que nadie retomó en un mes no lo
+   * va a retomar ya, y la restauración lo descartaría igualmente por antiguo.
+   */
+  async limpiarDraftsViejos(dias = 30) {
+    const corte = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+    const { count } = await prisma.liquidacion_servicio_draft.deleteMany({
+      where: { updated_at: { lt: corte } },
+    });
+    return { eliminados: count };
+  },
+
   // ── CHECK CONSECUTIVO UNIQUE ──
 
   async checkConsecutivo(consecutivo: string, excludeId?: string) {
@@ -644,52 +814,251 @@ export const LiquidacionesServiciosService = {
 
   // ── CRUD LIQUIDACIONES ──
 
+  /**
+   * Autoguardado: crea o actualiza la liquidación como BORRADOR real.
+   *
+   * Es un método APARTE de `crear`/`actualizar`, y no una rama con un flag
+   * dentro de ellos, porque lo que lo define es todo lo que NO hace:
+   *
+   *  - no emite `liquidacion-servicio-created/updated`, que van por `io.emit`
+   *    global y sin salas: cada tecleo llegaría a todos los clientes;
+   *  - no dispara el fan-out de `NotificacionesService`, que avisa a todos los
+   *    aprobadores — serían N notificaciones cada pocos segundos;
+   *  - no deja snapshot en el historial salvo una vez, al nacer la fila, o el
+   *    historial de una liquidación tendría doscientas entradas «edicion».
+   *
+   * Si algún día alguien "unifica" esto con `crear`, esas tres cosas vuelven a
+   * la vez y nadie lo nota hasta que suena el teléfono.
+   *
+   * La fila nace en BORRADOR con `confirmada_at = null`, que es lo que la
+   * mantiene fuera del listado y del canvas del resto del mundo hasta que
+   * alguien pulse Guardar de verdad.
+   */
+  async autoguardar(
+    data: CrearLiquidacionInput & {
+      cliente_key?: string | null;
+      borrador_id?: string | null;
+      base_version?: number | null;
+    },
+    userId: string,
+  ) {
+    const {
+      itemsData,
+      valorServicios,
+      valorRecargos,
+      valorTransporteAdicional,
+      subtotal,
+      porcentajeIva,
+      valorIva,
+      total,
+    } = construirItemsYTotales(data);
+    const operadoraResuelta = await resolverOperadora(data);
+
+    // ── Alta ──────────────────────────────────────────────────────────
+    if (!data.borrador_id) {
+      const consecutivo =
+        data.consecutivo || (await generarConsecutivo(data.anio));
+
+      /// Idempotencia por `cliente_key`: dos autoguardados en vuelo a la vez
+      /// —el debounce dispara, la red tarda, el usuario sigue escribiendo— no
+      /// conocen todavía el id que devolvió el otro, así que sin esto crearían
+      /// dos liquidaciones. Se comprueba ANTES y se vuelve a leer si el índice
+      /// único salta: entre la lectura y el insert cabe la otra petición.
+      if (data.cliente_key) {
+        const yaCreada = await prisma.liquidacion_servicio.findUnique({
+          where: { cliente_key: data.cliente_key },
+        });
+        if (yaCreada) {
+          return this.autoguardar(
+            { ...data, borrador_id: yaCreada.id, base_version: yaCreada.version },
+            userId,
+          );
+        }
+      }
+
+      try {
+        const creada = await prisma.liquidacion_servicio.create({
+          data: {
+            consecutivo,
+            cliente_id: data.cliente_id,
+            mes: data.mes,
+            anio: data.anio,
+            estado: "BORRADOR" as any,
+            tercero_liquidado: computeTerceroLiquidado(data.recargos_data),
+            valor_servicios: valorServicios,
+            valor_recargos: valorRecargos,
+            valor_transporte_adicional: valorTransporteAdicional,
+            valor_pernoctes: data.valor_pernoctes || 0,
+            valor_unitario_pernoctes: data.valor_unitario_pernoctes || 0,
+            cantidad_pernoctes: data.cantidad_pernoctes || 0,
+            subtotal,
+            porcentaje_iva: porcentajeIva,
+            valor_iva: valorIva,
+            total,
+            recargos_data: data.recargos_data || undefined,
+            observaciones: data.observaciones,
+            osi: data.osi || null,
+            operadora: operadoraResuelta.operadora,
+            operadora_id: operadoraResuelta.operadora_id,
+            creado_por_id: userId,
+            cliente_key: data.cliente_key || null,
+            /// La marca de «todavía nadie la guardó a propósito».
+            confirmada_at: null,
+            items: { createMany: { data: itemsData } },
+          },
+        });
+
+        /// El único snapshot del autoguardado: el del nacimiento. Los
+        /// siguientes no dejan rastro, a propósito.
+        await this._crearSnapshot(creada.id, userId, "creacion", null, "BORRADOR");
+
+        /// Ya hay fila: el borrador «nuevo» del usuario deja de ser la verdad y
+        /// se retira. Dejarlo vivo es tener dos fuentes para lo mismo, que es
+        /// exactamente el bug que este cambio viene a cerrar.
+        await this.eliminarDraft(userId, null);
+
+        return {
+          id: creada.id,
+          consecutivo: creada.consecutivo,
+          estado: creada.estado,
+          version: creada.version,
+          updated_at: creada.updated_at,
+          creada: true,
+        };
+      } catch (e: any) {
+        /// Carrera perdida: la otra petición insertó entre nuestro `findUnique`
+        /// y este `create`. Se relee y se sigue por la rama de actualización.
+        if (e?.code === "P2002" && data.cliente_key) {
+          const otra = await prisma.liquidacion_servicio.findUnique({
+            where: { cliente_key: data.cliente_key },
+          });
+          if (otra) {
+            return this.autoguardar(
+              { ...data, borrador_id: otra.id, base_version: otra.version },
+              userId,
+            );
+          }
+        }
+        throw e;
+      }
+    }
+
+    // ── Actualización con compare-and-swap ────────────────────────────
+    const id = data.borrador_id;
+
+    const [, afectadas] = await prisma.$transaction([
+      prisma.liquidacion_servicio_item.deleteMany({ where: { liquidacion_id: id } }),
+      prisma.liquidacion_servicio.updateMany({
+        /// Las tres condiciones del WHERE son tres motivos distintos de
+        /// rechazo, y por eso abajo se relee para saber cuál fue.
+        where: {
+          id,
+          ...(data.base_version != null ? { version: data.base_version } : {}),
+          estado: "BORRADOR" as any,
+          deleted_at: null,
+        },
+        data: {
+          consecutivo: data.consecutivo || undefined,
+          cliente_id: data.cliente_id,
+          mes: data.mes,
+          anio: data.anio,
+          tercero_liquidado: computeTerceroLiquidado(data.recargos_data),
+          valor_servicios: valorServicios,
+          valor_recargos: valorRecargos,
+          valor_transporte_adicional: valorTransporteAdicional,
+          valor_pernoctes: data.valor_pernoctes || 0,
+          valor_unitario_pernoctes: data.valor_unitario_pernoctes || 0,
+          cantidad_pernoctes: data.cantidad_pernoctes || 0,
+          subtotal,
+          porcentaje_iva: porcentajeIva,
+          valor_iva: valorIva,
+          total,
+          recargos_data: data.recargos_data || undefined,
+          observaciones: data.observaciones,
+          osi: data.osi || null,
+          operadora: operadoraResuelta.operadora,
+          operadora_id: operadoraResuelta.operadora_id,
+          actualizado_por_id: userId,
+          version: { increment: 1 },
+        },
+      }),
+    ]);
+
+    if (afectadas.count === 0) {
+      /// Se relee para distinguir el motivo: un 409 genérico no le dice al
+      /// editor si debe recargar, avisar de que ya no es un borrador, o
+      /// rendirse porque la borraron.
+      const actual = await prisma.liquidacion_servicio.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          consecutivo: true,
+          estado: true,
+          version: true,
+          updated_at: true,
+          deleted_at: true,
+          actualizado_por: { select: { id: true, nombre: true } },
+        },
+      });
+
+      const motivo = !actual || actual.deleted_at
+        ? "borrada"
+        : actual.estado !== "BORRADOR"
+          ? "estado"
+          : "version";
+
+      const err: any = new Error(
+        motivo === "borrada"
+          ? "La liquidación ya no existe."
+          : motivo === "estado"
+            ? `La liquidación pasó a ${actual!.estado} y dejó de ser un borrador.`
+            : "Otra persona guardó cambios sobre este borrador.",
+      );
+      err.conflicto = { motivo, servidor: actual ?? null };
+      throw err;
+    }
+
+    /// Los items se recrean fuera del `updateMany` porque `updateMany` no
+    /// acepta escrituras anidadas.
+    await prisma.liquidacion_servicio_item.createMany({
+      data: itemsData.map((i) => ({ ...i, liquidacion_id: id })),
+    });
+
+    const actualizada = await prisma.liquidacion_servicio.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        consecutivo: true,
+        estado: true,
+        version: true,
+        updated_at: true,
+        confirmada_at: true,
+      },
+    });
+
+    return { ...actualizada, creada: false };
+  },
+
   async crear(data: CrearLiquidacionInput, userId: string) {
     // Use provided consecutivo or generate one
     const consecutivo =
       data.consecutivo || (await generarConsecutivo(data.anio));
 
-    // Calcular totales de items
-    let valorServicios = 0;
+    const {
+      itemsData,
+      valorServicios,
+      valorRecargos,
+      valorTransporteAdicional,
+      subtotal,
+      porcentajeIva,
+      valorIva,
+      total,
+    } = construirItemsYTotales(data);
 
-    const itemsData = data.items.map((item, index) => {
-      const subtotal = item.cantidad * item.valor_unitario;
-      const descuento = (subtotal * (item.porcentaje_descuento || 0)) / 100;
-      const valorFinal = subtotal - descuento;
-      valorServicios += valorFinal;
-
-      return {
-        id: randomUUID(),
-        placa: item.placa,
-        fecha_inicial: new Date(item.fecha_inicial),
-        fecha_final: new Date(item.fecha_final),
-        recorrido: item.recorrido,
-        tipo_servicio: item.tipo_servicio as any,
-        cantidad: item.cantidad,
-        valor_unitario: item.valor_unitario,
-        subtotal,
-        porcentaje_descuento: item.porcentaje_descuento || 0,
-        valor_final: valorFinal,
-        numero_planilla: item.numero_planilla || null,
-        servicio_id: item.servicio_id || null,
-        recargo_planilla_id: item.recargo_planilla_id || null,
-        valor_recargos_total: 0,
-        orden: index,
-        tercero_id: item.tercero_id || null,
-      };
-    });
-
-    // Use valor_recargos from frontend (liqTotal from liquidador) if provided
-    const valorRecargos = data.valor_recargos || 0;
-    const valorTransporteAdicional = data.valor_transporte_adicional || 0;
-    const subtotal =
-      valorServicios +
-      valorTransporteAdicional +
-      valorRecargos +
-      (data.valor_pernoctes || 0);
-    const porcentajeIva = data.porcentaje_iva || 0;
-    const valorIva = (subtotal * porcentajeIva) / 100;
-    const total = subtotal + valorIva;
+    /// Se resuelve antes del `create` y no dentro del literal: un `await`
+    /// interpolado ahí rompe la inferencia de tipos de Prisma y el `include`
+    /// deja de verse en el valor de retorno.
+    const operadoraResuelta = await resolverOperadora(data);
 
     const liquidacion = await prisma.liquidacion_servicio.create({
       data: {
@@ -712,7 +1081,8 @@ export const LiquidacionesServiciosService = {
         recargos_data: data.recargos_data || undefined,
         observaciones: data.observaciones,
         osi: data.osi || null,
-        operadora: data.operadora || null,
+        operadora: operadoraResuelta.operadora,
+        operadora_id: operadoraResuelta.operadora_id,
         creado_por_id: userId,
         items: {
           createMany: { data: itemsData },
@@ -761,7 +1131,10 @@ export const LiquidacionesServiciosService = {
     const limit = Number(filtros.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const where: any = { deleted_at: null };
+    /// `filtroVisibilidad` va en el `where` base a propósito: `whereExcluding`
+    /// deriva de él, así que las listas de valores de los filtros de columna
+    /// tampoco delatan los borradores ajenos.
+    const where: any = { deleted_at: null, ...filtroVisibilidad(filtros) };
     if (filtros.cliente_id) where.cliente_id = filtros.cliente_id;
     if (filtros.estado) where.estado = filtros.estado;
     if (filtros.mes) where.mes = parseMes(filtros.mes);
@@ -909,6 +1282,7 @@ export const LiquidacionesServiciosService = {
 
     const globalWhere = {
       deleted_at: null as null,
+      ...filtroVisibilidad(filtros),
       ...(filtros.mes ? { mes: parseMes(filtros.mes) } : {}),
       ...(filtros.anio ? { anio: Number(filtros.anio) } : {}),
     };
@@ -1174,7 +1548,10 @@ export const LiquidacionesServiciosService = {
     const limit = Number(filtros.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const where: any = { deleted_at: { not: null } };
+    const where: any = {
+      deleted_at: { not: null },
+      ...filtroVisibilidad(filtros),
+    };
     if (filtros.busqueda) {
       where.OR = [
         { consecutivo: { contains: filtros.busqueda, mode: "insensitive" } },
@@ -1225,6 +1602,20 @@ export const LiquidacionesServiciosService = {
     };
   },
 
+  /**
+   * Marca la liquidación como confirmada: alguien pulsó Guardar de verdad.
+   *
+   * A partir de aquí sale en el listado y en el canvas de todo el mundo. Es
+   * idempotente —`confirmada_at` no se reescribe si ya estaba— para que un
+   * doble Guardar no mueva la fecha de nacimiento.
+   */
+  async confirmar(id: string) {
+    await prisma.liquidacion_servicio.updateMany({
+      where: { id, confirmada_at: null },
+      data: { confirmada_at: new Date() },
+    });
+  },
+
   async actualizar(id: string, data: CrearLiquidacionInput, userId: string) {
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
@@ -1233,50 +1624,22 @@ export const LiquidacionesServiciosService = {
 
     console.log(liq, "liq existente")
 
-    // Calcular totales de items
-    let valorServicios = 0;
-
-    const itemsData = data.items.map((item, index) => {
-      const subtotal = item.cantidad * item.valor_unitario;
-      const descuento = (subtotal * (item.porcentaje_descuento || 0)) / 100;
-      const valorFinal = subtotal - descuento;
-      valorServicios += valorFinal;
-
-      return {
-        id: randomUUID(),
-        placa: item.placa,
-        fecha_inicial: new Date(item.fecha_inicial),
-        fecha_final: new Date(item.fecha_final),
-        recorrido: item.recorrido,
-        tipo_servicio: item.tipo_servicio as any,
-        cantidad: item.cantidad,
-        valor_unitario: item.valor_unitario,
-        subtotal,
-        porcentaje_descuento: item.porcentaje_descuento || 0,
-        valor_final: valorFinal,
-        numero_planilla: item.numero_planilla || null,
-        servicio_id: item.servicio_id || null,
-        recargo_planilla_id: item.recargo_planilla_id || null,
-        valor_recargos_total: 0,
-        orden: index,
-        tercero_id: item.tercero_id || null,
-      };
-    });
-
-    // Use valor_recargos from frontend (liqTotal from liquidador) if provided
-    const valorRecargos = data.valor_recargos || 0;
-    const valorTransporteAdicional = data.valor_transporte_adicional || 0;
-    const subtotal =
-      valorServicios +
-      valorTransporteAdicional +
-      valorRecargos +
-      (data.valor_pernoctes || 0);
-    const porcentajeIva = data.porcentaje_iva || 0;
-    const valorIva = (subtotal * porcentajeIva) / 100;
-    const total = subtotal + valorIva;
+    const {
+      itemsData,
+      valorServicios,
+      valorRecargos,
+      valorTransporteAdicional,
+      subtotal,
+      porcentajeIva,
+      valorIva,
+      total,
+    } = construirItemsYTotales(data);
 
     // Update consecutivo if provided, otherwise keep existing
     const consecutivo = data.consecutivo || liq.consecutivo;
+
+    /// Igual que en `crear`: fuera del literal para no romper la inferencia.
+    const operadoraResuelta = await resolverOperadora(data);
 
     // Delete old items and update liquidación in a transaction
     const [, liquidacion] = await prisma.$transaction([
@@ -1308,7 +1671,15 @@ export const LiquidacionesServiciosService = {
           recargos_data: data.recargos_data || undefined,
           observaciones: data.observaciones,
           osi: data.osi || null,
-          operadora: data.operadora || null,
+          operadora: operadoraResuelta.operadora,
+          /// Por relación y no por FK escalar: este `update` usa la forma
+          /// «checked» de Prisma (`cliente: { connect }`), y mezclar las dos
+          /// variantes en el mismo literal tumba la inferencia — el valor de
+          /// retorno pierde el `include` y `liquidacion.cliente` deja de existir
+          /// para TypeScript.
+          operadora_rel: operadoraResuelta.operadora_id
+            ? { connect: { id: operadoraResuelta.operadora_id } }
+            : { disconnect: true },
           actualizado_por: {
             connect: { id: userId },
           },
@@ -1583,13 +1954,19 @@ export const LiquidacionesServiciosService = {
 
   // ── Estadísticas ──
   async estadisticas() {
+    /// Estas tres no tenían `where` ninguno: contaban hasta las borradas. Con
+    /// el autoguardado eso pasa de ser un descuido a ser un número que sube
+    /// solo mientras alguien teclea, así que se acota a lo confirmado y vivo.
+    const where = { deleted_at: null, confirmada_at: { not: null } };
     const [total, porEstado, montoTotal] = await Promise.all([
-      prisma.liquidacion_servicio.count(),
+      prisma.liquidacion_servicio.count({ where }),
       prisma.liquidacion_servicio.groupBy({
         by: ["estado"],
+        where,
         _count: { id: true },
       }),
       prisma.liquidacion_servicio.aggregate({
+        where,
         _sum: { total: true },
       }),
     ]);

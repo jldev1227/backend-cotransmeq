@@ -11,6 +11,23 @@ export async function liquidacionesServiciosRoutes(app: FastifyInstance) {
   app.put('/liquidaciones-servicios/tarifas/:id', LiquidacionesServiciosController.actualizarTarifa)
   app.delete('/liquidaciones-servicios/tarifas/:id', LiquidacionesServiciosController.eliminarTarifa)
 
+  // ── Borrador previo ──
+  //
+  // TODAS antes de `/:id`. Fastify resuelve por orden de declaración, así que
+  // `/liquidaciones-servicios/draft` casaría con `/:id` y el `id` sería la
+  // cadena "draft". Es el mismo cuidado que ya tuvieron con `/eliminadas`.
+  app.post('/liquidaciones-servicios/draft', LiquidacionesServiciosController.guardarDraft)
+  app.get('/liquidaciones-servicios/draft', LiquidacionesServiciosController.obtenerDraft)
+  app.delete('/liquidaciones-servicios/draft', LiquidacionesServiciosController.eliminarDraft)
+  app.get('/liquidaciones-servicios/:id/draft', LiquidacionesServiciosController.obtenerDraft)
+  app.delete('/liquidaciones-servicios/:id/draft', LiquidacionesServiciosController.eliminarDraft)
+
+  // ── Autoguardado de borradores ──
+  //
+  // Antes de `/:id` (más abajo) por el mismo motivo que `/eliminadas`: Fastify
+  // resuelve por orden de declaración y `autoguardado` casaría con `:id`.
+  app.post('/liquidaciones-servicios/autoguardado', LiquidacionesServiciosController.autoguardar)
+
   // ── Check consecutivo único ──
   app.get('/liquidaciones-servicios/check-consecutivo/:consecutivo', LiquidacionesServiciosController.checkConsecutivo)
 

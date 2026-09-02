@@ -129,6 +129,28 @@ export function emitToUser(userId: string, event: string, data: any) {
   }
 }
 
+/**
+ * Un borrador se autoguardó.
+ *
+ * Evento APARTE de `liquidacion-servicio-created/updated` a propósito. Esos dos
+ * los escuchan el listado y el canvas para pintar la fila y avisar al usuario;
+ * si el autoguardado los usara, cada tecleo repintaría la pantalla de todo el
+ * mundo y anunciaría una liquidación que todavía no existe para ellos.
+ *
+ * Hoy no lo escucha nadie, y así debe quedarse hasta que haya algo concreto que
+ * quiera enterarse. Que no rompa nada al añadirlo es justamente el punto.
+ */
+export function emitLiquidacionServicioBorrador(data: {
+  id: string
+  consecutivo: string
+  estado: string
+  version: number
+}) {
+  if (io) {
+    io.emit('liquidacion-servicio-borrador', data)
+  }
+}
+
 /** Emit a liquidacion-servicio event to all connected clients */
 export function emitLiquidacionServicio(event: 'liquidacion-servicio-created' | 'liquidacion-servicio-updated' | 'liquidacion-servicio-deleted', data: any) {
   if (io) {
