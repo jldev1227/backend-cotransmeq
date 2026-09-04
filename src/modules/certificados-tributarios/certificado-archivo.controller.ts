@@ -36,7 +36,7 @@ export async function certificadoArchivoRoutes(app: FastifyInstance) {
     try {
       const { terceroId } = request.params as any
       const archivos = await prisma.certificado_archivo.findMany({
-        where: { tercero_id: terceroId },
+        where: { deleted_at: null, tercero_id: terceroId },
         include: {
           tipo_certificado: true
         },

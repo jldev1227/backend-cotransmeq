@@ -1,6 +1,14 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { ServiciosService } from './servicios.service'
 import { RutogramaService } from './rutograma.service'
+import {
+  emitServicioCreado,
+  emitServicioActualizado,
+  emitServicioEstadoActualizado,
+  emitServicioNumeroPlanillaActualizado,
+  emitServicioCancelado,
+  emitServicioEliminado
+} from './servicios.events'
 import { 
   createServicioSchema, 
   updateServicioSchema, 
@@ -35,7 +43,9 @@ export const ServiciosController = {
       const data = createServicioSchema.parse(request.body)
       const userId = (request as any).user?.id // Obtener ID del usuario autenticado
       const servicio = await ServiciosService.create(data, userId)
-      
+
+      emitServicioCreado(servicio)
+
       reply.status(201).send({
         success: true,
         message: 'Servicio creado exitosamente',
@@ -188,7 +198,9 @@ export const ServiciosController = {
       const userId = (request as any).user?.id // Obtener ID del usuario autenticado
       
       const servicio = await ServiciosService.update(id, data, userId)
-      
+
+      emitServicioActualizado(servicio)
+
       reply.send({
         success: true,
         message: 'Servicio actualizado exitosamente',
@@ -217,7 +229,11 @@ export const ServiciosController = {
     try {
       const { id } = request.params
       await ServiciosService.delete(id)
-      
+
+      /// Solo el id: la entidad ya no existe. El store lo usa para sacarla de
+      /// la lista y limpiar la selección si era la abierta.
+      emitServicioEliminado(id)
+
       reply.send({
         success: true,
         message: 'Servicio eliminado exitosamente'
@@ -237,9 +253,14 @@ export const ServiciosController = {
     try {
       const { id } = request.params
       const data = cambiarEstadoSchema.parse(request.body)
-      
+
+      /// Se lee antes de cambiarlo porque el payload lleva `estadoAnterior` y
+      /// después ya no hay forma de saberlo.
+      const previo = await ServiciosService.findById(id)
       const servicio = await ServiciosService.cambiarEstado(id, data)
-      
+
+      emitServicioEstadoActualizado(servicio, (previo as any)?.estado ?? '')
+
       reply.send({
         success: true,
         message: `Estado del servicio cambiado a: ${data.estado}`,
@@ -270,7 +291,9 @@ export const ServiciosController = {
       const { observaciones } = request.body as { observaciones?: string }
       
       const servicio = await ServiciosService.cancelar(id, observaciones)
-      
+
+      emitServicioCancelado(servicio)
+
       reply.send({
         success: true,
         message: 'Servicio cancelado exitosamente',
@@ -293,7 +316,9 @@ export const ServiciosController = {
       const data = asignarPlanillaSchema.parse(request.body)
       
       const servicio = await ServiciosService.asignarNumeroPlanilla(id, data)
-      
+
+      emitServicioNumeroPlanillaActualizado(id, servicio)
+
       reply.send({
         success: true,
         message: 'Número de planilla asignado exitosamente',

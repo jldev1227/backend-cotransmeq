@@ -41,8 +41,8 @@ export const ClientesService = {
       include: {
         _count: {
           select: {
-            recargos: true,
-            pernotes: true,
+            recargos: { where: { deleted_at: null } },
+            pernotes: { where: { deleted_at: null } },
             servicio: true,
           }
         }
@@ -85,8 +85,8 @@ export const ClientesService = {
         include: {
           _count: {
             select: {
-              recargos: true,
-              pernotes: true,
+              recargos: { where: { deleted_at: null } },
+              pernotes: { where: { deleted_at: null } },
               servicio: true,
             }
           }
@@ -117,10 +117,12 @@ export const ClientesService = {
       },
       include: {
         recargos: {
+          where: { deleted_at: null },
           orderBy: { created_at: 'desc' },
           take: 5,
         },
         pernotes: {
+          where: { deleted_at: null },
           orderBy: { created_at: 'desc' },
           take: 5,
         },
@@ -162,8 +164,8 @@ export const ClientesService = {
         },
         _count: {
           select: {
-            recargos: true,
-            pernotes: true,
+            recargos: { where: { deleted_at: null } },
+            pernotes: { where: { deleted_at: null } },
             servicio: true,
           }
         }
@@ -214,8 +216,8 @@ export const ClientesService = {
       include: {
         _count: {
           select: {
-            recargos: true,
-            pernotes: true,
+            recargos: { where: { deleted_at: null } },
+            pernotes: { where: { deleted_at: null } },
           }
         }
       }
@@ -292,8 +294,8 @@ export const ClientesService = {
         include: {
           _count: {
             select: {
-              recargos: true,
-              pernotes: true,
+              recargos: { where: { deleted_at: null } },
+              pernotes: { where: { deleted_at: null } },
             }
           }
         }
@@ -390,8 +392,8 @@ export const ClientesService = {
         include: {
           _count: {
             select: {
-              recargos: true,
-              pernotes: true,
+              recargos: { where: { deleted_at: null } },
+              pernotes: { where: { deleted_at: null } },
               servicio: true,
             }
           }
@@ -424,8 +426,8 @@ export const ClientesService = {
       include: {
         _count: {
           select: {
-            recargos: true,
-            pernotes: true,
+            recargos: { where: { deleted_at: null } },
+            pernotes: { where: { deleted_at: null } },
             servicio: true,
           }
         }

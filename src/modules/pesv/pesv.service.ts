@@ -78,12 +78,14 @@ export class PesvService {
       `,
       prisma.servicio.count({
         where: {
+          deleted_at: null,
           fecha_solicitud: { gte: startDate, lte: endDate },
           estado: { not: 'cancelado' },
         }
       }),
       prisma.servicio.count({
         where: {
+          deleted_at: null,
           fecha_solicitud: { gte: startDate, lte: endDate },
           estado: 'realizado',
         }

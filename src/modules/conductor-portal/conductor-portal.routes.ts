@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
@@ -205,6 +206,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         const liquidaciones = await prisma.liquidaciones.findMany({
           where: {
+            deleted_at: null,
             conductor_id: conductor.id,
             desprendible_visible: true
           },
@@ -462,7 +464,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // Verificar que la liquidación pertenece al conductor
         const liq = await prisma.liquidaciones.findFirst({
-          where: { id, conductor_id: conductor.id },
+          where: { deleted_at: null, id, conductor_id: conductor.id },
           select: { id: true }
         })
 
@@ -625,7 +627,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // 1. Verificar que la liquidación pertenece al conductor
         const liq = await prisma.liquidaciones.findFirst({
-          where: { id, conductor_id: conductor.id },
+          where: { deleted_at: null, id, conductor_id: conductor.id },
           select: { id: true }
         })
 
@@ -1173,7 +1175,9 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         const conductor = (request as any).conductorPortal
         const { mes, desde, hasta } = request.query as any
 
-        const where: any = { conductor_id: conductor.id }
+        /// `deleted_at: null`: los días que el conductor retiró no deben
+        /// volver a aparecer en su propio calendario.
+        const where: any = { conductor_id: conductor.id, deleted_at: null }
         if (mes) {
           const [year, month] = mes.split('-').map(Number)
           const start = new Date(year, month - 1, 1)
@@ -1339,12 +1343,12 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         const { fecha } = request.params
         const fechaDate = new Date(fecha + 'T00:00:00.000Z')
 
-        const registro = await prisma.registro_dia_laboral.findUnique({
+        const registro = await prisma.registro_dia_laboral.findFirst({
           where: {
-            conductor_id_fecha: {
-              conductor_id: conductor.id,
-              fecha: fechaDate
-            }
+            conductor_id: conductor.id,
+            fecha: fechaDate,
+            /// Un día ya retirado se trata como inexistente.
+            deleted_at: null
           }
         })
 
@@ -1352,7 +1356,14 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           return reply.status(404).send({ success: false, message: 'Registro no encontrado' })
         }
 
-        await prisma.registro_dia_laboral.delete({ where: { id: registro.id } })
+        /// Se MARCA, no se borra.
+        ///
+        /// Aquí quien acciona es el conductor desde su portal, no un
+        /// administrador: era el único sitio donde un usuario final destruía
+        /// de forma irreversible un registro con sus segmentos y sus bonos —y
+        /// los bonos llevan `valor`—. Ahora se puede reconstruir qué había, y
+        /// volver a registrar el día lo revive por el `upsert`.
+        await retirarDiaLaboral(registro.id)
 
         // Notificar a dashboards en tiempo real
         try {
@@ -1433,6 +1444,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         const servicios = await prisma.servicio.findMany({
           where: {
+            deleted_at: null,
             conductor_id: conductor.id,
             estado: { in: estadosFiltro as any }
           },
@@ -1531,6 +1543,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         const servicio = await prisma.servicio.findFirst({
           where: {
+            deleted_at: null,
             id,
             conductor_id: conductor.id
           },

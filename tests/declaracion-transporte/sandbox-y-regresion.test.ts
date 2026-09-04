@@ -5,7 +5,7 @@
  * `sandbox` no pueda activarse en producción y que redirija sin usar BCC.
  *
  * El bloque de regresión comprueba que agregar el quinto formato no cambió
- * nada de GC-FR-04, GC-FR-05, GC-FR-06 ni SLFT-PTEE-FR-12.
+ * nada de SLFT-PTEE-FR-04, SLFT-PTEE-FR-05, SLFT-PTEE-FR-06 ni SLFT-PTEE-FR-12.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -138,13 +138,13 @@ describe('Modo sandbox de correo', () => {
 })
 
 describe('No regresión de los cuatro formatos existentes', () => {
-  const EXISTENTES = ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12'] as const
+  const EXISTENTES = ['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06', 'SLFT-PTEE-FR-12'] as const
 
   it('siguen registrados, con su tipo y categoría intactos', () => {
     const esperado: Record<string, { tipo: string; categoria: string }> = {
-      'GC-FR-04': { tipo: 'cliente_proveedor', categoria: 'sarlaft' },
-      'GC-FR-05': { tipo: 'accionistas', categoria: 'sarlaft' },
-      'GC-FR-06': { tipo: 'personal', categoria: 'sarlaft' },
+      'SLFT-PTEE-FR-04': { tipo: 'cliente_proveedor', categoria: 'sarlaft' },
+      'SLFT-PTEE-FR-05': { tipo: 'accionistas', categoria: 'sarlaft' },
+      'SLFT-PTEE-FR-06': { tipo: 'personal', categoria: 'sarlaft' },
       'SLFT-PTEE-FR-12': { tipo: 'autorizacion_propietario', categoria: 'individual' }
     }
     for (const codigo of EXISTENTES) {
@@ -157,7 +157,7 @@ describe('No regresión de los cuatro formatos existentes', () => {
 
   it('el catálogo público sigue devolviendo exactamente tres formularios', () => {
     const publicos = listarFormularios('sarlaft').map((f) => f.codigo).sort()
-    expect(publicos).toEqual(['GC-FR-04', 'GC-FR-05', 'GC-FR-06'])
+    expect(publicos).toEqual(['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06'])
   })
 
   it('los formatos individuales solo se alcanzan por código', () => {
@@ -175,9 +175,9 @@ describe('No regresión de los cuatro formatos existentes', () => {
     // Cifras congeladas: si un cambio futuro las mueve, es una regresión que
     // hay que justificar, no un detalle.
     expect(conteos).toEqual({
-      'GC-FR-04': [16, 76],
-      'GC-FR-05': [10, 39],
-      'GC-FR-06': [6, 25],
+      'SLFT-PTEE-FR-04': [16, 76],
+      'SLFT-PTEE-FR-05': [10, 39],
+      'SLFT-PTEE-FR-06': [6, 25],
       'SLFT-PTEE-FR-12': [12, 72]
     })
   })
@@ -222,7 +222,7 @@ describe('No regresión de los cuatro formatos existentes', () => {
     })
     expect(r.success).toBe(true)
     const invalido = submitFormularioSarlaftSchema.safeParse({
-      codigo_formulario: 'GC-FR-99',
+      codigo_formulario: 'SLFT-PTEE-FR-99',
       respuestas: {}
     })
     expect(invalido.success).toBe(false)

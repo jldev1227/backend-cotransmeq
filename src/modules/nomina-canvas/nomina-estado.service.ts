@@ -135,8 +135,8 @@ export const NominaEstadoService = {
       );
     }
 
-    const actual = await prisma.liquidaciones.findUnique({
-      where: { id },
+    const actual = await prisma.liquidaciones.findFirst({
+      where: { deleted_at: null, id },
       select: { id: true, estado_flujo: true, version: true, conductor_id: true },
     });
     if (!actual) {
@@ -194,8 +194,8 @@ export const NominaEstadoService = {
       });
 
       if (gano.count === 0) {
-        const server = await tx.liquidaciones.findUnique({
-          where: { id },
+        const server = await tx.liquidaciones.findFirst({
+          where: { deleted_at: null, id },
           select: { estado_flujo: true, version: true },
         });
         throw new ErrorEstadoNomina(

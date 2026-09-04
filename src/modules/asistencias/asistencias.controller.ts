@@ -165,13 +165,19 @@ export class AsistenciasController {
 
       const formulario = await AsistenciasService.actualizar(id, body)
 
-      // Determinar el tipo de cambio para el evento socket
-      const eventType = body.activo === false ? 'disabled' : 'updated'
+      /// El nombre va como literal y no interpolado (antes era
+      /// `` `asistencias:formulario:${eventType}` ``): un evento construido en
+      /// tiempo de ejecución no aparece al buscar quién lo emite, ni puede
+      /// declararse en el contrato que comprueba emisor contra receptor.
+      const evento =
+        body.activo === false
+          ? 'asistencias:formulario:disabled'
+          : 'asistencias:formulario:updated'
 
       // Emitir evento socket para notificar actualización
       try {
         const io = getIo()
-        io.emit(`asistencias:formulario:${eventType}`, {
+        io.emit(evento, {
           formulario,
           timestamp: new Date().toISOString()
         })

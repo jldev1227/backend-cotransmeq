@@ -513,8 +513,10 @@ export const CierreFinalCeldasService = {
         // Va a `liquidacion_tercero`, no al pivote. Se relee el
         // `total_facturado` DENTRO de la transacción para derivar sobre el
         // valor vigente y no sobre el que traía el cliente.
-        const fila = await tx.liquidacion_tercero.findUnique({
-          where: { id: pivote.liquidacion_tercero_id },
+        /// `findFirst` con filtro: una fila marcada no debe alimentar el
+        /// cierre. `findUnique` la habría devuelto igual.
+        const fila = await tx.liquidacion_tercero.findFirst({
+          where: { id: pivote.liquidacion_tercero_id, deleted_at: null },
           select: { id: true, total_facturado: true },
         });
         if (!fila) {

@@ -2,6 +2,11 @@ import { FastifyReply, FastifyRequest } from 'fastify'
 import { VehiculosService } from './vehiculos.service'
 import { createVehiculoSchema, updateVehiculoSchema } from './vehiculos.schema'
 import { getIo } from '../../sockets'
+import {
+  emitVehiculoCreado,
+  emitVehiculoActualizado,
+  emitVehiculoEliminado
+} from './vehiculos.events'
 
 interface VehiculoParams {
   id: string
@@ -12,6 +17,8 @@ export const VehiculosController = {
     try {
       const data = createVehiculoSchema.parse(request.body)
       const vehiculo = await VehiculosService.create(data)
+
+      emitVehiculoCreado(vehiculo)
       
       console.log('🚗 [VehiculosController] Vehículo creado:', vehiculo)
       
@@ -64,6 +71,8 @@ export const VehiculosController = {
       
       const vehiculo = await VehiculosService.update(id, data)
 
+      emitVehiculoActualizado(vehiculo)
+
       reply.send({
         success: true,
         message: 'Vehículo actualizado exitosamente',
@@ -84,6 +93,8 @@ export const VehiculosController = {
     try {
       const { id } = request.params
       await VehiculosService.delete(id)
+
+      emitVehiculoEliminado(id)
       reply.send({
         success: true,
         message: 'Vehículo eliminado exitosamente'

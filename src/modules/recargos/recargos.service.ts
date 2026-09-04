@@ -1359,8 +1359,28 @@ export const RecargosService = {
 
     // 3c. Días laborales — reemplazar en bulk con snapshots
     if (data.dias_laborales && data.dias_laborales.length > 0) {
-      // DELETE existentes (cascade elimina detalles)
-      await tx.dias_laborales_planillas.deleteMany({ where: { recargo_planilla_id: id } });
+      // Se MARCAN los anteriores, no se borran.
+      //
+      // Antes esto era un `deleteMany` cuya cascada arrastraba también los
+      // detalles: cada edición de una planilla destruía la anterior sin dejar
+      // rastro, sobre dos tablas que YA tenían `deleted_at` y quince lecturas
+      // que ya lo filtraban. Es el mismo patrón que se llevó por delante los
+      // ítems de las liquidaciones.
+      //
+      // Los detalles van primero y explícitamente: al no borrar el día, la
+      // cascada ya no se dispara y quedarían colgando de un día retirado.
+      const ahoraBorrado = new Date();
+      await tx.detalles_recargos_dias.updateMany({
+        where: {
+          deleted_at: null,
+          dias_laborales_planillas: { recargo_planilla_id: id }
+        },
+        data: { deleted_at: ahoraBorrado }
+      });
+      await tx.dias_laborales_planillas.updateMany({
+        where: { recargo_planilla_id: id, deleted_at: null },
+        data: { deleted_at: ahoraBorrado }
+      });
 
       // Mes/año efectivos (pueden venir en el update o quedarse igual)
       const mesEfectivo = data.mes ?? recargoExistente.mes;
@@ -1605,8 +1625,12 @@ export const RecargosService = {
     if (planillaCompleta) {
       const diasIds = planillaCompleta.dias_laborales_planillas.map((d) => d.id);
       if (diasIds.length > 0) {
-        await prisma.detalles_recargos_dias.deleteMany({
-          where: { dia_laboral_id: { in: diasIds } }
+        /// Se marcan, no se borran: este recálculo corre sobre planillas ya
+        /// guardadas y destruía los detalles anteriores en cada pasada. La
+        /// tabla ya tenía `deleted_at` y las lecturas ya lo filtraban.
+        await prisma.detalles_recargos_dias.updateMany({
+          where: { dia_laboral_id: { in: diasIds }, deleted_at: null },
+          data: { deleted_at: new Date() }
         });
       }
 

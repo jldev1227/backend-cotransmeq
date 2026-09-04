@@ -231,13 +231,14 @@ export function registerLiquidacionTerceroGateway(io: IOServer) {
                   );
                   
                   // 1. Borrar AUTO IMPUESTOS (los regenera recalcular).
-                  await tx.liquidacion_tercero_final_concepto.deleteMany({
+                  await tx.liquidacion_tercero_final_concepto.updateMany({
                     where: {
                       liquidacion_tercero_final_id: cierreId,
                       tipo: 'IMPUESTO',
                       deleted_at: null,
                       calculado: true,
                     },
+                    data: { deleted_at: new Date() },
                   });
                   
                   // 2. Upsert manual IMPUESTOS del frontend (preserva id).
@@ -259,12 +260,13 @@ export function registerLiquidacionTerceroGateway(io: IOServer) {
                   }
                   
                   // 3. Borrar non-impuesto (reemplaza con los del frontend).
-                  await tx.liquidacion_tercero_final_concepto.deleteMany({
+                  await tx.liquidacion_tercero_final_concepto.updateMany({
                     where: {
                       liquidacion_tercero_final_id: cierreId,
                       deleted_at: null,
                       tipo: { not: 'IMPUESTO' },
                     },
+                    data: { deleted_at: new Date() },
                   });
                   
                   // 4. Crear non-impuesto del frontend.
@@ -282,11 +284,12 @@ export function registerLiquidacionTerceroGateway(io: IOServer) {
                   console.log(
                     `[lt-collab] single: deleting all conceptos for cierreId=${cierreId}`
                   );
-                  await tx.liquidacion_tercero_final_concepto.deleteMany({
+                  await tx.liquidacion_tercero_final_concepto.updateMany({
                     where: {
                       liquidacion_tercero_final_id: cierreId,
                       deleted_at: null,
                     },
+                    data: { deleted_at: new Date() },
                   });
 
                   if (dataRows.length > 0) {

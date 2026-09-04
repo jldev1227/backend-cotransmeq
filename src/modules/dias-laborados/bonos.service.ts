@@ -35,6 +35,11 @@ export const BonosService = {
 			where.registro_dia.conductor_id = conductor_id
 		}
 
+		/// `deleted_at: null` NO es opcional aquí: los bonos llevan `valor` y
+		/// esta consulta es la que alimenta lo que se paga. Un bono marcado que
+		/// se colara seguiría sumando.
+		where.deleted_at = null
+
 		const bonos = await prisma.registro_dia_laboral_bono.findMany({
 			where,
 			include: {
@@ -112,10 +117,16 @@ export const BonosService = {
 
 		await prisma.$transaction(
 			async (tx) => {
-			// 1) Eliminar los bonos que el usuario desmarcó
+			// 1) Retirar los bonos que el usuario desmarcó
+			//
+			//    Se MARCAN, no se borran. Antes desaparecían sin rastro: si
+			//    alguien desmarcaba un bono por error, no había forma de saber
+			//    cuál era ni cuánto valía. Todas las lecturas filtran por
+			//    `deleted_at IS NULL`, así que el efecto visible es el mismo.
 			if (eliminar.length > 0) {
-				const result = await tx.registro_dia_laboral_bono.deleteMany({
-					where: { id: { in: eliminar } }
+				const result = await tx.registro_dia_laboral_bono.updateMany({
+					where: { id: { in: eliminar }, deleted_at: null },
+					data: { deleted_at: new Date() }
 				})
 				deleted = result.count
 			}
@@ -229,8 +240,13 @@ export const BonosService = {
 	// ─────────────────────────────────────────────
 	async eliminar(id: string) {
 		const bono = await prisma.registro_dia_laboral_bono.findUnique({ where: { id } })
-		if (!bono) throw { statusCode: 404, message: 'Bono no encontrado' }
-		await prisma.registro_dia_laboral_bono.delete({ where: { id } })
+		/// Un bono ya marcado se trata como inexistente: quien lo pida otra vez
+		/// debe recibir 404, no un 200 que sugiera que se borró dos veces.
+		if (!bono || bono.deleted_at) throw { statusCode: 404, message: 'Bono no encontrado' }
+		await prisma.registro_dia_laboral_bono.update({
+			where: { id },
+			data: { deleted_at: new Date() }
+		})
 		return { id, message: 'Bono eliminado' }
 	}
 }

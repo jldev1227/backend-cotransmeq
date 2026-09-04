@@ -279,8 +279,8 @@ class EnvioNominaQueueService {
       if (signal.aborted) return;
       const item = payload.items[i];
 
-      const liq = await prisma.liquidaciones.findUnique({
-        where: { id: item.liquidacion_id },
+      const liq = await prisma.liquidaciones.findFirst({
+        where: { deleted_at: null, id: item.liquidacion_id },
         include: {
           conductores: {
             select: { id: true, nombre: true, apellido: true, email: true },

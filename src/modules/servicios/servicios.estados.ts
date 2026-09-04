@@ -80,6 +80,8 @@ async function recursoTieneOtrosServiciosActivos(
 ): Promise<boolean> {
   const count = await prisma.servicio.count({
     where: {
+      /// Un servicio retirado no puede seguir bloqueando un recurso.
+      deleted_at: null,
       [recurso]: recursoId,
       id: { not: servicioActualId },
       estado: { in: ESTADOS_QUE_BLOQUEAN_RECURSO as any }
@@ -150,6 +152,7 @@ async function liberarRecursos(
   if (conductorIdAnterior) {
     const tieneOtros = await tx.servicio.count({
       where: {
+        deleted_at: null,
         conductor_id: conductorIdAnterior,
         id: { not: servicioId },
         estado: { in: ESTADOS_QUE_BLOQUEAN_RECURSO as any }
@@ -174,6 +177,7 @@ async function liberarRecursos(
   if (vehiculoIdAnterior) {
     const tieneOtros = await tx.servicio.count({
       where: {
+        deleted_at: null,
         vehiculo_id: vehiculoIdAnterior,
         id: { not: servicioId },
         estado: { in: ESTADOS_QUE_BLOQUEAN_RECURSO as any }
@@ -230,6 +234,7 @@ export async function aplicarEfectosColaterales(
       if (conductorIdNuevo && !ESTADOS_TERMINALES.includes(estadoNuevo)) {
         const tieneOtros = await tx.servicio.count({
           where: {
+            deleted_at: null,
             conductor_id: conductorIdNuevo,
             id: { not: servicioId },
             estado: { in: ESTADOS_QUE_BLOQUEAN_RECURSO as any }
@@ -252,6 +257,7 @@ export async function aplicarEfectosColaterales(
       if (vehiculoIdNuevo && !ESTADOS_TERMINALES.includes(estadoNuevo)) {
         const tieneOtros = await tx.servicio.count({
           where: {
+            deleted_at: null,
             vehiculo_id: vehiculoIdNuevo,
             id: { not: servicioId },
             estado: { in: ESTADOS_QUE_BLOQUEAN_RECURSO as any }

@@ -194,7 +194,7 @@ async function obtenerServiciosCandidatos(): Promise<ServicioCandidato[]> {
   if (porServicio.size === 0) return []
 
   const servicios = await prisma.servicio.findMany({
-    where: { id: { in: Array.from(porServicio.keys()) } },
+    where: { id: { in: Array.from(porServicio.keys()) }, deleted_at: null },
     select: { id: true, estado: true }
   })
   const estadosMap = new Map(servicios.map((s) => [s.id, s.estado]))
@@ -318,7 +318,7 @@ export async function ejecutarCierreServiciosConPlanilla(
   // Cargar fecha_finalizacion actual para no pisar si ya está
   const ids = aProcesar.map((r) => r.servicioId)
   const serviciosActuales = await prisma.servicio.findMany({
-    where: { id: { in: ids } },
+    where: { id: { in: ids }, deleted_at: null },
     select: { id: true, fecha_finalizacion: true }
   })
   const fechaMap = new Map(serviciosActuales.map((s) => [s.id, s.fecha_finalizacion]))

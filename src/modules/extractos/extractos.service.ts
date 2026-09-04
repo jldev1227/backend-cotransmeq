@@ -113,6 +113,33 @@ function parseExtractosFile(): ExtractoHistorico[] {
   return extractos
 }
 
+/**
+ * ¿Esto que salió del archivo parece el nombre de una persona?
+ *
+ * `sincronizar()` CREA un conductor por cada nombre que no encuentre en la base,
+ * y corre en cada carga de la página. Sin este filtro, una celda mal parseada se
+ * convierte en una fila permanente: en la base de producción de Transmeralda
+ * hay once conductores con identificación `EXT-<timestamp>`, y uno de ellos se
+ * llama literalmente «0» y no tiene apellido. Salió de una línea de
+ * `extractos.txt` cuya columna de conductor traía un cero.
+ *
+ * El criterio es deliberadamente laxo —hay nombres cortos y con partículas—:
+ * solo se rechaza lo que NO puede ser un nombre. Basta con eso para que la
+ * basura no vuelva a entrar.
+ */
+export function pareceNombreDePersona(valor: string | null | undefined): boolean {
+  if (!valor) return false
+  const limpio = valor.trim()
+  if (limpio.length < 3) return false
+  /// El relleno que usa el archivo cuando no hay conductor.
+  if (/^#+$/.test(limpio)) return false
+  /// Sin una sola letra no es un nombre: cubre «0», «---», «N/A» numérico.
+  if (!/\p{L}/u.test(limpio)) return false
+  /// Marcadores habituales de celda vacía.
+  if (/^(n\/?a|na|sin|null|none|ninguno|-+)$/i.test(limpio)) return false
+  return true
+}
+
 export const ExtractosService = {
   async getAll(query: {
     page?: number
@@ -325,7 +352,7 @@ export const ExtractosService = {
 
       // Conductores
       for (const condName of [e.conductor_1, e.conductor_2, e.conductor_3]) {
-        if (condName && condName !== '##########' && condName.trim()) {
+        if (pareceNombreDePersona(condName)) {
           const norm = normalizeString(condName)
           if (!uniqueConductoresRaw.has(norm)) {
             uniqueConductoresRaw.set(norm, condName.trim())

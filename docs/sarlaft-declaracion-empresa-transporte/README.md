@@ -31,7 +31,7 @@ Los proyectos son independientes. No se debe asumir que desplegar o modificar el
 
 El flujo actual ya ofrece:
 
-- definiciones dinámicas para `GC-FR-04`, `GC-FR-05`, `GC-FR-06` y `SLFT-PTEE-FR-12`;
+- definiciones dinámicas para `SLFT-PTEE-FR-04`, `SLFT-PTEE-FR-05`, `SLFT-PTEE-FR-06` y `SLFT-PTEE-FR-12`;
 - rutas públicas `GET` de definición/contacto/documentos y un `POST multipart` común;
 - validación de obligatorios, firma canvas, adjuntos, radicado y snapshot JSON;
 - almacenamiento de anexos con SHA-256;

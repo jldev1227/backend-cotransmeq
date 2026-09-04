@@ -59,7 +59,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
           properties: {
             codigo: {
               type: 'string',
-              enum: ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12', 'GC-FOR-13']
+              enum: ['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06', 'SLFT-PTEE-FR-12', 'GC-FOR-13']
             }
           },
           required: ['codigo']

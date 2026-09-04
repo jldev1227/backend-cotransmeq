@@ -61,6 +61,9 @@ export const FacturacionLiquidacionesService = {
     // es en qué factura está, no que le falta un estado.
     const yaFacturadas = await prisma.factura_liquidacion_item.findMany({
       where: {
+        /// Solo pivotes vivos: uno archivado significa que esa liquidación se
+        /// sacó de su factura y vuelve a ser facturable.
+        deleted_at: null,
         liquidacion_id: { in: liquidacion_ids },
         factura: { estado: "ACTIVA" },
       },
@@ -530,6 +533,7 @@ export const FacturacionLiquidacionesService = {
     // correcto cuando lo que necesita saber es en qué factura está ya.
     const yaFacturadas = await prisma.factura_liquidacion_item.findMany({
       where: {
+        deleted_at: null,
         liquidacion_id: { in: liquidacionIds },
         factura: { estado: "ACTIVA" },
       },
@@ -597,7 +601,10 @@ export const FacturacionLiquidacionesService = {
       });
 
       const agg = await tx.factura_liquidacion_item.aggregate({
-        where: { factura_id: facturaId },
+        /// Solo los pivotes activos: al marcar en vez de borrar, incluir los
+        /// archivados sumaría dos veces la misma liquidación al total de la
+        /// factura.
+        where: { factura_id: facturaId, deleted_at: null },
         _sum: { valor_liquidacion: true },
       });
 
@@ -642,12 +649,14 @@ export const FacturacionLiquidacionesService = {
       );
     }
 
-    const item = await prisma.factura_liquidacion_item.findUnique({
+    /// `findFirst` con filtro: con la unicidad ya parcial, `findUnique` sobre
+    /// la clave compuesta podría devolver un pivote archivado de una
+    /// facturación anterior.
+    const item = await prisma.factura_liquidacion_item.findFirst({
       where: {
-        factura_id_liquidacion_id: {
-          factura_id: facturaId,
-          liquidacion_id: liquidacionId,
-        },
+        factura_id: facturaId,
+        liquidacion_id: liquidacionId,
+        deleted_at: null,
       },
       include: { liquidacion: { select: { consecutivo: true, estado: true } } },
     });
@@ -656,13 +665,19 @@ export const FacturacionLiquidacionesService = {
     }
 
     const actualizada = await prisma.$transaction(async (tx) => {
-      await tx.factura_liquidacion_item.delete({
+      /// Se MARCA, no se borra.
+      ///
+      /// La tabla recibió `deleted_at` con la migración de liquidaciones, y su
+      /// unicidad `(factura_id, liquidacion_id)` ya es PARCIAL —solo sobre
+      /// filas activas—, justo para que quitar una liquidación de una factura
+      /// y volver a añadirla más tarde no choque contra el pivote archivado.
+      await tx.factura_liquidacion_item.updateMany({
         where: {
-          factura_id_liquidacion_id: {
-            factura_id: facturaId,
-            liquidacion_id: liquidacionId,
-          },
+          factura_id: facturaId,
+          liquidacion_id: liquidacionId,
+          deleted_at: null,
         },
+        data: { deleted_at: new Date() },
       });
 
       // Solo se revierte si sigue FACTURADA: si alguien la anuló por otra
@@ -683,7 +698,10 @@ export const FacturacionLiquidacionesService = {
       });
 
       const agg = await tx.factura_liquidacion_item.aggregate({
-        where: { factura_id: facturaId },
+        /// Solo los pivotes activos: al marcar en vez de borrar, incluir los
+        /// archivados sumaría dos veces la misma liquidación al total de la
+        /// factura.
+        where: { factura_id: facturaId, deleted_at: null },
         _sum: { valor_liquidacion: true },
       });
 
@@ -716,6 +734,7 @@ export const FacturacionLiquidacionesService = {
   async obtenerFacturaDeLiquidacion(liquidacionId: string) {
     const item = await prisma.factura_liquidacion_item.findFirst({
       where: {
+        deleted_at: null,
         liquidacion_id: liquidacionId,
         factura: { estado: "ACTIVA" },
       },
@@ -739,6 +758,7 @@ export const FacturacionLiquidacionesService = {
   async obtenerFacturasDeLiquidaciones(liquidacionIds: string[]) {
     const items = await prisma.factura_liquidacion_item.findMany({
       where: {
+        deleted_at: null,
         liquidacion_id: { in: liquidacionIds },
         factura: { estado: "ACTIVA" },
       },
@@ -831,7 +851,7 @@ async function metadataFacturas(where: any) {
       _count: { _all: true },
       _sum: { valor_total: true },
     }),
-    prisma.factura_liquidacion_item.count({ where: { factura: where } }),
+    prisma.factura_liquidacion_item.count({ where: { factura: where, deleted_at: null } }),
   ]);
 
   const estadoCounts: Record<string, number> = {};

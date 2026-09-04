@@ -134,8 +134,8 @@ export const NominaPatchService = {
     }
     const valor = normalizar(campo, params.valor);
 
-    const actual = await prisma.liquidaciones.findUnique({
-      where: { id: liquidacionId },
+    const actual = await prisma.liquidaciones.findFirst({
+      where: { deleted_at: null, id: liquidacionId },
       select: { id: true, version: true, estado_flujo: true, conductor_id: true },
     });
     if (!actual) throw new PatchNominaError('Liquidación no encontrada.', 'NO_ENCONTRADO');
@@ -161,8 +161,8 @@ export const NominaPatchService = {
     });
 
     if (gano.count === 0) {
-      const server = await prisma.liquidaciones.findUnique({
-        where: { id: liquidacionId },
+      const server = await prisma.liquidaciones.findFirst({
+        where: { deleted_at: null, id: liquidacionId },
         select: { version: true, estado_flujo: true, [campo]: true } as any,
       });
       throw new ConflictoVersionNomina(
@@ -188,13 +188,13 @@ export const NominaPatchService = {
    * desactualizado podía dejar una liquidación descuadrada en la base.
    */
   async recalcularYGuardar(liquidacionId: string, actorId?: string | null) {
-    const l = await prisma.liquidaciones.findUnique({
-      where: { id: liquidacionId },
+    const l = await prisma.liquidaciones.findFirst({
+      where: { deleted_at: null, id: liquidacionId },
       include: {
-        bonificaciones: true,
-        pernotes: true,
-        anticipos: true,
-        recargos: true,
+        bonificaciones: { where: { deleted_at: null } },
+        pernotes: { where: { deleted_at: null } },
+        anticipos: { where: { deleted_at: null } },
+        recargos: { where: { deleted_at: null } },
         conductores: { select: { id: true, salario_base: true } },
       },
     });

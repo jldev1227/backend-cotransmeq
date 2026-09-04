@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { AsistenciasService } from '../src/modules/asistencias/asistencias.service'
 import { prisma } from './setup'
 import type { CreateFormularioAsistenciaInput, UpdateFormularioAsistenciaInput } from '../src/modules/asistencias/asistencias.schema'
+import { randomUUID } from 'node:crypto'
 
 describe('Asistencias - Formularios CRUD', () => {
   let testUserId: string
@@ -17,10 +18,16 @@ describe('Asistencias - Formularios CRUD', () => {
       where: { correo: 'test@asistencias.com' },
       update: {},
       create: {
+        /// `usuarios.id` no tiene @default en el schema: Prisma exige darlo
+        /// explícitamente o el create falla con «Argument `id` is missing».
+        id: randomUUID(),
         nombre: 'Test User',
         correo: 'test@asistencias.com',
         password: 'hashedpassword123',
-        role: 'admin'
+        role: 'admin',
+        /// created_at y updated_at tampoco tienen @default en el schema.
+        created_at: new Date(),
+        updated_at: new Date()
       }
     })
     testUserId = testUser.id

@@ -100,13 +100,23 @@ export const LiquidacionesTercerosService = {
       };
     });
 
+    /// Se MARCAN los anteriores, no se borran.
+    ///
+    /// Este `deleteMany` + `createMany` en cada guardado es el mismo patrón que
+    /// destruyó los ítems de las liquidaciones de servicios, sobre una tabla
+    /// que ya tenía `deleted_at`. No hay unicidad por `(liquidacion_id, …)`,
+    /// así que las filas marcadas conviven con las nuevas sin chocar; lo que
+    /// hace falta es que TODA lectura filtre, y eso es lo que se arregló aquí.
     await prisma.$transaction([
-      prisma.liquidacion_tercero.deleteMany({ where: { liquidacion_id: liquidacionId } }),
+      prisma.liquidacion_tercero.updateMany({
+        where: { liquidacion_id: liquidacionId, deleted_at: null },
+        data: { deleted_at: new Date() },
+      }),
       prisma.liquidacion_tercero.createMany({ data: itemsData }),
     ]);
 
     const created = await prisma.liquidacion_tercero.findMany({
-      where: { liquidacion_id: liquidacionId },
+      where: { liquidacion_id: liquidacionId, deleted_at: null },
       include: {
         tercero: { select: { id: true, nombre_completo: true, identificacion: true, tipo_persona: true } },
         item: { select: { id: true, numero_planilla: true } },
@@ -122,7 +132,7 @@ export const LiquidacionesTercerosService = {
    */
   async obtenerPorLiquidacion(liquidacionId: string) {
     const items = await prisma.liquidacion_tercero.findMany({
-      where: { liquidacion_id: liquidacionId },
+      where: { liquidacion_id: liquidacionId, deleted_at: null },
       include: {
         tercero: { select: { id: true, nombre_completo: true, identificacion: true, tipo_persona: true } },
         item: { select: { id: true, numero_planilla: true } },
@@ -141,7 +151,11 @@ export const LiquidacionesTercerosService = {
     const limit = Number(filtros.limit) || 50;
     const skip = (page - 1) * limit;
 
+    /// `deleted_at: null` en el propio ítem, no solo en su liquidación: desde
+    /// que el guardado marca en vez de borrar, las versiones anteriores siguen
+    /// en la tabla y sin esto aparecerían duplicadas en el historial.
     const where: any = {
+      deleted_at: null,
       liquidacion: { deleted_at: null },
     };
 
@@ -235,7 +249,9 @@ export const LiquidacionesTercerosService = {
       if (!rd?.terceroRows || !Array.isArray(rd.terceroRows) || rd.terceroRows.length === 0) continue;
 
       // Check if already migrated
-      const existing = await prisma.liquidacion_tercero.count({ where: { liquidacion_id: liq.id } });
+      const existing = await prisma.liquidacion_tercero.count({
+        where: { liquidacion_id: liq.id, deleted_at: null },
+      });
       if (existing > 0) continue;
 
       const itemsData = rd.terceroRows.map((t: any, idx: number) => {

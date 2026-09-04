@@ -71,9 +71,9 @@ export interface SeccionDefinicion {
 }
 
 export type CodigoFormulario =
-  | 'GC-FR-04'
-  | 'GC-FR-05'
-  | 'GC-FR-06'
+  | 'SLFT-PTEE-FR-04'
+  | 'SLFT-PTEE-FR-05'
+  | 'SLFT-PTEE-FR-06'
   | 'SLFT-PTEE-FR-12'
   | 'GC-FOR-13'
 
@@ -99,10 +99,10 @@ export interface FormularioDefinicion {
 }
 
 // ──────────────────────────────────────────────────────────
-// GC-FR-06 — FORMATO CONOCIMIENTO PERSONAL
+// SLFT-PTEE-FR-06 — FORMATO CONOCIMIENTO PERSONAL
 // ──────────────────────────────────────────────────────────
 const FORMULARIO_PERSONAL: FormularioDefinicion = {
-  codigo: 'GC-FR-06',
+  codigo: 'SLFT-PTEE-FR-06',
   nombre_formato: 'FORMATO_CONOCIMIENTO_PERSONAL',
   titulo: 'Formulario Vinculación Personal SARLAFT + PTEE',
   version: '001',
@@ -288,10 +288,10 @@ const FORMULARIO_PERSONAL: FormularioDefinicion = {
 }
 
 // ──────────────────────────────────────────────────────────
-// GC-FR-05 — FORMATO CONOCIMIENTO ACCIONISTAS
+// SLFT-PTEE-FR-05 — FORMATO CONOCIMIENTO ACCIONISTAS
 // ──────────────────────────────────────────────────────────
 const FORMULARIO_ACCIONISTAS: FormularioDefinicion = {
-  codigo: 'GC-FR-05',
+  codigo: 'SLFT-PTEE-FR-05',
   nombre_formato: 'FORMATO_CONOCIMIENTO_ACCIONISTAS',
   titulo: 'Formulario Conocimiento Accionistas SARLAFT + PTEE',
   version: '001',
@@ -507,10 +507,10 @@ const FORMULARIO_ACCIONISTAS: FormularioDefinicion = {
 }
 
 // ──────────────────────────────────────────────────────────
-// GC-FR-04 — FORMATO CONOCIMIENTO CLIENTE / PROVEEDOR
+// SLFT-PTEE-FR-04 — FORMATO CONOCIMIENTO CLIENTE / PROVEEDOR
 // ──────────────────────────────────────────────────────────
 const FORMULARIO_CLIENTE_PROVEEDOR: FormularioDefinicion = {
-  codigo: 'GC-FR-04',
+  codigo: 'SLFT-PTEE-FR-04',
   nombre_formato: 'FORMATO_CONOCIMIENTO_CLIENTE_PROVEEDOR',
   titulo: 'Formulario Vinculación Cliente/Proveedor SARLAFT + PTEE',
   version: '001',
@@ -1333,9 +1333,9 @@ const FORMULARIO_DECLARACION_TRANSPORTE: FormularioDefinicion = {
 // Registry público
 // ──────────────────────────────────────────────────────────
 export const FORMULARIOS: Record<string, FormularioDefinicion> = {
-  'GC-FR-04': FORMULARIO_CLIENTE_PROVEEDOR,
-  'GC-FR-05': FORMULARIO_ACCIONISTAS,
-  'GC-FR-06': FORMULARIO_PERSONAL,
+  'SLFT-PTEE-FR-04': FORMULARIO_CLIENTE_PROVEEDOR,
+  'SLFT-PTEE-FR-05': FORMULARIO_ACCIONISTAS,
+  'SLFT-PTEE-FR-06': FORMULARIO_PERSONAL,
   'SLFT-PTEE-FR-12': FORMULARIO_AUTORIZACION_PROPIETARIO,
   'GC-FOR-13': FORMULARIO_DECLARACION_TRANSPORTE
 }
@@ -1364,19 +1364,19 @@ export const TIPOS_FORMULARIO: Array<{
   descripcion: string
 }> = [
   {
-    codigo: 'GC-FR-04',
+    codigo: 'SLFT-PTEE-FR-04',
     tipo: 'cliente_proveedor',
     titulo: 'Cliente / Proveedor',
     descripcion: 'Para personas naturales o jurídicas que contratan servicios de transporte con COTRANSMEQ S.A.S.'
   },
   {
-    codigo: 'GC-FR-05',
+    codigo: 'SLFT-PTEE-FR-05',
     tipo: 'accionistas',
     titulo: 'Accionistas',
     descripcion: 'Para socios o accionistas de COTRANSMEQ S.A.S. Incluye composición accionaria y beneficiario final.'
   },
   {
-    codigo: 'GC-FR-06',
+    codigo: 'SLFT-PTEE-FR-06',
     tipo: 'personal',
     titulo: 'Vinculación de Personal',
     descripcion: 'Para candidatos a vincularse como empleados de COTRANSMEQ S.A.S.'
@@ -1452,7 +1452,7 @@ export interface DocumentoRequerido {
   aplicaA: 'pn' | 'pj' | 'ambos'
   /** Indica si el documento es obligatorio al enviar el formulario.
    *  Por defecto true. En el formulario de Vinculación de Personal
-   *  (GC-FR-06) el RUT y la Cédula de Ciudadanía son obligatorios;
+   *  (SLFT-PTEE-FR-06) el RUT y la Cédula de Ciudadanía son obligatorios;
    *  los demás se muestran como opcionales. */
   obligatorio: boolean
 }

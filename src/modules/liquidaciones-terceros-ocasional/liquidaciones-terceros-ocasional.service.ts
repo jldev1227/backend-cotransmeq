@@ -182,7 +182,9 @@ async function itemsCandidatosOcasional(params: {
 }) {
   const { mes, anio, filtroPlacas = [], filtroTercerosIds = [] } = params;
 
-  const where: any = { liquidacion: { mes, anio } };
+  /// `deleted_at: null` del propio ítem: desde que el guardado marca en vez
+  /// de borrar, las versiones anteriores siguen en la tabla.
+  const where: any = { deleted_at: null, liquidacion: { mes, anio } };
   if (filtroPlacas.length > 0 || filtroTercerosIds.length > 0) {
     where.OR = [
       ...(filtroPlacas.length > 0 ? [{ placa: { in: filtroPlacas } }] : []),
@@ -629,6 +631,7 @@ export const LiquidacionesTercerosOcasionalService = {
 
     const items = await prisma.liquidacion_tercero.findMany({
       where: {
+        deleted_at: null,
         liquidacion: { mes, anio },
         ...(terceros_filtro.length > 0
           ? {
@@ -732,6 +735,7 @@ export const LiquidacionesTercerosOcasionalService = {
     // vive en `liquidacion_servicio.mes/anio`. Filtramos por la relación.
     const items = await prisma.liquidacion_tercero.findMany({
       where: {
+        deleted_at: null,
         liquidacion: { mes, anio },
         ...(q
           ? filtro_tipo === "documento"
@@ -1159,7 +1163,7 @@ export const LiquidacionesTercerosOcasionalService = {
     }
 
     const candidatos = await prisma.liquidacion_tercero.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, deleted_at: null },
       include: {
         tercero: { select: { id: true, nombre_completo: true, identificacion: true } },
         item: { select: { numero_planilla: true } },

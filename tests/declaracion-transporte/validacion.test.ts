@@ -58,7 +58,7 @@ describe('Registro del formato', () => {
 
   it('no altera los cuatro formatos existentes del registro', () => {
     expect(Object.keys(FORMULARIOS).sort()).toEqual(
-      ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12', CODIGO].sort()
+      ['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06', 'SLFT-PTEE-FR-12', CODIGO].sort()
     )
   })
 
