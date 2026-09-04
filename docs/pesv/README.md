@@ -59,6 +59,9 @@ Módulos operativos
 - [Arquitectura backend](README_ARQUITECTURA_BACKEND.md)
 - [Contratos y FUEC](README_CONTRATOS_FUEC.md)
 - [Implementación y QA](README_IMPLEMENTACION_QA.md)
+- [**Lo que se implementó, y en qué difiere del diseño**](README_IMPLEMENTADO.md) —
+  correspondencia real entre esta especificación y el código, decisiones que
+  cambiaron al encontrarse con el esquema, y el procedimiento de migración.
 - [Dashboard frontend](../../../cotransmeq-app/docs/pesv/README_DASHBOARD_FRONTEND.md)
 - [Flujos de usuario](../../../cotransmeq-app/docs/pesv/README_FLUJOS_USUARIO.md)
 
