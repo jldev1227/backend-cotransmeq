@@ -203,9 +203,26 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Adicionales (unificados) de cierres finales de terceros'
   },
 
+  // El módulo dejó de ser un panel de conteos y pasó a ser el expediente de
+  // cumplimiento: aprueba evidencia, declara pasos cumplidos y configura metas.
+  // Por eso deja de ser `general: true` y se gradúa por área.
+  //
+  //  - `full`   HSEQ y Administración: además son los ÚNICOS que pueden
+  //             aprobar o rechazar evidencia. Esa restricción NO la da este
+  //             mapa —`full` no basta—, la aplica `puedeRevisar()` en el
+  //             servicio, porque es una regla de negocio y no de módulo.
+  //  - `limited` Operaciones, Mantenimiento y Talento Humano: aportan evidencia
+  //             donde el requisito les fue asignado y registran su operación.
+  //             No aprueban, ni siquiera lo suyo.
+  //  - `read`   Contabilidad y Facturación: consultan.
+  //
+  // Espejo EXACTO de `ingreso-svelte/src/lib/config/permissions.ts`. Si aquí y
+  // allí no coinciden, el sidebar muestra una entrada que la API rechaza con
+  // 403, o al revés.
   pesv: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
-    general: true,
+    full: ['administracion', 'hseq'],
+    limited: ['operaciones', 'mantenimiento', 'talento_humano'],
+    read: ['contabilidad', 'facturacion'],
     description: 'Plan Estratégico de Seguridad Vial'
   },
 

@@ -32,6 +32,7 @@ import { diasLaboradosRoutes } from './modules/dias-laborados/dias-laborados.rou
 import { desprendibleFirmaRoutes } from './modules/liquidaciones/desprendible-firma.routes'
 import { conductorPortalRoutes } from './modules/conductor-portal/conductor-portal.routes'
 import { pesvRoutes } from './modules/pesv/pesv.routes'
+import { pesvCentroRoutes } from './modules/pesv/pesv-centro.routes'
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes'
 import { actividadesPesvRoutes } from './modules/actividades-pesv/actividades-pesv.routes'
 import { contabilidadRoutes } from './modules/contabilidad/contabilidad.routes'
@@ -155,6 +156,11 @@ export function buildApp() {
     app.register(operadorasRoutes, { prefix: '/api' })
     app.register(diasLaboradosRoutes, { prefix: '/api' })
     app.register(pesvRoutes, { prefix: '/api' })
+    // Centro de cumplimiento PESV. Registro APARTE de `pesvRoutes` a propósito:
+    // aquellas son las rutas heredadas del panel de conteos y se conservan como
+    // adaptadores durante la transición, mientras estas exigen niveles de
+    // permiso distintos por operación (leer / aportar / gestionar).
+    app.register(pesvCentroRoutes, { prefix: '/api' })
     app.register(actividadesPesvRoutes, { prefix: '/api' })
     app.register(contabilidadRoutes, { prefix: '/api' })
     app.register(certificadosTributariosRoutes, { prefix: '/api' })

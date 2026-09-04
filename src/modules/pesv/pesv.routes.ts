@@ -1,10 +1,33 @@
 import { FastifyInstance } from 'fastify'
+import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 import { PesvController } from './pesv.controller'
 
+/**
+ * Rutas HEREDADAS del panel PESV anterior.
+ *
+ * Se conservan durante la transición como adaptadores: la tabla de registros
+ * diarios y las series de `excesos_velocidad` y `preoperacionales` siguen
+ * sirviéndose desde aquí mientras el centro de cumplimiento
+ * (`pesv-centro.routes.ts`) toma el relevo. Retirarlas ahora dejaría muda la
+ * pantalla que la gente usa hoy.
+ *
+ * **No tenían autenticación.** Cualquiera con la URL leía el panel completo
+ * —conductores, vehículos, clientes y siniestros— y podía escribir en
+ * `dias_laborales_planillas`. Ahora exigen sesión y permiso del módulo, con la
+ * escritura en `full` y la lectura en `read`.
+ */
 export async function pesvRoutes(app: FastifyInstance) {
+  app.addHook('onRequest', authMiddleware)
+
+  const puedeLeer = { preHandler: requirePermission('pesv', 'read') }
+  /// Escritura en `full`: estas rutas escriben campos PESV del día laboral y
+  /// series históricas, que es justo lo que el expediente usa como referencia.
+  const puedeEditar = { preHandler: requirePermission('pesv', 'full') }
 
   // Dashboard principal PESV
   app.get('/pesv/dashboard', {
+    ...puedeLeer,
     schema: {
       description: 'Obtener dashboard PESV con indicadores y tabla agregada',
       tags: ['pesv'],
@@ -28,6 +51,7 @@ export async function pesvRoutes(app: FastifyInstance) {
 
   // Opciones de filtros (conductores, vehiculos, clientes, municipios)
   app.get('/pesv/options', {
+    ...puedeLeer,
     schema: {
       description: 'Obtener opciones de filtros para PESV',
       tags: ['pesv'],
@@ -37,6 +61,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   // ==================== EXCESOS VELOCIDAD ====================
 
   app.get('/pesv/excesos', {
+    ...puedeLeer,
     schema: {
       description: 'Obtener excesos de velocidad',
       tags: ['pesv'],
@@ -53,6 +78,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   }, PesvController.getExcesos)
 
   app.post('/pesv/excesos', {
+    ...puedeEditar,
     schema: {
       description: 'Crear o actualizar exceso de velocidad',
       tags: ['pesv'],
@@ -72,6 +98,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   }, PesvController.upsertExceso)
 
   app.delete('/pesv/excesos/:id', {
+    ...puedeEditar,
     schema: {
       description: 'Eliminar registro de exceso de velocidad',
       tags: ['pesv'],
@@ -87,6 +114,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   // ==================== PREOPERACIONALES ====================
 
   app.get('/pesv/preoperacionales', {
+    ...puedeLeer,
     schema: {
       description: 'Obtener preoperacionales',
       tags: ['pesv'],
@@ -105,6 +133,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   }, PesvController.getPreoperacionales)
 
   app.post('/pesv/preoperacionales', {
+    ...puedeEditar,
     schema: {
       description: 'Crear o actualizar preoperacional',
       tags: ['pesv'],
@@ -123,6 +152,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   }, PesvController.upsertPreoperacional)
 
   app.delete('/pesv/preoperacionales/:id', {
+    ...puedeEditar,
     schema: {
       description: 'Eliminar registro de preoperacional',
       tags: ['pesv'],
@@ -138,6 +168,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   // ==================== REGISTROS DIARIOS (TABLA PESV) ====================
 
   app.get('/pesv/registros-diarios', {
+    ...puedeLeer,
     schema: {
       description: 'Obtener registros diarios PESV con información de conductor, vehículo, cliente, origen/destino',
       tags: ['pesv'],
@@ -155,6 +186,7 @@ export async function pesvRoutes(app: FastifyInstance) {
   }, PesvController.getRegistrosDiarios)
 
   app.patch('/pesv/registros-diarios/:id', {
+    ...puedeEditar,
     schema: {
       description: 'Actualizar campos PESV de un día laboral (horas sueño, excesos, preoperacional, siniestros)',
       tags: ['pesv'],

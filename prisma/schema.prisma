@@ -21,6 +21,9 @@ model Evaluacion {
   updated_at     DateTime    @updatedAt @db.Timestamptz(6)
   resultados     Resultado[]
   deleted_at     DateTime?   @db.Timestamptz(6)
+
+  // ── PESV ─ relación inversa
+  pesv_formaciones pesv_training_plan[] @relation("pesv_formacion_evaluacion")
 }
 
 model Pregunta {
@@ -94,7 +97,7 @@ model anticipos {
   valor          Decimal        @db.Decimal(10, 2)
   fecha          DateTime       @db.Date
   concepto       String?        @db.VarChar(255)
-  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?      @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   updated_at     DateTime       @db.Timestamptz(6)
   id             String         @id @db.Uuid
@@ -110,7 +113,7 @@ model bonificaciones {
   name           String         @db.VarChar(255)
   values         String         @default("[]")
   value          Decimal        @db.Decimal(10, 2)
-  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?      @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   old_id         Int?
   updated_at     DateTime       @db.Timestamptz(6)
@@ -181,6 +184,11 @@ model conductores {
   liquidacion_tercero_concepto           liquidacion_tercero_concepto[]
   liquidacion_tercero_final_concepto     liquidacion_tercero_final_concepto[]
   liquidacion_tercero_ocasional_concepto liquidacion_tercero_ocasional_concepto[] @relation("ocasional_concepto_conductor")
+
+  // ── PESV ─ relaciones inversas
+  pesv_siniestros_conductor        pesv_incident[]       @relation("pesv_siniestro_conductor")
+  pesv_eventos_velocidad_conductor pesv_speed_event[]    @relation("pesv_velocidad_conductor")
+  fuec_conductores                 fuec_extract_driver[] @relation("fuec_conductor")
 }
 
 model conductor_token {
@@ -451,6 +459,31 @@ model documento {
   updated_at      DateTime   @db.Timestamptz(6)
   conductor_id    String?    @db.Uuid
   vehiculos       vehiculos? @relation(fields: [vehiculo_id], references: [id], onDelete: NoAction)
+
+  // ── PESV ─ normalización documental.
+  /// `fecha_vigencia` se conserva y se sigue leyendo: `fecha_vencimiento` la
+  /// sustituye solo cuando está informada, para no invalidar lo cargado antes.
+  /// Sin FK en `tercero_id`/`contrato_id`/`revisado_por_id` a propósito: la
+  /// tabla arrastra filas con `conductor_id` huérfano y una FK nueva no podría
+  /// crearse sin depurarlas primero.
+  tipo_documento       String?                   @db.VarChar(60)
+  numero               String?                   @db.VarChar(80)
+  emisor               String?                   @db.VarChar(255)
+  fecha_expedicion     DateTime?                 @db.Date
+  fecha_vencimiento    DateTime?                 @db.Date
+  estado_revision      enum_pesv_revision_estado @default(PENDIENTE)
+  revisado_por_id      String?                   @db.Uuid
+  revisado_at          DateTime?                 @db.Timestamptz(6)
+  observacion_revision String?
+  tercero_id           String?                   @db.Uuid
+  contrato_id          String?                   @db.Uuid
+  deleted_at           DateTime?                 @db.Timestamptz(6)
+
+  @@index([conductor_id])
+  @@index([tipo_documento])
+  @@index([fecha_vencimiento])
+  @@index([estado_revision])
+  @@index([deleted_at])
 }
 
 /// Tabla para documentos compartidos (desprendibles independientes)
@@ -517,6 +550,10 @@ model clientes {
   registro_dia_laboral_segmento registro_dia_laboral_segmento[]
 
   salidas_no_conformes salidas_no_conformes[]
+
+  // ── PESV ─ relaciones inversas
+  pesv_siniestros_cliente pesv_incident[]      @relation("pesv_siniestro_cliente")
+  contratos_transporte    transport_contract[] @relation("contrato_cliente")
 
   @@map("empresas")
 }
@@ -601,7 +638,7 @@ model historial_recargos_planillas {
 }
 
 model liquidacion_vehiculo {
-  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?     @db.Timestamptz(6)
   created_at     DateTime      @db.Timestamptz(6)
   updated_at     DateTime      @db.Timestamptz(6)
   liquidacion_id String        @db.Uuid
@@ -624,7 +661,7 @@ model liquidaciones {
   ajuste_salarial_por_dia                       Boolean                               @default(false)
   auxilio_transporte                            Decimal                               @default(0) @db.Decimal(10, 2)
   conceptos_adicionales                         Json?                                 @db.Json
-  deleted_at                     DateTime?                     @db.Timestamptz(6)
+  deleted_at                                    DateTime?                             @db.Timestamptz(6)
   created_at                                    DateTime                              @db.Timestamptz(6)
   dias_laborados                                Int                                   @default(0)
   dias_laborados_anual                          Int                                   @default(0)
@@ -731,7 +768,7 @@ model liquidaciones_servicios {
 model mantenimientos {
   values         String         @default("[]")
   value          Float
-  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?      @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   updated_at     DateTime       @db.Timestamptz(6)
   id             String         @id @db.Uuid
@@ -761,7 +798,7 @@ model pernotes {
   cantidad       Int
   valor          Decimal        @db.Decimal(10, 2)
   fechas         String         @default("[]")
-  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?      @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   empresa_id     String         @db.Uuid
   old_id         Int?
@@ -787,7 +824,7 @@ model recargos {
   numero_planilla        String?        @db.VarChar(50)
   incluir                Boolean        @default(true)
   emisor                 String?        @db.VarChar(50)
-  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_at             DateTime?      @db.Timestamptz(6)
   created_at             DateTime       @db.Timestamptz(6)
   empresa_id             String         @db.Uuid
   old_id                 Int?
@@ -934,6 +971,16 @@ model servicio {
   vehiculos                                  vehiculos?                       @relation(fields: [vehiculo_id], references: [id])
   servicios_cancelados                       servicios_cancelados[]
   form_submissions                           form_submission[]                @relation("form_submission_servicio")
+
+  // ── PESV ─ cobertura contractual del desplazamiento.
+  /// Nullable y sin backfill: la mayoría de servicios históricos no tienen
+  /// contrato relacionado, y rellenarlos por parecido inventaría cobertura.
+  contrato_id                     String?             @db.Uuid
+  fuec_id                         String?             @db.Uuid
+  contrato                        transport_contract? @relation("servicio_contrato", fields: [contrato_id], references: [id], onDelete: SetNull)
+  fuec                            fuec_extract?       @relation("servicio_fuec", fields: [fuec_id], references: [id], onDelete: SetNull)
+  pesv_siniestros_servicio        pesv_incident[]     @relation("pesv_siniestro_servicio")
+  pesv_eventos_velocidad_servicio pesv_speed_event[]  @relation("pesv_velocidad_servicio")
 
   @@map("servicios")
 }
@@ -1140,6 +1187,34 @@ model usuarios {
   ocasional_drafts                                 liquidacion_tercero_ocasional_draft[]            @relation("ocasional_draft_usuario")
   ocasional_concepto_actualizado_por               liquidacion_tercero_ocasional_concepto[]         @relation("ocasional_concepto_actualizado_por")
 
+  // ── PESV ─ relaciones inversas del centro de cumplimiento
+  pesv_ciclos_liderados            pesv_cycle[]                @relation("pesv_cycle_lider")
+  pesv_ciclos_creados              pesv_cycle[]                @relation("pesv_cycle_creado_por")
+  pesv_ciclos_actualizados         pesv_cycle[]                @relation("pesv_cycle_actualizado_por")
+  pesv_requisitos_responsable      pesv_requirement_status[]   @relation("pesv_requisito_responsable")
+  pesv_requisitos_actualizados     pesv_requirement_status[]   @relation("pesv_requisito_actualizado_por")
+  pesv_evidencias_cargadas         pesv_evidence[]             @relation("pesv_evidencia_cargado_por")
+  pesv_evidencias_revisadas        pesv_evidence[]             @relation("pesv_evidencia_revisado_por")
+  pesv_revisiones                  pesv_evidence_review[]      @relation("pesv_revision_revisor")
+  pesv_metas_responsable           pesv_goal[]                 @relation("pesv_meta_responsable")
+  pesv_metas_creadas               pesv_goal[]                 @relation("pesv_meta_creado_por")
+  pesv_riesgos_responsable         pesv_risk[]                 @relation("pesv_riesgo_responsable")
+  pesv_riesgos_creados             pesv_risk[]                 @relation("pesv_riesgo_creado_por")
+  pesv_programas_responsable       pesv_program[]              @relation("pesv_programa_responsable")
+  pesv_programas_creados           pesv_program[]              @relation("pesv_programa_creado_por")
+  pesv_siniestros_registrados      pesv_incident[]             @relation("pesv_siniestro_registrado_por")
+  pesv_eventos_velocidad           pesv_speed_event[]          @relation("pesv_velocidad_registrado_por")
+  pesv_formaciones_responsable     pesv_training_plan[]        @relation("pesv_formacion_responsable")
+  pesv_formaciones_creadas         pesv_training_plan[]        @relation("pesv_formacion_creado_por")
+  mantenimiento_planes_creados     vehicle_maintenance_plan[]  @relation("mantenimiento_plan_creado_por")
+  mantenimiento_eventos_ejecutados vehicle_maintenance_event[] @relation("mantenimiento_evento_ejecutado_por")
+  mantenimiento_eventos_creados    vehicle_maintenance_event[] @relation("mantenimiento_evento_creado_por")
+  contratos_creados                transport_contract[]        @relation("contrato_creado_por")
+  fuec_creados                     fuec_extract[]              @relation("fuec_creado_por")
+  fuec_anulados                    fuec_extract[]              @relation("fuec_anulado_por")
+  pesv_auditoria                   pesv_audit_log[]            @relation("pesv_auditoria_usuario")
+  pesv_jornada_politicas           pesv_jornada_policy[]       @relation("pesv_jornada_creado_por")
+
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
   @@map("users")
@@ -1227,6 +1302,14 @@ model vehiculos {
   liquidaciones_tercero_ocasional_adicional liquidacion_tercero_ocasional_adicional[] @relation("ocasional_adicional_vehiculo")
   preoperacionales                          preoperacionales[]
   salidas_no_conformes                      salidas_no_conformes[]
+
+  // ── PESV ─ relaciones inversas
+  pesv_programa_vehiculos         pesv_program_vehicle[]      @relation("pesv_programa_vehiculo")
+  pesv_siniestros_vehiculo        pesv_incident[]             @relation("pesv_siniestro_vehiculo")
+  pesv_eventos_velocidad_vehiculo pesv_speed_event[]          @relation("pesv_velocidad_vehiculo")
+  mantenimiento_planes            vehicle_maintenance_plan[]  @relation("mantenimiento_plan_vehiculo")
+  mantenimiento_eventos           vehicle_maintenance_event[] @relation("mantenimiento_evento_vehiculo")
+  fuec_extractos                  fuec_extract[]              @relation("fuec_vehiculo")
 }
 
 /// Formularios de asistencia creados por administradores
@@ -1251,6 +1334,9 @@ model formularios_asistencia {
   deleted_at        DateTime?               @db.Timestamptz(6)
   creado_por        usuarios                @relation(fields: [creado_por_id], references: [id])
   respuestas        respuestas_asistencia[]
+
+  // ── PESV ─ el evento planificado que esta asistencia acredita
+  pesv_formaciones pesv_training_plan[] @relation("pesv_formacion_asistencia")
 
   @@index([token])
   @@index([fecha])
@@ -1575,6 +1661,15 @@ model acciones_correctivas_preventivas {
   evidencias_eficacia              evidencias_eficacia_cierre[]
   aprobaciones                     aprobaciones_accion[]
 
+  // ── PESV ─ vínculo con el ciclo y el paso que originó el hallazgo.
+  /// `origen_pesv` distingue los hallazgos de la auditoría PESV del resto: el
+  /// indicador NCAC solo cuenta esos, no todas las acciones de la empresa.
+  pesv_cycle_id    String?         @db.Uuid
+  pesv_step_number Int?
+  origen_pesv      Boolean         @default(false)
+  pesv_ciclo       pesv_cycle?     @relation(fields: [pesv_cycle_id], references: [id], onDelete: SetNull)
+  pesv_siniestros  pesv_incident[] @relation("pesv_siniestro_accion")
+
   @@index([accion_numero])
   @@index([tipo_accion_ejecutar])
   @@index([fecha_identificacion_hallazgo])
@@ -1666,6 +1761,9 @@ model terceros {
   tercero_tokens                            tercero_token[]
   vinculos_certificado                      certificado_tercero[]
   envios_liquidacion                        liquidacion_tercero_envio[]
+
+  // ── PESV ─ relaciones inversas
+  contratos_transporte transport_contract[] @relation("contrato_tercero")
 
   @@index([nombre_completo])
   @@index([identificacion])
@@ -2010,11 +2108,11 @@ model factura_liquidacion_servicio {
 }
 
 model factura_liquidacion_item {
-  id                String   @id @default(uuid()) @db.Uuid
-  factura_id        String   @db.Uuid
-  liquidacion_id    String   @db.Uuid
-  valor_liquidacion Decimal  @db.Decimal(14, 2)
-  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  id                String    @id @default(uuid()) @db.Uuid
+  factura_id        String    @db.Uuid
+  liquidacion_id    String    @db.Uuid
+  valor_liquidacion Decimal   @db.Decimal(14, 2)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
   /// Nace NULL. Su padre `factura_liquidacion_servicio` ya tenía borrado
   /// lógico; sin esto el pivote quedaba huérfano al restaurar.
   deleted_at        DateTime? @db.Timestamptz(6)
@@ -2422,6 +2520,13 @@ model form_assignment {
   targets     form_assignment_target[]
   submissions form_submission[]
 
+  // ── PESV ─ para qué sirve esta asignación dentro del plan.
+  /// `PREOPERACIONAL` es la que convierte sus envíos en la fuente oficial de
+  /// inspección de vehículos. Sin etiqueta, la asignación no alimenta el
+  /// indicador IDP: es preferible un denominador honesto a uno adivinado.
+  pesv_proposito   String? @db.VarChar(40)
+  pesv_step_number Int?
+
   @@index([version_id], map: "idx_form_assignments_version")
   @@map("form_assignments")
 }
@@ -2821,7 +2926,7 @@ model aprobaciones_accion {
   estado       EstadoAprobacion                 @default(PENDIENTE)
   fecha        DateTime?                        @db.Timestamptz(6)
   comentario   String?
-  deleted_at   DateTime? @db.Timestamptz(6)
+  deleted_at   DateTime?                        @db.Timestamptz(6)
   created_at   DateTime                         @default(now()) @db.Timestamptz(6)
   updated_at   DateTime                         @updatedAt @db.Timestamptz(6)
   accion       acciones_correctivas_preventivas @relation(fields: [accion_id], references: [id], onDelete: Cascade)
@@ -3369,6 +3474,20 @@ model actividades_pesv {
   creado_por               usuarios?                      @relation("actividades_pesv_creado_por", fields: [creado_por_id], references: [id])
   responsable_ejecucion    usuarios?                      @relation("actividades_pesv_responsable", fields: [responsable_ejecucion_id], references: [id])
 
+  // ── PESV ─ el plan anual deja de ser una lista suelta y cuelga del ciclo.
+  /// Todo nullable: las actividades que ya existen se migran por su campo
+  /// `anio` y las que no encuentren ciclo se quedan como estaban.
+  cycle_id                 String?       @db.Uuid
+  step_number              Int?
+  program_id               String?       @db.Uuid
+  goal_id                  String?       @db.Uuid
+  fecha_planificada_inicio DateTime?     @db.Date
+  fecha_planificada_fin    DateTime?     @db.Date
+  requiere_evidencia       Boolean       @default(false)
+  ciclo                    pesv_cycle?   @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
+  programa                 pesv_program? @relation(fields: [program_id], references: [id], onDelete: SetNull)
+  meta                     pesv_goal?    @relation(fields: [goal_id], references: [id], onDelete: SetNull)
+
   @@index([estado])
   @@index([prioridad])
   @@index([anio])
@@ -3416,7 +3535,7 @@ model certificado_archivo {
   size                Int                   @default(0)
   tercero_id          String?               @db.Uuid
   tipo_certificado_id String?               @db.Uuid
-  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_at          DateTime?             @db.Timestamptz(6)
   created_at          DateTime              @default(now()) @db.Timestamptz(6)
   updated_at          DateTime              @updatedAt @db.Timestamptz(6)
   tercero             terceros?             @relation(fields: [tercero_id], references: [id], onDelete: SetNull)
@@ -3437,7 +3556,7 @@ model certificado_tercero {
   tercero_id     String              @db.Uuid
   certificado_id String              @db.Uuid
   creado_por_id  String?             @db.Uuid
-  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?           @db.Timestamptz(6)
   created_at     DateTime            @default(now()) @db.Timestamptz(6)
   tercero        terceros            @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
   certificado    certificado_archivo @relation(fields: [certificado_id], references: [id], onDelete: Cascade)
@@ -3455,7 +3574,7 @@ model certificacion_envio {
   email_destino  String               @db.VarChar(255)
   tipo_envio     String               @default("individual") @db.VarChar(20)
   emitido_at     DateTime             @default(now()) @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_at     DateTime?            @db.Timestamptz(6)
   created_at     DateTime             @default(now()) @db.Timestamptz(6)
   tercero        terceros             @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
   certificado    certificado_archivo? @relation(fields: [certificado_id], references: [id], onDelete: SetNull)
@@ -4132,4 +4251,856 @@ model liquidacion_ingreso_transmeralda_concepto {
   @@index([liquidacion_ingreso_id, hoja], map: "idx_ingreso_concepto_hoja")
   @@index([tipo], map: "idx_ingreso_concepto_tipo")
   @@index([deleted_at], map: "idx_ingreso_concepto_deleted")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  CENTRO DE CUMPLIMIENTO PESV
+//
+//  Todo lo de aquí es ADITIVO. El módulo no reemplaza Flota, Conductores,
+//  Servicios, Formularios, Asistencias, Acciones Correctivas ni Extractos:
+//  consolida lo que esos dominios ya producen, le pone revisión encima y deja
+//  demostrar de dónde salió cada número.
+//
+//  Dos tablas históricas se conservan intactas y NO se migran a estas:
+//  `preoperacionales` (booleano diario manual) y `excesos_velocidad` (total
+//  mensual). No prueban el evento ni el desplazamiento, así que se exponen
+//  como serie `LEGACY` y los indicadores nuevos no las usan como numerador.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Nivel de implementación de la metodología. La empresa opera en `AVANZADO`
+/// por decisión de dirección: 24 pasos y 13 indicadores. NO se recalcula por
+/// el tamaño observado en un mes — un mes flojo no rebaja una obligación anual.
+enum enum_pesv_nivel {
+  BASICO
+  ESTANDAR
+  AVANZADO
+}
+
+enum enum_pesv_ciclo_estado {
+  BORRADOR
+  ACTIVO
+  CERRADO
+}
+
+/// Estado de un paso de la matriz.
+///
+/// `EN_REVISION` no es un limbo administrativo: significa que hay evidencia
+/// aportada y HSEQ todavía no ha decidido. Es lo que impide que adjuntar un
+/// archivo se lea como cumplimiento.
+enum enum_pesv_requisito_estado {
+  PENDIENTE
+  EN_PROGRESO
+  EN_REVISION
+  CUMPLE
+  NO_CUMPLE
+  NO_APLICA
+}
+
+/// De dónde sale la evidencia: un archivo subido a S3, o un registro que ya
+/// existe en otro módulo (un envío de formulario, una asistencia, una acción
+/// correctiva). En el segundo caso se guarda además un snapshot legible, para
+/// que una edición posterior del origen no cambie lo que se auditó.
+enum enum_pesv_evidencia_origen {
+  ARCHIVO
+  REGISTRO
+}
+
+enum enum_pesv_revision_estado {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum enum_pesv_meta_sentido {
+  MAYOR_ES_MEJOR
+  MENOR_ES_MEJOR
+}
+
+enum enum_pesv_riesgo_nivel {
+  BAJO
+  MEDIO
+  ALTO
+  CRITICO
+}
+
+/// Severidad de un siniestro vial, en el orden que exige el indicador TSV.
+enum enum_pesv_severidad {
+  FATALIDAD
+  LESION_GRAVE
+  LESION_LEVE
+  SOLO_DANOS
+}
+
+/// Tipo de trayecto. `IN_ITINERE` (casa–trabajo) entra en el alcance del PESV
+/// y por eso es un valor propio y no una observación en texto libre.
+enum enum_pesv_trayecto {
+  LABORAL
+  IN_ITINERE
+  MISION
+  PARTICULAR
+}
+
+enum enum_pesv_mantenimiento_tipo {
+  PREVENTIVO
+  CORRECTIVO
+  PREDICTIVO
+}
+
+enum enum_pesv_mantenimiento_estado {
+  PROGRAMADO
+  EJECUTADO
+  CANCELADO
+}
+
+enum enum_pesv_contrato_estado {
+  BORRADOR
+  VIGENTE
+  VENCIDO
+  TERMINADO
+  ANULADO
+}
+
+enum enum_fuec_estado {
+  BORRADOR
+  VIGENTE
+  VENCIDO
+  ANULADO
+}
+
+/// Un ciclo anual. Es la unidad de auditoría: metas, riesgos, programas,
+/// actividades y los 24 pasos cuelgan de él, así que cerrar un año no altera
+/// lo que ya se demostró.
+model pesv_cycle {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  anio               Int
+  nivel              enum_pesv_nivel        @default(AVANZADO)
+  estado             enum_pesv_ciclo_estado @default(BORRADOR)
+  version            Int                    @default(1)
+  lider_id           String?                @db.Uuid
+  lider_nombre       String?                @db.VarChar(255)
+  lider_cargo        String?                @db.VarChar(255)
+  vigencia_desde     DateTime?              @db.Date
+  vigencia_hasta     DateTime?              @db.Date
+  /// Ventana por defecto de «próximo a vencer», en días. 30 es el valor
+  /// inicial acordado; `pesv_document_type_config` puede afinarlo por tipo.
+  dias_por_vencer    Int                    @default(30)
+  observaciones      String?
+  cerrado_at         DateTime?              @db.Timestamptz(6)
+  deleted_at         DateTime?              @db.Timestamptz(6)
+  creado_por_id      String?                @db.Uuid
+  actualizado_por_id String?                @db.Uuid
+  created_at         DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime               @updatedAt @db.Timestamptz(6)
+
+  lider           usuarios? @relation("pesv_cycle_lider", fields: [lider_id], references: [id], onDelete: SetNull)
+  creado_por      usuarios? @relation("pesv_cycle_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+  actualizado_por usuarios? @relation("pesv_cycle_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: SetNull)
+
+  requisitos  pesv_requirement_status[]
+  metas       pesv_goal[]
+  riesgos     pesv_risk[]
+  programas   pesv_program[]
+  siniestros  pesv_incident[]
+  formaciones pesv_training_plan[]
+  actividades actividades_pesv[]
+  acciones    acciones_correctivas_preventivas[]
+
+  /// La unicidad por año es PARCIAL en la base (solo filas vivas): un ciclo
+  /// retirado tiene que poder convivir con el que lo sustituye. Prisma no sabe
+  /// expresar índices parciales, así que el `@@unique` se declara aquí y la
+  /// migración lo sustituye por el índice con `WHERE deleted_at IS NULL`.
+  @@unique([anio])
+  @@index([estado])
+  @@index([deleted_at])
+}
+
+/// Estado de UNO de los 24 pasos dentro de un ciclo.
+///
+/// El catálogo de pasos (nombre, fase, evidencias mínimas) vive en código
+/// (`pesv.catalogo.ts`), no en la base: es normativa, no configuración del
+/// cliente, y tenerlo en código permite versionarlo con el resto.
+model pesv_requirement_status {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  cycle_id           String                     @db.Uuid
+  step_number        Int
+  estado             enum_pesv_requisito_estado @default(PENDIENTE)
+  /// Área a la que le toca aportar. Valores de `config/permissions.ts`.
+  area_responsable   String?                    @db.VarChar(40)
+  responsable_id     String?                    @db.Uuid
+  fecha_limite       DateTime?                  @db.Date
+  /// Justificación cuando el paso se declara `NO_APLICA`. Sin ella la
+  /// transición se rechaza: una excepción sin motivo es un hueco, no una
+  /// exención.
+  justificacion      String?
+  notas              String?
+  completado_at      DateTime?                  @db.Timestamptz(6)
+  deleted_at         DateTime?                  @db.Timestamptz(6)
+  actualizado_por_id String?                    @db.Uuid
+  created_at         DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime                   @updatedAt @db.Timestamptz(6)
+
+  ciclo           pesv_cycle @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  responsable     usuarios?  @relation("pesv_requisito_responsable", fields: [responsable_id], references: [id], onDelete: SetNull)
+  actualizado_por usuarios?  @relation("pesv_requisito_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: SetNull)
+
+  evidencias pesv_evidence[]
+
+  @@unique([cycle_id, step_number])
+  @@index([cycle_id, estado])
+  @@index([responsable_id])
+  @@index([area_responsable])
+  @@index([deleted_at])
+}
+
+/// Una evidencia aportada para un requisito.
+///
+/// Adjuntar NO acredita: la fila nace `PENDIENTE` y solo HSEQ o Administración
+/// la mueven. Un rechazo no borra nada — la fila sigue, con su historial, y
+/// deja de sumar.
+model pesv_evidence {
+  id             String                     @id @default(uuid()) @db.Uuid
+  requirement_id String                     @db.Uuid
+  origen         enum_pesv_evidencia_origen
+  titulo         String                     @db.VarChar(255)
+  descripcion    String?
+
+  /// Origen `ARCHIVO`: el objeto en S3, ya confirmado con checksum.
+  s3_key         String? @db.VarChar(500)
+  nombre_archivo String? @db.VarChar(255)
+  mime_type      String? @db.VarChar(120)
+  size_bytes     Int?
+  sha256         String? @db.VarChar(64)
+
+  /// Origen `REGISTRO`: qué módulo y qué fila. Sin FK a propósito — apunta a
+  /// nueve tablas distintas según `source_domain`, y una FK por cada una
+  /// convertiría este modelo en un cajón de columnas nulas.
+  source_domain        String? @db.VarChar(60)
+  source_id            String? @db.Uuid
+  /// Copia legible del registro en el momento de vincularlo. Es lo que hace
+  /// que una edición posterior del origen no cambie lo que el auditor vio.
+  source_snapshot_json Json    @default("{}")
+
+  fecha_documento DateTime? @db.Date
+  vigencia_desde  DateTime? @db.Date
+  vigencia_hasta  DateTime? @db.Date
+
+  estado_revision      enum_pesv_revision_estado @default(PENDIENTE)
+  revisado_por_id      String?                   @db.Uuid
+  revisado_at          DateTime?                 @db.Timestamptz(6)
+  observacion_revision String?
+
+  /// Versión anterior a la que sustituye. Corregir es crear otra evidencia,
+  /// nunca sobrescribir la que ya se revisó.
+  reemplaza_a_id String? @db.Uuid
+
+  cargado_por_id String?   @db.Uuid
+  deleted_at     DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+
+  requisito       pesv_requirement_status @relation(fields: [requirement_id], references: [id], onDelete: Cascade)
+  cargado_por     usuarios?               @relation("pesv_evidencia_cargado_por", fields: [cargado_por_id], references: [id], onDelete: SetNull)
+  revisado_por    usuarios?               @relation("pesv_evidencia_revisado_por", fields: [revisado_por_id], references: [id], onDelete: SetNull)
+  reemplaza_a     pesv_evidence?          @relation("pesv_evidencia_reemplazo", fields: [reemplaza_a_id], references: [id], onDelete: SetNull)
+  reemplazada_por pesv_evidence[]         @relation("pesv_evidencia_reemplazo")
+
+  revisiones pesv_evidence_review[]
+
+  @@index([requirement_id, estado_revision])
+  @@index([estado_revision])
+  @@index([vigencia_hasta])
+  @@index([source_domain, source_id])
+  @@index([deleted_at])
+}
+
+/// Historial inmutable de decisiones. No recibe `deleted_at`: es la evidencia
+/// de que alguien revisó, y retirarla sería justo lo que la auditoría busca.
+model pesv_evidence_review {
+  id             String                    @id @default(uuid()) @db.Uuid
+  evidence_id    String                    @db.Uuid
+  decision       enum_pesv_revision_estado
+  observacion    String?
+  revisor_id     String?                   @db.Uuid
+  revisor_nombre String?                   @db.VarChar(255)
+  created_at     DateTime                  @default(now()) @db.Timestamptz(6)
+
+  evidencia pesv_evidence @relation(fields: [evidence_id], references: [id], onDelete: Cascade)
+  revisor   usuarios?     @relation("pesv_revision_revisor", fields: [revisor_id], references: [id], onDelete: SetNull)
+
+  @@index([evidence_id, created_at])
+}
+
+/// Meta de un indicador para un ciclo. Sin meta aprobada el indicador se
+/// calcula igual, pero no declara cumplimiento: el semáforo queda en gris.
+model pesv_goal {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  cycle_id              String                 @db.Uuid
+  /// Código del indicador (`TSV`, `CPLAN`, …) cuando la meta es de indicador.
+  indicador_codigo      String?                @db.VarChar(20)
+  nombre                String                 @db.VarChar(255)
+  descripcion           String?
+  linea_base            Decimal?               @db.Decimal(18, 4)
+  valor_meta            Decimal?               @db.Decimal(18, 4)
+  unidad                String?                @db.VarChar(20)
+  sentido               enum_pesv_meta_sentido @default(MAYOR_ES_MEJOR)
+  /// Distancia a la meta a partir de la cual el semáforo pasa a ALERTA, en
+  /// puntos de la propia unidad. Por encima de eso es CRITICO.
+  umbral_alerta         Decimal?               @db.Decimal(18, 4)
+  fecha_limite          DateTime?              @db.Date
+  responsable_id        String?                @db.Uuid
+  /// Resultado declarado por HSEQ al cerrar. El indicador se calcula solo;
+  /// esto es el juicio, y es lo que cuenta el indicador CMP.
+  lograda               Boolean?
+  resultado_observacion String?
+  deleted_at            DateTime?              @db.Timestamptz(6)
+  creado_por_id         String?                @db.Uuid
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @updatedAt @db.Timestamptz(6)
+
+  ciclo       pesv_cycle @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  responsable usuarios?  @relation("pesv_meta_responsable", fields: [responsable_id], references: [id], onDelete: SetNull)
+  creado_por  usuarios?  @relation("pesv_meta_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  actividades actividades_pesv[]
+
+  @@index([cycle_id])
+  @@index([indicador_codigo])
+  @@index([deleted_at])
+}
+
+/// Riesgo vial caracterizado (paso 6). Los indicadores RSVI y GRV comparan la
+/// valoración inicial con la final, así que las dos se guardan por separado y
+/// la inicial NO se reescribe al aplicar controles.
+model pesv_risk {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  cycle_id             String                  @db.Uuid
+  codigo               String?                 @db.VarChar(40)
+  proceso              String?                 @db.VarChar(255)
+  actor_vial           String?                 @db.VarChar(120)
+  peligro              String
+  exposicion           String?                 @db.VarChar(120)
+  consecuencia         String?
+  probabilidad_inicial Int?
+  severidad_inicial    Int?
+  nivel_inicial        enum_pesv_riesgo_nivel?
+  controles            String?
+  probabilidad_final   Int?
+  severidad_final      Int?
+  nivel_final          enum_pesv_riesgo_nivel?
+  responsable_id       String?                 @db.Uuid
+  fecha_valoracion     DateTime?               @db.Date
+  deleted_at           DateTime?               @db.Timestamptz(6)
+  creado_por_id        String?                 @db.Uuid
+  created_at           DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime                @updatedAt @db.Timestamptz(6)
+
+  ciclo       pesv_cycle @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  responsable usuarios?  @relation("pesv_riesgo_responsable", fields: [responsable_id], references: [id], onDelete: SetNull)
+  creado_por  usuarios?  @relation("pesv_riesgo_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([cycle_id])
+  @@index([nivel_final])
+  @@index([deleted_at])
+}
+
+/// Programa de gestión de un riesgo crítico (paso 8): velocidad, fatiga,
+/// distracción, alcohol y drogas, actores vulnerables.
+model pesv_program {
+  id              String    @id @default(uuid()) @db.Uuid
+  cycle_id        String    @db.Uuid
+  /// `VELOCIDAD` | `FATIGA` | `DISTRACCION` | `ALCOHOL_DROGAS` | `ACTORES_VULNERABLES` | `OTRO`.
+  tipo            String    @db.VarChar(40)
+  nombre          String    @db.VarChar(255)
+  alcance         String?
+  lineamientos    String?
+  fecha_inicio    DateTime? @db.Date
+  fecha_fin       DateTime? @db.Date
+  metodo_medicion String?
+  responsable_id  String?   @db.Uuid
+  activo          Boolean   @default(true)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  creado_por_id   String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+
+  ciclo       pesv_cycle @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  responsable usuarios?  @relation("pesv_programa_responsable", fields: [responsable_id], references: [id], onDelete: SetNull)
+  creado_por  usuarios?  @relation("pesv_programa_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  vehiculos   pesv_program_vehicle[]
+  actividades actividades_pesv[]
+
+  @@index([cycle_id, tipo])
+  @@index([deleted_at])
+}
+
+/// Cobertura de flota de un programa. Es el numerador del indicador GVE:
+/// «vehículos cubiertos por el programa de velocidad» tiene que ser una lista
+/// verificable, no una afirmación.
+model pesv_program_vehicle {
+  id          String    @id @default(uuid()) @db.Uuid
+  program_id  String    @db.Uuid
+  vehiculo_id String    @db.Uuid
+  /// Cómo se cubre: `GPS`, `TELEMETRIA`, `INSPECCION`, `CAPACITACION`…
+  mecanismo   String?   @db.VarChar(60)
+  desde       DateTime? @db.Date
+  hasta       DateTime? @db.Date
+  deleted_at  DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @updatedAt @db.Timestamptz(6)
+
+  programa pesv_program @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  vehiculo vehiculos    @relation("pesv_programa_vehiculo", fields: [vehiculo_id], references: [id], onDelete: Cascade)
+
+  @@unique([program_id, vehiculo_id])
+  @@index([vehiculo_id])
+  @@index([deleted_at])
+}
+
+/// Siniestro o incidente vial estructurado (pasos 13 y 21).
+///
+/// Sustituye al conteo suelto de `dias_laborales_planillas.siniestros`, que se
+/// conserva como serie histórica. Un conteo no permite investigar, ni clasificar
+/// por severidad, ni sumar costos.
+model pesv_incident {
+  id           String              @id @default(uuid()) @db.Uuid
+  cycle_id     String              @db.Uuid
+  consecutivo  Int?
+  fecha        DateTime            @db.Date
+  hora         String?             @db.VarChar(5)
+  severidad    enum_pesv_severidad
+  trayecto     enum_pesv_trayecto  @default(LABORAL)
+  /// `CHOQUE` | `VOLCAMIENTO` | `ATROPELLO` | `INCENDIO` | `CAIDA_OCUPANTE` | `OTRO`.
+  tipo_evento  String?             @db.VarChar(60)
+  lugar        String?             @db.VarChar(255)
+  municipio_id String?             @db.Uuid
+  descripcion  String?
+
+  conductor_id String? @db.Uuid
+  vehiculo_id  String? @db.Uuid
+  servicio_id  String? @db.Uuid
+  cliente_id   String? @db.Uuid
+
+  heridos               Int? @default(0)
+  fallecidos            Int? @default(0)
+  /// Terceros implicados que no son personal propio.
+  terceros_involucrados Int? @default(0)
+
+  costo_directo   Decimal? @db.Decimal(14, 2)
+  costo_indirecto Decimal? @db.Decimal(14, 2)
+
+  investigacion_realizada Boolean   @default(false)
+  causas_identificadas    String?
+  fecha_investigacion     DateTime? @db.Date
+  accion_correctiva_id    String?   @db.Uuid
+
+  registrado_por_id String?   @db.Uuid
+  deleted_at        DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+
+  ciclo             pesv_cycle                        @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  conductor         conductores?                      @relation("pesv_siniestro_conductor", fields: [conductor_id], references: [id], onDelete: SetNull)
+  vehiculo          vehiculos?                        @relation("pesv_siniestro_vehiculo", fields: [vehiculo_id], references: [id], onDelete: SetNull)
+  servicio          servicio?                         @relation("pesv_siniestro_servicio", fields: [servicio_id], references: [id], onDelete: SetNull)
+  cliente           clientes?                         @relation("pesv_siniestro_cliente", fields: [cliente_id], references: [id], onDelete: SetNull)
+  accion_correctiva acciones_correctivas_preventivas? @relation("pesv_siniestro_accion", fields: [accion_correctiva_id], references: [id], onDelete: SetNull)
+  registrado_por    usuarios?                         @relation("pesv_siniestro_registrado_por", fields: [registrado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([cycle_id, fecha])
+  @@index([fecha, severidad])
+  @@index([conductor_id])
+  @@index([vehiculo_id])
+  @@index([deleted_at])
+}
+
+/// Un exceso de velocidad INDIVIDUAL, con instante, límite y velocidad.
+///
+/// La tabla vieja `excesos_velocidad` guarda un total mensual por conductor y
+/// vehículo. Ese total no dice cuántos desplazamientos hubo con exceso, así que
+/// no puede ser numerador del indicador ELVL. Aquí cada fila es un evento y por
+/// eso puede ligarse a un servicio concreto.
+model pesv_speed_event {
+  id                String    @id @default(uuid()) @db.Uuid
+  ocurrido_at       DateTime  @db.Timestamptz(6)
+  /// Fecha de negocio en America/Bogota, calculada en servidor.
+  business_date     DateTime  @db.Date
+  vehiculo_id       String?   @db.Uuid
+  conductor_id      String?   @db.Uuid
+  servicio_id       String?   @db.Uuid
+  velocidad_kmh     Decimal?  @db.Decimal(6, 2)
+  limite_kmh        Decimal?  @db.Decimal(6, 2)
+  duracion_segundos Int?
+  latitud           Float?
+  longitud          Float?
+  via               String?   @db.VarChar(255)
+  /// `MANUAL` | `GPS` | `TELEMETRIA` | `IMPORTACION`. Nunca `LEGACY`: los
+  /// totales mensuales antiguos no se convierten en eventos inventados.
+  fuente            String    @default("MANUAL") @db.VarChar(30)
+  observaciones     String?
+  registrado_por_id String?   @db.Uuid
+  deleted_at        DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+
+  vehiculo       vehiculos?   @relation("pesv_velocidad_vehiculo", fields: [vehiculo_id], references: [id], onDelete: SetNull)
+  conductor      conductores? @relation("pesv_velocidad_conductor", fields: [conductor_id], references: [id], onDelete: SetNull)
+  servicio       servicio?    @relation("pesv_velocidad_servicio", fields: [servicio_id], references: [id], onDelete: SetNull)
+  registrado_por usuarios?    @relation("pesv_velocidad_registrado_por", fields: [registrado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([business_date])
+  @@index([vehiculo_id, business_date])
+  @@index([conductor_id, business_date])
+  @@index([servicio_id])
+  @@index([deleted_at])
+}
+
+/// Evento de formación PLANIFICADO (paso 10). Se vincula a la asistencia real
+/// de `formularios_asistencia` y, si aplica, a una evaluación.
+///
+/// `poblacion_objetivo` se congela por período: si se recalculara en vivo, dar
+/// de alta a alguien en diciembre bajaría retroactivamente la cobertura de
+/// marzo.
+model pesv_training_plan {
+  id                      String    @id @default(uuid()) @db.Uuid
+  cycle_id                String    @db.Uuid
+  tema                    String    @db.VarChar(255)
+  objetivo                String?
+  /// `CAPACITACION` | `INDUCCION` | `REINDUCCION` | `SENSIBILIZACION` | `SIMULACRO`.
+  tipo                    String    @default("CAPACITACION") @db.VarChar(40)
+  trimestre               Int?
+  fecha_planificada       DateTime? @db.Date
+  fecha_ejecucion         DateTime? @db.Date
+  poblacion_objetivo      Int?
+  /// Instantánea de a quién iba dirigido, para reproducir la cobertura.
+  poblacion_snapshot_json Json      @default("{}")
+  asistencia_id           String?   @db.Uuid
+  evaluacion_id           String?   @db.Uuid
+  responsable_id          String?   @db.Uuid
+  ejecutado               Boolean   @default(false)
+  observaciones           String?
+  deleted_at              DateTime? @db.Timestamptz(6)
+  creado_por_id           String?   @db.Uuid
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(6)
+
+  ciclo       pesv_cycle              @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  asistencia  formularios_asistencia? @relation("pesv_formacion_asistencia", fields: [asistencia_id], references: [id], onDelete: SetNull)
+  evaluacion  Evaluacion?             @relation("pesv_formacion_evaluacion", fields: [evaluacion_id], references: [id], onDelete: SetNull)
+  responsable usuarios?               @relation("pesv_formacion_responsable", fields: [responsable_id], references: [id], onDelete: SetNull)
+  creado_por  usuarios?               @relation("pesv_formacion_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([cycle_id, trimestre])
+  @@index([asistencia_id])
+  @@index([deleted_at])
+}
+
+/// Plan de mantenimiento por vehículo (paso 17).
+///
+/// `mantenimientos` existe pero guarda VALORES DE LIQUIDACIÓN, no una hoja de
+/// vida técnica: no tiene actividad, taller, kilometraje ni fecha programada.
+/// Por eso esto es una tabla nueva y no una extensión de aquella.
+model vehicle_maintenance_plan {
+  id                     String                       @id @default(uuid()) @db.Uuid
+  vehiculo_id            String                       @db.Uuid
+  nombre                 String                       @db.VarChar(255)
+  tipo                   enum_pesv_mantenimiento_tipo @default(PREVENTIVO)
+  /// Periodicidad por tiempo, por kilometraje, o ambas. Al menos una debe
+  /// venir informada; la validación vive en el servicio.
+  periodicidad_dias      Int?
+  periodicidad_km        Int?
+  ultima_ejecucion_fecha DateTime?                    @db.Date
+  ultima_ejecucion_km    Int?
+  proxima_fecha          DateTime?                    @db.Date
+  proximo_km             Int?
+  activo                 Boolean                      @default(true)
+  observaciones          String?
+  deleted_at             DateTime?                    @db.Timestamptz(6)
+  creado_por_id          String?                      @db.Uuid
+  created_at             DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                     @updatedAt @db.Timestamptz(6)
+
+  vehiculo   vehiculos @relation("mantenimiento_plan_vehiculo", fields: [vehiculo_id], references: [id], onDelete: Cascade)
+  creado_por usuarios? @relation("mantenimiento_plan_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  eventos vehicle_maintenance_event[]
+
+  @@index([vehiculo_id, activo])
+  @@index([proxima_fecha])
+  @@index([deleted_at])
+}
+
+/// Una intervención concreta: programada y, si ocurrió, ejecutada.
+///
+/// El indicador CPMVH distingue oportuna de tardía comparando
+/// `fecha_ejecucion` con `fecha_programada`. Ejecutar después del vencimiento
+/// cuenta como ejecutada pero NO como oportuna.
+model vehicle_maintenance_event {
+  id               String                         @id @default(uuid()) @db.Uuid
+  plan_id          String?                        @db.Uuid
+  vehiculo_id      String                         @db.Uuid
+  tipo             enum_pesv_mantenimiento_tipo   @default(PREVENTIVO)
+  estado           enum_pesv_mantenimiento_estado @default(PROGRAMADO)
+  descripcion      String
+  fecha_programada DateTime?                      @db.Date
+  km_programado    Int?
+  fecha_ejecucion  DateTime?                      @db.Date
+  km_ejecucion     Int?
+  taller           String?                        @db.VarChar(255)
+  responsable      String?                        @db.VarChar(255)
+  repuestos        String?
+  costo            Decimal?                       @db.Decimal(14, 2)
+  /// Soporte del trabajo. Se guarda la clave S3 aquí y, si el paso 17 lo
+  /// exige, además se vincula como `pesv_evidence` con origen `REGISTRO`.
+  s3_key           String?                        @db.VarChar(500)
+  observaciones    String?
+  ejecutado_por_id String?                        @db.Uuid
+  deleted_at       DateTime?                      @db.Timestamptz(6)
+  creado_por_id    String?                        @db.Uuid
+  created_at       DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime                       @updatedAt @db.Timestamptz(6)
+
+  plan          vehicle_maintenance_plan? @relation(fields: [plan_id], references: [id], onDelete: SetNull)
+  vehiculo      vehiculos                 @relation("mantenimiento_evento_vehiculo", fields: [vehiculo_id], references: [id], onDelete: Cascade)
+  ejecutado_por usuarios?                 @relation("mantenimiento_evento_ejecutado_por", fields: [ejecutado_por_id], references: [id], onDelete: SetNull)
+  creado_por    usuarios?                 @relation("mantenimiento_evento_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([vehiculo_id, fecha_programada])
+  @@index([estado])
+  @@index([plan_id])
+  @@index([deleted_at])
+}
+
+/// Contrato de transporte especial.
+///
+/// Hoy vive dentro de `extractos.txt` como texto en una columna. Aquí es una
+/// fila con contratante identificado y vigencia comparable, que es lo que
+/// permite decir si un servicio está cubierto.
+model transport_contract {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  numero             String                    @db.VarChar(60)
+  contratante_nombre String                    @db.VarChar(255)
+  contratante_nit    String?                   @db.VarChar(50)
+  cliente_id         String?                   @db.Uuid
+  tercero_id         String?                   @db.Uuid
+  objeto             String?
+  /// `ESTUDIANTES` | `TRABAJADORES` | `TURISMO` | `SALUD` | `PARTICULAR` | `OTRO`.
+  tipo_servicio      String?                   @db.VarChar(60)
+  origen             String?                   @db.VarChar(255)
+  destino            String?                   @db.VarChar(255)
+  fecha_inicio       DateTime                  @db.Date
+  fecha_fin          DateTime                  @db.Date
+  estado             enum_pesv_contrato_estado @default(VIGENTE)
+  cantidad_vehiculos Int?
+  clase_vehiculos    String?                   @db.VarChar(120)
+  s3_key             String?                   @db.VarChar(500)
+  /// `MANUAL` | `LEGACY_TXT`. Las filas importadas conservan además la línea
+  /// original, para poder volver al archivo cuando algo no cuadre.
+  source             String                    @default("MANUAL") @db.VarChar(20)
+  source_line        Int?
+  source_text        String?
+  /// Huella estable de la fila de origen. Es lo que hace idempotente la
+  /// importación: reimportar el mismo TXT no crea nada nuevo.
+  source_hash        String?                   @unique @db.VarChar(64)
+  observaciones      String?
+  deleted_at         DateTime?                 @db.Timestamptz(6)
+  creado_por_id      String?                   @db.Uuid
+  created_at         DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime                  @updatedAt @db.Timestamptz(6)
+
+  cliente    clientes? @relation("contrato_cliente", fields: [cliente_id], references: [id], onDelete: SetNull)
+  tercero    terceros? @relation("contrato_tercero", fields: [tercero_id], references: [id], onDelete: SetNull)
+  creado_por usuarios? @relation("contrato_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  extractos fuec_extract[]
+  servicios servicio[]     @relation("servicio_contrato")
+
+  @@index([numero])
+  @@index([cliente_id])
+  @@index([fecha_inicio, fecha_fin])
+  @@index([estado])
+  @@index([deleted_at])
+}
+
+/// Un extracto FUEC expedido.
+///
+/// El PDF emitido es inmutable: corregir es ANULAR este y expedir otro. Por eso
+/// `snapshot_json` guarda todo lo impreso — si mañana el vehículo cambia de
+/// placa, el documento que se portó sigue diciendo lo que decía.
+model fuec_extract {
+  id                String           @id @default(uuid()) @db.Uuid
+  consecutivo       Int
+  numero_completo   String           @db.VarChar(80)
+  contrato_id       String?          @db.Uuid
+  vehiculo_id       String?          @db.Uuid
+  vehiculo_placa    String?          @db.VarChar(20)
+  numero_interno    String?          @db.VarChar(40)
+  tarjeta_operacion String?          @db.VarChar(60)
+  origen_destino    String?          @db.VarChar(500)
+  vigencia_desde    DateTime         @db.Date
+  vigencia_hasta    DateTime         @db.Date
+  estado            enum_fuec_estado @default(VIGENTE)
+  responsable       String?          @db.VarChar(255)
+  s3_key            String?          @db.VarChar(500)
+  /// Todo lo impreso, tal cual se emitió.
+  snapshot_json     Json             @default("{}")
+
+  source      String  @default("MANUAL") @db.VarChar(20)
+  source_line Int?
+  source_text String?
+  source_hash String? @unique @db.VarChar(64)
+
+  anulado_at       DateTime? @db.Timestamptz(6)
+  anulado_por_id   String?   @db.Uuid
+  motivo_anulacion String?
+  reemplaza_a_id   String?   @db.Uuid
+
+  /// Reservado para la evolución electrónica (RUNT). NO se usa todavía: no hay
+  /// norma vigente que la exija, ni servicio publicado, ni credenciales. Las
+  /// columnas existen para no tener que migrar la tabla el día que aplique.
+  external_id       String?   @db.VarChar(120)
+  external_status   String?   @db.VarChar(60)
+  last_sync_at      DateTime? @db.Timestamptz(6)
+  request_snapshot  Json?
+  response_snapshot Json?
+
+  deleted_at    DateTime? @db.Timestamptz(6)
+  creado_por_id String?   @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
+
+  contrato        transport_contract? @relation(fields: [contrato_id], references: [id], onDelete: SetNull)
+  vehiculo        vehiculos?          @relation("fuec_vehiculo", fields: [vehiculo_id], references: [id], onDelete: SetNull)
+  creado_por      usuarios?           @relation("fuec_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+  anulado_por     usuarios?           @relation("fuec_anulado_por", fields: [anulado_por_id], references: [id], onDelete: SetNull)
+  reemplaza_a     fuec_extract?       @relation("fuec_reemplazo", fields: [reemplaza_a_id], references: [id], onDelete: SetNull)
+  reemplazado_por fuec_extract[]      @relation("fuec_reemplazo")
+
+  conductores fuec_extract_driver[]
+  servicios   servicio[]            @relation("servicio_fuec")
+
+  @@index([consecutivo])
+  @@index([contrato_id])
+  @@index([vehiculo_id])
+  @@index([vigencia_desde, vigencia_hasta])
+  @@index([estado])
+  @@index([deleted_at])
+}
+
+/// Conductor autorizado en un extracto. Tabla aparte y no tres columnas:
+/// el formato admite varios y consultarlos por columnas obliga a repetir cada
+/// filtro tres veces.
+model fuec_extract_driver {
+  id                String    @id @default(uuid()) @db.Uuid
+  fuec_id           String    @db.Uuid
+  conductor_id      String?   @db.Uuid
+  /// Nombre tal como se imprimió. Se conserva aunque el conductor se concilie
+  /// después: es lo que dice el documento.
+  nombre            String    @db.VarChar(255)
+  identificacion    String?   @db.VarChar(50)
+  licencia_vigencia DateTime? @db.Date
+  orden             Int       @default(1)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+
+  fuec      fuec_extract @relation(fields: [fuec_id], references: [id], onDelete: Cascade)
+  conductor conductores? @relation("fuec_conductor", fields: [conductor_id], references: [id], onDelete: SetNull)
+
+  @@index([fuec_id])
+  @@index([conductor_id])
+}
+
+/// Fila del TXT que no se pudo resolver con seguridad.
+///
+/// La importación NO inventa entidades: si el contratante no existe o el
+/// nombre del conductor no parece un nombre, la fila cae aquí con su texto
+/// original y su número de línea, y alguien decide. Es lo que evita repetir
+/// los once conductores «EXT-<timestamp>» que dejó el `sincronizar()` viejo.
+model fuec_import_issue {
+  id           String    @id @default(uuid()) @db.Uuid
+  source_hash  String    @unique @db.VarChar(64)
+  source_line  Int
+  source_text  String
+  /// `CLIENTE_NO_RESUELTO` | `VEHICULO_NO_RESUELTO` | `CONDUCTOR_NO_RESUELTO`
+  /// | `FECHAS_INVALIDAS` | `CONSECUTIVO_INVALIDO` | `AMBIGUO`.
+  motivo       String    @db.VarChar(60)
+  detalle_json Json      @default("{}")
+  resuelto     Boolean   @default(false)
+  resuelto_at  DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @updatedAt @db.Timestamptz(6)
+
+  @@index([resuelto])
+  @@index([motivo])
+}
+
+/// Configuración por tipo documental: días de preaviso y si es obligatorio.
+/// Sin fila, se usa el `dias_por_vencer` del ciclo (30 por defecto).
+model pesv_document_type_config {
+  id              String   @id @default(uuid()) @db.Uuid
+  /// `LICENCIA_CONDUCCION` | `SOAT` | `RTM` | `TARJETA_OPERACION` | `POLIZA_*`…
+  tipo            String   @unique @db.VarChar(60)
+  etiqueta        String   @db.VarChar(120)
+  /// `CONDUCTOR` | `VEHICULO` | `TERCERO` | `CONTRATO` | `EMPRESA`.
+  ambito          String   @db.VarChar(20)
+  dias_por_vencer Int      @default(30)
+  obligatorio     Boolean  @default(true)
+  activo          Boolean  @default(true)
+  orden           Int      @default(100)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([ambito, activo])
+}
+
+/// Bitácora del módulo. Append-only y sin `deleted_at`: es la trazabilidad.
+model pesv_audit_log {
+  id             String   @id @default(uuid()) @db.Uuid
+  /// `CICLO` | `REQUISITO` | `EVIDENCIA` | `META` | `RIESGO` | `PROGRAMA` |
+  /// `SINIESTRO` | `VELOCIDAD` | `MANTENIMIENTO` | `CONTRATO` | `FUEC`.
+  entidad        String   @db.VarChar(40)
+  entidad_id     String?  @db.Uuid
+  accion         String   @db.VarChar(60)
+  usuario_id     String?  @db.Uuid
+  usuario_nombre String?  @db.VarChar(255)
+  detalle_json   Json     @default("{}")
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  usuario usuarios? @relation("pesv_auditoria_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+
+  @@index([entidad, entidad_id])
+  @@index([created_at(sort: Desc)])
+  @@index([usuario_id])
+}
+
+/// Límite de jornada de conducción, con vigencia.
+///
+/// El indicador EJLC compara las horas de cada día contra el límite VIGENTE en
+/// esa fecha. Si el límite fuera una constante en el código, cambiarlo
+/// reescribiría el histórico: los meses ya reportados pasarían a evaluarse con
+/// una regla que no existía entonces.
+///
+/// El solape se evita en el servicio, no con un CHECK: dos políticas con rangos
+/// cruzados son un error de captura que hay que poder ver y corregir, no una
+/// escritura que la base rechace a medias de un formulario.
+model pesv_jornada_policy {
+  id                       String    @id @default(uuid()) @db.Uuid
+  nombre                   String    @db.VarChar(255)
+  horas_maximas_conduccion Decimal   @db.Decimal(4, 1)
+  /// Descanso mínimo entre jornadas. Se guarda desde ya aunque el indicador
+  /// todavía no lo use: es parte de la misma política y capturarlo aparte
+  /// llevaría a dos fuentes que se contradicen.
+  horas_descanso_minimo    Decimal?  @db.Decimal(4, 1)
+  vigente_desde            DateTime  @db.Date
+  vigente_hasta            DateTime? @db.Date
+  fundamento               String?
+  activo                   Boolean   @default(true)
+  deleted_at               DateTime? @db.Timestamptz(6)
+  creado_por_id            String?   @db.Uuid
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(6)
+
+  creado_por usuarios? @relation("pesv_jornada_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([vigente_desde, vigente_hasta])
+  @@index([deleted_at])
 }
