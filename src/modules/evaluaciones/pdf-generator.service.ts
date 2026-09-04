@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
+import { resolverLogoCotransmeq } from "../../lib/branding";
 
 interface EvaluacionData {
   titulo: string;
@@ -1324,11 +1325,10 @@ export class EvaluacionPDFGeneratorService {
 
     // Logo
     try {
-      const logoPath = path.join(
-        __dirname,
-        "../../assets/transmeralda-logo.webp",
-      );
-      if (fs.existsSync(logoPath)) {
+      // `transmeralda-logo.webp` no existe en este repo (y pdfkit tampoco lee
+      // webp): la cabecera caía siempre al texto de respaldo.
+      const logoPath = resolverLogoCotransmeq();
+      if (logoPath) {
         doc.image(logoPath, col1X + 12, startY + 10, {
           fit: [col1W - 24, headerH - 20],
           align: "center",

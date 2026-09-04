@@ -11,9 +11,8 @@ import {
 } from "../../lib/soft-delete/liquidacion-servicio";
 import { randomUUID } from "crypto";
 import ExcelJS from "exceljs";
-import path from "path";
-import fs from "fs";
 import { LiquidacionesTercerosService } from "../liquidaciones-terceros/liquidaciones-terceros.service";
+import { resolverLogoCotransmeq } from "../../lib/branding";
 
 const MES_NOMBRE_A_NUM: Record<string, number> = {
   ENERO: 1, FEBRERO: 2, MARZO: 3, ABRIL: 4, MAYO: 5, JUNIO: 6,
@@ -2039,18 +2038,19 @@ export const LiquidacionesServiciosService = {
     const worksheet = workbook.addWorksheet("Items Liquidación");
 
     // 1. Agregar Logo
-    const logoPath = path.join(
-      process.cwd(),
-      "src/assets/transmeralda-logo.png",
-    );
-    if (fs.existsSync(logoPath)) {
+    // `transmeralda-logo.png` sigue en el repo pero es la marca de la otra
+    // empresa: el Excel salía con el logotipo de Transmeralda.
+    const logoPath = resolverLogoCotransmeq();
+    if (logoPath) {
       const logo = workbook.addImage({
         filename: logoPath,
         extension: "png",
       });
+      // 94x60 y no 150x50: el logotipo es 177x113 y ExcelJS no respeta la
+      // relación de aspecto por su cuenta.
       worksheet.addImage(logo, {
         tl: { col: 0, row: 0 },
-        ext: { width: 150, height: 50 },
+        ext: { width: 94, height: 60 },
       });
     }
 

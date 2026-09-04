@@ -25,7 +25,10 @@ import fs from 'fs';
  */
 
 const SELLO_PATH = path.join(__dirname, '..', '..', 'assets', 'sello-firma-terceros.png');
-const LOGO_PATH = path.join(__dirname, '..', '..', 'assets', 'logo_transmeralda-264.webp');
+// `logo_transmeralda-264.webp` no existe en este repo: el encabezado caía
+// siempre a la caja de respaldo. El arte de Cotransmeq sí está, y aquí el
+// webp vale porque quien renderiza es Chromium, no pdfkit.
+const LOGO_PATH = path.join(__dirname, '..', '..', 'assets', 'logo_cotransmeq-264.webp');
 
 let selloDataUrl: string | null = null;
 function getSelloDataUrl(): string {
@@ -1227,7 +1230,7 @@ export function renderTerceroLiquidacionPdf(item: any): string {
 <body>
   <div class="header">
     <div class="header-logo">${
-      logo ? `<img src="${logo}" alt="Logo" />` : `<div style="width:80px;height:46px;background:#0f4025;color:#fff;font-size:9pt;font-weight:900;display:flex;align-items:center;justify-content:center;border-radius:6px">TRANS<br/>MERALDA</div>`
+      logo ? `<img src="${logo}" alt="Logo" />` : `<div style="width:80px;height:46px;background:#0f4025;color:#fff;font-size:9pt;font-weight:900;display:flex;align-items:center;justify-content:center;border-radius:6px">COTRANS<br/>MEQ</div>`
     }</div>
     <div class="header-title">
       <div class="co">TRANSPORTES Y SERVICIOS ESMERALDA S.A.S.</div>

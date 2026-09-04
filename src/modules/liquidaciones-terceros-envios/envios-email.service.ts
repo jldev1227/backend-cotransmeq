@@ -27,6 +27,7 @@ import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
 import { Resend } from 'resend'
 import { env } from '../../config/env'
+import { LOGO_EMAIL_URL_POR_DEFECTO } from '../../lib/branding'
 
 export type ProveedorEnvio = 'smtp-contabilidad' | 'resend' | 'smtp'
 
@@ -131,7 +132,7 @@ export function htmlEnvioLiquidacion(p: {
   etiqueta?: string
   resumen?: Array<{ etiqueta: string; valor: string }>
 }): string {
-  const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.png'
+  const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
   const mensajeHtml = escapeHtml(p.mensaje || '').replace(/\n/g, '<br/>')
   // Líneas extra del resumen (la cifra de cierre de la hoja). Van DESPUÉS de
   // Periodo y con el valor resaltado: es el dato que el destinatario busca
@@ -172,7 +173,7 @@ export function htmlEnvioLiquidacion(p: {
           <!-- Header -->
           <tr>
             <td style="background:linear-gradient(135deg,#059669 0%,#047857 100%);padding:32px 32px 24px 32px;text-align:center;">
-              <img src="${logoUrl}" alt="Transmeralda" width="160" style="display:block;margin:0 auto 16px;max-width:160px;height:auto;" />
+              <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;margin:0 auto 16px;max-width:160px;height:auto;" />
               <h1 style="margin:0;color:#ffffff;font-size:21px;font-weight:700;line-height:1.3;">
                 ${escapeHtml(p.titulo || `Liquidación de su vehículo ${p.placa}`)}
               </h1>

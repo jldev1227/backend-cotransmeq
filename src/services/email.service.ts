@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
 import { env } from '../config/env'
 import { AREA_LABELS } from '../config/permissions'
+import { LOGO_EMAIL_URL_POR_DEFECTO } from '../lib/branding'
 
 // ═══════════════════════════════════════════════════════
 // PROVEEDOR DE EMAIL: Resend (principal) o SMTP (fallback)
@@ -168,7 +169,7 @@ export const EmailService = {
     const frontendUrl = getEmailFrontendUrl()
     const magicLink = `${frontendUrl}/public/dias-laborados?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
+    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
 
     const html = `
 <!DOCTYPE html>
@@ -307,7 +308,7 @@ export const EmailService = {
     const frontendUrl = getEmailFrontendUrl()
     const portalLink = `${frontendUrl}/public/portal?token=${token}`
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
+    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
 
     const html = `
 <!DOCTYPE html>
@@ -449,7 +450,7 @@ export const EmailService = {
   }) {
     const frontendUrl = getEmailFrontendUrl()
     const inviteLink = `${frontendUrl}/invite/${token}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
+    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
     // Mapa de `config/permissions.ts` en vez de una copia local: la copia se
     // quedaba sin las áreas nuevas (`mantenimiento`) y las pintaba en crudo.
     const areasText = area.map(a => (AREA_LABELS as Record<string, string>)[a] || a).join(', ')
@@ -590,7 +591,7 @@ export const EmailService = {
     portalLink: string
   }) {
     const frontendUrl = getEmailFrontendUrl()
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
+    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
 
     const html = `
 <!DOCTYPE html>
@@ -714,7 +715,7 @@ export const EmailService = {
     monto: string
     portalLink: string
   }) {
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
+    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -814,7 +815,7 @@ export const EmailService = {
   }) {
     const frontendUrl = getEmailFrontendUrl()
     const accessLink = `${frontendUrl}/public/certificados?token=${token}`
-    const logoUrl = env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/logo.webp'
+    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
 
     const certificadosHtml = certificados.length > 0
       ? certificados.map(c => `

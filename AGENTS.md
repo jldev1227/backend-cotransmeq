@@ -225,3 +225,16 @@ lo nota hasta que el cliente compara.
 Los documentos de **formularios dinámicos** no siguen este camino: se imprimen
 desde el cliente. Reimplementar aquí los diecinueve tipos de campo daría un segundo
 renderizador que divergiría del primero.
+
+## Logotipos
+
+`src/assets/` guarda arte de las dos empresas y los nombres engañan:
+`logo.png` y `transmeralda-logo.png` son de **Transmeralda**. Los buenos son
+`cotransmeq-logo.png` (para pdfkit y ExcelJS, que no leen webp) y
+`logo_cotransmeq-264.webp` (para las plantillas que renderiza Chromium).
+
+No los resuelvas a mano: `src/lib/branding.ts` expone
+`resolverLogoCotransmeq()` —que además cubre las dos rutas posibles del build—
+y `LOGO_EMAIL_URL_POR_DEFECTO` para las plantillas de correo, donde manda
+`EMAIL_LOGO_URL`. Devuelve `null` antes que caer a la marca ajena: un documento
+de Cotransmeq firmado por Transmeralda es peor que uno sin logotipo.
