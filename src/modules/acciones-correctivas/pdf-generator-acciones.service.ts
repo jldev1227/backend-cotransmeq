@@ -1,6 +1,5 @@
 import PDFDocument from "pdfkit";
-import * as path from "path";
-import * as fs from "fs";
+import { resolverLogoCotransmeq } from "../../lib/branding";
 
 const C = {
   ink: "#18181b",
@@ -663,8 +662,10 @@ export class PDFGeneratorAccionesService {
         // Left: Logo
         doc.rect(MARGIN, baseY, LOGO_BOX.w, LOGO_BOX.h).fill(C.accentLight).strokeColor(C.border).lineWidth(0.5).stroke();
         try {
-          const logoPath = path.join(__dirname, "../../assets/transmeralda-logo.webp");
-          if (fs.existsSync(logoPath)) {
+          // `transmeralda-logo.webp` no existe en este repo (y pdfkit tampoco
+          // lee webp): la caja del logotipo salía vacía.
+          const logoPath = resolverLogoCotransmeq();
+          if (logoPath) {
             doc.image(logoPath, MARGIN + LOGO_PAD, baseY + LOGO_PAD, { fit: [LOGO_BOX.w - LOGO_PAD * 2, LOGO_BOX.h - LOGO_PAD * 2], align: "center", valign: "center" });
           }
         } catch {

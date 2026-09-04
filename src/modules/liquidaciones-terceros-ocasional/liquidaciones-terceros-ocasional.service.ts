@@ -970,6 +970,7 @@ export const LiquidacionesTercerosOcasionalService = {
     const [candidatos, enOcasionales, finales] = await Promise.all([
       prisma.liquidacion_tercero.findMany({
         where: {
+          deleted_at: null,
           // Sin factura el ingreso no es cobrable todavía, igual que en la hoja
           // de ingresos. Un ocasional sin factura se quedaría esperando.
           liquidacion: {

@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
 import { EmailService, type EmailAttachment } from '../../services/email.service'
 import { emitirTokenPortal } from '../conductor-portal/portal-token.service'
+import { LOGO_EMAIL_URL_POR_DEFECTO } from '../../lib/branding'
 
 const GUIA_DIR = path.resolve(process.cwd(), 'src/assets/email/formularios')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -153,7 +154,7 @@ export async function listarAudiencia(periodo?: string): Promise<{ periodo: Peri
 export function renderizarGuia(params: { nombre: string; portalLink: string }): string {
   const nombre = escapar(params.nombre.trim() || 'Conductor')
   const portalLink = escapar(params.portalLink)
-  const logoUrl = escapar(env.EMAIL_LOGO_URL || 'https://transmeralda.s3.us-east-2.amazonaws.com/assets/cotransmeq.png')
+  const logoUrl = escapar(env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO)
   const pasos = PASOS.map((paso) => `
     <tr><td style="padding:0 24px 24px">
       <p style="margin:0 0 8px;color:#0f172a;font-size:17px;font-weight:700">${paso.titulo}</p>

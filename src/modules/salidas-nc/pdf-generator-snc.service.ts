@@ -1,6 +1,5 @@
 import PDFDocument from 'pdfkit'
-import * as path from 'path'
-import * as fs from 'fs'
+import { resolverLogoCotransmeq } from '../../lib/branding'
 
 interface SalidaNC {
   id: string
@@ -247,13 +246,17 @@ export class PDFGeneratorSNCService {
 
         // Logo
         try {
-          const isDist = __dirname.includes('/dist/')
-          const logoPath = isDist
-            ? path.join(__dirname, '../../assets/transmeralda-logo.webp')
-            : path.join(__dirname, '../../assets/transmeralda-logo.webp')
+          // `transmeralda-logo.webp` no existe en este repo (y pdfkit tampoco
+          // lee webp): el encabezado salía sin logotipo.
+          const logoPath = resolverLogoCotransmeq()
 
-          if (fs.existsSync(logoPath)) {
-            doc.image(logoPath, leftX, yPos, { width: 130, height: 36 })
+          if (logoPath) {
+            // `fit` y no width/height: el logotipo es 177x113 y forzarlo a
+            // 130x36 lo aplastaba.
+            doc.image(logoPath, leftX, yPos, {
+              fit: [130, 40],
+              valign: 'center'
+            })
           }
         } catch {
           doc.fontSize(14).font('Helvetica-Bold').text('COTRANSMEQ S.A.S', leftX, yPos)

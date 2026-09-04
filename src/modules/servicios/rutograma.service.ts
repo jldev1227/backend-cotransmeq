@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import { prisma } from '../../config/prisma'
 import { getS3SignedUrl } from '../../config/aws'
 import distracomLocations from '../../data/distracomlocations'
+import { resolverLogoCotransmeq } from '../../lib/branding'
 
 interface FirmaData {
   nombre: string
@@ -675,13 +676,6 @@ export class RutogramaService {
 
   // ─── PDF GENERATION ──────────────────────────────────────────
 
-  private getLogoPath(): string {
-    const isDist = __dirname.includes('/dist/')
-    return isDist
-      ? path.join(__dirname, '../../assets/transmeralda-logo.png')
-      : path.join(__dirname, '../../assets/transmeralda-logo.png')
-  }
-
   private getFontsDir(): string {
     return __dirname.includes('/dist/')
       ? path.join(__dirname, '../../assets/fonts')
@@ -784,16 +778,23 @@ export class RutogramaService {
     // Columna 1: Logo
     const col1W = contentW * 0.25
     try {
-      const logoPath = this.getLogoPath()
-      if (fs.existsSync(logoPath)) {
-        doc.image(logoPath, marginL + 8, y + 6, { width: 140, height: 42 })
+      // `transmeralda-logo.png` sigue en el repo pero es la marca de la otra
+      // empresa: el rutograma salía firmado por Transmeralda.
+      const logoPath = resolverLogoCotransmeq()
+      if (logoPath) {
+        // `fit` y no width/height: el logotipo es 177x113 y forzarlo a 140x42
+        // lo aplastaba.
+        doc.image(logoPath, marginL + 8, y + 6, {
+          fit: [140, 46],
+          valign: 'center'
+        })
       } else {
         doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-          .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
+          .text('COTRANSMEQ S.A.S', marginL + 8, y + 18)
       }
     } catch {
       doc.fontSize(10).font('Roboto-Bold').fillColor(COLORS.primary)
-        .text('TRANSMERALDA S.A.S', marginL + 8, y + 18)
+        .text('COTRANSMEQ S.A.S', marginL + 8, y + 18)
     }
 
     // Línea divisora vertical

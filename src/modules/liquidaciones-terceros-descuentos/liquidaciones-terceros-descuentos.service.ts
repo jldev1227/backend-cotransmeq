@@ -966,7 +966,10 @@ export const LiquidacionesTercerosDescuentosService = {
     const liqServicio = await prisma.liquidacion_servicio.findUnique({
       where: { id: liquidacion_servicio_id },
       include: {
-        terceros_items: { orderBy: { orden: 'asc' } },
+        /// Solo las filas vivas: el guardado de terceros marca las anteriores
+        /// con `deleted_at`, y sin el filtro el cierre las procesaba todas y
+        /// duplicaba los conceptos.
+        terceros_items: { where: { deleted_at: null }, orderBy: { orden: 'asc' } },
         factura_items: { include: { factura: { select: { numero_factura: true } } } },
         cliente: { select: { id: true, nombre: true, nit: true } },
       },
@@ -3147,8 +3150,14 @@ export const LiquidacionesTercerosDescuentosService = {
 
     // 2. Buscar todos los `liquidacion_tercero` que coincidan con el filtro
     //    del cierre: misma placa, mismo mes, mismo año, mismo tercero_id
-    //    (si el cierre lo tiene). El modelo no tiene soft delete.
+    //    (si el cierre lo tiene).
+    //
+    //    El comentario anterior decía que el modelo no tenía soft delete. Lo
+    //    tiene desde la migración de liquidaciones, y desde que el guardado
+    //    marca en vez de borrar, las versiones anteriores siguen en la tabla:
+    //    sin el filtro, el cierre las contaría todas.
     const ltWhere: any = {
+      deleted_at: null,
       placa: { equals: cierre.placa, mode: 'insensitive' as any },
       mes: cierre.mes,
       anio: cierre.anio,
