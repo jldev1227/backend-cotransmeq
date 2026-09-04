@@ -291,7 +291,11 @@ export const LiquidacionesServiciosService = {
         actualizado_por: { select: { id: true, nombre: true } },
         liquidado_por: { select: { id: true, nombre: true } },
         aprobado_por: { select: { id: true, nombre: true } },
+        /// Solo ítems vivos. El snapshot de `actualizar` se toma DESPUÉS de
+        /// reconciliar, así que sin este filtro guardaba como «versión» las
+        /// filas que el usuario acababa de quitar.
         items: {
+          where: { deleted_at: null },
           orderBy: { orden: "asc" },
           include: { tercero: { select: { id: true, nombre_completo: true } } },
         },
@@ -1195,7 +1199,7 @@ export const LiquidacionesServiciosService = {
       include: {
         cliente: { select: { id: true, nombre: true, nit: true } },
         creado_por: { select: { id: true, nombre: true, correo: true } },
-        items: { orderBy: { orden: "asc" } },
+        items: { where: { deleted_at: null }, orderBy: { orden: "asc" } },
       },
     });
 
@@ -1436,10 +1440,14 @@ export const LiquidacionesServiciosService = {
           creado_por: { select: { id: true, nombre: true, correo: true } },
           liquidado_por: { select: { id: true, nombre: true, correo: true } },
           aprobado_por: { select: { id: true, nombre: true, correo: true } },
-          _count: { select: { items: true } },
+          /// Contar TODOS los ítems inflaba `total_items`: los eliminados
+          /// siguen en la tabla desde que el guardado marca en vez de borrar.
+          _count: { select: { items: { where: { deleted_at: null } } } },
+          /// Idem para las filas que pinta el canvas de historial y para las
+          /// placas que se derivan de ellas.
           items: conItems
-            ? { orderBy: { orden: "asc" as const } }
-            : { select: { placa: true } },
+            ? { where: { deleted_at: null }, orderBy: { orden: "asc" as const } }
+            : { where: { deleted_at: null }, select: { placa: true } },
           // La factura viva SIEMPRE embebida: el tipo del frontend ya la
           // documentaba como parte de `listar`, pero nunca se incluyó y la
           // columna N° FACTURA del canvas salía vacía. El listado clásico la
@@ -1511,7 +1519,9 @@ export const LiquidacionesServiciosService = {
       }),
       // Unique placas (cascading: exclude own filter, sorted A-Z)
       prisma.liquidacion_servicio_item.findMany({
-        where: { liquidacion: whereExcluding("placas") },
+        /// `deleted_at` del propio ítem, no solo de su liquidación: si no, el
+        /// desplegable ofrece placas que ya no están en ninguna fila viva.
+        where: { deleted_at: null, liquidacion: whereExcluding("placas") },
         select: { placa: true },
         distinct: ["placa"],
         orderBy: { placa: "asc" },
@@ -1586,8 +1596,11 @@ export const LiquidacionesServiciosService = {
   },
 
   async obtenerPorId(id: string) {
-    const liquidacion = await prisma.liquidacion_servicio.findUnique({
-      where: { id },
+    const liquidacion = await prisma.liquidacion_servicio.findFirst({
+      /// Una liquidación eliminada no se abre: `actualizar` ya la rechaza con
+      /// 409, pero sin esto el editor la cargaba igual y el usuario perdía el
+      /// trabajo al guardar. La papelera se lee con `listarEliminadas`.
+      where: { id, deleted_at: null },
       include: {
         cliente: {
           select: {
@@ -1606,7 +1619,11 @@ export const LiquidacionesServiciosService = {
         /// Solo ítems vivos: los eliminados existen para poder restaurar la
         /// liquidación, no para volver al formulario ni sumar en los totales.
         items: { where: { deleted_at: null }, orderBy: { orden: "asc" } },
+        /// Cada guardado marca las filas anteriores con `deleted_at` y crea
+        /// las nuevas (ver `LiquidacionesTercerosService.guardar`). Sin este
+        /// filtro el editor mostraba todas las versiones apiladas.
         terceros_items: {
+          where: { deleted_at: null },
           orderBy: { orden: "asc" },
           include: {
             tercero: {
@@ -2012,7 +2029,7 @@ export const LiquidacionesServiciosService = {
       where: { id: liquidacionId },
       include: {
         cliente: { select: { nombre: true, nit: true } },
-        items: { orderBy: { orden: "asc" } },
+        items: { where: { deleted_at: null }, orderBy: { orden: "asc" } },
       },
     });
 

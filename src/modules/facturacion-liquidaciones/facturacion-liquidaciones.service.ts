@@ -210,6 +210,7 @@ export const FacturacionLiquidacionesService = {
         {
           items: {
             some: {
+              deleted_at: null,
               liquidacion: {
                 consecutivo: {
                   contains: filtros.busqueda,
@@ -222,6 +223,7 @@ export const FacturacionLiquidacionesService = {
         {
           items: {
             some: {
+              deleted_at: null,
               liquidacion: {
                 cliente: {
                   nombre: { contains: filtros.busqueda, mode: "insensitive" },
@@ -239,8 +241,12 @@ export const FacturacionLiquidacionesService = {
         include: {
           facturado_por: { select: { id: true, nombre: true, correo: true } },
           anulado_por: { select: { id: true, nombre: true, correo: true } },
-          _count: { select: { items: true } },
+          /// `quitarLiquidaciones` marca el pivote con `deleted_at` en vez de
+          /// borrarlo. Sin filtrar, la factura seguía mostrando —y contando—
+          /// liquidaciones que ya no le pertenecen.
+          _count: { select: { items: { where: { deleted_at: null } } } },
           items: {
+            where: { deleted_at: null },
             include: {
               liquidacion: {
                 select: {
@@ -296,6 +302,7 @@ export const FacturacionLiquidacionesService = {
         facturado_por: { select: { id: true, nombre: true, correo: true } },
         anulado_por: { select: { id: true, nombre: true, correo: true } },
         items: {
+          where: { deleted_at: null },
           include: {
             liquidacion: {
               include: {
@@ -337,7 +344,9 @@ export const FacturacionLiquidacionesService = {
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id },
       include: {
-        items: { select: { liquidacion_id: true } },
+        /// Solo el pivote vivo: una liquidación que ya se había quitado de
+        /// esta factura no debe volver a LIQUIDADA al anularla.
+        items: { where: { deleted_at: null }, select: { liquidacion_id: true } },
       },
     });
 
@@ -361,6 +370,7 @@ export const FacturacionLiquidacionesService = {
           facturado_por: { select: { id: true, nombre: true, correo: true } },
           anulado_por: { select: { id: true, nombre: true, correo: true } },
           items: {
+            where: { deleted_at: null },
             include: {
               liquidacion: {
                 select: {
@@ -477,6 +487,7 @@ export const FacturacionLiquidacionesService = {
       include: {
         facturado_por: { select: { nombre: true } },
         items: {
+          where: { deleted_at: null },
           include: {
             liquidacion: {
               select: {
@@ -792,8 +803,9 @@ function facturaIncludeCompleto() {
   return {
     facturado_por: { select: { id: true, nombre: true, correo: true } },
     anulado_por: { select: { id: true, nombre: true, correo: true } },
-    _count: { select: { items: true } },
+    _count: { select: { items: { where: { deleted_at: null } } } },
     items: {
+      where: { deleted_at: null },
       include: {
         liquidacion: {
           select: {
