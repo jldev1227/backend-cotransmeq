@@ -14,7 +14,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { getS3SignedUrl } from '../../config/aws'
 import { logger } from '../../utils/logger'
-import { FormError } from './domain'
+import { FormError, fechaDeFormularioDe } from './domain'
 import {
   toSubmissionDetailDto,
   toSubmissionSummaryDto,
@@ -260,6 +260,10 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
     'asignacion',
     'estado',
     'fecha_negocio',
+    /// Cuándo se EMPEZÓ el formulario, al lado de la fecha con la que cuenta el
+    /// servidor. Difieren en el turno que cruza la medianoche y en el formulario
+    /// que se diligencia sin señal y se entrega días después.
+    'fecha_formulario',
     'periodo',
     /// `tipo_actor` va antes del nombre porque es lo que hace legible una
     /// exportación mixta: sin él, "Juan Pérez" no dice si el registro salió del
@@ -322,6 +326,7 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
       dto.assignment?.name ?? '',
       dto.status,
       dto.businessDate ?? '',
+      fechaDeFormularioDe(dto.context) ?? '',
       dto.periodKey ?? '',
       dto.actor?.kind === 'USER' ? 'Usuario' : 'Conductor',
       dto.actor?.nombre ?? '',

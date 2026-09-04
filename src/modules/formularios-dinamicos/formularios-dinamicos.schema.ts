@@ -405,6 +405,10 @@ export const backupDraftSchema = z.object({
   context: jsonObject.optional(),
   answers: z.array(answerInputSchema).max(SUBMISSION_LIMITS.maxAnswersPerSubmission),
   progress: z.number().int().min(0).max(100).optional(),
+  /// Cuándo se abrió el formulario EN EL DISPOSITIVO. De aquí sale la fecha del
+  /// formulario, y sin este dato saldría del momento en que el servidor recibió
+  /// el primer backup —que sin señal puede ser horas o días después.
+  startedAt: z.string().datetime().optional(),
   updatedAt: z.string().datetime().optional(),
   device: z.record(z.unknown()).optional(),
 })

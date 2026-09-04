@@ -48,6 +48,7 @@ import {
   FormError,
   businessDateFor,
   capabilitiesOf,
+  conFechaDeFormulario,
   periodKeyFor,
   submissionFingerprintPayload,
   type AnswerInput,
@@ -461,7 +462,7 @@ export async function guardarBorradorPortal(
 
   const existente = await prisma.form_submission.findUnique({
     where: { client_submission_id: clientSubmissionId },
-    select: { id: true, conductor_id: true, usuario_id: true, status: true },
+    select: { id: true, conductor_id: true, usuario_id: true, status: true, started_at: true },
   })
 
   if (existente) {
@@ -480,6 +481,25 @@ export async function guardarBorradorPortal(
   const contexto = (input.context ?? {}) as Record<string, unknown>
 
   const submissionId = existente?.id ?? randomUUID()
+
+  /**
+   * Cuándo empezó el formulario.
+   *
+   * El dispositivo lo sabe y el servidor no: con el portal sin señal, entre que
+   * el conductor abre el formulario y llega el primer backup pueden pasar horas.
+   * Sin este dato, `started_at` sería el momento en que el servidor se enteró y
+   * la fecha del formulario saldría del día equivocado.
+   *
+   * Se toma el MÁS ANTIGUO de los conocidos: un formulario no puede haber
+   * empezado después de la primera vez que se supo de él.
+   */
+  const inicioDelDispositivo = input.startedAt ? new Date(input.startedAt) : null
+  const startedAt = [existente?.started_at ?? null, inicioDelDispositivo, now]
+    .filter((f): f is Date => f instanceof Date && !Number.isNaN(f.getTime()))
+    .reduce((a, b) => (a < b ? a : b))
+
+  /// La fecha del formulario la pone el servidor, no el dispositivo.
+  const contextoFinal = conFechaDeFormulario(contexto, startedAt, assignment.timezone)
 
   await prisma.$transaction(async (tx) => {
     /// Paso 3 del orden global. La comprobación de arriba es optimista: entre
@@ -506,9 +526,10 @@ export async function guardarBorradorPortal(
           vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
           service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
           status: 'DRAFT',
+          started_at: startedAt,
           business_date: new Date(`${businessDate}T00:00:00.000Z`),
           period_key: periodKey,
-          context_json: contexto as Prisma.InputJsonValue,
+          context_json: contextoFinal as Prisma.InputJsonValue,
           device_json: { ...(input.device ?? {}), progress: input.progress ?? 0 } as Prisma.InputJsonValue,
         },
       })
@@ -528,7 +549,8 @@ export async function guardarBorradorPortal(
         data: {
           vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
           service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
-          context_json: contexto as Prisma.InputJsonValue,
+          started_at: startedAt,
+          context_json: contextoFinal as Prisma.InputJsonValue,
           device_json: { ...(input.device ?? {}), progress: input.progress ?? 0 } as Prisma.InputJsonValue,
         },
       })
@@ -1162,6 +1184,10 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
       status: true,
       business_date: true,
       period_key: true,
+      /// `started_at` es de donde sale la fecha del formulario: hace falta aquí
+      /// para no perderla cuando el envío ACTUALIZA una fila que ya creó el
+      /// backup del borrador.
+      started_at: true,
       submitted_at: true,
       assignment_id: true,
       device_json: true,
@@ -1217,6 +1243,7 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
         status: true,
         business_date: true,
         period_key: true,
+        started_at: true,
         submitted_at: true,
         assignment_id: true,
         device_json: true,
@@ -1298,13 +1325,35 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
     })
 
     const submissionId = actualizado?.id ?? randomUUID()
+
+    /**
+     * Inicio del formulario: el instante MÁS ANTIGUO que se conozca.
+     *
+     * Tres orígenes posibles y ninguno manda por sí solo: la fila que creó el
+     * backup del borrador, el `startedAt` que reporta el dispositivo (el momento
+     * real en que el conductor abrió el formulario, que con el portal sin señal
+     * puede ser de hace horas) y, si no hay nada, ahora. Se toma el menor porque
+     * un formulario no puede haber empezado DESPUÉS de la primera vez que se
+     * supo de él.
+     */
+    const inicioDelDispositivo = input.startedAt ? new Date(input.startedAt) : null
+    const startedAt = [actualizado?.started_at ?? null, inicioDelDispositivo, now]
+      .filter((f): f is Date => f instanceof Date && !Number.isNaN(f.getTime()))
+      .reduce((a, b) => (a < b ? a : b))
+
+    /// La fecha del formulario la pone el SERVIDOR desde ese inicio. Lo que
+    /// venga en `filledOn` del dispositivo se descarta: una app vieja todavía lo
+    /// manda, y un dato tecleado no manda sobre el reloj.
+    const contextoFinal = conFechaDeFormulario(contexto, startedAt, assignment.timezone)
+
     const datosComunes = {
       vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
       service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
       status: 'SUBMITTED' as const,
       business_date: new Date(`${businessDate}T00:00:00.000Z`),
       period_key: periodKey,
-      context_json: contexto as Prisma.InputJsonValue,
+      context_json: contextoFinal as Prisma.InputJsonValue,
+      started_at: startedAt,
       device_json: {
         ...(input.device ?? {}),
         /// La huella se guarda en `device_json` y no en columna propia para no
@@ -1326,7 +1375,6 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
           assignment_id: assignment.id,
           version_id: assignment.version_id,
           ...autorDe(actor),
-          started_at: input.startedAt ? new Date(input.startedAt) : now,
           ...datosComunes,
         },
       })

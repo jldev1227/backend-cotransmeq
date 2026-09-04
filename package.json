@@ -12,6 +12,7 @@
     "seed": "tsx prisma/seed.ts",
     "seeds:formularios:inventario": "tsx prisma/seeds/formularios-hseq/inventario.ts",
     "seeds:formularios:cargar": "tsx prisma/seeds/formularios-hseq/cargar.ts",
+    "formularios:fecha-desde-inicio": "tsx scripts/formularios-fecha-desde-inicio.ts",
     "operadoras:inventario": "tsx scripts/operadoras-inventario.ts",
     "seeds:operadoras:cargar": "tsx prisma/seeds/operadoras/cargar.ts",
     "test": "vitest",
