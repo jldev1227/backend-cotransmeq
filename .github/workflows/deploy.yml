@@ -9,13 +9,15 @@ permissions:
   contents: read
 
 concurrency:
+  # GitHub solo serializa dentro de este repo; el script usa un flock compartido
+  # entre ambos LXC para coordinar los cuatro despliegues del host Proxmox.
   group: backend-cotransmeq-production
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: [self-hosted, linux, x64, cotransmeq-ct123, backend-cotransmeq]
-    timeout-minutes: 30
+    timeout-minutes: 90
     environment: production
 
     steps:
