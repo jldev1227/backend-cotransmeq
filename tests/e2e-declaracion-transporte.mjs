@@ -451,7 +451,7 @@ async function main() {
 
   // ═══ 10. No regresión ═══
   seccion('10. No regresión de los formatos existentes')
-  for (const codigo of ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12']) {
+  for (const codigo of ['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06', 'SLFT-PTEE-FR-12']) {
     const r = await json(`${BASE}/public/formularios-sarlaft/${codigo}`)
     check(`${codigo} sigue disponible`, r.status === 200 && !!r.body?.formulario)
   }

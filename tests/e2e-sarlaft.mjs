@@ -120,7 +120,7 @@ async function main() {
 
   // ═══ 2. Estructura de cada formato ═══
   seccion('2. Estructura de los 4 formatos')
-  const CODIGOS = ['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12']
+  const CODIGOS = ['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06', 'SLFT-PTEE-FR-12']
   const definiciones = {}
   for (const codigo of CODIGOS) {
     const r = await json(`${BASE}/public/formularios-sarlaft/${codigo}`)
@@ -128,22 +128,22 @@ async function main() {
     check(`${codigo} devuelve su definición`, r.status === 200 && !!r.body?.formulario,
       r.body?.formulario ? `${r.body.formulario.total_secciones} secciones · ${r.body.formulario.total_preguntas} preguntas` : `HTTP ${r.status}`)
   }
-  const inexistente = await json(`${BASE}/public/formularios-sarlaft/GC-FR-99`)
+  const inexistente = await json(`${BASE}/public/formularios-sarlaft/SLFT-PTEE-FR-99`)
   check('Un código inexistente responde 4xx', inexistente.status >= 400, `HTTP ${inexistente.status}`)
 
   // ═══ 3. Anexos requeridos ═══
   seccion('3. Anexos requeridos por formato')
-  const docsPersonal = await json(`${BASE}/public/formularios-sarlaft/GC-FR-06/documentos`)
-  check('GC-FR-06 ofrece 4 anexos, 2 obligatorios',
+  const docsPersonal = await json(`${BASE}/public/formularios-sarlaft/SLFT-PTEE-FR-06/documentos`)
+  check('SLFT-PTEE-FR-06 ofrece 4 anexos, 2 obligatorios',
     docsPersonal.body?.documentos?.length === 4 &&
       docsPersonal.body.documentos.filter((d) => d.obligatorio).length === 2)
   const docsAut = await json(`${BASE}/public/formularios-sarlaft/SLFT-PTEE-FR-12/documentos`)
   const autObligatorios = docsAut.body?.documentos?.filter((d) => d.obligatorio) ?? []
   check('SLFT-PTEE-FR-12 exige 6 anexos obligatorios', autObligatorios.length === 6,
     autObligatorios.map((d) => d.id).join(', '))
-  const docsPJ = await json(`${BASE}/public/formularios-sarlaft/GC-FR-04/documentos?tipo_cliente=Persona%20Jur%C3%ADdica`)
-  const docsPN = await json(`${BASE}/public/formularios-sarlaft/GC-FR-04/documentos?tipo_cliente=Persona%20Natural`)
-  check('GC-FR-04 pide composición accionaria solo a Persona Jurídica',
+  const docsPJ = await json(`${BASE}/public/formularios-sarlaft/SLFT-PTEE-FR-04/documentos?tipo_cliente=Persona%20Jur%C3%ADdica`)
+  const docsPN = await json(`${BASE}/public/formularios-sarlaft/SLFT-PTEE-FR-04/documentos?tipo_cliente=Persona%20Natural`)
+  check('SLFT-PTEE-FR-04 pide composición accionaria solo a Persona Jurídica',
     docsPJ.body?.documentos?.some((d) => d.id === 'composicion_accionaria') &&
       !docsPN.body?.documentos?.some((d) => d.id === 'composicion_accionaria'))
   check('Config de subida: 10 MB y extensiones permitidas',
@@ -168,7 +168,7 @@ async function main() {
   // ═══ 5. Validación de campos obligatorios ═══
   seccion('5. Rechazo de envíos incompletos')
   const fdVacio = new FormData()
-  fdVacio.append('payload', JSON.stringify({ codigo_formulario: 'GC-FR-06', respuestas: {} }))
+  fdVacio.append('payload', JSON.stringify({ codigo_formulario: 'SLFT-PTEE-FR-06', respuestas: {} }))
   const vacio = await json(`${BASE}/public/formularios-sarlaft`, { method: 'POST', body: fdVacio })
   check('Un envío sin respuestas se rechaza con 422', vacio.status === 422, `HTTP ${vacio.status}`)
   check('El rechazo enumera los campos pendientes', Array.isArray(vacio.body?.details) && vacio.body.details.length > 0,
@@ -177,14 +177,14 @@ async function main() {
   const sinPayload = await json(`${BASE}/public/formularios-sarlaft`, { method: 'POST', body: new FormData() })
   check('Un envío sin payload se rechaza con 400', sinPayload.status === 400, `HTTP ${sinPayload.status}`)
 
-  // ═══ 6. Envío completo — GC-FR-06 (Vinculación de Personal) ═══
-  seccion('6. Envío completo GC-FR-06 (Vinculación de Personal)')
+  // ═══ 6. Envío completo — SLFT-PTEE-FR-06 (Vinculación de Personal) ═══
+  seccion('6. Envío completo SLFT-PTEE-FR-06 (Vinculación de Personal)')
   const radicados = {}
   {
-    const def = definiciones['GC-FR-06']
+    const def = definiciones['SLFT-PTEE-FR-06']
     const fd = new FormData()
     fd.append('payload', JSON.stringify({
-      codigo_formulario: 'GC-FR-06',
+      codigo_formulario: 'SLFT-PTEE-FR-06',
       fecha_diligenciamiento: '2026-08-20',
       respuestas: construirRespuestas(def)
     }))

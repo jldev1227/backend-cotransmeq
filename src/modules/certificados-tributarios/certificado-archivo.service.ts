@@ -72,6 +72,10 @@ export async function syncS3ToDB(): Promise<{ created: number; skipped: number; 
     if (!parsed) continue
 
     try {
+      /// A propósito SIN filtrar por `deleted_at`: `s3_key` es único, así que
+      /// un certificado archivado sigue ocupando su clave. Si el archivo vuelve
+      /// a aparecer en S3 hay que encontrar esa fila y reutilizarla, no crear
+      /// otra que reventaría contra la unicidad.
       const existing = await prisma.certificado_archivo.findUnique({
         where: { s3_key: obj.Key }
       })
@@ -142,7 +146,9 @@ export async function getAllCertificados({
   page: number
   limit: number
 }) {
-  const where: any = {}
+  /// `deleted_at: null` en el punto de partida: el listado y su conteo
+  /// comparten este `where`.
+  const where: any = { deleted_at: null }
   if (search) {
     where.OR = [
       { nit: { contains: search, mode: 'insensitive' } },
@@ -191,8 +197,8 @@ export async function getTercerosWithCertificados({
   limit: number
 }) {
   const where: any = {
-    activo: true,
     deleted_at: null,
+    activo: true,
     certificados_archivo: { some: {} }
   }
 
@@ -264,12 +270,34 @@ export async function linkCertificadoToTercero(certificadoId: string, terceroId:
 }
 
 export async function deleteCertificado(id: string) {
-  const archivo = await prisma.certificado_archivo.findUnique({ where: { id } })
+  /// Un certificado ya retirado se trata como inexistente.
+  const archivo = await prisma.certificado_archivo.findFirst({
+    where: { id, deleted_at: null }
+  })
   if (!archivo) throw new Error('Certificado no encontrado')
 
-  await prisma.certificado_tercero.deleteMany({ where: { certificado_id: id } })
-  await prisma.certificacion_envio.deleteMany({ where: { certificado_id: id } })
-  await prisma.certificado_archivo.delete({ where: { id } })
+  /// Se MARCAN las tres, no se borran.
+  ///
+  /// `certificacion_envio` es el registro de CUÁNDO y A QUIÉN se envió el
+  /// certificado. Borrarlo dejaba a la empresa sin forma de demostrar que lo
+  /// mandó, ante un tercero que dijera no haberlo recibido.
+  ///
+  /// El archivo físico de S3 sí se va —la función devuelve `s3_key` para que
+  /// quien llama lo borre—; lo que se conserva es la constancia de que existió
+  /// y de a quién se le entregó.
+  const ahora = new Date()
+  await prisma.certificado_tercero.updateMany({
+    where: { certificado_id: id, deleted_at: null },
+    data: { deleted_at: ahora }
+  })
+  await prisma.certificacion_envio.updateMany({
+    where: { certificado_id: id, deleted_at: null },
+    data: { deleted_at: ahora }
+  })
+  await prisma.certificado_archivo.update({
+    where: { id },
+    data: { deleted_at: ahora }
+  })
 
   return { success: true, s3_key: archivo.s3_key }
 }

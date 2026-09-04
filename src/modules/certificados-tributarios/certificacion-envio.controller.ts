@@ -36,7 +36,7 @@ export async function certificacionEnvioRoutes(app: FastifyInstance) {
       for (const terceroId of tercero_ids) {
         try {
           const archivos = await prisma.certificado_archivo.findMany({
-            where: { tercero_id: terceroId }
+            where: { deleted_at: null, tercero_id: terceroId }
           })
           const tercero = await prisma.terceros.findUnique({ where: { id: terceroId } })
 

@@ -40,7 +40,7 @@ export async function verifyTerceroToken(token: string) {
 
 export async function getCertificadosForTercero(terceroId: string) {
   const archivos = await prisma.certificado_archivo.findMany({
-    where: { tercero_id: terceroId },
+    where: { deleted_at: null, tercero_id: terceroId },
     include: {
       tipo_certificado: true
     },
@@ -80,7 +80,7 @@ export async function enviarCertificacionEmail({
   const tokenRecord = await generateTerceroToken(tercero_id)
 
   const archivos = await prisma.certificado_archivo.findMany({
-    where: { id: { in: certificado_ids } }
+    where: { deleted_at: null, id: { in: certificado_ids } }
   })
 
   const certificadosWithUrls = await Promise.all(
@@ -124,7 +124,7 @@ export async function enviarCertificacionEmail({
 
 export async function getEnviosByTercero(terceroId: string) {
   return prisma.certificacion_envio.findMany({
-    where: { tercero_id: terceroId },
+    where: { deleted_at: null, tercero_id: terceroId },
     include: {
       certificado: {
         include: {
@@ -139,6 +139,7 @@ export async function getEnviosByTercero(terceroId: string) {
 export async function getAllEnvios({ page, limit }: { page: number; limit: number }) {
   const [envios, total] = await Promise.all([
     prisma.certificacion_envio.findMany({
+      where: { deleted_at: null },
       include: {
         tercero: {
           select: {

@@ -614,12 +614,12 @@ export const ConductoresService = {
       prisma.recargos_planillas.count({
         where: { conductor_id: id, deleted_at: null },
       }),
-      prisma.liquidaciones.count({ where: { conductor_id: id } }),
+      prisma.liquidaciones.count({ where: { deleted_at: null, conductor_id: id } }),
       prisma.firmas_desprendibles.count({ where: { conductor_id: id } }),
       prisma.preoperacionales.count({ where: { conductor_id: id } }),
       prisma.excesos_velocidad.count({ where: { conductor_id: id } }),
       prisma.documentos_compartidos.count({ where: { conductor_id: id } }),
-      prisma.servicio.count({ where: { conductor_id: id } }),
+      prisma.servicio.count({ where: { conductor_id: id, deleted_at: null } }),
       prisma.vehiculos.count({
         where: { conductor_id: id, deleted_at: null },
       }),
@@ -755,10 +755,10 @@ export const ConductoresService = {
         prisma.recargos_planillas.count({
           where: { conductor_id: id, deleted_at: null },
         }),
-        prisma.liquidaciones.count({ where: { conductor_id: id } }),
+        prisma.liquidaciones.count({ where: { deleted_at: null, conductor_id: id } }),
         prisma.firmas_desprendibles.count({ where: { conductor_id: id } }),
         prisma.preoperacionales.count({ where: { conductor_id: id } }),
-        prisma.servicio.count({ where: { conductor_id: id } }),
+        prisma.servicio.count({ where: { conductor_id: id, deleted_at: null } }),
       ]);
 
       const bloqueantes = recargos + liquidaciones + firmas + preoperacionales + servicios;

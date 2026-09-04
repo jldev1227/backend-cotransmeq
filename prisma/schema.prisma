@@ -94,6 +94,7 @@ model anticipos {
   valor          Decimal        @db.Decimal(10, 2)
   fecha          DateTime       @db.Date
   concepto       String?        @db.VarChar(255)
+  deleted_at        DateTime? @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   updated_at     DateTime       @db.Timestamptz(6)
   id             String         @id @db.Uuid
@@ -109,6 +110,7 @@ model bonificaciones {
   name           String         @db.VarChar(255)
   values         String         @default("[]")
   value          Decimal        @db.Decimal(10, 2)
+  deleted_at        DateTime? @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   old_id         Int?
   updated_at     DateTime       @db.Timestamptz(6)
@@ -531,7 +533,7 @@ model firmas_desprendibles {
   hash_firma                                           String?
   estado                                               enum_firmas_desprendibles_estado @default(Activa)
   observaciones                                        String?
-  token                                                String?                          @db.VarChar(255)
+  token                                                String?                          @unique @db.VarChar(128)
   creado_por_id                                        String?                          @db.Uuid
   actualizado_por_id                                   String?                          @db.Uuid
   created_at                                           DateTime                         @db.Timestamptz(6)
@@ -599,6 +601,7 @@ model historial_recargos_planillas {
 }
 
 model liquidacion_vehiculo {
+  deleted_at        DateTime? @db.Timestamptz(6)
   created_at     DateTime      @db.Timestamptz(6)
   updated_at     DateTime      @db.Timestamptz(6)
   liquidacion_id String        @db.Uuid
@@ -621,6 +624,7 @@ model liquidaciones {
   ajuste_salarial_por_dia                       Boolean                               @default(false)
   auxilio_transporte                            Decimal                               @default(0) @db.Decimal(10, 2)
   conceptos_adicionales                         Json?                                 @db.Json
+  deleted_at                     DateTime?                     @db.Timestamptz(6)
   created_at                                    DateTime                              @db.Timestamptz(6)
   dias_laborados                                Int                                   @default(0)
   dias_laborados_anual                          Int                                   @default(0)
@@ -677,6 +681,7 @@ model liquidaciones {
   envios                                        nomina_envio[]
 
   @@index([estado_flujo], map: "idx_liquidaciones_estado_flujo")
+  @@index([deleted_at])
 }
 
 /// Primas de servicios independientes (desprendible separado de la liquidación)
@@ -726,6 +731,7 @@ model liquidaciones_servicios {
 model mantenimientos {
   values         String         @default("[]")
   value          Float
+  deleted_at        DateTime? @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   updated_at     DateTime       @db.Timestamptz(6)
   id             String         @id @db.Uuid
@@ -755,6 +761,7 @@ model pernotes {
   cantidad       Int
   valor          Decimal        @db.Decimal(10, 2)
   fechas         String         @default("[]")
+  deleted_at        DateTime? @db.Timestamptz(6)
   created_at     DateTime       @db.Timestamptz(6)
   empresa_id     String         @db.Uuid
   old_id         Int?
@@ -780,6 +787,7 @@ model recargos {
   numero_planilla        String?        @db.VarChar(50)
   incluir                Boolean        @default(true)
   emisor                 String?        @db.VarChar(50)
+  deleted_at        DateTime? @db.Timestamptz(6)
   created_at             DateTime       @db.Timestamptz(6)
   empresa_id             String         @db.Uuid
   old_id                 Int?
@@ -904,6 +912,7 @@ model servicio {
   numero_planilla                            String?                          @db.VarChar(255)
   observaciones                              String?
   no_conformidades                           String?
+  deleted_at                                 DateTime?                        @db.Timestamptz(6)
   created_at                                 DateTime                         @default(now()) @db.Timestamptz(6)
   updated_at                                 DateTime                         @updatedAt @db.Timestamptz(6)
   id                                         String                           @id @default(uuid()) @db.Uuid
@@ -1872,6 +1881,14 @@ model liquidacion_servicio_item {
   orden                   Int                       @default(0)
   created_at              DateTime                  @default(now()) @db.Timestamptz(6)
   updated_at              DateTime                  @updatedAt @db.Timestamptz(6)
+  /// Nace NULL. Ver la migración 20260902100000: la cascada desde la cabecera
+  /// borraba estos ítems FÍSICAMENTE, así que restaurar una liquidación
+  /// devolvía un encabezado sin filas y con totales que no cuadraban.
+  deleted_at              DateTime?                 @db.Timestamptz(6)
+  /// Identificador que pone el cliente a las filas que aún no tienen `id` de
+  /// servidor. La reconciliación empareja por `id`, luego por `client_key`, y
+  /// nunca por posición.
+  client_key              String?                   @db.Uuid
   liquidacion             liquidacion_servicio      @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
   tercero                 terceros?                 @relation("item_tercero", fields: [tercero_id], references: [id])
   terceros_asociados      liquidacion_tercero[]
@@ -1904,6 +1921,9 @@ model liquidacion_tercero {
   orden                Int                        @default(0)
   created_at           DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at           DateTime                   @updatedAt @db.Timestamptz(6)
+  /// Nace NULL. Colgaba en cascada del ítem y de la cabecera, así que se
+  /// perdía en el mismo borrado que se llevaba los ítems.
+  deleted_at           DateTime?                  @db.Timestamptz(6)
   liquidacion          liquidacion_servicio       @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade)
   item                 liquidacion_servicio_item? @relation(fields: [item_id], references: [id], onDelete: SetNull)
   tercero              terceros?                  @relation("liquidacion_tercero_tercero", fields: [tercero_id], references: [id])
@@ -1995,10 +2015,18 @@ model factura_liquidacion_item {
   liquidacion_id    String   @db.Uuid
   valor_liquidacion Decimal  @db.Decimal(14, 2)
   created_at        DateTime @default(now()) @db.Timestamptz(6)
+  /// Nace NULL. Su padre `factura_liquidacion_servicio` ya tenía borrado
+  /// lógico; sin esto el pivote quedaba huérfano al restaurar.
+  deleted_at        DateTime? @db.Timestamptz(6)
 
   factura     factura_liquidacion_servicio @relation(fields: [factura_id], references: [id], onDelete: Cascade)
   liquidacion liquidacion_servicio         @relation(fields: [liquidacion_id], references: [id])
 
+  /// Se declara la unicidad para que Prisma la conozca y no proponga cambios,
+  /// pero la que MANDA es el índice parcial de la migración 20260902100000
+  /// (`WHERE deleted_at IS NULL`), que sustituye a esta: con la unicidad
+  /// global, una liquidación cuyo ítem de factura se eliminó lógicamente no se
+  /// podría volver a facturar nunca. Prisma no sabe declarar índices parciales.
   @@unique([factura_id, liquidacion_id])
   @@index([factura_id])
   @@index([liquidacion_id])
@@ -2603,6 +2631,7 @@ model registro_dia_laboral_bono {
   valor                 Decimal?                       @db.Decimal(10, 2)
   creado_por_id         String?                        @db.Uuid
   observaciones         String?
+  deleted_at            DateTime?                      @db.Timestamptz(6)
   created_at            DateTime                       @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                       @updatedAt @db.Timestamptz(6)
   registro_dia          registro_dia_laboral           @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
@@ -2614,6 +2643,7 @@ model registro_dia_laboral_bono {
   @@index([segmento_id])
   @@index([config_liquidacion_id])
   @@index([creado_por_id])
+  @@index([deleted_at])
 }
 
 model bono_config_visual {
@@ -2791,12 +2821,14 @@ model aprobaciones_accion {
   estado       EstadoAprobacion                 @default(PENDIENTE)
   fecha        DateTime?                        @db.Timestamptz(6)
   comentario   String?
+  deleted_at   DateTime? @db.Timestamptz(6)
   created_at   DateTime                         @default(now()) @db.Timestamptz(6)
   updated_at   DateTime                         @updatedAt @db.Timestamptz(6)
   accion       acciones_correctivas_preventivas @relation(fields: [accion_id], references: [id], onDelete: Cascade)
   aprobador    usuarios?                        @relation(fields: [aprobador_id], references: [id])
 
   @@unique([accion_id])
+  @@index([deleted_at])
   @@index([accion_id])
   @@index([estado])
 }
@@ -2893,6 +2925,8 @@ model liquidacion_tercero_concepto {
   orden                  Int                 @default(0)
   created_at             DateTime            @default(now()) @db.Timestamptz(6)
   updated_at             DateTime            @updatedAt @db.Timestamptz(6)
+  /// Nace NULL. Tercer nivel del mismo árbol en cascada.
+  deleted_at             DateTime?           @db.Timestamptz(6)
   liquidacion_tercero    liquidacion_tercero @relation(fields: [liquidacion_tercero_id], references: [id], onDelete: Cascade)
   conductor              conductores?        @relation(fields: [conductor_id], references: [id], onDelete: SetNull)
 
@@ -3382,6 +3416,7 @@ model certificado_archivo {
   size                Int                   @default(0)
   tercero_id          String?               @db.Uuid
   tipo_certificado_id String?               @db.Uuid
+  deleted_at      DateTime? @db.Timestamptz(6)
   created_at          DateTime              @default(now()) @db.Timestamptz(6)
   updated_at          DateTime              @updatedAt @db.Timestamptz(6)
   tercero             terceros?             @relation(fields: [tercero_id], references: [id], onDelete: SetNull)
@@ -3402,6 +3437,7 @@ model certificado_tercero {
   tercero_id     String              @db.Uuid
   certificado_id String              @db.Uuid
   creado_por_id  String?             @db.Uuid
+  deleted_at      DateTime? @db.Timestamptz(6)
   created_at     DateTime            @default(now()) @db.Timestamptz(6)
   tercero        terceros            @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
   certificado    certificado_archivo @relation(fields: [certificado_id], references: [id], onDelete: Cascade)
@@ -3419,6 +3455,7 @@ model certificacion_envio {
   email_destino  String               @db.VarChar(255)
   tipo_envio     String               @default("individual") @db.VarChar(20)
   emitido_at     DateTime             @default(now()) @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
   created_at     DateTime             @default(now()) @db.Timestamptz(6)
   tercero        terceros             @relation(fields: [tercero_id], references: [id], onDelete: Cascade)
   certificado    certificado_archivo? @relation(fields: [certificado_id], references: [id], onDelete: SetNull)

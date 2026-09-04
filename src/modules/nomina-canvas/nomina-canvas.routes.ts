@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { NominaCanvasController } from './nomina-canvas.controller';
 import { NominaEstadoController, NominaSnapshotsController } from './nomina-estado.controller';
 import { NominaEnviosController } from './nomina-envios.controller';
+import { NominaBorradoresController } from './nomina-borradores.controller';
 import { authMiddleware } from '../../middlewares/auth.middleware';
 import { requirePermission } from '../../middlewares/permissions.middleware';
 
@@ -34,6 +35,15 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
   );
 
   // Versiones del periodo.
+  // ── Generación de borradores en lote ──
+  //
+  // `previo` es de lectura porque solo mira: dice quién ya tiene liquidación
+  // y quién no tiene planillas, que es lo que hay que ver antes de lanzar.
+  app.get('/nomina/borradores/previo', puedeLeer, NominaBorradoresController.previo);
+  app.post('/nomina/borradores/generar', puedeEscribir, NominaBorradoresController.generar);
+  app.get('/nomina/borradores/status/:jobId', puedeLeer, NominaBorradoresController.estado);
+  app.delete('/nomina/borradores/job/:jobId', puedeEscribir, NominaBorradoresController.cancelar);
+
   app.get('/nomina/snapshots', puedeLeer, NominaSnapshotsController.listar);
   app.post('/nomina/snapshots', puedeEscribir, NominaSnapshotsController.capturar);
   app.get('/nomina/snapshots/:id', puedeLeer, NominaSnapshotsController.obtener);

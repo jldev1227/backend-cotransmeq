@@ -9,7 +9,7 @@ export const tipoFormularioEnum = z.enum([
 ])
 
 export const tipoDocumentoEnum = z.enum([
-  // SARLAFT (GC-FR-04 / 05 / 06)
+  // SARLAFT (SLFT-PTEE-FR-04 / 05 / 06)
   'cedula_representante',
   'rut',
   'certificado_existencia',
@@ -38,7 +38,7 @@ const filaTablaSchema = z.record(z.string(), respuestaValorSchema)
 
 // Schema del JSON payload (llega como string en multipart, lo parseamos)
 export const submitFormularioSarlaftSchema = z.object({
-  codigo_formulario: z.enum(['GC-FR-04', 'GC-FR-05', 'GC-FR-06', 'SLFT-PTEE-FR-12', 'GC-FOR-13']),
+  codigo_formulario: z.enum(['SLFT-PTEE-FR-04', 'SLFT-PTEE-FR-05', 'SLFT-PTEE-FR-06', 'SLFT-PTEE-FR-12', 'GC-FOR-13']),
   fecha_diligenciamiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   respuestas: z.record(z.string(), z.union([respuestaValorSchema, filaTablaSchema, z.array(filaTablaSchema)])),
   /**

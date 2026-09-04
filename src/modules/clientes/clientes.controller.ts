@@ -6,6 +6,11 @@ import {
   buscarClientesSchema 
 } from './cliente.schema'
 import { getIo } from '../../sockets'
+import {
+  emitClienteCreado,
+  emitClienteActualizado,
+  emitClienteEliminado
+} from './clientes.events'
 
 interface ClienteParams {
   id: string
@@ -25,6 +30,8 @@ export const ClientesController = {
     try {
       const data = createClienteSchema.parse(request.body)
       const cliente = await ClientesService.create(data)
+
+      emitClienteCreado(cliente)
       
       reply.status(201).send({
         success: true,
@@ -92,6 +99,8 @@ export const ClientesController = {
     try {
       const data = updateClienteSchema.parse(request.body)
       const cliente = await ClientesService.update(id, data)
+
+      emitClienteActualizado(cliente)
       
       reply.send({
         success: true,
@@ -122,6 +131,8 @@ export const ClientesController = {
     
     try {
       const cliente = await ClientesService.delete(id)
+
+      emitClienteEliminado(id)
       
       reply.send({
         success: true,

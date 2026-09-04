@@ -14,9 +14,9 @@ recibe y persiste, y la bandeja del Oficial de Cumplimiento en el dashboard.
 
 | Código | Tipo | Categoría | Secciones · Preguntas | Anexos obligatorios |
 |---|---|---|---|---|
-| `GC-FR-04` | `cliente_proveedor` | sarlaft | 16 · 76 | 2 (PN) / 3 (PJ) |
-| `GC-FR-05` | `accionistas` | sarlaft | 10 · 39 | 4 |
-| `GC-FR-06` | `personal` | sarlaft | 6 · 25 | 2 de 4 ofrecidos |
+| `SLFT-PTEE-FR-04` | `cliente_proveedor` | sarlaft | 16 · 76 | 2 (PN) / 3 (PJ) |
+| `SLFT-PTEE-FR-05` | `accionistas` | sarlaft | 10 · 39 | 4 |
+| `SLFT-PTEE-FR-06` | `personal` | sarlaft | 6 · 25 | 2 de 4 ofrecidos |
 | `SLFT-PTEE-FR-12` | `autorizacion_propietario` | individual | 12 · 72 | 6 de 11 ofrecidos |
 | `GC-FOR-13` | `declaracion_empresa_transporte` | individual | 7 · 13 | 1 condicional de 2 ofrecidos |
 
@@ -179,8 +179,8 @@ Node 20+ `localhost` resuelve primero a `::1` y el backend escucha en
 | Ruta | Contenido |
 |---|---|
 | `/formularios-sarlaft` | Selector con los tres formatos SARLAFT |
-| `/formularios-sarlaft/clientes-proveedores` | Solo GC-FR-04, sin selector |
-| `/formularios-sarlaft/personal-accionistas` | Selector reducido a GC-FR-05 y GC-FR-06 |
+| `/formularios-sarlaft/clientes-proveedores` | Solo SLFT-PTEE-FR-04, sin selector |
+| `/formularios-sarlaft/personal-accionistas` | Selector reducido a SLFT-PTEE-FR-05 y SLFT-PTEE-FR-06 |
 | `/autorizacion-propietario` | Solo SLFT-PTEE-FR-12, sin selector |
 
 Las tres últimas son `standalone`: no ofrecen enlaces de vuelta al sitio, para

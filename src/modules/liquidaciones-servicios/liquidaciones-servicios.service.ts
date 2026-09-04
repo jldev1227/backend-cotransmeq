@@ -1,5 +1,14 @@
 // @ts-nocheck
 import { prisma } from "../../config/prisma";
+import {
+  reconciliarItems,
+  type ItemEntrante,
+} from "../../lib/soft-delete/reconciliar-items";
+import {
+  eliminarLiquidacionServicio,
+  restaurarLiquidacionServicio,
+  estaEliminada,
+} from "../../lib/soft-delete/liquidacion-servicio";
 import { randomUUID } from "crypto";
 import ExcelJS from "exceljs";
 import path from "path";
@@ -1022,8 +1031,15 @@ export const LiquidacionesServiciosService = {
     // ── Actualización con compare-and-swap ────────────────────────────
     const id = data.borrador_id;
 
-    const [, afectadas] = await prisma.$transaction([
-      prisma.liquidacion_servicio_item.deleteMany({ where: { liquidacion_id: id } }),
+    /// Los ítems YA NO se borran aquí.
+    ///
+    /// Antes esto era `deleteMany` + `createMany`: cada autoguardado destruía
+    /// los ítems anteriores y los recreaba. Un payload vacío —una pestaña que
+    /// se cierra antes de hidratar, una respuesta que llega tarde— los borraba
+    /// todos sin crear ninguno, y la cascada de la cabecera remataba el resto
+    /// al eliminar la liquidación. Ahora se reconcilian más abajo, después de
+    /// ganar el compare-and-swap.
+    const [afectadas] = await prisma.$transaction([
       prisma.liquidacion_servicio.updateMany({
         /// Las tres condiciones del WHERE son tres motivos distintos de
         /// rechazo, y por eso abajo se relee para saber cuál fue.
@@ -1094,10 +1110,22 @@ export const LiquidacionesServiciosService = {
       throw err;
     }
 
-    /// Los items se recrean fuera del `updateMany` porque `updateMany` no
-    /// acepta escrituras anidadas.
-    await prisma.liquidacion_servicio_item.createMany({
-      data: itemsData.map((i) => ({ ...i, liquidacion_id: id })),
+    /**
+     * Reconciliación en vez de recreación.
+     *
+     * Se actualiza lo que sigue, se crea lo nuevo y lo que ya no llega se marca
+     * con `deleted_at`. Nada se borra físicamente, así que restaurar la
+     * liquidación devuelve todo.
+     *
+     * `rechazarVaciadoTotal` es lo que impide que un autoguardado sin ítems
+     * vacíe una liquidación que sí los tiene: en el autoguardado, una lista
+     * vacía casi nunca es «el usuario borró todas las filas», es un estado a
+     * medio hidratar. Vaciar de verdad se hace desde la edición explícita.
+     */
+    await prisma.$transaction(async (tx) => {
+      await reconciliarItems(tx, id, itemsData as ItemEntrante[], {
+        rechazarVaciadoTotal: true,
+      });
     });
 
     const actualizada = await prisma.liquidacion_servicio.findUnique({
@@ -1225,7 +1253,7 @@ export const LiquidacionesServiciosService = {
             nombre: { contains: filtros.busqueda, mode: "insensitive" },
           },
         },
-        { items: { some: { placa: { contains: filtros.busqueda, mode: "insensitive" } } } },
+        { items: { some: { placa: { contains: filtros.busqueda, mode: "insensitive" }, deleted_at: null } } },
       ];
     }
     if (filtros.placa) {
@@ -1335,6 +1363,7 @@ export const LiquidacionesServiciosService = {
       if (vals.length) {
         const items = await prisma.factura_liquidacion_item.findMany({
           where: {
+            deleted_at: null,
             factura: {
               numero_factura: { in: vals },
               estado: "ACTIVA",
@@ -1352,7 +1381,9 @@ export const LiquidacionesServiciosService = {
     if (filtros.placas) {
       const vals = filtros.placas.split(",").filter(Boolean);
       if (vals.length)
-        colConditions.placas = { items: { some: { placa: { in: vals } } } };
+        /// `some` sin filtro encontraría liquidaciones por la placa de un ítem
+        /// ya eliminado, que es justo lo que el usuario no ve en la tabla.
+        colConditions.placas = { items: { some: { placa: { in: vals }, deleted_at: null } } };
     }
 
     // Apply ALL column conditions to main where
@@ -1466,6 +1497,7 @@ export const LiquidacionesServiciosService = {
       // Unique factura numbers (cascading: exclude own filter)
       prisma.factura_liquidacion_item.findMany({
         where: {
+          deleted_at: null,
           liquidacion: whereExcluding("facturas"),
           factura: { estado: "ACTIVA", deleted_at: null },
         },
@@ -1571,7 +1603,9 @@ export const LiquidacionesServiciosService = {
         actualizado_por: { select: { id: true, nombre: true, correo: true } },
         liquidado_por: { select: { id: true, nombre: true, correo: true } },
         aprobado_por: { select: { id: true, nombre: true, correo: true } },
-        items: { orderBy: { orden: "asc" } },
+        /// Solo ítems vivos: los eliminados existen para poder restaurar la
+        /// liquidación, no para volver al formulario ni sumar en los totales.
+        items: { where: { deleted_at: null }, orderBy: { orden: "asc" } },
         terceros_items: {
           orderBy: { orden: "asc" },
           include: {
@@ -1631,7 +1665,16 @@ export const LiquidacionesServiciosService = {
     };
   },
 
-  async eliminar(id: string) {
+  /**
+   * Elimina lógicamente la liquidación Y su árbol.
+   *
+   * Antes solo marcaba la cabecera. Los ítems no tenían `deleted_at`, así que
+   * la cascada `ON DELETE CASCADE` los borraba físicamente en cuanto alguien
+   * borraba de verdad, y restaurar devolvía un encabezado vacío con unos
+   * totales que no correspondían a ninguna fila. Con ellos se perdían los
+   * terceros del servicio y sus conceptos.
+   */
+  async eliminar(id: string, userId?: string | null, motivo?: string | null) {
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
     if (liq.deleted_at) throw new Error("Esta liquidación ya fue eliminada");
@@ -1639,6 +1682,7 @@ export const LiquidacionesServiciosService = {
     // Check if linked to any ACTIVE factura before attempting delete
     const activeFacturas = await prisma.factura_liquidacion_item.count({
       where: {
+        deleted_at: null,
         liquidacion_id: id,
         factura: { estado: "ACTIVA", deleted_at: null },
       },
@@ -1649,25 +1693,37 @@ export const LiquidacionesServiciosService = {
       );
     }
 
-    await prisma.liquidacion_servicio.update({
-      where: { id },
-      data: { deleted_at: new Date() },
+    const marcadas = await eliminarLiquidacionServicio(id, {
+      usuarioId: userId ?? null,
+      motivo: motivo ?? null,
     });
 
-    return { message: "Liquidación de servicio eliminada exitosamente" };
+    return {
+      message: "Liquidación de servicio eliminada exitosamente",
+      relacionadas: marcadas,
+    };
   },
 
-  async restaurar(id: string) {
+  /**
+   * Restaura la liquidación y todo lo que se marcó con ella.
+   *
+   * El historial de estados no se toca ni al eliminar ni al restaurar: es la
+   * evidencia de por qué la liquidación llegó a donde llegó.
+   */
+  async restaurar(id: string, userId?: string | null, motivo?: string | null) {
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
     if (!liq.deleted_at) throw new Error("Esta liquidación no está eliminada");
 
-    await prisma.liquidacion_servicio.update({
-      where: { id },
-      data: { deleted_at: null },
+    const restauradas = await restaurarLiquidacionServicio(id, {
+      usuarioId: userId ?? null,
+      motivo: motivo ?? null,
     });
 
-    return { message: "Liquidación de servicio restaurada exitosamente" };
+    return {
+      message: "Liquidación de servicio restaurada exitosamente",
+      relacionadas: restauradas,
+    };
   },
 
   async listarEliminadas(filtros: FiltrosLiquidacionServicios) {
@@ -1697,7 +1753,7 @@ export const LiquidacionesServiciosService = {
           cliente: { select: { id: true, nombre: true, nit: true } },
           creado_por: { select: { id: true, nombre: true, correo: true } },
           _count: { select: { items: true } },
-          items: { select: { placa: true } },
+          items: { where: { deleted_at: null }, select: { placa: true } },
         },
         orderBy: { deleted_at: "desc" },
         skip,
@@ -1744,6 +1800,23 @@ export const LiquidacionesServiciosService = {
   },
 
   async actualizar(id: string, data: CrearLiquidacionInput, userId: string) {
+    /**
+     * Una liquidación eliminada no se edita.
+     *
+     * Sin esto, guardar sobre ella crearía ítems ACTIVOS colgando de una
+     * cabecera que nadie ve — y esos ítems no se restaurarían nunca, porque la
+     * restauración solo revive lo que tiene `deleted_at`. Hay que restaurarla
+     * primero.
+     */
+    if (await estaEliminada(id)) {
+      const err: any = new Error(
+        "Esta liquidación está eliminada. Restáurala antes de editarla.",
+      );
+      err.codigo = "LIQUIDACION_ELIMINADA";
+      err.statusCode = 409;
+      throw err;
+    }
+
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
     if (!liq) throw new Error("Liquidación no encontrada");
 
@@ -1768,11 +1841,10 @@ export const LiquidacionesServiciosService = {
     /// Igual que en `crear`: fuera del literal para no romper la inferencia.
     const operadoraResuelta = await resolverOperadora(data);
 
-    // Delete old items and update liquidación in a transaction
-    const [, liquidacion] = await prisma.$transaction([
-      prisma.liquidacion_servicio_item.deleteMany({
-        where: { liquidacion_id: id },
-      }),
+    /// Los ítems ya no se borran y recrean: se reconcilian después de
+    /// actualizar la cabecera, dentro de la misma transacción. Ver
+    /// `lib/soft-delete/reconciliar-items.ts`.
+    const [liquidacion] = await prisma.$transaction([
       prisma.liquidacion_servicio.update({
         where: { id },
         data: {
@@ -1810,18 +1882,29 @@ export const LiquidacionesServiciosService = {
           actualizado_por: {
             connect: { id: userId },
           },
-          items: {
-            createMany: { data: itemsData },
-          },
         },
         include: {
           cliente: { select: { id: true, nombre: true, nit: true } },
           creado_por: { select: { id: true, nombre: true, correo: true } },
           actualizado_por: { select: { id: true, nombre: true, correo: true } },
-          items: { orderBy: { orden: "asc" } },
+          /// Solo los ítems vivos: incluir los eliminados los devolvería al
+          /// formulario y el usuario los vería reaparecer al guardar.
+          items: { where: { deleted_at: null }, orderBy: { orden: "asc" } },
         },
       }),
     ]);
+
+    /**
+     * Reconciliación de los ítems.
+     *
+     * Sin `rechazarVaciadoTotal`: aquí vaciar SÍ es una acción deliberada del
+     * usuario, que quitó todas las filas y le dio a guardar. La guardia solo
+     * tiene sentido en el autoguardado, donde una lista vacía suele venir de un
+     * estado a medio cargar.
+     */
+    await prisma.$transaction(async (tx) => {
+      await reconciliarItems(tx, id, itemsData as ItemEntrante[]);
+    });
 
     // Crear snapshot de edición
     await this._crearSnapshot(
@@ -2115,6 +2198,7 @@ export const LiquidacionesServiciosService = {
 
     return await prisma.servicio.findMany({
       where: {
+        deleted_at: null,
         cliente_id,
         fecha_realizacion: {
           gte: fechaInicio,

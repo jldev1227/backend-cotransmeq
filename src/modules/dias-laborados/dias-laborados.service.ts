@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import jwt from 'jsonwebtoken'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
+import { retirarDiaLaboral, retirarSegmentos } from '../../lib/soft-delete/dia-laboral'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { CrearRegistroInput } from './dias-laborados.schema'
@@ -226,7 +228,14 @@ export const DiasLaboradosService = {
           tipo: data.tipo,
           observaciones: data.observaciones || null,
           mantenimiento_vehiculo_id: mantenimiento.id,
-          mantenimiento_vehiculo_placa: mantenimiento.placa
+          mantenimiento_vehiculo_placa: mantenimiento.placa,
+          /// Volver a registrar un día que se había eliminado lo REVIVE.
+          ///
+          /// La unicidad `(conductor_id, fecha)` es global a propósito: así la
+          /// fila marcada sigue ocupando su día y el `upsert` la reutiliza en
+          /// vez de chocar. Sin esto, un conductor que borra un día por error
+          /// no podría volver a registrarlo nunca.
+          deleted_at: null
         },
         create: {
           id: randomUUID(),
@@ -239,12 +248,19 @@ export const DiasLaboradosService = {
         }
       })
 
-      // 2) Reemplazar segmentos (idempotente): borrar existentes y re-insertar todos
-      //    Para LABORADO se exige al menos 1 segmento.
+      // 2) Reemplazar segmentos (idempotente): retirar los existentes y
+      //    re-insertar todos. Para LABORADO se exige al menos 1 segmento.
+      //    Se MARCAN, no se borran. Antes cada guardado destruía los segmentos
+      //    anteriores —el mismo patrón que se llevó por delante los ítems de
+      //    las liquidaciones—, y la tabla YA tenía `deleted_at` sin que nadie
+      //    la usara. Todas las lecturas filtran por `deleted_at IS NULL`.
+      //
+      //    Los bonos van detrás: cuelgan del segmento pero se leen por día, así
+      //    que un bono huérfano de un segmento retirado seguiría sumando en la
+      //    nómina. Por eso `registro_dia_laboral_bono` recibió `deleted_at`
+      //    primero: sin él, esta conversión sería un error de dinero.
       if (data.tipo === 'LABORADO') {
-        await tx.registro_dia_laboral_segmento.deleteMany({
-          where: { registro_dia_id: reg.id }
-        })
+        await retirarSegmentos(tx, reg.id)
 
         if (segmentos.length > 0) {
           await tx.registro_dia_laboral_segmento.createMany({
@@ -269,10 +285,8 @@ export const DiasLaboradosService = {
           });
         }
       } else {
-        // Para tipos distintos a LABORADO, los segmentos no aplican: limpiar
-        await tx.registro_dia_laboral_segmento.deleteMany({
-          where: { registro_dia_id: reg.id }
-        })
+        // Para tipos distintos a LABORADO los segmentos no aplican: se retiran.
+        await retirarSegmentos(tx, reg.id)
       }
 
       return reg
@@ -284,14 +298,14 @@ export const DiasLaboradosService = {
 
   // Helper: obtener registro con sus segmentos
   async getRegistroConSegmentos(registroId: string) {
-    const registro = await prisma.registro_dia_laboral.findUnique({
-      where: { id: registroId }
+    const registro = await prisma.registro_dia_laboral.findFirst({
+      where: { id: registroId, deleted_at: null }
     })
     if (!registro) return null
 
     // SIEMPRE devolver los segmentos, incluso para tipos != LABORADO (será [])
     const segmentos = await prisma.registro_dia_laboral_segmento.findMany({
-      where: { registro_dia_id: registroId },
+      where: { registro_dia_id: registroId, deleted_at: null },
       orderBy: { orden: 'asc' }
     })
 
@@ -302,7 +316,8 @@ export const DiasLaboradosService = {
   // REGISTROS: Listar por mes
   // ─────────────────────────────────────────────
   async listarRegistros(conductorId: string, mes?: string, desde?: string, hasta?: string) {
-    const where: any = { conductor_id: conductorId }
+    /// `deleted_at: null`: un día retirado no debe reaparecer en el listado.
+    const where: any = { conductor_id: conductorId, deleted_at: null }
 
     if (mes) {
       const [year, month] = mes.split('-').map(Number)
@@ -326,7 +341,7 @@ export const DiasLaboradosService = {
     if (ids.length === 0) return registros
 
     const segmentos = await prisma.registro_dia_laboral_segmento.findMany({
-      where: { registro_dia_id: { in: ids } },
+      where: { registro_dia_id: { in: ids }, deleted_at: null },
       orderBy: { orden: 'asc' }
     })
 
@@ -413,12 +428,13 @@ export const DiasLaboradosService = {
   async eliminarRegistro(conductorId: string, fecha: string) {
     const fechaDate = new Date(fecha + 'T00:00:00.000Z')
 
-    const registro = await prisma.registro_dia_laboral.findUnique({
+    const registro = await prisma.registro_dia_laboral.findFirst({
       where: {
-        conductor_id_fecha: {
-          conductor_id: conductorId,
-          fecha: fechaDate
-        }
+        conductor_id: conductorId,
+        fecha: fechaDate,
+        /// Un día ya retirado se trata como inexistente: borrarlo dos veces
+        /// debe dar 404, no un 200 que sugiera que había algo.
+        deleted_at: null
       }
     })
 
@@ -426,9 +442,7 @@ export const DiasLaboradosService = {
       throw { statusCode: 404, message: 'Registro no encontrado' }
     }
 
-    await prisma.registro_dia_laboral.delete({
-      where: { id: registro.id }
-    })
+    await retirarDiaLaboral(registro.id)
 
     return { message: 'Registro eliminado exitosamente' }
   },
@@ -537,14 +551,28 @@ export const DiasLaboradosService = {
     }
 
     const resultado = await prisma.$transaction(async (tx) => {
-      // 3.1) Borrar existentes (cascada borra segmentos + bonos)
+      // 3.1) Retirar lo que hubiera en esas fechas.
+      //
+      //    Antes era un `deleteMany` cuya cascada arrastraba segmentos y bonos:
+      //    aplicar un patrón sobre un mes ya registrado destruía todo lo que
+      //    había, incluidos los bonos con `valor`.
+      //
+      //    Los días NO se marcan aquí: la unicidad `(conductor_id, fecha)` es
+      //    global, así que el paso 3.2 los reutiliza con `upsert` y el registro
+      //    conserva su identidad. Lo que sí se retira son los hijos, que sí se
+      //    reemplazan.
       if (fechasDate.length > 0) {
-        await tx.registro_dia_laboral.deleteMany({
-          where: {
-            conductor_id,
-            fecha: { in: fechasDate }
-          }
+        const previos = await tx.registro_dia_laboral.findMany({
+          where: { conductor_id, fecha: { in: fechasDate } },
+          select: { id: true }
         })
+        for (const previo of previos) {
+          await retirarSegmentos(tx, previo.id)
+          await tx.registro_dia_laboral_bono.updateMany({
+            where: { registro_dia_id: previo.id, deleted_at: null },
+            data: { deleted_at: new Date() }
+          })
+        }
       }
 
       const registrosCreados: Array<{
@@ -565,19 +593,27 @@ export const DiasLaboradosService = {
 
         for (const fechaStr of p.fechas) {
           const fecha = new Date(fechaStr + 'T00:00:00.000Z')
-          const registro = await tx.registro_dia_laboral.create({
-            data: {
+          /// `upsert` y no `create`: la fila del día puede seguir ahí, marcada
+          /// de una aplicación anterior. Reutilizarla la revive con los datos
+          /// nuevos; crear otra chocaría contra la unicidad de la fecha.
+          const datosDia = {
+            tipo: tipoPatron,
+            observaciones: p.observaciones || null,
+            ...(mantenimiento.id
+              ? { mantenimiento_vehiculo: { connect: { id: mantenimiento.id } } }
+              : {}),
+            mantenimiento_vehiculo_placa: mantenimiento.placa
+          }
+          const registro = await tx.registro_dia_laboral.upsert({
+            where: { conductor_id_fecha: { conductor_id, fecha } },
+            update: { ...datosDia, deleted_at: null },
+            create: {
               id: randomUUID(),
               // Prisma 5: usar la RELACIÓN (no solo el FK) para
               // consistencia con el patrón del segmento.
               conductor: { connect: { id: conductor_id } },
               fecha,
-              tipo: tipoPatron,
-              observaciones: p.observaciones || null,
-              ...(mantenimiento.id
-                ? { mantenimiento_vehiculo: { connect: { id: mantenimiento.id } } }
-                : {}),
-              mantenimiento_vehiculo_placa: mantenimiento.placa
+              ...datosDia
             }
           })
 
@@ -672,7 +708,9 @@ export const DiasLaboradosService = {
       where: { id: segmentoId }
     })
 
-    if (!existing) {
+    /// Un segmento ya retirado se trata como inexistente: editarlo o
+    /// consultarlo debe dar 404, no revivirlo por la puerta de atrás.
+    if (!existing || existing.deleted_at) {
       throw { statusCode: 404, message: 'Segmento no encontrado' }
     }
 
@@ -771,7 +809,9 @@ export const DiasLaboradosService = {
       where: { id: segmentoId }
     })
 
-    if (!existing) {
+    /// Un segmento ya retirado se trata como inexistente: editarlo o
+    /// consultarlo debe dar 404, no revivirlo por la puerta de atrás.
+    if (!existing || existing.deleted_at) {
       throw { statusCode: 404, message: 'Segmento no encontrado' }
     }
 
@@ -824,8 +864,10 @@ export const DiasLaboradosService = {
   //       - se ignora el `segmento` del body aunque llegue
   // ─────────────────────────────────────────────
   async editarRegistro(registroId: string, input: EditarRegistroInput) {
-    const existing = await prisma.registro_dia_laboral.findUnique({
-      where: { id: registroId },
+    /// `findFirst` con filtro y no `findUnique`: editar un día retirado debe
+    /// dar 404, no revivirlo por la puerta de atrás.
+    const existing = await prisma.registro_dia_laboral.findFirst({
+      where: { id: registroId, deleted_at: null },
       include: {
         segmentos: { where: { deleted_at: null }, orderBy: { orden: 'asc' } }
       }
@@ -994,8 +1036,10 @@ export const DiasLaboradosService = {
   // suficiente; pero por seguridad cascada también).
   // ─────────────────────────────────────────────
   async softDeleteRegistro(registroId: string) {
-    const existing = await prisma.registro_dia_laboral.findUnique({
-      where: { id: registroId },
+    /// `findFirst` con filtro y no `findUnique`: editar un día retirado debe
+    /// dar 404, no revivirlo por la puerta de atrás.
+    const existing = await prisma.registro_dia_laboral.findFirst({
+      where: { id: registroId, deleted_at: null },
       include: { segmentos: { where: { deleted_at: null } } }
     })
 
@@ -1049,3 +1093,5 @@ export const DiasLaboradosService = {
     return { message: 'Registro eliminado (soft delete)', id: registroId }
   }
 }
+
+export { retirarDiaLaboral }

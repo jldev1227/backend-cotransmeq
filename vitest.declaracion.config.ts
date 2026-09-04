@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import { envDeTest } from './tests/env-test'
 
 /**
  * Configuración de los tests de la declaración de empresa de transporte.
@@ -13,6 +14,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // `.env.test` se inyecta ANTES de que los workers importen nada, para
+    // ganarle al `dotenv.config()` de `src/config/env.ts`.
+    env: envDeTest,
     include: ['tests/declaracion-transporte/**/*.test.ts'],
     setupFiles: []
   }

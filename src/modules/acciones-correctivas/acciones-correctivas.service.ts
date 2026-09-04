@@ -765,8 +765,10 @@ export class AccionesCorrectivasService {
     }
 
     // Si ya existe un registro APROBADO, no se puede re-aprobar
-    const existente = await prisma.aprobaciones_accion.findUnique({
-      where: { accion_id: accionId }
+    /// `findFirst` con filtro: con la unicidad ya parcial, buscar por
+    /// `accion_id` podría devolver una aprobación archivada de antes del reset.
+    const existente = await prisma.aprobaciones_accion.findFirst({
+      where: { accion_id: accionId, deleted_at: null }
     })
     if (existente && existente.estado === 'APROBADO') {
       throw new Error('Esta acción ya fue aprobada')
@@ -842,8 +844,10 @@ export class AccionesCorrectivasService {
       throw new Error('Esta acción ya fue aprobada y no puede ser rechazada')
     }
 
-    const existente = await prisma.aprobaciones_accion.findUnique({
-      where: { accion_id: accionId }
+    /// `findFirst` con filtro: con la unicidad ya parcial, buscar por
+    /// `accion_id` podría devolver una aprobación archivada de antes del reset.
+    const existente = await prisma.aprobaciones_accion.findFirst({
+      where: { accion_id: accionId, deleted_at: null }
     })
 
     const data = {
@@ -885,8 +889,8 @@ export class AccionesCorrectivasService {
         where: { id: accionId },
         select: { hallazgo_tipo: true, tipo_hallazgo_detectado: true, estado_aprobacion: true }
       }),
-      prisma.aprobaciones_accion.findUnique({
-        where: { accion_id: accionId },
+      prisma.aprobaciones_accion.findFirst({
+        where: { accion_id: accionId, deleted_at: null },
         include: {
           aprobador: {
             select: { id: true, nombre: true, correo: true, cargo: true }
@@ -907,7 +911,20 @@ export class AccionesCorrectivasService {
 
   // Resetea la aprobación (útil cuando se cambia el tipo de hallazgo)
   async resetAprobacion(accionId: string) {
-    await prisma.aprobaciones_accion.deleteMany({ where: { accion_id: accionId } })
+    /// Se MARCA, no se borra.
+    ///
+    /// El reset es correcto —al cambiar el tipo de hallazgo cambia el rol que
+    /// debe aprobar, así que la aprobación anterior deja de valer—, pero el
+    /// registro decía QUIÉN aprobó, CUÁNDO y con qué comentario. Eso es la
+    /// constancia de una decisión de una persona, no un documento de trabajo:
+    /// desaparecía sin dejar rastro.
+    ///
+    /// La unicidad `(accion_id)` es PARCIAL, así que la archivada no bloquea la
+    /// nueva.
+    await prisma.aprobaciones_accion.updateMany({
+      where: { accion_id: accionId, deleted_at: null },
+      data: { deleted_at: new Date() }
+    })
     await prisma.acciones_correctivas_preventivas.update({
       where: { id: accionId },
       data: { estado_aprobacion: 'PENDIENTE' }

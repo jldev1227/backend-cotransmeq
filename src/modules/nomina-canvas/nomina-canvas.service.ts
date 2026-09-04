@@ -21,6 +21,7 @@ import {
   textoDias,
   CORTE_DEFECTO,
   type DiaPeriodo,
+  expandirDias,
 } from '../../lib/nomina/periodo';
 import {
   liquidarNomina,
@@ -91,19 +92,14 @@ export class NominaCanvasService {
   static async construirPeriodo(opts: OpcionesPeriodo): Promise<NominaPeriodoDTO> {
     const { anio, mes } = opts;
     const corte = opts.corte ?? CORTE_DEFECTO;
-    const dias = diasDelPeriodo(anio, mes, corte);
-    const semanas = semanasDelPeriodo(dias);
+    // El calendario a secas: un día, una columna. Se expande más abajo, cuando
+    // ya se sabe qué días tienen más de un servicio.
+    const calendario = diasDelPeriodo(anio, mes, corte);
     const avisos: string[] = [];
 
-    // `fecha ISO → índice de columna`. Es la clave con la que se cruza todo:
-    // las planillas traen (año, mes, día) sueltos y el canvas piensa en
-    // columnas del periodo.
-    const indicePorFecha = new Map<string, DiaPeriodo>();
-    for (const d of dias) indicePorFecha.set(d.fecha, d);
-
     const ventana = mesesDePlanilla(anio, mes, corte);
-    const primera = dias[0];
-    const ultima = dias[dias.length - 1];
+    const primera = calendario[0];
+    const ultima = calendario[calendario.length - 1];
     const fechaInicio = new Date(`${primera.fecha}T00:00:00.000Z`);
     const fechaFin = new Date(`${ultima.fecha}T23:59:59.999Z`);
 
@@ -213,15 +209,16 @@ export class NominaCanvasService {
 
         prisma.liquidaciones.findMany({
           where: {
+            deleted_at: null,
             periodo_start: { lte: hastaISO },
             periodo_end: { gte: desdeISO },
             ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
           },
           include: {
-            bonificaciones: true,
-            pernotes: true,
-            anticipos: true,
-            recargos: true,
+            bonificaciones: { where: { deleted_at: null } },
+            pernotes: { where: { deleted_at: null } },
+            anticipos: { where: { deleted_at: null } },
+            recargos: { where: { deleted_at: null } },
           },
         }),
       ]);
@@ -241,6 +238,46 @@ export class NominaCanvasService {
     if (!configGeneral) avisos.push('No hay ninguna configuración salarial vigente para el periodo.');
 
     const parametros = this.parametrosDesdeConfig(configsLiq);
+
+    // ── Rejilla de columnas ────────────────────────────────────────────
+    //
+    // Cuántos servicios hay como máximo en cada fecha, mirando a TODOS los
+    // conductores: es lo que decide si un día abre una o dos columnas. Se
+    // cuenta aquí y no dentro de cada hoja porque la rejilla es común al
+    // libro entero.
+    const repeticiones = new Map<string, number>();
+    for (const p of planillas) {
+      const porFecha = new Map<string, number>();
+      for (const dl of p.dias_laborales_planillas ?? []) {
+        const f = `${p.a_o}-${String(p.mes).padStart(2, '0')}-${String(dl.dia).padStart(2, '0')}`;
+        porFecha.set(f, (porFecha.get(f) ?? 0) + 1);
+      }
+      // Se acumula POR CONDUCTOR: dos planillas del mismo día del mismo
+      // conductor son dos servicios y piden dos columnas; el mismo día de dos
+      // conductores distintos comparte columna, que es lo normal.
+      for (const [f, n] of porFecha) {
+        const clave = `${p.conductor_id}|${f}`;
+        repeticiones.set(clave, (repeticiones.get(clave) ?? 0) + n);
+      }
+    }
+    const maxPorFecha = new Map<string, number>();
+    for (const [clave, n] of repeticiones) {
+      const f = clave.split('|')[1];
+      maxPorFecha.set(f, Math.max(maxPorFecha.get(f) ?? 1, n));
+    }
+
+    const dias = expandirDias(calendario, maxPorFecha);
+    const semanas = semanasDelPeriodo(dias);
+
+    /// `fecha ISO → columnas de esa fecha`, en orden. Antes era una sola
+    /// columna por fecha; ahora puede haber más de una y el reparto lo hace
+    /// cada hoja según su propio número de servicios.
+    const columnasPorFecha = new Map<string, DiaPeriodo[]>();
+    for (const d of dias) {
+      const lista = columnasPorFecha.get(d.fecha) ?? [];
+      lista.push(d);
+      columnasPorFecha.set(d.fecha, lista);
+    }
 
     const planillasPorConductor = new Map<string, typeof planillas>();
     for (const p of planillas) {
@@ -284,7 +321,7 @@ export class NominaCanvasService {
         conductor: c,
         planillas: planillasPorConductor.get(c.id) ?? [],
         liquidacion: liquidacionPorConductor.get(c.id) ?? null,
-        indicePorFecha,
+        columnasPorFecha,
         totalDias: dias.length,
         ventanaCanvas: { desde: primera.fecha, hasta: ultima.fecha },
         porcentajePorCodigo,
@@ -350,7 +387,7 @@ export class NominaCanvasService {
     };
     planillas: any[];
     liquidacion: any | null;
-    indicePorFecha: Map<string, DiaPeriodo>;
+    columnasPorFecha: Map<string, DiaPeriodo[]>;
     totalDias: number;
     ventanaCanvas: { desde: string; hasta: string };
     porcentajePorCodigo: Map<string, number>;
@@ -362,7 +399,7 @@ export class NominaCanvasService {
       conductor,
       planillas,
       liquidacion,
-      indicePorFecha,
+      columnasPorFecha,
       ventanaCanvas,
       porcentajePorCodigo,
       configGeneral,
@@ -387,6 +424,11 @@ export class NominaCanvasService {
     const placas = new Set<string>();
     let tipoVehiculo: string | null = null;
 
+    /// Cuántos servicios de ESTA hoja se han colocado ya en cada fecha. Es lo
+    /// que decide a qué columna va el siguiente: el primero a la suya, el
+    /// segundo a la contigua.
+    const usadasPorFecha = new Map<string, number>();
+
     for (const p of planillas) {
       if (p.vehiculos?.placa) placas.add(p.vehiculos.placa);
       if (!tipoVehiculo && p.vehiculos?.clase_vehiculo) tipoVehiculo = p.vehiculos.clase_vehiculo;
@@ -395,8 +437,19 @@ export class NominaCanvasService {
 
       for (const dl of p.dias_laborales_planillas ?? []) {
         const fecha = `${p.a_o}-${String(p.mes).padStart(2, '0')}-${String(dl.dia).padStart(2, '0')}`;
-        const dp = indicePorFecha.get(fecha);
-        if (!dp) continue; // día de la planilla fuera del periodo de nómina
+        const columnas = columnasPorFecha.get(fecha);
+        if (!columnas?.length) continue; // día de la planilla fuera del periodo
+
+        // Cada servicio del día va a su propia columna. Si por lo que sea hay
+        // más servicios que columnas —no debería, la rejilla se dimensionó
+        // contando estos mismos días—, el sobrante cae en la última y se
+        // avisa, en vez de perderse en silencio como pasaba antes.
+        const yaUsadas = usadasPorFecha.get(fecha) ?? 0;
+        const dp = columnas[Math.min(yaUsadas, columnas.length - 1)];
+        usadasPorFecha.set(fecha, yaUsadas + 1);
+        if (yaUsadas >= columnas.length) {
+          avisos.push(`El ${fecha} tiene más servicios que columnas; se agruparon los últimos.`);
+        }
 
         // El bloque de la empresa y el día se registran SIEMPRE, aunque el
         // día no haya dado un solo recargo. Antes esto vivía dentro del
@@ -436,22 +489,25 @@ export class NominaCanvasService {
           bloque.diasPorTipo.set(cod, set);
         }
 
+        // Ya no se fusiona. Antes, dos planillas del mismo día caían en la
+        // misma columna: se sumaban las horas —hasta 24 en un día— y el
+        // horario y la empresa de la segunda se perdían. Peor aún, el aviso
+        // solo saltaba si eran de empresas distintas, así que el caso normal
+        // —dos servicios del mismo cliente— desaparecía sin decir nada.
         const existente = porIndice.get(dp.indice);
         if (existente) {
-          // Dos planillas (dos empresas) el mismo día: se acumulan las horas
-          // y la fila 18 se queda con la primera. Es raro pero pasa.
           for (const [k, v] of Object.entries(horas)) {
             const cod = k as CodigoRecargo;
             existente.horas[cod] = (existente.horas[cod] ?? 0) + (v ?? 0);
           }
           existente.totalHoras += dec(dl.total_horas);
-          avisos.push(`El ${fecha} tiene planillas de más de una empresa.`);
           continue;
         }
 
         porIndice.set(dp.indice, {
           indice: dp.indice,
           fecha,
+          ocurrencia: dp.ocurrencia,
           horaInicio: decOrNull(dl.hora_inicio),
           horaFin: decOrNull(dl.hora_fin),
           totalHoras: dec(dl.total_horas),

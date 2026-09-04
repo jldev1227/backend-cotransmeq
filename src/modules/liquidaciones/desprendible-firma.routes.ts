@@ -319,8 +319,8 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
 
       for (const liquidacion_id of liquidacion_ids) {
         // Obtener liquidación para saber el conductor
-        const liq = await prisma.liquidaciones.findUnique({
-          where: { id: liquidacion_id },
+        const liq = await prisma.liquidaciones.findFirst({
+          where: { deleted_at: null, id: liquidacion_id },
           select: { id: true, conductor_id: true }
         })
 

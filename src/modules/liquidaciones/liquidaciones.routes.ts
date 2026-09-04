@@ -140,7 +140,7 @@ export async function liquidacionesRoutes(app: FastifyInstance) {
 
         // 1. Obtener liquidaciones con datos del conductor
         const liquidaciones = await prisma.liquidaciones.findMany({
-          where: { id: { in: liquidacionIds } },
+          where: { deleted_at: null, id: { in: liquidacionIds } },
           select: {
             id: true,
             periodo_start: true,
@@ -342,7 +342,7 @@ export async function liquidacionesRoutes(app: FastifyInstance) {
         const { liquidacionIds } = request.body as { liquidacionIds: string[] };
 
         const liquidaciones = await prisma.liquidaciones.findMany({
-          where: { id: { in: liquidacionIds } },
+          where: { deleted_at: null, id: { in: liquidacionIds } },
           select: {
             id: true,
             periodo_start: true,

@@ -1,0 +1,51 @@
+# Base de datos desechable para la suite de tests.
+#
+# Existe porque los tests hacen `deleteMany()` sin filtro sobre tablas enteras.
+# Contra una base real eso es catastrófico: el 28-ago-2026 la suite corrió con
+# DATABASE_URL apuntando a producción y borró 2042 respuestas de asistencia.
+# `tests/guard-db.ts` es la red de seguridad; esto es lo que hace que la red
+# no tenga que saltar nunca, porque hay una base desechable a mano.
+#
+# El nombre de la base contiene "test" a propósito: es la condición que
+# `guard-db.ts` exige para permitir los borrados.
+#
+#   docker compose -f docker-compose.test.yml up -d
+#
+# Los datos viven en tmpfs (RAM): arranca rápido, y al parar el contenedor no
+# queda nada en disco que pueda confundirse con la base de desarrollo.
+
+services:
+  postgres-test:
+    # Misma major que producción (PostgreSQL 18.6 en Railway): un test que pasa
+    # aquí y falla allí por diferencias de motor no sirve de nada.
+    image: postgres:18-alpine
+    container_name: cotransmeq-postgres-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cotransmeq_test
+      # La base se recrea en cada arranque, así que no hace falta durabilidad.
+      # Sin fsync los tests que escriben mucho van notablemente más rápido.
+      POSTGRES_INITDB_ARGS: '--nosync'
+    command: >
+      postgres
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c max_connections=200
+    ports:
+      # 55432 y no 5432/5433 para no chocar con el Postgres local de desarrollo
+      # ni con el del sistema. Si cambias esto, cambia también .env.test.
+      - '55433:5432'
+    tmpfs:
+      # En PostgreSQL 18 el mount va en /var/lib/postgresql, NO en su subcarpeta
+      # /data: la imagen coloca los datos en un subdirectorio por major version
+      # y montar directamente sobre /data hace que el contenedor aborte al
+      # arrancar creyendo que encontró datos de una versión anterior.
+      - /var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d cotransmeq_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s

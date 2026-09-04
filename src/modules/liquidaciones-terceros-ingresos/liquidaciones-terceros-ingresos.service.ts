@@ -275,6 +275,10 @@ function whereAdicionales(filtro: { anio: number; mes?: number }) {
  */
 function whereIngresos(filtro: { anio: number; mes?: number }) {
   return {
+    /// Del propio ítem, no solo de su liquidación: desde que el guardado marca
+    /// en vez de borrar, las versiones anteriores siguen en la tabla y sin
+    /// esto sumarían dos veces al ingreso.
+    deleted_at: null,
     NOT: { ingreso_empresa: 0 },
     // Ya liquidado al tercero por la vía ocasional: no es ingreso de aquí.
     ocasionales_items: { none: {} },
@@ -855,13 +859,27 @@ export const LiquidacionesTercerosIngresosService = {
     // guardado, así que no hay historial que preservar—, y el índice único
     // `(cabecera, item)` no incluye `deleted_at`, con lo que una fila marcada
     // como borrada seguiría chocando con la que la sustituye.
+    // Los conceptos se MARCAN, igual que las filas.
+    //
+    // El comentario anterior justificaba borrarlos en duro por el índice único
+    // `(cabecera, item)`. Ese índice es de la tabla HERMANA
+    // `liquidacion_ingreso_transmeralda_fila`: `..._concepto` no tiene ninguno,
+    // así que nada choca. Y las dos lecturas del módulo ya filtraban
+    // `deleted_at: null`, o sea que el código ya esperaba borrado lógico aquí.
+    //
+    // El resultado antes era incoherente: de un guardado anterior se podían
+    // reconstruir las filas pero no los conceptos que las explicaban.
     const ahora = new Date();
     const operaciones: any[] = [
-      prisma.liquidacion_ingreso_transmeralda_fila.deleteMany({
-        where: { liquidacion_ingreso_id: cabecera.id },
+      prisma.liquidacion_ingreso_transmeralda_fila.updateMany({
+        /// `deleted_at: null` en el WHERE: sin él se re-sella la fecha de las
+        /// ya marcadas y se pierde CUÁNDO se retiraron de verdad.
+        where: { liquidacion_ingreso_id: cabecera.id, deleted_at: null },
+        data: { deleted_at: ahora },
       }),
-      prisma.liquidacion_ingreso_transmeralda_concepto.deleteMany({
-        where: { liquidacion_ingreso_id: cabecera.id },
+      prisma.liquidacion_ingreso_transmeralda_concepto.updateMany({
+        where: { liquidacion_ingreso_id: cabecera.id, deleted_at: null },
+        data: { deleted_at: ahora },
       }),
     ];
 

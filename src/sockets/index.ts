@@ -7,8 +7,9 @@ import { borradorQueueService } from '../queue/borrador-queue.service'
 import { registerBulkSaveLiquidacionTerceroGateway } from '../queue/bulk-save-liquidacion-tercero.gateway'
 import { bulkSaveLiquidacionTerceroService } from '../queue/bulk-save-liquidacion-tercero.service'
 import { envioLiquidacionesQueueService } from '../queue/envio-liquidaciones-queue.service'
+import { borradorNominaQueueService } from '../queue/borrador-nomina-queue.service'
 import { envioNominaQueueService } from '../queue/envio-nomina-queue.service'
-import { installSocketAuth, corsOrigins } from './auth'
+import { installSocketAuth, corsOrigins, resolveActor, getSocketUser } from './auth'
 import { registerSheetGateway } from './sheet.gateway'
 import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
 
@@ -37,36 +38,55 @@ export function initSockets(server: HttpServer) {
 
   io.on('connection', socket => {
     console.log(`🔗 [sockets] ✓ NUEVA CONEXIÓN: socket.id=${socket.id}`)
-    console.log(`   Rooms actuales: [${Array.from(socket.rooms).join(', ')}]`)
-    console.log(`   Handshake: ${JSON.stringify(socket.handshake.headers)}`)
-    
+    /// Antes se volcaban los headers completos del handshake, y ahí viaja el
+    /// `Authorization: Bearer <jwt>`: cualquiera con acceso a los logs se
+    /// llevaba tokens de sesión válidos. Se registra solo el origen.
+    console.log(`   Origen: ${socket.handshake.headers?.origin ?? '(sin origin)'}`)
+
+
     socket.on('ping', () => socket.emit('pong'))
 
-    // Presencia: un usuario autenticado anuncia su userId al conectarse al dashboard
-    socket.on('join-dashboard', (userId: string) => {
-      console.log(`📨 [sockets] ← join-dashboard RECIBIDO: userId=${userId}, socket.id=${socket.id}`)
-      if (userId) {
-        socket.data.userId = userId
-        socket.join(`user-${userId}`)
-        onlineUserIds.add(userId)
-        io!.emit('usuarios-online', Array.from(onlineUserIds))
-        console.log(`✅ [sockets] Usuario ${userId} unido al room user-${userId}`)
-        console.log(`   Rooms del socket: [${Array.from(socket.rooms).join(', ')}]`)
-        // Verificar que efectivamente entró al room (a veces el join
-        // puede fallar silenciosamente si el namespace no está bien)
-        setTimeout(() => {
-          if (!socket.rooms.has(`user-${userId}`)) {
-            console.error(
-              `❌ [sockets] socket ${socket.id} NO está en room user-${userId} ` +
-              `tras join-dashboard. Rooms: [${Array.from(socket.rooms).join(', ')}]`
-            )
-          } else {
-            console.log(`✓ [sockets] socket ${socket.id} confirmado en room user-${userId}`)
-          }
-        }, 100)
-      } else {
-        console.warn(`⚠️ [sockets] join-dashboard recibido con userId vacío`)
+    // Presencia: un usuario autenticado anuncia su userId al conectarse al dashboard.
+    //
+    // El id NO se toma del payload. `user-${id}` es un room privado: por él
+    // viajan `sesion-cerrada`, los progresos de las colas (`borrador:*`,
+    // `envio-liq:*`, `envio-nomina:*`), `asistencias:export:*` y
+    // `certificados:import-progress`. Aceptar el id que declarara el cliente
+    // permitía entrar al room de cualquiera con solo conocer su uuid y leer
+    // todo su tráfico. Manda la identidad del token; el payload solo sirve de
+    // respaldo mientras `SOCKET_AUTH_MODE` no sea `enforce`, que es lo mismo
+    // que hace `resolveActor` en el resto de handlers.
+    socket.on('join-dashboard', (userIdPedido: string) => {
+      const actor = resolveActor(socket, userIdPedido ? { id: userIdPedido } : null)
+      const userId = actor?.id
+
+      if (userId && userIdPedido && userId !== userIdPedido) {
+        console.warn(
+          `⚠️ [sockets] join-dashboard pidió el room de ${userIdPedido} pero el ` +
+            `token es de ${userId}. Se usa el del token.`
+        )
       }
+
+      if (!userId) {
+        console.warn('⚠️ [sockets] join-dashboard sin identidad; no se une a ningún room')
+        return
+      }
+
+      socket.data.userId = userId
+      socket.join(`user-${userId}`)
+      onlineUserIds.add(userId)
+      io!.emit('usuarios-online', Array.from(onlineUserIds))
+      console.log(`✅ [sockets] Usuario ${userId} unido al room user-${userId}`)
+
+      // El join puede fallar en silencio si el namespace no está bien montado.
+      setTimeout(() => {
+        if (!socket.rooms.has(`user-${userId}`)) {
+          console.error(
+            `❌ [sockets] socket ${socket.id} NO está en room user-${userId} ` +
+              `tras join-dashboard. Rooms: [${Array.from(socket.rooms).join(', ')}]`
+          )
+        }
+      }, 100)
     })
 
     socket.on('leave-dashboard', () => {
@@ -85,11 +105,31 @@ export function initSockets(server: HttpServer) {
       }
     })
 
-    // Permitir unirse a la sala de una evaluación específica
+    /**
+     * Sala de una evaluación concreta.
+     *
+     * Exige identidad: por este room viajan las respuestas de los evaluados
+     * (`nueva-respuesta`, con nombre completo incluido) y hasta ahora bastaba
+     * conocer el uuid de la evaluación para recibirlas, sin estar siquiera
+     * autenticado.
+     *
+     * NO se comprueba todavía si ESTE usuario puede ver ESA evaluación:
+     * `config/permissions.ts` no define un módulo para evaluaciones, y
+     * llamar a `checkAccess` con un módulo inexistente deniega a todo el
+     * mundo. Decidir esa regla —¿solo quien la creó?, ¿su área?— es lo que
+     * queda pendiente aquí.
+     */
     socket.on('join-evaluacion', (evaluacionId: string) => {
+      const user = getSocketUser(socket)
+      if (!user) {
+        console.warn('[sockets] join-evaluacion rechazado: sin identidad')
+        return
+      }
+      if (!evaluacionId) return
+
       const room = `evaluacion-${evaluacionId}`;
       socket.join(room);
-      console.log(`Socket ${socket.id} se unió a la sala ${room}`);
+      console.log(`Socket ${socket.id} (${user.id}) se unió a la sala ${room}`);
     });
     
     // Permitir salir de la sala de una evaluación
@@ -130,6 +170,14 @@ export function initSockets(server: HttpServer) {
   // room del libro del periodo, para que los canvas abiertos lo pinten sin
   // recargar.
   envioNominaQueueService.setEmitter((target, event, data) => {
+    if (target.room) io.to(target.room).emit(event, data)
+    if (target.userId) io.to(`user-${target.userId}`).emit(event, data)
+  })
+
+  // Cola de generación de borradores de nómina. Mismo reparto que las otras:
+  // el progreso del lote va a quien lo lanzó, y el alta de cada borrador al
+  // room del libro, para que los canvas abiertos la vean aparecer.
+  borradorNominaQueueService.setEmitter((target, event, data) => {
     if (target.room) io.to(target.room).emit(event, data)
     if (target.userId) io.to(`user-${target.userId}`).emit(event, data)
   })
@@ -254,11 +302,30 @@ export function emitLiquidacionTercero(
   emitConMeta(event, data, meta)
 }
 
-/** Emit a notification to all connected clients (filtered client-side by usuario_id) */
+/**
+ * Entrega una notificación a SU destinatario.
+ *
+ * Antes esto era un `io.emit` global y el filtrado por `usuario_id` se hacía
+ * en el navegador: las notificaciones de todo el mundo llegaban al cliente de
+ * todo el mundo —con su título y su mensaje— y solo se ocultaban al pintar.
+ * Como los llamadores ya recorren la lista de destinatarios y emiten una por
+ * cada uno, basta con dirigirla al room privado del usuario.
+ *
+ * El `io.emit` se conserva solo para el caso sin destinatario conocido, que no
+ * debería darse; si aparece en los logs, es que un llamador no está poniendo
+ * `usuario_id`.
+ */
 export function emitNotificacion(data: any) {
-  if (io) {
-    io.emit('nueva-notificacion', data)
+  if (!io) return
+
+  const destinatario = data?.usuario_id
+  if (destinatario) {
+    io.to(`user-${destinatario}`).emit('nueva-notificacion', data)
+    return
   }
+
+  console.warn('[sockets] nueva-notificacion sin usuario_id: se emite a todos')
+  io.emit('nueva-notificacion', data)
 }
 
 /** Emit an actividad PESV event to all connected clients */

@@ -96,7 +96,7 @@ export function resolverPeriodo(periodo?: string): PeriodoCampana {
 
 async function ultimaNomina(): Promise<PeriodoCampana> {
   const ultima = await prisma.liquidaciones.findFirst({
-    where: { conductor_id: { not: null } },
+    where: { deleted_at: null, conductor_id: { not: null } },
     orderBy: [{ periodo_end: 'desc' }, { periodo_start: 'desc' }, { created_at: 'desc' }],
     select: { periodo_start: true, periodo_end: true }
   })
@@ -118,6 +118,7 @@ export async function listarAudiencia(periodo?: string): Promise<{ periodo: Peri
   const origen = periodo ? 'MES_EXPLICITO' : 'ULTIMA_NOMINA'
   const liquidaciones = await prisma.liquidaciones.findMany({
     where: {
+      deleted_at: null,
       conductor_id: { not: null },
       ...(origen === 'ULTIMA_NOMINA'
         ? { periodo_start: rango.inicio, periodo_end: rango.fin }

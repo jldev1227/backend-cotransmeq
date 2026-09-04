@@ -361,7 +361,7 @@ export const ServiciosService = {
     const skip = (page - 1) * limit
     
     // Construir filtros dinámicos
-    const where: any = {}
+    const where: any = { deleted_at: null }
     
     if (filters?.estado) {
       where.estado = filters.estado
@@ -401,12 +401,36 @@ export const ServiciosService = {
     }
     
     if (filters?.search) {
+      const termino = filters.search.toLowerCase()
+      const ESTADOS_SERVICIO = [
+        'solicitado',
+        'planificado',
+        'en_curso',
+        'pendiente',
+        'realizado',
+        'planilla_asignada',
+        'liquidado',
+        'cancelado',
+      ] as const
+      const estadosQueCoinciden = ESTADOS_SERVICIO.filter((e) => e.includes(termino))
+
       // Búsqueda global en todos los campos relevantes
       where.OR = [
         // Campos directos del servicio
         { origen_especifico: { contains: filters.search, mode: 'insensitive' } },
         { destino_especifico: { contains: filters.search, mode: 'insensitive' } },
-        { estado: { contains: filters.search, mode: 'insensitive' } },
+        /**
+         * `estado` es un enum de Prisma, no texto: no admite `contains` y con
+         * él la consulta entera reventaba con «Unknown argument `contains`».
+         * Es decir, CUALQUIER búsqueda de servicios devolvía 500 — la barra de
+         * búsqueda de /dashboard/servicios no ha funcionado nunca.
+         *
+         * Se compara por igualdad contra los valores del enum que empiecen por
+         * lo tecleado, que además es lo útil: escribir «real» encuentra los
+         * «realizado» sin necesidad de escribirlo entero.
+         */
+        ...(estadosQueCoinciden.length ? [{ estado: { in: estadosQueCoinciden } }] : []),
+
         
         // Cliente (siempre presente)
         { clientes: { nombre: { contains: filters.search, mode: 'insensitive' } } },
@@ -611,11 +635,12 @@ export const ServiciosService = {
 
   async getStats() {
     // Obtener conteo total
-    const total = await prisma.servicio.count()
+    const total = await prisma.servicio.count({ where: { deleted_at: null } })
     
     // Obtener conteos por estado usando groupBy
     const estadosCounts = await prisma.servicio.groupBy({
       by: ['estado'],
+      where: { deleted_at: null },
       _count: {
         id: true
       }
@@ -649,8 +674,9 @@ export const ServiciosService = {
   },
 
   async findById(id: string) {
-    const servicio = await prisma.servicio.findUnique({
-      where: { id },
+    /// Un servicio retirado se comporta como inexistente.
+    const servicio = await prisma.servicio.findFirst({
+      where: { id, deleted_at: null },
       include: {
         conductores: {
           select: {
@@ -758,8 +784,8 @@ export const ServiciosService = {
 
     const servicio = await prisma.$transaction(async (tx) => {
       // Obtener estado anterior con sus recursos asignados
-      const anterior = await tx.servicio.findUnique({
-        where: { id },
+      const anterior = await tx.servicio.findFirst({
+        where: { id, deleted_at: null },
         select: {
           estado: true,
           conductor_id: true,
@@ -961,9 +987,20 @@ export const ServiciosService = {
       }
     })
     
-    // Luego, eliminar el servicio (hard delete por ahora)
-    return prisma.servicio.delete({
-      where: { id }
+    /// El servicio se MARCA, no se borra.
+    ///
+    /// Antes era un borrado físico —el comentario decía «hard delete por
+    /// ahora»— y dejaba el módulo a medias: los recargos asociados SÍ se
+    /// marcaban justo arriba, así que se podían recuperar, pero el servicio que
+    /// los originó desaparecía sin dejar el consecutivo, el cliente ni el
+    /// valor.
+    ///
+    /// No se confunde con el estado `cancelado` del enum: aquello es una
+    /// situación de negocio —el servicio existió y no se prestó— y esto es que
+    /// no debería haberse registrado.
+    return prisma.servicio.update({
+      where: { id },
+      data: { deleted_at: new Date() }
     })
   },
 
@@ -987,8 +1024,8 @@ export const ServiciosService = {
     }
 
     const servicio = await prisma.$transaction(async (tx) => {
-      const anterior = await tx.servicio.findUnique({
-        where: { id },
+      const anterior = await tx.servicio.findFirst({
+        where: { id, deleted_at: null },
         select: { estado: true, conductor_id: true, vehiculo_id: true }
       })
 
@@ -1003,8 +1040,8 @@ export const ServiciosService = {
       // La FSM ya valida esto, pero queremos un error claro para el cliente
       if (estadoAnterior === estadoNuevo) {
         // No-op, no aplicar efectos
-        const current = await tx.servicio.findUnique({
-          where: { id },
+        const current = await tx.servicio.findFirst({
+          where: { id, deleted_at: null },
           include: {
             conductores: true,
             vehiculos: true,
@@ -1047,8 +1084,8 @@ export const ServiciosService = {
 
   async cancelar(id: string, observaciones?: string) {
     const servicio = await prisma.$transaction(async (tx) => {
-      const anterior = await tx.servicio.findUnique({
-        where: { id },
+      const anterior = await tx.servicio.findFirst({
+        where: { id, deleted_at: null },
         select: { estado: true, conductor_id: true, vehiculo_id: true }
       })
 
@@ -1114,7 +1151,7 @@ export const ServiciosService = {
     const { page = 1, limit = 20, ...searchFilters } = filters
     const skip = (page - 1) * limit
 
-    const where: any = {}
+    const where: any = { deleted_at: null }
 
     if (searchFilters.estado) {
       where.estado = searchFilters.estado
@@ -1308,8 +1345,9 @@ export const ServiciosService = {
 
   // Métodos para compartir servicios públicamente
   async generarShareToken(id: string) {
-    const servicio = await prisma.servicio.findUnique({
-      where: { id },
+    /// Un servicio retirado se comporta como inexistente.
+    const servicio = await prisma.servicio.findFirst({
+      where: { id, deleted_at: null },
       select: { id: true, share_token: true, share_token_expires_at: true }
     })
     if (!servicio) throw new Error('Servicio no encontrado')
@@ -1326,7 +1364,7 @@ export const ServiciosService = {
   },
 
   async revocarShareToken(token: string) {
-    const servicio = await prisma.servicio.findUnique({ where: { share_token: token }})
+    const servicio = await prisma.servicio.findFirst({ where: { share_token: token, deleted_at: null }})
     if (!servicio) throw new Error('Token no encontrado')
     await prisma.servicio.update({ where: { id: servicio.id }, data: { share_token: null, share_token_expires_at: null }})
     return true
@@ -1429,8 +1467,9 @@ export const ServiciosService = {
   },
 
   async obtenerPorShareToken(token: string) {
-    const servicio = await prisma.servicio.findUnique({ 
-      where: { share_token: token }, 
+    /// El enlace público de un servicio retirado deja de resolver.
+    const servicio = await prisma.servicio.findFirst({ 
+      where: { share_token: token, deleted_at: null }, 
       include: { 
         conductores: { 
           select: { 

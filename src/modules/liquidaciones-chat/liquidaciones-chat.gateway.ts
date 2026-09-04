@@ -1,4 +1,5 @@
 import { Server as IOServer, Socket } from 'socket.io'
+import { resolveActor } from '../../sockets/auth'
 
 interface ChatUser {
   id: string
@@ -38,7 +39,26 @@ function getIo(): IOServer {
 
 export function registerChatGateway(io: IOServer) {
   io.on('connection', (socket: Socket) => {
-    socket.on('chat:join', ({ liquidacionId, user }: { liquidacionId: string; user: { id: string; name: string } }) => {
+    /**
+     * Sala de chat de una liquidación.
+     *
+     * La identidad sale del token, no del payload. Antes se tomaba el `user`
+     * que mandara el cliente y se publicaba tal cual en la presencia del chat:
+     * cualquiera podía aparecer en la sala con el nombre de otra persona, y
+     * además leer toda la conversación conociendo solo el uuid de la
+     * liquidación.
+     *
+     * Queda pendiente comprobar si este usuario puede ver ESTA liquidación;
+     * eso depende de una regla de negocio —área, autoría— que hay que acordar.
+     */
+    socket.on('chat:join', ({ liquidacionId, user }: { liquidacionId: string; user?: { id: string; name: string } }) => {
+      const actor = resolveActor(socket, user)
+      if (!actor) {
+        console.warn('[chat] join rechazado: sin identidad')
+        return
+      }
+      if (!liquidacionId) return
+
       const roomKey = getRoomKey(liquidacionId)
       socket.join(roomKey)
 
@@ -47,8 +67,8 @@ export function registerChatGateway(io: IOServer) {
       }
       const room = chatRooms.get(roomKey)!
       room.users.set(socket.id, {
-        id: user.id,
-        name: user.name,
+        id: actor.id,
+        name: actor.name,
         joinedAt: new Date().toISOString(),
       })
 

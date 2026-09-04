@@ -348,8 +348,9 @@ export const LiquidacionesTercerosDescuentosService = {
     }));
 
     await prisma.$transaction([
-      prisma.liquidacion_tercero_final_concepto.deleteMany({
+      prisma.liquidacion_tercero_final_concepto.updateMany({
         where: { liquidacion_tercero_final_id: liquidacionTerceroFinalId, deleted_at: null },
+        data: { deleted_at: new Date() },
       }),
       prisma.liquidacion_tercero_final_concepto.createMany({
         data: conceptosData,
@@ -410,7 +411,7 @@ export const LiquidacionesTercerosDescuentosService = {
         },
       },
       bonificaciones: {
-        where: { vehiculo_id: vehiculo.id },
+        where: { deleted_at: null, vehiculo_id: vehiculo.id },
         select: {
           id: true, name: true, value: true, values: true, liquidacion_id: true, vehiculo_id: true,
         },
@@ -419,7 +420,8 @@ export const LiquidacionesTercerosDescuentosService = {
 
     let liquidacionesNomina: any[] = await prisma.liquidaciones.findMany({
       where: {
-        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id } },
+        deleted_at: null,
+        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
         periodo_end: { gte: periodoStart, lte: periodoEnd },
         periodo_start: { lt: `${anio}-${String(mes).padStart(2, '0')}-21` },
       },
@@ -429,7 +431,8 @@ export const LiquidacionesTercerosDescuentosService = {
     if (liquidacionesNomina.length === 0) {
       liquidacionesNomina = await prisma.liquidaciones.findMany({
         where: {
-          liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id } },
+          deleted_at: null,
+          liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
           periodo_end: { gte: periodoStart, lte: periodoEnd },
         },
         include: nominaInclude,
@@ -471,7 +474,8 @@ export const LiquidacionesTercerosDescuentosService = {
     const liquidacionesSoloBonos: any[] = (
       await prisma.liquidaciones.findMany({
         where: {
-          liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id } },
+          deleted_at: null,
+          liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
           // Solapamiento con el mes natural: empieza antes de que acabe y
           // acaba después de que empiece.
           periodo_start: { lte: periodoEnd },
@@ -1089,7 +1093,7 @@ export const LiquidacionesTercerosDescuentosService = {
           currentStep: `Obteniendo liquidaciones de servicio (${liqIdx + 1}/${totalLiqs})...`
         });
         const ltItemsRaw = await prisma.liquidacion_tercero.findMany({
-          where: { id: { in: terceros.map((t: any) => t.id) } },
+          where: { id: { in: terceros.map((t: any) => t.id) }, deleted_at: null },
           include: {
             tercero: { select: { id: true, nombre_completo: true, identificacion: true, tipo_persona: true } },
             item: { select: { id: true, numero_planilla: true } },
@@ -1557,11 +1561,13 @@ export const LiquidacionesTercerosDescuentosService = {
 
       const cierreId = existing.id;
       await prisma.$transaction([
-        prisma.liquidacion_tercero_final_item.deleteMany({
+        prisma.liquidacion_tercero_final_item.updateMany({
           where: { liquidacion_tercero_final_id: cierreId, deleted_at: null },
+          data: { deleted_at: new Date() },
         }),
-        prisma.liquidacion_tercero_final_concepto.deleteMany({
+        prisma.liquidacion_tercero_final_concepto.updateMany({
           where: { liquidacion_tercero_final_id: cierreId, deleted_at: null },
+          data: { deleted_at: new Date() },
         }),
       ]);
 
@@ -2042,8 +2048,9 @@ export const LiquidacionesTercerosDescuentosService = {
       const aBorrar = [...porConcepto.values(), ...sobrantes];
       if (aBorrar.length > 0) {
         operaciones.push(
-          prisma.liquidacion_tercero_final_concepto.deleteMany({
+          prisma.liquidacion_tercero_final_concepto.updateMany({
             where: { id: { in: aBorrar } },
+            data: { deleted_at: new Date() },
           })
         );
       }
@@ -2408,13 +2415,14 @@ export const LiquidacionesTercerosDescuentosService = {
     });
 
     // Borrar solo las filas AUTO. Las manuales quedan intactas.
-    await prisma.liquidacion_tercero_final_concepto.deleteMany({
+    await prisma.liquidacion_tercero_final_concepto.updateMany({
       where: {
         liquidacion_tercero_final_id: liquidacionTerceroFinalId,
         tipo: 'IMPUESTO',
         deleted_at: null,
         calculado: true,
       },
+      data: { deleted_at: new Date() },
     });
 
     if (!esMulti) {
@@ -2961,7 +2969,7 @@ export const LiquidacionesTercerosDescuentosService = {
 
     // Verificar que todos los IDs existen
     const itemsValidos = await prisma.liquidacion_tercero.findMany({
-      where: { id: { in: liquidacionTerceroIds } },
+      where: { id: { in: liquidacionTerceroIds }, deleted_at: null },
       select: { id: true, placa: true, tercero_id: true, liquidacion_id: true, valor_liquidar: true },
     });
     if (itemsValidos.length !== liquidacionTerceroIds.length) {
@@ -2970,11 +2978,16 @@ export const LiquidacionesTercerosDescuentosService = {
       throw new Error(`Items no encontrados: ${faltantes.join(', ')}`);
     }
 
-    // 1. Reemplazar items del pivote (solo filas activas; las soft-deleted
-    //    quedan en BD pero no se tocan para conservar auditoría).
+    /// 1. Reemplazar los items del pivote.
+    ///
+    /// El comentario anterior decía que las filas soft-deleted se conservaban
+    /// «para auditoría», pero la operación era `deleteMany`: las ACTIVAS se
+    /// borraban físicamente en cada guardado. Es el mismo fallo que dejó una
+    /// liquidación de servicios sin ítems al restaurarla. Ahora se marcan.
     await prisma.$transaction([
-      prisma.liquidacion_tercero_final_item.deleteMany({
+      prisma.liquidacion_tercero_final_item.updateMany({
         where: { liquidacion_tercero_final_id: liquidacionTerceroFinalId, deleted_at: null },
+        data: { deleted_at: new Date() },
       }),
       ...(itemsValidos.length > 0
         ? [
@@ -3268,7 +3281,7 @@ export const LiquidacionesTercerosDescuentosService = {
     if (!cierre.placa) throw new Error('El cierre no tiene placa definida');
 
     const candidatos = await prisma.liquidacion_tercero.findMany({
-      where: { placa: { equals: cierre.placa, mode: 'insensitive' as any } },
+      where: { placa: { equals: cierre.placa, mode: 'insensitive' as any }, deleted_at: null },
       select: {
         id: true,
         placa: true,
@@ -3400,7 +3413,7 @@ export const LiquidacionesTercerosDescuentosService = {
     }
 
     const candidatos = await prisma.liquidacion_tercero.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, deleted_at: null },
       select: {
         id: true,
         placa: true,
@@ -3510,13 +3523,14 @@ export const LiquidacionesTercerosDescuentosService = {
 
     const liquidacionesNomina: any[] = await prisma.liquidaciones.findMany({
       where: {
-        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id } },
+        deleted_at: null,
+        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
         periodo_start: { lte: periodoEnd },
         periodo_end: { gte: periodoStart },
       },
       include: {
         bonificaciones: {
-          where: { vehiculo_id: vehiculo.id },
+          where: { deleted_at: null, vehiculo_id: vehiculo.id },
         },
         conductores: {
           select: { id: true, nombre: true, apellido: true, numero_identificacion: true },
@@ -3643,7 +3657,8 @@ export const LiquidacionesTercerosDescuentosService = {
 
     const liqsVehiculo = await prisma.liquidaciones.findMany({
       where: {
-        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id } },
+        deleted_at: null,
+        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
         periodo_end: { gte: periodoStart, lte: periodoEnd },
       },
       select: { id: true },

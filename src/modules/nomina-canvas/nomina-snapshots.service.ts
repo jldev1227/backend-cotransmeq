@@ -314,7 +314,7 @@ export const NominaSnapshotsService = {
     const conIds = hojas.map((h) => h.liquidacionId).filter(Boolean) as string[];
     const actuales = conIds.length
       ? await prisma.liquidaciones.findMany({
-          where: { id: { in: conIds } },
+          where: { deleted_at: null, id: { in: conIds } },
           select: { id: true, estado_flujo: true },
         })
       : [];

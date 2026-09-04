@@ -41,6 +41,16 @@ export interface DiaPeriodo {
   esDomingo: boolean;
   /** Posición 0..n dentro del periodo = columna del canvas. */
   indice: number;
+  /**
+   * Repetición de esa fecha, 0 para la primera.
+   *
+   * Un conductor puede hacer DOS servicios el mismo día, y cada uno llega en
+   * su propia planilla. Antes los dos caían en la misma columna: las horas se
+   * sumaban —24 h en un día— y el horario y la empresa del segundo se perdían
+   * sin dejar rastro. Ahora el día repetido abre una columna más, contigua a
+   * la suya, y cada servicio se queda con la que le toca.
+   */
+  ocurrencia: number;
 }
 
 function utc(anio: number, mes: number, dia: number): Date {
@@ -92,6 +102,7 @@ export function diasDelPeriodo(
       nombreDia: DIAS_SEMANA[dow],
       esDomingo: dow === 0,
       indice: i++,
+      ocurrencia: 0,
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
@@ -248,4 +259,35 @@ export function tramosDeMes(
     else out.push({ nombreMes: d.nombreMes, mes: d.mes, anio: d.anio, desde: d.indice, hasta: d.indice });
   }
   return out;
+}
+
+
+/**
+ * Reparte el calendario en columnas, duplicando los días que lo necesiten.
+ *
+ * `repeticiones` dice cuántos servicios hay como máximo en cada fecha,
+ * contando a TODOS los conductores del periodo. La rejilla del canvas es
+ * compartida por todas las hojas —el builder coloca cada dato en la columna
+ * que le dice su `indice`—, así que si un solo conductor hizo dos servicios el
+ * día 22, ese día abre dos columnas para el libro entero. Las hojas de los
+ * demás dejan la segunda vacía, que es exactamente lo que pasó: ese día no
+ * hicieron un segundo servicio.
+ *
+ * La alternativa —una rejilla distinta por hoja— rompería el invariante del
+ * que cuelgan el builder, los bindings de celda y los snapshots, y a cambio
+ * solo ahorraría unas columnas en blanco.
+ */
+export function expandirDias(
+  calendario: DiaPeriodo[],
+  repeticiones: Map<string, number>,
+): DiaPeriodo[] {
+  const salida: DiaPeriodo[] = [];
+  let indice = 0;
+  for (const d of calendario) {
+    const veces = Math.max(1, repeticiones.get(d.fecha) ?? 1);
+    for (let o = 0; o < veces; o++) {
+      salida.push({ ...d, indice: indice++, ocurrencia: o });
+    }
+  }
+  return salida;
 }

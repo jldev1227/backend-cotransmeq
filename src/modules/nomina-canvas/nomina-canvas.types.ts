@@ -81,6 +81,14 @@ export interface DiaHoja {
   /** Índice dentro de `periodo.dias`: es la columna. */
   indice: number;
   fecha: string;
+  /**
+   * Repetición de la fecha, 0 para la primera del día.
+   *
+   * Un conductor con dos servicios en un día ocupa dos columnas contiguas de
+   * la misma fecha; esto dice cuál de las dos es. El encabezado la usa para
+   * no repetir el número del día dos veces sin explicación.
+   */
+  ocurrencia: number;
   /** Hora decimal (5.5 = 05:30), como se guarda en la planilla. */
   horaInicio: number | null;
   horaFin: number | null;

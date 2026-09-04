@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken'
 import { env } from '../../config/env'
 import { logger } from '../../utils/logger'
 import { checkAccess } from '../../config/permissions'
+import { obtenerPermisosRutas } from '../../services/permisos-rutas.service'
 import { getSocketUser } from '../../sockets/auth'
 import { ADMIN_ROOM, conductorRoom } from './formularios-dinamicos.events'
 
@@ -77,13 +78,17 @@ export function registerFormulariosGateway(io: IOServer): void {
      * cualquier usuario autenticado —incluido uno sin acceso a formularios—
      * recibiría los avisos de envíos con datos de salud y fatiga.
      */
-    socket.on('forms:join-admin', (_payload: unknown, ack?: (r: unknown) => void) => {
+    socket.on('forms:join-admin', async (_payload: unknown, ack?: (r: unknown) => void) => {
       const user = getSocketUser(socket)
       if (!user) {
         ack?.({ ok: false, error: 'unauthorized' })
         return
       }
-      const { allowed } = checkAccess(user.role, user.area as any, MODULO)
+      /// También aquí la lista blanca por usuario: si se respeta en HTTP pero
+      /// no en el socket, a quien se le quitó `formularios` le seguirían
+      /// llegando los avisos de envíos por el room admin.
+      const rutasOverride = await obtenerPermisosRutas(user.id)
+      const { allowed } = checkAccess(user.role, user.area as any, MODULO, rutasOverride)
       if (!allowed) {
         logger.warn(
           { type: 'forms-socket-admin-denied', userId: user.id, areas: user.area },

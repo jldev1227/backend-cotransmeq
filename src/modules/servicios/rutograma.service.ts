@@ -134,8 +134,9 @@ export class RutogramaService {
     console.log(`[RutogramaService] Generando rutograma para servicio ${servicioId}`)
 
     // 1. Obtener datos del servicio con relaciones
-    const servicio = await prisma.servicio.findUnique({
-      where: { id: servicioId },
+    /// Un servicio retirado no genera rutograma.
+    const servicio = await prisma.servicio.findFirst({
+      where: { id: servicioId, deleted_at: null },
       include: {
         municipios_servicio_origen_idTomunicipios: true,
         municipios_servicio_destino_idTomunicipios: true,

@@ -103,7 +103,10 @@ export const LiquidacionesService = {
     const limit = noLimit ? undefined : filters?.limit || 20;
     const skip = noLimit ? undefined : (page - 1) * (limit || 20);
 
-    const where: any = {};
+    /// `deleted_at: null` en el punto de partida: el listado, los conteos y el
+    /// agregado de montos comparten este `where`, así que el filtro se pone una
+    /// vez y no hay forma de olvidarlo en una rama.
+    const where: any = { deleted_at: null };
 
     if (filters?.conductor_id) {
       where.conductor_id = filters.conductor_id;
@@ -195,6 +198,7 @@ export const LiquidacionesService = {
             },
           },
           liquidacion_vehiculo: {
+            where: { deleted_at: null },
             include: {
               vehiculos: {
                 select: {
@@ -207,8 +211,9 @@ export const LiquidacionesService = {
               },
             },
           },
-          bonificaciones: true,
+          bonificaciones: { where: { deleted_at: null } },
           pernotes: {
+            where: { deleted_at: null },
             include: {
               clientes: {
                 select: {
@@ -219,6 +224,7 @@ export const LiquidacionesService = {
             },
           },
           recargos: {
+            where: { deleted_at: null },
             include: {
               clientes: {
                 select: {
@@ -228,8 +234,8 @@ export const LiquidacionesService = {
               },
             },
           },
-          mantenimientos: true,
-          anticipos: true,
+          mantenimientos: { where: { deleted_at: null } },
+          anticipos: { where: { deleted_at: null } },
           firmas_desprendibles: {
             select: { id: true },
           },
@@ -336,8 +342,8 @@ export const LiquidacionesService = {
 
   // Obtener una liquidación por ID
   async obtenerPorId(id: string) {
-    const liquidacion = await prisma.liquidaciones.findUnique({
-      where: { id },
+    const liquidacion = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
       include: {
         conductores: {
           select: {
@@ -353,6 +359,7 @@ export const LiquidacionesService = {
           },
         },
         liquidacion_vehiculo: {
+          where: { deleted_at: null },
           include: {
             vehiculos: {
               select: {
@@ -365,8 +372,9 @@ export const LiquidacionesService = {
             },
           },
         },
-        bonificaciones: true,
+        bonificaciones: { where: { deleted_at: null } },
         pernotes: {
+          where: { deleted_at: null },
           include: {
             clientes: {
               select: { id: true, nombre: true },
@@ -374,14 +382,15 @@ export const LiquidacionesService = {
           },
         },
         recargos: {
+          where: { deleted_at: null },
           include: {
             clientes: {
               select: { id: true, nombre: true },
             },
           },
         },
-        mantenimientos: true,
-        anticipos: true,
+        mantenimientos: { where: { deleted_at: null } },
+        anticipos: { where: { deleted_at: null } },
         firmas_desprendibles: true,
         users_liquidaciones_creado_por_idTousers: {
           select: { id: true, nombre: true, correo: true },
@@ -794,8 +803,8 @@ export const LiquidacionesService = {
   async actualizar(id: string, data: any, userId: string) {
     const now = new Date();
 
-    const liquidacionExistente = await prisma.liquidaciones.findUnique({
-      where: { id },
+    const liquidacionExistente = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
     });
 
     if (!liquidacionExistente) {
@@ -916,8 +925,12 @@ export const LiquidacionesService = {
 
     // Actualizar vehículos
     if (data.vehiculos) {
-      await prisma.liquidacion_vehiculo.deleteMany({
-        where: { liquidacion_id: id },
+      /// Se MARCAN, no se borran: cada edición destruía la versión anterior
+      /// de lo que se le iba a pagar a una persona, sin dejar con qué
+      /// compararla. Todas las lecturas filtran `deleted_at IS NULL`.
+      await prisma.liquidacion_vehiculo.updateMany({
+        where: { liquidacion_id: id, deleted_at: null },
+        data: { deleted_at: new Date() },
       });
 
       if (data.vehiculos.length > 0) {
@@ -934,8 +947,9 @@ export const LiquidacionesService = {
 
     // Actualizar anticipos
     if (data.anticipos !== undefined) {
-      await prisma.anticipos.deleteMany({
-        where: { liquidacion_id: id },
+      await prisma.anticipos.updateMany({
+        where: { liquidacion_id: id, deleted_at: null },
+        data: { deleted_at: new Date() },
       });
 
       if (data.anticipos.length > 0) {
@@ -959,11 +973,18 @@ export const LiquidacionesService = {
 
     // Actualizar detalles de vehículos (bonificaciones, mantenimientos, pernotes, recargos)
     if (data.detalles_vehiculos) {
-      // Eliminar registros anteriores
-      await prisma.bonificaciones.deleteMany({ where: { liquidacion_id: id } });
-      await prisma.mantenimientos.deleteMany({ where: { liquidacion_id: id } });
-      await prisma.pernotes.deleteMany({ where: { liquidacion_id: id } });
-      await prisma.recargos.deleteMany({ where: { liquidacion_id: id } });
+      // Retirar los anteriores. Se marcan; la unicidad de `recargos` por
+      // planilla de origen es PARCIAL, así que el archivado no bloquea al
+      // nuevo.
+      const retirado = new Date();
+      await prisma.bonificaciones.updateMany({
+        where: { liquidacion_id: id, deleted_at: null }, data: { deleted_at: retirado } });
+      await prisma.mantenimientos.updateMany({
+        where: { liquidacion_id: id, deleted_at: null }, data: { deleted_at: retirado } });
+      await prisma.pernotes.updateMany({
+        where: { liquidacion_id: id, deleted_at: null }, data: { deleted_at: retirado } });
+      await prisma.recargos.updateMany({
+        where: { liquidacion_id: id, deleted_at: null }, data: { deleted_at: retirado } });
 
       // Actualizar totales
       await prisma.liquidaciones.update({
@@ -1191,25 +1212,33 @@ export const LiquidacionesService = {
 
   // Eliminar una liquidación
   async eliminar(id: string) {
-    const liquidacion = await prisma.liquidaciones.findUnique({
-      where: { id },
+    /// Una liquidación ya retirada se trata como inexistente: borrarla dos
+    /// veces debe dar error, no un «eliminada correctamente» sobre nada.
+    const liquidacion = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
     });
 
     if (!liquidacion) {
       throw new Error("Liquidación no encontrada");
     }
 
-    // Eliminar en cascada las relaciones
-    await prisma.$transaction([
-      prisma.bonificaciones.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.mantenimientos.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.pernotes.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.recargos.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.anticipos.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.firmas_desprendibles.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.liquidacion_vehiculo.deleteMany({ where: { liquidacion_id: id } }),
-      prisma.liquidaciones.delete({ where: { id } }),
-    ]);
+    /// Se MARCA la liquidación y NO se toca nada de lo que cuelga de ella.
+    ///
+    /// Antes esto destruía la liquidación y SIETE tablas hijas en la misma
+    /// transacción: bonificaciones, mantenimientos, pernotes, recargos,
+    /// anticipos, `liquidacion_vehiculo` y `firmas_desprendibles`. Esa última
+    /// es la FIRMA DEL CONDUCTOR sobre su desprendible —la prueba de que
+    /// recibió y aceptó su pago—, y un clic se la llevaba junto con el periodo,
+    /// el valor y la fecha.
+    ///
+    /// Marcando solo la madre, las siete quedan colgando de algo que ninguna
+    /// consulta devuelve, y siguen enteras para cuando haya que reconstruir.
+    /// Es la misma decisión que con el historial de las liquidaciones de
+    /// servicios: la evidencia no se toca.
+    await prisma.liquidaciones.update({
+      where: { id },
+      data: { deleted_at: new Date() },
+    });
 
     return { success: true, message: "Liquidación eliminada correctamente" };
   },
@@ -2261,14 +2290,14 @@ export const LiquidacionesService = {
    * cuadran, lo que hay que arreglar es la liquidación.
    */
   async datosDesprendible(liquidationId: string): Promise<DatosDesprendible> {
-    const l = await prisma.liquidaciones.findUnique({
-      where: { id: liquidationId },
+    const l = await prisma.liquidaciones.findFirst({
+      where: { id: liquidationId, deleted_at: null },
       include: {
         conductores: true,
-        bonificaciones: true,
-        pernotes: true,
-        anticipos: true,
-        recargos: { include: { clientes: { select: { nombre: true } } } },
+        bonificaciones: { where: { deleted_at: null } },
+        pernotes: { where: { deleted_at: null } },
+        anticipos: { where: { deleted_at: null } },
+        recargos: { where: { deleted_at: null }, include: { clientes: { select: { nombre: true } } } },
         firmas_desprendibles: true,
       },
     });
