@@ -7,6 +7,12 @@ const envSchema = z.object({
   PORT: z.string().transform(s => Number(s)).default('4000'),
   DATABASE_URL: z.string(),
   JWT_SECRET: z.string(),
+  // ── Recuperación de contraseña ──────────────────────────────────────
+  // Secreto compartido con el frontend (SvelteKit), que es quien emite y
+  // verifica el magic link. Viaja en la cabecera `x-recovery-token` y es el
+  // único control de acceso de `/api/auth/recuperacion/*`. Sin él, esas rutas
+  // responden 503: es preferible a dejarlas abiertas.
+  PASSWORD_RECOVERY_SERVICE_TOKEN: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   // `from` que se usa cuando el proveedor es Resend. Debe ser un dominio
   // verificado en Resend (ej: "Transmeralda <noreply@cotransmeq.com>").

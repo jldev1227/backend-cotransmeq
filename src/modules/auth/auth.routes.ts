@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { AuthController } from './auth.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { RecuperacionController } from './recuperacion.controller'
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', AuthController.login)
@@ -12,4 +13,10 @@ export async function authRoutes(app: FastifyInstance) {
   app.get('/auth/my-firma', { preHandler: [authMiddleware] }, AuthController.getMyFirma)
   app.post('/auth/my-firma', { preHandler: [authMiddleware] }, AuthController.uploadMyFirma)
   app.delete('/auth/my-firma', { preHandler: [authMiddleware] }, AuthController.deleteMyFirma)
+
+  // Recuperación de contraseña: sin `authMiddleware` a propósito —quien la usa
+  // no tiene sesión—. El control de acceso es la cabecera `x-recovery-token`,
+  // que el propio controlador verifica antes de tocar nada.
+  app.post('/auth/recuperacion/lookup', RecuperacionController.lookup)
+  app.post('/auth/recuperacion/aplicar', RecuperacionController.aplicar)
 }
