@@ -27,7 +27,48 @@ export function initSockets(server: HttpServer) {
   console.log('═══════════════════════════════════════════════════════')
   
   io = new IOServer(server, {
-    cors: { origin: corsOrigins(), methods: ['GET', 'POST'] }
+    cors: { origin: corsOrigins(), methods: ['GET', 'POST'] },
+
+    /// Recuperación de estado tras un corte breve.
+    ///
+    /// Sin esto, una reconexión es una conexión NUEVA: id nuevo, sin rooms, y
+    /// todo lo que se emitió mientras el cliente no estaba se perdió sin dejar
+    /// rastro. El cliente volvía "conectado" y con la pantalla desfasada, que
+    /// es peor que verse desconectado porque nadie sospecha nada.
+    ///
+    /// Con esto, si el cliente vuelve dentro de la ventana, socket.io le
+    /// devuelve su id, sus rooms (`user-<id>`, las salas de hoja y de
+    /// liquidación) y le REPITE los paquetes que se perdió.
+    ///
+    /// Ojo con el alcance: la sesión vive en memoria del proceso. Si el que se
+    /// reinicia es el backend, no hay nada que recuperar y el cliente entra
+    /// como nuevo — por eso el frontend avisa a sus stores en cada reconexión
+    /// (`socketUtils.onReconnect`) en vez de fiarlo todo a esto.
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      /// `false` a propósito; el defecto de socket.io es `true`.
+      ///
+      /// Saltarse los middlewares significa saltarse `installSocketAuth`: un
+      /// socket recuperado conservaría durante dos minutos la identidad del
+      /// token viejo aunque la sesión se hubiera cerrado en ese intervalo.
+      /// Verificar el JWT otra vez cuesta microsegundos y cierra esa ventana.
+      skipMiddlewares: false,
+    },
+
+    /// Detección de conexiones muertas, explícita porque es un equilibrio y no
+    /// un detalle: el servidor da por perdido a un cliente que no contesta al
+    /// ping en `pingTimeout`. Bajarlos hace que las caídas se noten antes, pero
+    /// también provoca desconexiones falsas en móvil con cobertura pobre —y una
+    /// desconexión falsa cuesta una reconexión entera—. Estos son los valores
+    /// por defecto de socket.io; quedan escritos para que quien los toque sepa
+    /// qué está cambiando.
+    pingInterval: 25_000,
+    pingTimeout: 20_000,
+
+    /// Margen para completar el handshake. El cliente se rinde a los 10 s
+    /// (`HANDSHAKE_TIMEOUT` en `lib/socket.ts`), así que el servidor no tiene
+    /// por qué guardar conexiones a medio abrir los 45 s del defecto.
+    connectTimeout: 20_000,
   })
 
   // Verificación de identidad en el handshake. Va ANTES de cualquier
@@ -37,11 +78,24 @@ export function initSockets(server: HttpServer) {
   console.log('✅ [initSockets] Socket.IO server creado')
 
   io.on('connection', socket => {
-    console.log(`🔗 [sockets] ✓ NUEVA CONEXIÓN: socket.id=${socket.id}`)
+    console.log(
+      `🔗 [sockets] ✓ ${socket.recovered ? 'CONEXIÓN RECUPERADA' : 'NUEVA CONEXIÓN'}: ` +
+        `socket.id=${socket.id}`,
+    )
     /// Antes se volcaban los headers completos del handshake, y ahí viaja el
     /// `Authorization: Bearer <jwt>`: cualquiera con acceso a los logs se
     /// llevaba tokens de sesión válidos. Se registra solo el origen.
     console.log(`   Origen: ${socket.handshake.headers?.origin ?? '(sin origin)'}`)
+
+    /// En una recuperación los rooms y `socket.data` vuelven solos, pero
+    /// `onlineUserIds` no: es un Set de este módulo y el `disconnect` anterior
+    /// ya sacó al usuario. Sin esto, quien se reconecta aparece desconectado
+    /// para los demás hasta que su cliente vuelva a emitir `join-dashboard`.
+    if (socket.recovered && socket.data.userId) {
+      onlineUserIds.add(socket.data.userId)
+      io!.emit('usuarios-online', Array.from(onlineUserIds))
+      console.log(`♻️  [sockets] presencia restaurada para ${socket.data.userId}`)
+    }
 
 
     socket.on('ping', () => socket.emit('pong'))
