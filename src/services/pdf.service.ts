@@ -11,8 +11,15 @@ import { execSync } from "child_process";
     - PATH: chromium, chromium-browser, google-chrome, chrome
     Si no encuentra nada, lanza un error descriptivo. */
 function resolveChromiumPath(): string {
+  // `CHROME_PATH` va en la lista porque es la que exporta el Dockerfile de
+  // transmeralda. Su versión anterior de esta función solo leía
+  // `PUPPETEER_CHROMIUM_PATH` —que no define nadie— y acertaba de casualidad,
+  // porque su respaldo fijo coincidía con la ruta de su imagen.
   const fromEnv =
-    process.env.PUPPETEER_EXECUTABLE_PATH || process.env.PUPPETEER_CHROMIUM_PATH;
+    process.env.PUPPETEER_EXECUTABLE_PATH ||
+    process.env.PUPPETEER_CHROMIUM_PATH ||
+    process.env.CHROMIUM_PATH ||
+    process.env.CHROME_PATH;
   if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
 
   if (process.platform === "darwin") {
