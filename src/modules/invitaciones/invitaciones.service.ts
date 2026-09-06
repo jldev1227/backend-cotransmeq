@@ -4,6 +4,24 @@ import argon2 from 'argon2'
 import crypto from 'crypto'
 import { PERMISOS_DEFAULT } from '../usuarios/usuarios.service'
 
+/**
+ * Error de negocio de las invitaciones, con código para mapear a HTTP.
+ *
+ * Antes el servicio lanzaba `Error` pelado y el controlador no atrapaba nada,
+ * así que «ya existe un usuario con ese correo» —que es una condición
+ * perfectamente normal— llegaba al navegador como 500 Internal Server Error.
+ * Ni el mensaje servía ni el código decía la verdad.
+ */
+export class InvitacionError extends Error {
+  constructor(
+    public codigo: 'CORREO_YA_REGISTRADO' | 'TOKEN_INVALIDO' | 'CORREO_DUPLICADO',
+    message: string
+  ) {
+    super(message)
+    this.name = 'InvitacionError'
+  }
+}
+
 export const InvitacionesService = {
 
   async crear({ correo, area, cargo, invitadoPorId }: {
@@ -15,7 +33,10 @@ export const InvitacionesService = {
     // Verificar que el correo no pertenezca ya a un usuario activo
     const existente = await prisma.usuarios.findUnique({ where: { correo } })
     if (existente) {
-      throw new Error('Ya existe un usuario con ese correo electrónico.')
+      throw new InvitacionError(
+        'CORREO_YA_REGISTRADO',
+        `${correo} ya tiene una cuenta en el sistema. Si perdió el acceso, puede restablecer su contraseña desde «¿Olvidaste tu contraseña?».`
+      )
     }
 
     // Invalidar invitaciones previas pendientes para ese correo
@@ -79,7 +100,24 @@ export const InvitacionesService = {
     telefono?: string
   }) {
     const inv = await InvitacionesService.validarToken(token)
-    if (!inv) throw new Error('Invitación inválida o expirada.')
+    if (!inv) {
+      throw new InvitacionError(
+        'TOKEN_INVALIDO',
+        'La invitación no es válida, ya se usó o expiró. Pide una nueva al administrador.'
+      )
+    }
+
+    /// Entre que se emitió la invitación y se acepta, alguien pudo dar de alta
+    /// ese mismo correo a mano. Sin este chequeo el `create` revienta con
+    /// P2002 y el usuario ve un 500 en la última pantalla del registro.
+    const yaRegistrado = await prisma.usuarios.findUnique({ where: { correo: inv.correo } })
+    if (yaRegistrado) {
+      await prisma.invitaciones_usuario.update({ where: { token }, data: { estado: 'aceptada' } })
+      throw new InvitacionError(
+        'CORREO_DUPLICADO',
+        `${inv.correo} ya tiene una cuenta. Inicia sesión con ella o restablece la contraseña.`
+      )
+    }
 
     const hash = await argon2.hash(password)
 
