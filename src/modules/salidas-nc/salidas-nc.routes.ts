@@ -78,8 +78,16 @@ export async function salidasNCRoutes(fastify: FastifyInstance) {
             fecha_desde: { type: 'string' },
             fecha_hasta: { type: 'string' },
             busqueda: { type: 'string' },
-            sortBy: { type: 'string' },
-            sortOrder: { type: 'string' },
+            // El `enum` va aquí Y la lista blanca está también en el
+            // servicio: Fastify solo valida lo que entra por esta ruta, y
+            // `listar` se llama desde más sitios. El campo acaba en el
+            // `orderBy` de Prisma, así que la comprobación tiene que estar
+            // donde se usa, no solo en el borde.
+            sortBy: {
+              type: 'string',
+              enum: ['numero_snc', 'fecha_deteccion', 'detectado_por', 'clasificacion_nc', 'estado']
+            },
+            sortOrder: { type: 'string', enum: ['asc', 'desc'] },
           }
         }
       }

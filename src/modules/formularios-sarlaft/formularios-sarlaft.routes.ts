@@ -220,7 +220,17 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
             },
             estado: { type: 'string' },
             fecha_desde: { type: 'string', format: 'date' },
-            fecha_hasta: { type: 'string', format: 'date' }
+            fecha_hasta: { type: 'string', format: 'date' },
+            // Ordenación de la tabla del dashboard. El `enum` va aquí Y la
+            // lista blanca está también en el servicio: Fastify solo valida
+            // lo que entra por esta ruta, y `listarAdmin` se llama desde más
+            // sitios. El campo llega a `orderBy` de Prisma, así que la
+            // comprobación tiene que estar donde se usa, no solo en el borde.
+            orden: {
+              type: 'string',
+              enum: ['fecha_envio', 'radicado', 'nombre_completo', 'tipo_formulario', 'estado']
+            },
+            direccion: { type: 'string', enum: ['asc', 'desc'] }
           }
         }
       }

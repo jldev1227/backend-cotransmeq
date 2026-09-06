@@ -41,8 +41,20 @@ export const EvaluacionesController = {
     const page = Math.max(1, parseInt(req.query.page || '1'));
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '10')));
     const search = req.query.search || '';
-    const sortBy = req.query.sortBy || 'created_at';
-    const sortOrder = req.query.sortOrder || 'desc';
+    /**
+     * El tipo de `sortBy` en la firma es SOLO de compilación.
+     *
+     * En ejecución llega lo que mande el cliente y entraba tal cual en el
+     * `orderBy` de Prisma: se podía ordenar por cualquier columna de la
+     * tabla, y un nombre inventado reventaba la consulta. La ruta tampoco
+     * tiene esquema que lo filtre, así que la comprobación va aquí.
+     */
+    const CAMPOS_ORDENABLES = new Set(['titulo', 'created_at']);
+    const sortBy =
+      req.query.sortBy && CAMPOS_ORDENABLES.has(req.query.sortBy)
+        ? req.query.sortBy
+        : 'created_at';
+    const sortOrder = req.query.sortOrder === 'asc' ? 'asc' : 'desc';
 
     const where: any = { deleted_at: null };
 

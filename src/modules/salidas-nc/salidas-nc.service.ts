@@ -176,9 +176,30 @@ export class SalidasNCService {
       ]
     }
 
-    // Ordenamiento
-    const sortBy = filtros.sortBy || 'numero_snc'
-    const sortOrder = filtros.sortOrder || 'desc'
+    /**
+     * Ordenamiento.
+     *
+     * La lista blanca no es decoración: `sortBy` llega del cliente y entraba
+     * TAL CUAL en el `orderBy` de Prisma. Eso permitía ordenar por cualquier
+     * columna de la tabla, incluidas las que el listado no expone, y un
+     * nombre de campo inventado reventaba la consulta entera.
+     *
+     * Los nombres coinciden con los `id` de las columnas de la tabla del
+     * dashboard, para que la cabecera pulsada y el criterio de la consulta
+     * sean literalmente lo mismo.
+     */
+    const CAMPOS_ORDENABLES = new Set([
+      'numero_snc',
+      'fecha_deteccion',
+      'detectado_por',
+      'clasificacion_nc',
+      'estado',
+    ])
+    const sortBy =
+      filtros.sortBy && CAMPOS_ORDENABLES.has(filtros.sortBy)
+        ? filtros.sortBy
+        : 'numero_snc'
+    const sortOrder = filtros.sortOrder === 'asc' ? 'asc' : 'desc'
     const orderBy: any = { [sortBy]: sortOrder }
 
     const [salidas, total] = await Promise.all([

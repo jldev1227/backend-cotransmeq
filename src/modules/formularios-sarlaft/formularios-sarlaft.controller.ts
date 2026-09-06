@@ -155,6 +155,8 @@ export const FormulariosSarlaftController = {
         estado?: string
         fecha_desde?: string
         fecha_hasta?: string
+        orden?: string
+        direccion?: string
       }
       const data = await FormulariosSarlaftService.listarAdmin({
         page: q.page ? Number(q.page) : undefined,
@@ -167,7 +169,11 @@ export const FormulariosSarlaftController = {
           : null,
         estado: q.estado,
         fecha_desde: q.fecha_desde,
-        fecha_hasta: q.fecha_hasta
+        fecha_hasta: q.fecha_hasta,
+        // El servicio valida `orden` contra su lista blanca; aquí se pasa
+        // crudo a propósito, para que la validación viva en un solo sitio.
+        orden: q.orden,
+        direccion: q.direccion
       })
       return reply.send({ success: true, ...data })
     } catch (err: any) {

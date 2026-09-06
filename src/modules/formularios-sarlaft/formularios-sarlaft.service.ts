@@ -1065,10 +1065,37 @@ export const FormulariosSarlaftService = {
     estado?: string | null;
     fecha_desde?: string | null;
     fecha_hasta?: string | null;
+    orden?: string | null;
+    direccion?: string | null;
   }) {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(100, Math.max(1, params.limit ?? 20));
     const skip = (page - 1) * limit;
+
+    /**
+     * Ordenación pedida por el cliente.
+     *
+     * La lista viene PAGINADA del servidor, así que ordenar en el navegador
+     * solo reordenaría los 20 registros de la página actual: pulsar
+     * «Radicado» daría un orden que no es el del conjunto y nadie lo notaría.
+     * Por eso la cabecera de la tabla manda el criterio aquí.
+     *
+     * La lista blanca no es decoración: `orderBy` va a Prisma tal cual y un
+     * nombre de campo que venga del cliente sin filtrar es una vía para
+     * ordenar por columnas que no se exponen en el listado.
+     */
+    const CAMPOS_ORDENABLES = new Set([
+      "fecha_envio",
+      "radicado",
+      "nombre_completo",
+      "tipo_formulario",
+      "estado",
+    ]);
+    const campoOrden =
+      params.orden && CAMPOS_ORDENABLES.has(params.orden)
+        ? params.orden
+        : "fecha_envio";
+    const direccionOrden = params.direccion === "asc" ? "asc" : "desc";
 
     const where: any = {};
     if (params.tipo_formulario) where.tipo_formulario = params.tipo_formulario;
@@ -1096,7 +1123,7 @@ export const FormulariosSarlaftService = {
           _count: { select: { documentos: true } },
           evaluado_por: { select: { id: true, nombre: true, correo: true } },
         },
-        orderBy: { fecha_envio: "desc" },
+        orderBy: { [campoOrden]: direccionOrden },
         skip,
         take: limit,
       }),
