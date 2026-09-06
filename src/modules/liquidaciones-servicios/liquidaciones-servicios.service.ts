@@ -1174,6 +1174,21 @@ export const LiquidacionesServiciosService = {
         mes: data.mes,
         anio: data.anio,
         estado: "BORRADOR" as any,
+        /**
+         * Nace CONFIRMADA. Este `crear` es el POST del botón «Registrar»: un
+         * guardado explícito, no el autoguardado.
+         *
+         * Sin esta línea la fila quedaba con `confirmada_at = null`, que es la
+         * marca de «existe por autoguardado pero nadie la guardó», y el listado
+         * la pintaba como «Sin guardar» aunque el usuario acabara de pulsar
+         * Registrar. Solo se corregía sola al volver a editarla, porque el PUT
+         * sí llama a `confirmar()`.
+         *
+         * El autoguardado tiene su propio `create` (ver `autoguardar`) y ese
+         * SÍ debe dejarlo en null: es lo que mantiene el borrador fuera del
+         * listado del resto del mundo.
+         */
+        confirmada_at: new Date(),
         tercero_liquidado: computeTerceroLiquidado(data.recargos_data),
         valor_servicios: valorServicios,
         valor_recargos: valorRecargos,

@@ -503,6 +503,21 @@ export class LiquidacionesServiciosController {
         });
       }
 
+      /**
+       * Aprobar es de Administración, y hasta ahora eso solo lo sabía la UI.
+       *
+       * El guardia de arriba cubre SALIR de aprobada, pero no ENTRAR: un
+       * usuario de operaciones podía mandar `{"estado":"APROBADA"}` a esta
+       * ruta y la liquidación quedaba aprobada, firmada a su nombre en
+       * `aprobado_por_id`. El botón no le aparecía en pantalla
+       * (`canAprobar = isAdmin`), pero la ruta no es la pantalla.
+       */
+      if (estado === "APROBADA" && !esAdministracion) {
+        return reply.status(403).send({
+          error: `Solo Administración puede aprobar una liquidación.`,
+        });
+      }
+
       const result = await LiquidacionesServiciosService.cambiarEstado(
         id,
         estado,
