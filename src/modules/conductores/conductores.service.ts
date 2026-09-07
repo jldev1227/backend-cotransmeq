@@ -624,7 +624,12 @@ export const ConductoresService = {
         where: { conductor_id: id, deleted_at: null },
       }),
       prisma.salidas_no_conformes.count({ where: { conductor_id: id } }),
-      prisma.registro_dia_laboral.count({ where: { conductor_id: id } }),
+      // `deleted_at: null`: este conteo pone `bloquea: true` sobre el
+      // conductor. Sin el filtro, un día que alguien retiró seguiría
+      // impidiendo borrarlo para siempre.
+      prisma.registro_dia_laboral.count({
+        where: { conductor_id: id, deleted_at: null },
+      }),
       prisma.conductor_token.count({ where: { conductor_id: id } }),
     ]);
 

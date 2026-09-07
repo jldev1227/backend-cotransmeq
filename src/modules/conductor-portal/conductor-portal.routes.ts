@@ -1198,10 +1198,19 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         // Incluir los segmentos de cada registro LABORADO (la fuente de verdad
         // de cliente/vehículo/horas es la tabla pivote registro_dia_laboral_segmento)
         const ids = registros.filter(r => r.tipo === 'LABORADO').map(r => r.id)
+        /// `deleted_at: null` en el PROPIO segmento, no solo en el día.
+        ///
+        /// Desde que el guardado marca los tramos en vez de borrarlos, cada
+        /// re-guardado de un día deja atrás el conjunto anterior. Sin este
+        /// filtro el conductor veía su historial de edición completo como si
+        /// fueran tramos reales —un día con 2 tramos guardado 8 veces salía
+        /// con 14—, y al pulsar «Editar» y guardar los reenviaba todos, con
+        /// lo que los retirados resucitaban como filas vivas y entraban a
+        /// nómina. El filtro del padre no alcanza al hijo.
         const segmentos = ids.length === 0
           ? []
           : await prisma.registro_dia_laboral_segmento.findMany({
-              where: { registro_dia_id: { in: ids } },
+              where: { registro_dia_id: { in: ids }, deleted_at: null },
               orderBy: { orden: 'asc' }
             });
         const segMap = new Map<string, any[]>()
