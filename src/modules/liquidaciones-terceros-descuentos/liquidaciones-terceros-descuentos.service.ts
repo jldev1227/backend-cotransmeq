@@ -3778,7 +3778,10 @@ export const LiquidacionesTercerosDescuentosService = {
   async softDelete(liquidacionTerceroFinalId: string, userId?: string) {
     const current = await prisma.liquidacion_tercero_final.findFirst({
       where: { id: liquidacionTerceroFinalId, deleted_at: null },
-      select: { id: true, estado: true, placa: true, consecutivo: true },
+      /// `anio`/`mes` no se usan para borrar: son para el evento de socket
+      /// que avisa al resto de canvas del periodo. Sin ellos habría que
+      /// releer la fila ya marcada para saber a qué room emitir.
+      select: { id: true, estado: true, placa: true, consecutivo: true, anio: true, mes: true },
     });
     if (!current) {
       throw new Error('Liquidación final de tercero no encontrada o ya eliminada');
@@ -3816,6 +3819,10 @@ export const LiquidacionesTercerosDescuentosService = {
       deleted_at: now,
       items_eliminados: itemsUpdated.count,
       conceptos_eliminados: conceptosUpdated.count,
+      anio: current.anio,
+      mes: current.mes,
+      placa: current.placa,
+      consecutivo: current.consecutivo,
     };
   },
 };

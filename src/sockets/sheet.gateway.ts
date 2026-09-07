@@ -682,6 +682,42 @@ export function emitSheetAdded(params: {
  * que si la hoja sigue editable el usuario teclea y recibe un error por
  * cada celda.
  */
+/**
+ * Anuncia que una HOJA SALIÓ del libro de un periodo.
+ *
+ * Es el inverso de `emitSheetAdded` y va a todo el room, emisor incluido:
+ * quien borra también necesita que su libro se quede sin esa pestaña, y el
+ * canvas no tiene forma de quitarla salvo remontar.
+ *
+ * Reaccionar es obligatorio, por el mismo motivo que en
+ * `emitSheetEstadoChanged`: el servidor rechaza los patches sobre un cierre
+ * retirado, así que un cliente que conserve la hoja editable teclea y recibe
+ * un error por cada celda.
+ */
+export function emitSheetRemoved(params: {
+  anio: number
+  mes: number
+  cierreId: string
+  placa: string | null
+  by: Pick<SocketUser, 'id' | 'name'>
+}): void {
+  const { anio, mes, cierreId, placa, by } = params
+  try {
+    getIo()
+      .to(sheetRoomKey('cierres-finales', anio, mes))
+      .emit('sheet:sheet-removed', {
+        scope: 'cierres-finales',
+        anio,
+        mes,
+        cierre_id: cierreId,
+        placa: placa ?? null,
+        by,
+      })
+  } catch (e) {
+    console.warn('[sheet] emitSheetRemoved falló:', e)
+  }
+}
+
 export function emitSheetEstadoChanged(params: {
   anio: number
   mes: number

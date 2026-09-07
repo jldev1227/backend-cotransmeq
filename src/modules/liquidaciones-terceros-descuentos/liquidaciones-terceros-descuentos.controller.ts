@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { LiquidacionesTercerosDescuentosService } from './liquidaciones-terceros-descuentos.service';
 import { PeriodoCierresService } from './periodo-cierres.service';
 import { CierreEstadoService, ErrorEstado } from './cierre-estado.service';
-import { emitSheetColorChanged, emitSheetInvalidate } from '../../sockets/sheet.gateway';
+import { emitSheetColorChanged, emitSheetInvalidate, emitSheetRemoved } from '../../sockets/sheet.gateway';
 import { CierreFinalCeldasService } from './cierre-final-celdas.service';
 import { borradorQueueService } from '../../queue/borrador-queue.service';
 import { bulkSaveLiquidacionTerceroService } from '../../queue/bulk-save-liquidacion-tercero.service';
@@ -785,6 +785,20 @@ export class LiquidacionesTercerosDescuentosController {
       const { id } = request.params as any;
       const userId = (request as any).user?.id;
       const result = await LiquidacionesTercerosDescuentosService.softDelete(id, userId);
+
+      // El resto de canvas del periodo tiene la hoja montada y el servidor ya
+      // rechaza patches sobre ella: sin avisar, quien la tuviera abierta
+      // seguiría tecleando contra un cierre que ya no existe.
+      if (result.anio != null && result.mes != null) {
+        emitSheetRemoved({
+          anio: result.anio,
+          mes: result.mes,
+          cierreId: result.id,
+          placa: result.placa ?? null,
+          by: { id: userId || '', name: (request as any).user?.nombre || 'Usuario' },
+        });
+      }
+
       return reply.send(result);
     } catch (error: any) {
       const msg = error.message || 'Error al eliminar';
