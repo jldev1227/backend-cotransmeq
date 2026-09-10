@@ -248,37 +248,72 @@ async function conDatosDelServicio(items: any[]): Promise<any[]> {
     select: {
       id: true,
       valor_recargos: true,
-      // `take: 1` + filtro de activas: una liquidación puede tener facturas
-      // anuladas históricas, y la que interesa es la vigente.
+      // Se traen TODAS las facturas vivas, anuladas incluidas, y sin `take`.
+      // Antes se pedía solo la primera activa, y con eso no había forma de
+      // saber si el número que el item lleva congelado sigue siendo el bueno:
+      // una factura anulada y refacturada dejaba el número viejo en la celda,
+      // y una anulada sin reemplazo dejaba la celda vacía.
       factura_items: {
-        where: { factura: { deleted_at: null, estado: "ACTIVA" } },
-        select: { factura: { select: { numero_factura: true } } },
-        take: 1,
+        where: { factura: { deleted_at: null } },
+        select: { factura: { select: { numero_factura: true, estado: true } } },
       },
     },
   });
 
-  const porServicio = new Map<string, { recargos: number; factura: string }>();
+  const porServicio = new Map<
+    string,
+    { recargos: number; activas: string[]; anuladas: string[] }
+  >();
   for (const sv of servicios) {
+    const activas: string[] = [];
+    const anuladas: string[] = [];
+    for (const fi of (sv as any).factura_items || []) {
+      const numero = fi?.factura?.numero_factura;
+      if (!numero) continue;
+      (fi.factura.estado === "ANULADA" ? anuladas : activas).push(numero);
+    }
     porServicio.set(sv.id, {
       recargos: Number((sv as any).valor_recargos) || 0,
-      factura: (sv as any).factura_items?.[0]?.factura?.numero_factura || "",
+      activas,
+      anuladas,
     });
   }
 
   return lista.map((it: any) => {
     const sid = it.liquidacion_servicio_id || null;
     const datos = sid ? porServicio.get(sid) : undefined;
+    const activas = datos?.activas ?? [];
+    const anuladas = datos?.anuladas ?? [];
+
+    // El número propio del item manda; el del servicio es el respaldo para
+    // borradores generados antes de que se emitiera la factura.
+    let numero_factura: string = it.numero_factura || activas[0] || "";
+    let factura_anulada = false;
+
+    if (!numero_factura && anuladas.length > 0) {
+      // Se facturó y se anuló sin emitir otra. El número se enseña igual: es
+      // el único rastro de por qué el item quedó sin facturar, y dejar la
+      // celda vacía lo confunde con «nunca se facturó».
+      numero_factura = anuladas[0];
+      factura_anulada = true;
+    } else if (numero_factura && anuladas.includes(numero_factura)) {
+      // El número congelado en el item corresponde a una anulada. Si hubo
+      // refacturación manda la nueva —el congelado se quedó viejo—; si no,
+      // se conserva y se marca.
+      if (activas.length > 0) numero_factura = activas[0];
+      else factura_anulada = true;
+    }
+
     return {
       ...it,
-      // El número propio del item manda; el del servicio es el respaldo para
-      // borradores generados antes de que se emitiera la factura.
-      numero_factura: it.numero_factura || datos?.factura || "",
+      numero_factura,
+      /// La celda de factura del canvas se pinta en rojo con esto.
+      factura_anulada,
       liquidacion_servicio: sid
         ? {
             id: sid,
             valor_recargos: datos?.recargos ?? 0,
-            numero_factura: datos?.factura ?? "",
+            numero_factura: activas[0] ?? anuladas[0] ?? "",
           }
         : null,
     };

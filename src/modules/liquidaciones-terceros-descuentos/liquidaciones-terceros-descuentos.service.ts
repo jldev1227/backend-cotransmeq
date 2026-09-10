@@ -2720,6 +2720,30 @@ export const LiquidacionesTercerosDescuentosService = {
     };
   },
 
+  /**
+   * Números de factura que se MUESTRAN para una liquidación de servicio, y si
+   * lo que se muestra está anulado.
+   *
+   * Una factura anulada solo se enseña cuando la liquidación NO tiene ninguna
+   * vigente. Ahí el número es el único rastro de por qué el item quedó sin
+   * facturar: sin él la celda salía vacía y no había forma de distinguir «esta
+   * liquidación nunca se facturó» de «se facturó y luego se anuló».
+   *
+   * Si hubo refacturación manda la nueva y la anulada no se menciona: esa
+   * anulación ya está resuelta y sacarla solo añadiría ruido.
+   */
+  _facturasVisibles(facturaItems: any[]): { numeros: string[]; anulada: boolean } {
+    const activas: string[] = [];
+    const anuladas: string[] = [];
+    for (const fi of facturaItems || []) {
+      const numero = fi?.factura?.numero_factura;
+      if (!numero) continue;
+      (fi.factura.estado === 'ANULADA' ? anuladas : activas).push(numero);
+    }
+    if (activas.length > 0) return { numeros: activas, anulada: false };
+    return { numeros: anuladas, anulada: anuladas.length > 0 };
+  },
+
   async obtenerPorId(liquidacionTerceroFinalId: string, opts: { includeDeleted?: boolean } = {}) {
     const includeDeleted = opts.includeDeleted === true;
     const item = await prisma.liquidacion_tercero_final.findFirst({
@@ -2741,8 +2765,11 @@ export const LiquidacionesTercerosDescuentosService = {
           select: {
             id: true, consecutivo: true, mes: true, anio: true, estado: true,
             cliente: { select: { id: true, nombre: true, nit: true } },
+            /// Entran también las ANULADAS: `_facturasVisibles` decide después cuáles
+            /// se enseñan. Filtrarlas aquí dejaba la celda de factura en blanco sin
+            /// decir por qué, que es justo el caso que hay que poder ver.
             factura_items: {
-              where: { factura: { deleted_at: null, estado: 'ACTIVA' } },
+              where: { factura: { deleted_at: null } },
               select: {
                 factura: {
                   select: { id: true, numero_factura: true, estado: true },
@@ -2770,8 +2797,9 @@ export const LiquidacionesTercerosDescuentosService = {
                     id: true,
                     consecutivo: true,
                     cliente: { select: { id: true, nombre: true, nit: true } },
+                    /// Ver la nota del include gemelo de arriba.
                     factura_items: {
-                      where: { factura: { deleted_at: null, estado: 'ACTIVA' } },
+                      where: { factura: { deleted_at: null } },
                       select: {
                         factura: {
                           select: { id: true, numero_factura: true, estado: true },
@@ -2830,6 +2858,7 @@ export const LiquidacionesTercerosDescuentosService = {
 
     const primerItem = (item.items || [])[0]?.liquidacion_tercero;
     const fechas = (item.items || []).map((it: any) => it.liquidacion_tercero?.fechas).filter(Boolean).join(', ');
+    const visiblesLiq = this._facturasVisibles(item.liquidacion_servicio?.factura_items as any[]);
 
     return {
       ...serializeLiquidacionTerceroFinal(item),
@@ -2844,14 +2873,14 @@ export const LiquidacionesTercerosDescuentosService = {
       tercero: item.tercero,
       // Números de factura consolidados del cierre: une los de la liquidación
       // de servicio principal + los de cada item del pivote, deduplicados.
+      // Solo los VISIBLES —ver `_facturasVisibles`—, así que una anulada entra
+      // únicamente si su liquidación no tiene ninguna vigente.
       facturas: (() => {
         const nums = new Set<string>();
-        for (const fi of (item.liquidacion_servicio?.factura_items || [])) {
-          if (fi.factura?.numero_factura) nums.add(fi.factura.numero_factura);
-        }
+        for (const n of visiblesLiq.numeros) nums.add(n);
         for (const it of (item.items || [])) {
-          for (const fi of (it.liquidacion_tercero?.liquidacion?.factura_items || [])) {
-            if (fi.factura?.numero_factura) nums.add(fi.factura.numero_factura);
+          for (const n of this._facturasVisibles(it.liquidacion_tercero?.liquidacion?.factura_items).numeros) {
+            nums.add(n);
           }
         }
         return Array.from(nums).join(', ');
@@ -2864,22 +2893,26 @@ export const LiquidacionesTercerosDescuentosService = {
             anio: item.liquidacion_servicio.anio,
             estado: item.liquidacion_servicio.estado,
             cliente: item.liquidacion_servicio.cliente,
-            facturas: (item.liquidacion_servicio.factura_items || [])
-              .map((fi: any) => fi.factura?.numero_factura)
-              .filter(Boolean)
-              .join(', '),
-            factura_items: (item.liquidacion_servicio.factura_items || []).map((fi: any) => ({
-              factura: fi.factura
-                ? { id: fi.factura.id, numero_factura: fi.factura.numero_factura, estado: fi.factura.estado }
-                : null,
-            })),
+            facturas: visiblesLiq.numeros.join(', '),
+            factura_anulada: visiblesLiq.anulada,
+            /// Se recortan a las VISIBLES antes de salir: hay consumidores
+            /// —el XLSX y el preview del tercero— que leen `factura_items[0]`
+            /// a pelo, y con las anuladas dentro podrían enseñar una anulada
+            /// teniendo la liquidación una vigente.
+            factura_items: (item.liquidacion_servicio.factura_items || [])
+              .filter((fi: any) => visiblesLiq.numeros.includes(fi.factura?.numero_factura))
+              .map((fi: any) => ({
+                factura: fi.factura
+                  ? { id: fi.factura.id, numero_factura: fi.factura.numero_factura, estado: fi.factura.estado }
+                  : null,
+              })),
           }
         : null,
       items: (item.items || [])
         .map((it: any) => {
-          const itemFacturaNums = (it.liquidacion_tercero?.liquidacion?.factura_items || [])
-            .map((fi: any) => fi.factura?.numero_factura)
-            .filter(Boolean);
+          const visibles = this._facturasVisibles(
+            it.liquidacion_tercero?.liquidacion?.factura_items
+          );
           return {
             id: it.id,
             orden: it.orden,
@@ -2899,7 +2932,11 @@ export const LiquidacionesTercerosDescuentosService = {
                   ingreso_empresa: toNumber(it.liquidacion_tercero.ingreso_empresa),
                 }
               : null,
-            facturas: Array.from(new Set(itemFacturaNums)).join(', '),
+            facturas: Array.from(new Set(visibles.numeros)).join(', '),
+            /// La celda de factura del canvas se pinta en rojo con esto: el
+            /// número que se ve corresponde a una factura anulada y no hay
+            /// ninguna vigente que la reemplace.
+            factura_anulada: visibles.anulada,
           };
         })
         // Orden estable por número de factura (sort natural: TM-6826 < TM-6827 < TM-6828).
