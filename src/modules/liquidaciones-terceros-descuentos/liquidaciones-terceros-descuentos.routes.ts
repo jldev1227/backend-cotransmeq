@@ -68,6 +68,11 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   app.get('/liquidaciones-terceros/:id/propietarios', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerPropietarios);
   app.put('/liquidaciones-terceros/:id/propietarios', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarPropietarios);
 
+  // Valores de partida de papelería y gastos diversos, por PERIODO. Rutas
+  // estáticas: van antes que cualquier `/:id` para que no las capture.
+  app.get('/liquidaciones-terceros/config-gastos', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerConfigGastos);
+  app.put('/liquidaciones-terceros/config-gastos', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarConfigGastos);
+
   // Calcular impuestos del cierre
   app.get('/liquidaciones-terceros/:id/calcular-impuestos', puedeLeer, LiquidacionesTercerosDescuentosController.calcularImpuestos);
 

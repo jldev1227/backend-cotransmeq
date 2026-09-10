@@ -1143,6 +1143,7 @@ model usuarios {
   historial_estado_liq                                                        historial_estado_liquidacion[]               @relation("historial_estado_liq_usuario")
   facturas_liq_facturado                                                      factura_liquidacion_servicio[]               @relation("factura_liq_facturado_por")
   facturas_liq_anulado                                                        factura_liquidacion_servicio[]               @relation("factura_liq_anulado_por")
+  config_gastos_periodo_actualizados                                           configuracion_gastos_periodo[]               @relation("config_gastos_periodo_actualizado_por")
   sesiones                                                                    sesiones[]
   notificaciones                                                              notificacion[]
   formularios_sarlaft_evaluados                                               formulario_sarlaft_ptee[]                    @relation("formularios_sarlaft_evaluador")
@@ -3102,6 +3103,52 @@ model configuracion_descuento_tercero {
 
   @@index([categoria])
   @@index([activo])
+}
+
+/// Valores de partida de los GASTOS DE VEHÍCULO calculados, por PERIODO.
+///
+/// Papelería y gastos diversos eran constantes de código iguales para todos
+/// los meses. Son tarifas del negocio y cambian: esta tabla las hace
+/// configurables sin desplegar.
+///
+/// Una fila POR MES, no por año: el porcentaje de gastos diversos se negocia
+/// periodo a periodo, y un cierre de julio tiene que seguir liquidándose con
+/// lo que valía en julio aunque en agosto cambie.
+///
+/// La ausencia de fila NO es un error: `obtenerConfigGastosPeriodo` cae a los
+/// valores de `reglas-conceptos.ts`, que son los que rigieron hasta ahora. Así
+/// los meses que nadie configure siguen comportándose igual que siempre.
+model configuracion_gastos_periodo {
+  id   String @id @default(uuid()) @db.Uuid
+  anio Int
+  mes  Int
+
+  /// GASTOS_DIVERSOS = fijo + (pct% × (Σ TOTAL de los items + Σ bruto de
+  /// adicionales)). Se guarda en puntos porcentuales: 0.4 es 0,4%.
+  pct_gastos_diversos  Decimal @default(0.4) @db.Decimal(8, 4)
+  fijo_gastos_diversos Decimal @default(20000) @db.Decimal(12, 2)
+
+  /// PAPELERIA es una tarifa por tramo, no una fórmula: vale `alta` cuando el
+  /// `valor_liquidar` del cierre supera el umbral y `baja` cuando no.
+  ///
+  /// El umbral mira `valor_liquidar` —la suma de los items, ANTES de
+  /// descuentos— y no el total a pagar a propósito: papelería es un descuento,
+  /// así que con el umbral sobre el total la propia papelería podría bajarlo
+  /// del millón y volverse `baja`, lo que a su vez lo subiría. Oscilaría.
+  papeleria_alta   Decimal @default(25000) @db.Decimal(12, 2)
+  papeleria_baja   Decimal @default(20000) @db.Decimal(12, 2)
+  papeleria_umbral Decimal @default(1000000) @db.Decimal(14, 2)
+
+  actualizado_por_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+
+  actualizado_por usuarios? @relation("config_gastos_periodo_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: SetNull)
+
+  @@unique([anio, mes])
+  @@index([anio, mes])
+  @@index([deleted_at])
 }
 
 model liquidacion_tercero_final {

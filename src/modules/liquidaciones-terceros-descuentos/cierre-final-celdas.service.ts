@@ -24,7 +24,6 @@ import { numeroDeCelda } from "../../utils/numero-de-celda";
 import {
   BLOQUE_CONDUCTOR_MANUAL,
   CAMPOS_EDITABLES_CONCEPTO,
-  GASTOS_POR_DEFECTO,
   ORDEN_BASE_ANTICIPO,
   ORDEN_BASE_GASTO,
   ORDEN_BASE_GASTO_NO_CANONICO,
@@ -38,8 +37,12 @@ import {
 } from "./reglas-conceptos";
 import {
   recalcularTotalesCierre,
+  sumarAdicionalesCierre,
+  sumarItemsCierre,
   type TotalesCierre,
 } from "./totales-cierre";
+import { filasGastosFaltantes } from "./sembrar-gastos.service";
+import { ConfigGastosPeriodoService } from "./config-gastos-periodo.service";
 
 const ESTADOS_BLOQUEADOS = ["APROBADA", "FACTURADA", "ANULADA", "REEMPLAZADA"];
 
@@ -748,7 +751,8 @@ export const CierreFinalCeldasService = {
     const resultado = await prisma.$transaction(async (tx) => {
       const cierre = await tx.liquidacion_tercero_final.findFirst({
         where: { id: cierreId, deleted_at: null },
-        select: { id: true, estado: true, mes: true, anio: true },
+        // `valor_liquidar` es lo que decide el tramo de papelería.
+        select: { id: true, estado: true, mes: true, anio: true, valor_liquidar: true },
       });
       if (!cierre) throw new Error(`Cierre ${cierreId} no encontrado`);
       if (ESTADOS_BLOQUEADOS.includes(cierre.estado)) {
@@ -877,32 +881,27 @@ export const CierreFinalCeldasService = {
         }
       }
       // ── GASTOS DE VEHÍCULO que falten ────────────────────────────
-      // La sección existe siempre, aunque esté a cero. Se siembra aquí y no
-      // al generar el borrador porque DOTACION y EXAMEN_MEDICO se calculan
-      // sobre los días de los conductores NO propietarios: sin conductores no
-      // hay nada que calcular, y este es justo el momento en que los hay.
+      // Desde que el borrador los siembra al crearse, aquí no suele faltar
+      // ninguno. Se mantiene por los cierres ANTERIORES a ese cambio, que
+      // siguen sin las filas y solo las ganan al sincronizar.
       //
-      // Solo se crean las que FALTAN: las que ya existen pueden llevar un
-      // valor tecleado a mano y volver a crearlas lo perdería.
-      const gastosPresentes = new Set(
-        conceptosBD.filter((c) => c.tipo === "GASTO_OPERATIVO").map((c) => c.concepto),
+      // Qué filas faltan y con qué importe nacen lo decide
+      // `filasGastosFaltantes`, el mismo que usa la creación del borrador: con
+      // dos copias, un cambio de tarifa entraría por un camino y no por el
+      // otro.
+      const configGastos = await ConfigGastosPeriodoService.obtener(
+        cierre.anio,
+        cierre.mes,
+        tx,
       );
-      for (const g of GASTOS_POR_DEFECTO) {
-        if (gastosPresentes.has(g.concepto)) continue;
-        nuevos.push({
-          liquidacion_tercero_final_id: cierreId,
-          tipo: "GASTO_OPERATIVO",
-          concepto: g.concepto,
-          conductor_id: null,
-          dias: String(g.dias),
-          valor_unitario: String(g.valor_unitario),
-          valor_total: String(g.dias * g.valor_unitario),
-          calculado: g.calculado,
-          // Con la base compartida con el frontend, para que el builder los
-          // pinte en el orden canónico y no por fecha de creación.
-          orden: ORDEN_BASE_GASTO + (ORDEN_GASTOS_CANONICO[g.concepto] ?? 0) - 1,
-        });
-      }
+      const itemsBase = await sumarItemsCierre(tx, cierreId);
+      const { total: adicionalesBase } = await sumarAdicionalesCierre(tx, cierreId);
+      nuevos.push(
+        ...filasGastosFaltantes(cierreId, conceptosBD, configGastos, {
+          baseFacturada: itemsBase + adicionalesBase,
+          valorLiquidar: Number(cierre.valor_liquidar) || 0,
+        }),
+      );
 
       if (nuevos.length) {
         await tx.liquidacion_tercero_final_concepto.createMany({ data: nuevos });

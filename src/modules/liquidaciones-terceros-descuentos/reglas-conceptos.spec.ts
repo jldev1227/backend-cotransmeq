@@ -25,7 +25,12 @@ import {
   recalcularBasesPrestacionesSS,
   recalcularGastosAutomaticos,
   aplicarCampo,
+  CONFIG_GASTOS_FALLBACK,
+  importeGastosDiversos,
+  importePapeleria,
+  gastosPorDefectoDelPeriodo,
   type ConceptoLike,
+  type ConfigGastosPeriodo,
 } from './reglas-conceptos';
 
 // ─── Oráculo: las reglas tal y como están escritas en el frontend ─────
@@ -228,5 +233,92 @@ describe('reglas-conceptos: paridad con el frontend', () => {
     const c = escenario()[0];
     expect(() => aplicarCampo(c, 'valor_total', 1)).toThrow(/no editable/i);
     expect(() => aplicarCampo(c, 'tipo', 'X')).toThrow(/no editable/i);
+  });
+});
+
+// ─── Config de gastos por periodo ────────────────────────────────────
+//
+// Papelería y gastos diversos dejaron de ser constantes de código: los valores
+// de partida se configuran por mes. Lo que se prueba aquí es el contrato de
+// esa configuración, no la aritmética de arriba.
+
+describe('gastos por periodo', () => {
+  const CONFIG: ConfigGastosPeriodo = {
+    pct_gastos_diversos: 0.5,
+    fijo_gastos_diversos: 30000,
+    papeleria_alta: 40000,
+    papeleria_baja: 15000,
+    papeleria_umbral: 2000000,
+  };
+
+  it('el fallback reproduce lo que regía antes de la config', () => {
+    // Si esto falla, un mes sin configurar cambió de comportamiento al
+    // introducir la tabla, que es justo lo que no puede pasar.
+    expect(CONFIG_GASTOS_FALLBACK.fijo_gastos_diversos).toBe(O_TARIFA_FIJA);
+    expect(CONFIG_GASTOS_FALLBACK.pct_gastos_diversos / 100).toBe(O_PCT_ITEM);
+    expect(importeGastosDiversos(CONFIG_GASTOS_FALLBACK, 1_000_000)).toBe(
+      O_TARIFA_FIJA + Math.round(1_000_000 * O_PCT_ITEM),
+    );
+  });
+
+  it('GASTOS_DIVERSOS = fijo + pct% de la base, con el % redondeado antes de sumar', () => {
+    // 3.333.333 × 0,5% = 16.666,665 → 16.667, y no 16.666: el redondeo va
+    // ANTES del fijo, como en el cálculo de siempre.
+    expect(importeGastosDiversos(CONFIG, 3_333_333)).toBe(30000 + 16667);
+  });
+
+  it('PAPELERIA usa el tramo alto solo por ENCIMA del umbral', () => {
+    expect(importePapeleria(CONFIG, 2_000_001)).toBe(40000);
+    // El umbral exacto NO cuenta como «más de»: sigue siendo el tramo bajo.
+    expect(importePapeleria(CONFIG, 2_000_000)).toBe(15000);
+    expect(importePapeleria(CONFIG, 900_000)).toBe(15000);
+  });
+
+  it('con el fallback, el millón exacto va al tramo bajo y por encima al alto', () => {
+    expect(importePapeleria(CONFIG_GASTOS_FALLBACK, 1_000_000)).toBe(20000);
+    expect(importePapeleria(CONFIG_GASTOS_FALLBACK, 1_000_001)).toBe(25000);
+  });
+
+  it('la siembra del periodo resuelve papelería y gastos diversos, y deja los días en cero', () => {
+    const filas = gastosPorDefectoDelPeriodo(CONFIG, {
+      baseFacturada: 1_000_000,
+      valorLiquidar: 3_000_000,
+    });
+    const por = (c: string) => filas.find((f) => f.concepto === c)!;
+
+    expect(por('GASTOS_DIVERSOS').valor_unitario).toBe(30000 + 5000);
+    expect(por('PAPELERIA').valor_unitario).toBe(40000);
+    // Dependen de los conductores, que al generar el borrador aún no existen.
+    expect(por('DOTACION').dias).toBe(0);
+    expect(por('EXAMEN_MEDICO').dias).toBe(0);
+    // COMBUSTIBLE no se estima nunca.
+    expect(por('COMBUSTIBLE').valor_unitario).toBe(0);
+    expect(filas).toHaveLength(5);
+  });
+
+  it('el recálculo aplica la config del periodo a papelería y gastos diversos', () => {
+    const conceptos: ConceptoLike[] = [
+      { id: 'p', tipo: 'GASTO_OPERATIVO', concepto: 'PAPELERIA', dias: 1, valor_unitario: 1, valor_total: 1, calculado: true },
+      { id: 'd', tipo: 'GASTO_OPERATIVO', concepto: 'GASTOS_DIVERSOS', dias: 1, valor_unitario: 1, valor_total: 1, calculado: true },
+    ];
+    const r = recalcularGastosAutomaticos(conceptos, 1_000_000, 0, {}, CONFIG, 3_000_000);
+    expect(r.find((c) => c.concepto === 'PAPELERIA')!.valor_total).toBe(40000);
+    expect(r.find((c) => c.concepto === 'GASTOS_DIVERSOS')!.valor_total).toBe(35000);
+  });
+
+  it('un valor tecleado a mano en papelería no se pisa', () => {
+    const conceptos: ConceptoLike[] = [
+      { id: 'p', tipo: 'GASTO_OPERATIVO', concepto: 'PAPELERIA', dias: 1, valor_unitario: 7777, valor_total: 7777, calculado: false },
+    ];
+    const r = recalcularGastosAutomaticos(conceptos, 1_000_000, 0, {}, CONFIG, 3_000_000);
+    expect(r[0].valor_total).toBe(7777);
+  });
+
+  it('sin `valorLiquidar` no se inventa un tramo: papelería queda como estaba', () => {
+    const conceptos: ConceptoLike[] = [
+      { id: 'p', tipo: 'GASTO_OPERATIVO', concepto: 'PAPELERIA', dias: 1, valor_unitario: 5555, valor_total: 5555, calculado: true },
+    ];
+    const r = recalcularGastosAutomaticos(conceptos, 1_000_000, 0, {}, CONFIG);
+    expect(r[0].valor_total).toBe(5555);
   });
 });

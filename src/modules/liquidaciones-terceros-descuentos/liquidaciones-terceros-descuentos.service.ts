@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma";
+import { sembrarGastosDelCierre } from './sembrar-gastos.service';
 import { randomUUID } from "crypto";
 import { LiquidacionesSnapshotsService } from "../liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.service";
 import { getIo } from "../../sockets";
@@ -1752,6 +1753,52 @@ export const LiquidacionesTercerosDescuentosService = {
     if (!created) {
       throw new Error(
         `No se pudo generar un consecutivo único tras 5 intentos: ${lastErr?.message}`,
+      );
+    }
+
+    /**
+     * GASTOS DE VEHÍCULO e IMPUESTOS del borrador recién creado.
+     *
+     * Hasta ahora un borrador nacía sin ninguno de los dos: la siembra de
+     * gastos vivía solo detrás de «Sincronizar con nómina» y los impuestos
+     * solo se calculaban al pedirlos. Quien generaba y no sincronizaba se
+     * quedaba sin papelería ni gastos diversos — en julio de 2026, 40 de 41
+     * cierres.
+     *
+     * Va DESPUÉS del create porque las dos cosas necesitan el cierre con sus
+     * items ya persistidos: los gastos leen el facturado y el `valor_liquidar`
+     * para resolver sus importes, y los impuestos gravan sobre la base de los
+     * items.
+     *
+     * Y ANTES del snapshot, para que la primera versión guardada sea ya la
+     * hoja completa y no una a la que le faltan filas.
+     *
+     * No aborta la creación si falla: el cierre ya existe y es válido; los
+     * gastos se pueden sembrar luego desde el modal y los impuestos con
+     * «Calcular impuestos». Tumbar aquí dejaría al usuario sin borrador por un
+     * cálculo accesorio.
+     */
+    try {
+      const sembrados = await sembrarGastosDelCierre(created.id, {
+        anio: created.anio,
+        mes: created.mes,
+      });
+      await this.calcularImpuestos(created.id);
+      if (sembrados > 0) await recalcularTotalesCierre(prisma, created.id);
+      // Se relee: `created` es el snapshot de antes de sembrar, y quien llama
+      // usa sus totales para pintar la hoja.
+      created =
+        (await prisma.liquidacion_tercero_final.findUnique({
+          where: { id: created.id },
+          include: {
+            items: { where: { deleted_at: null } },
+            conceptos: { where: { deleted_at: null }, include: { conductor: true } },
+          },
+        })) ?? created;
+    } catch (gastosErr) {
+      console.error(
+        '[guardarBorrador-create] No se pudieron sembrar gastos/impuestos:',
+        gastosErr,
       );
     }
 

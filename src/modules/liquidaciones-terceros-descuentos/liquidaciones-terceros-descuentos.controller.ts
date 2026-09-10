@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { ConfigGastosPeriodoService } from './config-gastos-periodo.service';
 import { LiquidacionesTercerosDescuentosService } from './liquidaciones-terceros-descuentos.service';
 import { PeriodoCierresService } from './periodo-cierres.service';
 import { CierreEstadoService, ErrorEstado } from './cierre-estado.service';
@@ -521,6 +522,41 @@ export class LiquidacionesTercerosDescuentosController {
       return reply.send(result);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  // ── CONFIG DE GASTOS DEL PERIODO ──
+  //
+  // Los valores de partida de papelería y gastos diversos, por mes. El GET
+  // nunca devuelve 404: un periodo sin configurar responde con los valores de
+  // respaldo y `configurado: false`, porque quien pregunta necesita números.
+
+  static async obtenerConfigGastos(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { anio, mes } = request.query as any;
+      if (!anio || !mes) {
+        return reply.status(400).send({ error: 'Se requiere anio y mes' });
+      }
+      const result = await ConfigGastosPeriodoService.obtener(Number(anio), Number(mes));
+      return reply.send(result);
+    } catch (error: any) {
+      return reply.status(error.statusCode || 500).send({ error: error.message });
+    }
+  }
+
+  static async guardarConfigGastos(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const body = (request.body as any) || {};
+      const userId = (request as any).user?.id;
+      const result = await ConfigGastosPeriodoService.guardar(
+        Number(body.anio),
+        Number(body.mes),
+        body,
+        userId,
+      );
+      return reply.send(result);
+    } catch (error: any) {
+      return reply.status(error.statusCode || 500).send({ error: error.message });
     }
   }
 

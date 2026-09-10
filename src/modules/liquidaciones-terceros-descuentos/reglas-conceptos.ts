@@ -32,6 +32,11 @@ export const CONCEPTOS_CALCULADOS_AUTO = new Set([
   'DOTACION',
   'EXAMEN_MEDICO',
   'GASTOS_DIVERSOS',
+  // PAPELERIA entró aquí cuando dejó de ser una tarifa única: ahora depende
+  // del `valor_liquidar` del cierre y de la config del periodo, así que es
+  // calculada. Pertenecer a este Set es lo que hace que teclear encima la
+  // desenganche del recálculo (ver `aplicarCampo`).
+  'PAPELERIA',
 ]);
 
 /**
@@ -96,6 +101,75 @@ export const TARIFA_FIJA_GASTOS_DIVERSOS = 20000;
 export const PORCENTAJE_GASTO_POR_ITEM = 0.004;
 
 /**
+ * Valores de partida de los gastos calculados para UN periodo.
+ *
+ * Espejo de `configuracion_gastos_periodo`. Se pasa como parámetro en vez de
+ * leerse aquí para que este módulo siga siendo puro y testeable sin base de
+ * datos, que es la razón por la que existe.
+ */
+export interface ConfigGastosPeriodo {
+  /** Puntos porcentuales: 0.4 es 0,4 %. */
+  pct_gastos_diversos: number;
+  fijo_gastos_diversos: number;
+  papeleria_alta: number;
+  papeleria_baja: number;
+  papeleria_umbral: number;
+}
+
+/**
+ * Lo que rigió hasta que la config por periodo existió.
+ *
+ * Es el valor que se usa cuando un mes no tiene fila configurada, y por eso
+ * NO se puede cambiar a la ligera: cambiarlo mueve el cálculo de todos los
+ * meses que nadie configuró nunca.
+ */
+export const CONFIG_GASTOS_FALLBACK: ConfigGastosPeriodo = {
+  pct_gastos_diversos: PORCENTAJE_GASTO_POR_ITEM * 100,
+  fijo_gastos_diversos: TARIFA_FIJA_GASTOS_DIVERSOS,
+  papeleria_alta: VALOR_PAPELERIA,
+  papeleria_baja: 20000,
+  papeleria_umbral: 1000000,
+};
+
+/**
+ * GASTOS_DIVERSOS = fijo + pct % × (Σ TOTAL de los items + Σ bruto adicionales).
+ *
+ * El porcentaje se redondea ANTES de sumar el fijo, que es como lo hacía el
+ * cálculo de siempre: mover el redondeo al final cambiaría importes ya
+ * liquidados en un peso.
+ */
+export function importeGastosDiversos(
+  config: ConfigGastosPeriodo,
+  baseFacturada: number,
+): number {
+  return (
+    config.fijo_gastos_diversos +
+    Math.round((baseFacturada * config.pct_gastos_diversos) / 100)
+  );
+}
+
+/**
+ * PAPELERIA es una tarifa por tramo, no una fórmula.
+ *
+ * El umbral se compara contra `valor_liquidar` —la suma de los items, ANTES de
+ * descuentos— y NO contra el total a pagar. Papelería es ella misma un
+ * descuento: con el umbral sobre el total, añadirla podría bajarlo del millón
+ * y volverla la tarifa baja, lo que a su vez subiría el total. Oscilaría sin
+ * llegar a un valor estable.
+ *
+ * Estrictamente MAYOR que el umbral: «más de un millón» deja fuera el millón
+ * exacto.
+ */
+export function importePapeleria(
+  config: ConfigGastosPeriodo,
+  valorLiquidar: number,
+): number {
+  return valorLiquidar > config.papeleria_umbral
+    ? config.papeleria_alta
+    : config.papeleria_baja;
+}
+
+/**
  * Las CINCO filas de GASTOS DE VEHÍCULO, con su valor de partida.
  *
  * La sección existe siempre, aunque esté a cero: son gastos fijos del
@@ -116,18 +190,42 @@ export const PORCENTAJE_GASTO_POR_ITEM = 0.004;
  *                estimarlo.
  *   PAPELERIA    nace en 25.000, que es la tarifa fija del negocio.
  */
-export const GASTOS_POR_DEFECTO: Array<{
+export interface GastoPorDefecto {
   concepto: string;
   dias: number;
   valor_unitario: number;
   calculado: boolean;
-}> = [
+}
+
+export const GASTOS_POR_DEFECTO: GastoPorDefecto[] = [
   { concepto: 'DOTACION', dias: 0, valor_unitario: VALOR_DOTACION, calculado: true },
   { concepto: 'EXAMEN_MEDICO', dias: 0, valor_unitario: VALOR_EXAMEN_MEDICO, calculado: true },
   { concepto: 'COMBUSTIBLE', dias: 1, valor_unitario: 0, calculado: false },
-  { concepto: 'PAPELERIA', dias: 1, valor_unitario: VALOR_PAPELERIA, calculado: false },
+  { concepto: 'PAPELERIA', dias: 1, valor_unitario: VALOR_PAPELERIA, calculado: true },
   { concepto: 'GASTOS_DIVERSOS', dias: 1, valor_unitario: TARIFA_FIJA_GASTOS_DIVERSOS, calculado: true },
 ];
+
+/**
+ * Las mismas cinco filas, pero con PAPELERIA y GASTOS_DIVERSOS ya resueltos
+ * para ESTE cierre y ESTE periodo.
+ *
+ * Es lo que se siembra al generar un borrador. DOTACION y EXAMEN_MEDICO se
+ * quedan en cero: dependen de los días de los conductores no propietarios, y
+ * al generar todavía no hay conductores sincronizados. Los rellena
+ * `recalcularGastosAutomaticos` en cuanto los haya.
+ */
+export function gastosPorDefectoDelPeriodo(
+  config: ConfigGastosPeriodo,
+  bases: { baseFacturada: number; valorLiquidar: number },
+): GastoPorDefecto[] {
+  const diversos = importeGastosDiversos(config, bases.baseFacturada);
+  const papeleria = importePapeleria(config, bases.valorLiquidar);
+  return GASTOS_POR_DEFECTO.map((g) => {
+    if (g.concepto === 'PAPELERIA') return { ...g, valor_unitario: papeleria };
+    if (g.concepto === 'GASTOS_DIVERSOS') return { ...g, valor_unitario: diversos };
+    return g;
+  });
+}
 
 const PRESTACIONES_CON_AUX = ['CESANTIAS', 'INTERESES_CESANTIAS', 'PRIMA'];
 const PRESTACIONES_SIN_AUX = ['VACACIONES'];
@@ -251,19 +349,26 @@ export function recalcularBasesPrestacionesSS(
  *
  *   DOTACION        = díasNoPropietarios × 3985
  *   EXAMEN_MEDICO   = díasNoPropietarios × 2882
- *   GASTOS_DIVERSOS = 20000 + round(0,4% × (Σ facturado items + Σ bruto adicionales))
+ *   GASTOS_DIVERSOS = fijo + round(pct% × (Σ facturado items + Σ bruto adicionales))
+ *   PAPELERIA       = tarifa alta o baja según el `valor_liquidar` del cierre
  *
- * COMBUSTIBLE y PAPELERIA son 100% manuales: no se tocan nunca.
+ * COMBUSTIBLE es el único 100% manual: no hay forma de estimarlo.
+ *
+ * `config` y `valorLiquidar` son opcionales por compatibilidad con los
+ * llamadores que aún no conocen el periodo: sin ellos se usa el fallback y
+ * PAPELERIA se queda como esté, que es el comportamiento de siempre.
  */
 export function recalcularGastosAutomaticos(
   conceptos: ConceptoLike[],
   totalFacturadoItems: number,
   brutoAdicionales: number,
   propietarios: Record<string, boolean>,
+  config: ConfigGastosPeriodo = CONFIG_GASTOS_FALLBACK,
+  valorLiquidar?: number,
 ): ConceptoLike[] {
   const dias = totalDiasNoPropietarios(conceptos, propietarios);
   const baseDiversos = totalFacturadoItems + brutoAdicionales;
-  const porcentaje = Math.round(baseDiversos * PORCENTAJE_GASTO_POR_ITEM);
+  const unitDiversos = importeGastosDiversos(config, baseDiversos);
 
   return conceptos.map((c) => {
     if (c.tipo !== 'GASTO_OPERATIVO') return c;
@@ -276,7 +381,13 @@ export function recalcularGastosAutomaticos(
       return { ...c, dias, valor_unitario: VALOR_EXAMEN_MEDICO, valor_total: dias * VALOR_EXAMEN_MEDICO, calculado: true };
     }
     if (c.concepto === 'GASTOS_DIVERSOS') {
-      const unit = TARIFA_FIJA_GASTOS_DIVERSOS + porcentaje;
+      return { ...c, dias: 1, valor_unitario: unitDiversos, valor_total: unitDiversos, calculado: true };
+    }
+    if (c.concepto === 'PAPELERIA') {
+      // Sin `valorLiquidar` no se puede decidir el tramo, y elegir uno al azar
+      // sería peor que dejarlo como está: se respeta el valor vigente.
+      if (valorLiquidar == null) return c;
+      const unit = importePapeleria(config, valorLiquidar);
       return { ...c, dias: 1, valor_unitario: unit, valor_total: unit, calculado: true };
     }
     return c;
