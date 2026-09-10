@@ -782,9 +782,16 @@ export const LiquidacionesTercerosOcasionalService = {
     });
 
     // Agrupar por tercero (un tercero puede tener N items / N placas).
+    //
+    // La clave del grupo NO es `tercero_id`: hay items sin tercero asignado, y
+    // esos se agrupan por placa. Varias placas huérfanas dan varios grupos que
+    // comparten `tercero_id: ""`, así que el id del tercero no identifica al
+    // candidato. Esa clave viaja al frontend como `candidato_id` —ver el
+    // comentario de `candidato_id` más abajo—.
     const map = new Map<
       string,
       {
+        candidato_id: string;
         tercero_id: string;
         tercero_nombre: string;
         tercero_documento: string | null;
@@ -797,6 +804,7 @@ export const LiquidacionesTercerosOcasionalService = {
       const k = it.tercero_id || `placa:${it.placa}`;
       if (!map.has(k)) {
         map.set(k, {
+          candidato_id: k,
           tercero_id: it.tercero_id || "",
           tercero_nombre: it.tercero?.nombre_completo || "(sin tercero)",
           tercero_documento: it.tercero?.identificacion || null,
@@ -815,6 +823,12 @@ export const LiquidacionesTercerosOcasionalService = {
     // de items del periodo). `cierres_bloqueados` queda en 0 — el
     // ocasional no puede bloquearse, es solo un agregado de items.
     return Array.from(map.values()).map((e) => ({
+      /// Identidad del CANDIDATO, estable y única dentro de la respuesta.
+      ///
+      /// Es lo que el frontend usa como clave de lista y de selección.
+      /// `tercero_id` no sirve para eso: los items sin tercero lo traen vacío
+      /// y se agrupan por placa, así que dos grupos distintos lo comparten.
+      candidato_id: e.candidato_id,
       tercero_id: e.tercero_id,
       tercero_nombre: e.tercero_nombre,
       tercero_documento: e.tercero_documento,
