@@ -7,6 +7,7 @@ import {
   normalizarSedeTrabajo,
   normalizarTipoSangre,
 } from "./conductores.enums";
+import { normalizarNombresEnPayload } from "./nombre-persona";
 
 export const ConductoresService = {
   // Listado LIVIANO para alimentar <select> del modal admin
@@ -238,6 +239,13 @@ export const ConductoresService = {
 
   // Crear conductor
   async crear(data: any, creado_por_id: string) {
+    // El nombre y el apellido se guardan SIEMPRE en mayúsculas y sin espacios
+    // de más. Es lo que se ve en la ficha, en las pestañas del canvas de
+    // recorridos y en los PDF, y además es lo que hace que ordenar por apellido
+    // funcione: en el orden de códigos las minúsculas van detrás de TODAS las
+    // mayúsculas, así que un «perez» sin normalizar cae detrás de «Zapata».
+    data = normalizarNombresEnPayload(data);
+
     // Solo validar duplicados si numero_identificacion tiene valor
     if (data.numero_identificacion) {
       const conductorExistente = await prisma.conductores.findUnique({
@@ -310,6 +318,10 @@ export const ConductoresService = {
 
   // Actualizar conductor
   async actualizar(id: string, data: any, actualizado_por_id?: string) {
+    // Misma regla que en `crear`: si el payload trae nombre o apellido, se
+    // guardan normalizados. Si no los trae, no se tocan.
+    data = normalizarNombresEnPayload(data);
+
     const conductorExistente = await prisma.conductores.findUnique({
       where: { id },
     });
