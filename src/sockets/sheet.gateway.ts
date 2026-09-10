@@ -41,6 +41,11 @@ import {
 } from '../modules/liquidaciones-terceros-adicionales/liquidaciones-terceros-adicionales.service'
 import { sheetRoomKey, SHEET_SCOPES, requiereMes, type SheetScope } from './sheet-rooms'
 import {
+  RecorridosPatchService,
+  PatchRecorridoError,
+  ConflictoVersionRecorrido,
+} from '../modules/recorridos-canvas/recorridos-patch.service'
+import {
   NominaPatchService,
   PatchNominaError,
   ConflictoVersionNomina,
@@ -563,6 +568,47 @@ export function registerSheetGateway(io: IOServer): void {
           return
         }
 
+        if (scope === 'recorridos') {
+          if (entity_type !== 'segmento' && entity_type !== 'dia') {
+            return responder('sheet:patch:error', {
+              error: `en "recorridos" solo se editan celdas de entity_type "segmento" o "dia"`,
+            })
+          }
+
+          const resultado = await RecorridosPatchService.aplicar({
+            tipoFila: entity_type,
+            entityId: String(entity_id),
+            campo: String(field),
+            valor: value,
+            baseVersion: base_version == null ? null : Number(base_version),
+            actor,
+          })
+
+          responder('sheet:patch:ack', {
+            entity_id,
+            field,
+            version: resultado.version,
+            derivados: resultado.derivados,
+          })
+          socket.to(sheetRoomKey(scope, Number(anio), Number(mes))).emit('sheet:patch:applied', {
+            scope,
+            anio: Number(anio),
+            mes: Number(mes),
+            entity_type,
+            entity_id,
+            field,
+            value,
+            version: resultado.version,
+            // El servidor resuelve el nombre del cliente y la placa a partir
+            // del texto tecleado, así que el resto de la sala necesita el valor
+            // ya resuelto y no lo que se escribió.
+            derivados: resultado.derivados,
+            epoch: epochActual,
+            by: { id: actor.id, name: actor.name },
+          })
+          return
+        }
+
         // TODO(ocasional): el PATCH por celda del ocasional entra cuando el
         // canvas deje de guardar la hoja completa. Hasta entonces persiste
         // por HTTP (`guardar-borrador`) con debounce por mes.
@@ -585,6 +631,20 @@ export function registerSheetGateway(io: IOServer): void {
             reason: 'version',
             server_row: e.serverRow,
           })
+        }
+        if (e instanceof ConflictoVersionRecorrido) {
+          return responder('sheet:patch:conflict', {
+            entity_id: e.entityId,
+            field: payload?.field,
+            reason: 'version',
+            server_row: e.serverRow,
+          })
+        }
+        if (e instanceof PatchRecorridoError) {
+          // Campo no editable, valor inválido, sin permiso o regla de negocio:
+          // es culpa del cambio, no del servidor, y el mensaje ya está
+          // redactado para que el usuario lo lea tal cual.
+          return responder('sheet:patch:error', { error: e.message, code: e.code })
         }
         if (e instanceof PatchNominaError) {
           // Campo no editable, valor inválido o hoja bloqueada: es culpa del

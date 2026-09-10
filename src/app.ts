@@ -49,6 +49,10 @@ import { liquidacionesTercerosRoutes } from './modules/liquidaciones-terceros/li
 import { pdfRoutes } from './modules/pdf/pdf.routes'
 import { liquidacionesTercerosDescuentosRoutes } from './modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes'
 import { nominaCanvasRoutes } from './modules/nomina-canvas/nomina-canvas.routes'
+import {
+  recorridosCanvasRoutes,
+  recorridosSnapshotsCronRoutes,
+} from './modules/recorridos-canvas/recorridos-canvas.routes'
 import { liquidacionesTercerosPdfRoutes } from './modules/liquidaciones-terceros-pdf/liquidaciones-terceros-pdf.routes'
 import { liquidacionesTercerosEnviosRoutes } from './modules/liquidaciones-terceros-envios/liquidaciones-terceros-envios.routes'
 import { liquidacionesTercerosOcasionalRoutes } from './modules/liquidaciones-terceros-ocasional/liquidaciones-terceros-ocasional.routes'
@@ -170,6 +174,8 @@ export function buildApp() {
     app.register(pdfRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosDescuentosRoutes, { prefix: '/api' })
     app.register(nominaCanvasRoutes, { prefix: '/api' })
+  app.register(recorridosCanvasRoutes, { prefix: '/api' })
+  app.register(recorridosSnapshotsCronRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosPdfRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosEnviosRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosOcasionalRoutes, { prefix: '/api' })

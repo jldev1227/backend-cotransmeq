@@ -9,6 +9,7 @@ import { startLiquidacionesSnapshotJob } from './jobs/snapshot-liquidaciones.job
 import { startAdicionalesPeriodoSnapshotJob } from './jobs/snapshot-adicionales-periodo.job'
 import { startLiquidacionesMensualSnapshotJob } from './jobs/snapshot-liquidaciones-mensual.job'
 import { startCerrarServiciosConPlanillaCron } from './jobs/cerrar-servicios-con-planilla.cron'
+import { startRecorridosSnapshotJob } from './jobs/snapshot-recorridos.job'
 
 async function start() {
   try {
@@ -25,6 +26,7 @@ async function start() {
     startLiquidacionesSnapshotJob()
     startLiquidacionesMensualSnapshotJob()
     startAdicionalesPeriodoSnapshotJob()
+    startRecorridosSnapshotJob()
     startCerrarServiciosConPlanillaCron()
 
     const address = await app.listen({ port: env.PORT, host: '0.0.0.0' })

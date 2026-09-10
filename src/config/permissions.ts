@@ -182,6 +182,25 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Extractos de operaciones'
   },
 
+  // El canvas de RECORRIDOS es un módulo aparte de `conductores` a propósito.
+  // `conductores` es `general: true` (cualquier área autenticada tiene `full`),
+  // y eso vale para consultar la ficha de un conductor, pero no para reescribir
+  // sus recorridos: la hoja alimenta los bonos y el pernocte que acaban en la
+  // nómina, así que editarla es una operación contable, no una consulta.
+  //
+  //  - `full` Administración y Operaciones: editan tramos, horarios, cliente,
+  //           placa, pernocte y marcan bonos.
+  //  - `read` el resto: abren el canvas y exportan, pero cada celda rechaza la
+  //           escritura.
+  //
+  // Marcar bonos exige ADEMÁS el permiso individual `bonos-planilla`
+  // (`middlewares/bonos.middleware.ts`), que es independiente del área.
+  recorridos: {
+    full: ['administracion', 'operaciones'],
+    read: ['contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
+    description: 'Canvas de recorridos y bonos de planilla'
+  },
+
   'liquidaciones-servicios': {
     full: ['administracion', 'operaciones'],
     limited: ['facturacion'], // Solo puede registrar facturas, no editar/anular liquidaciones

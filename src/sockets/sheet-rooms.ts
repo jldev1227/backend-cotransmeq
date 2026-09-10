@@ -27,6 +27,11 @@
  *    así que el room es `anio:mes`, por la misma razón que
  *    `cierres-finales`.
  *
+ *  · `recorridos` es un libro de PERIODO (una hoja por conductor del mes),
+ *    así que el room es `anio:mes`, por la misma razón que `nomina`: con room
+ *    por año, cada patch de cualquiera de los doce meses × N conductores se
+ *    difundiría a todos los conectados del año.
+ *
  *  · `servicios-historial` es el HISTÓRICO COMPLETO de liquidaciones de
  *    servicios: el filtro de año es un filtro de vista, no un libro
  *    distinto. Su room es GLOBAL (ignora `anio`): dos usuarios mirando
@@ -42,6 +47,7 @@ export type SheetScope =
   | 'ingresos'
   | 'servicios-historial'
   | 'nomina'
+  | 'recorridos'
 
 export const SHEET_SCOPES: SheetScope[] = [
   'adicionales',
@@ -50,13 +56,15 @@ export const SHEET_SCOPES: SheetScope[] = [
   'ingresos',
   'servicios-historial',
   'nomina',
+  'recorridos',
 ]
 
 /** Scopes cuyo libro es un periodo y por tanto exigen `mes`. */
 export function requiereMes(scope: SheetScope): boolean {
   // `nomina` es un libro de PERIODO igual que `cierres-finales`: una hoja
   // por conductor del mes, así que el room lleva mes.
-  return scope === 'cierres-finales' || scope === 'nomina'
+  // `recorridos` es igual: una hoja por conductor del mes.
+  return scope === 'cierres-finales' || scope === 'nomina' || scope === 'recorridos'
 }
 
 /**

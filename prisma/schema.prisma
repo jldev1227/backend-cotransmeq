@@ -236,6 +236,10 @@ model registro_dia_laboral {
   mantenimiento_vehiculo vehiculos?                      @relation("mantenimiento_vehiculo", fields: [mantenimiento_vehiculo_id], references: [id], onDelete: SetNull)
   segmentos              registro_dia_laboral_segmento[]
 
+  /// Concurrencia optimista del canvas de recorridos (CAS por celda).
+  /// Solo la usan las filas de día SIN segmentos (DESCANSO, MANTENIMIENTO):
+  /// las demás versionan por segmento.
+  version    Int                         @default(1)
   deleted_at DateTime?                   @db.Timestamptz(6)
   bonos      registro_dia_laboral_bono[]
 
@@ -268,6 +272,10 @@ model registro_dia_laboral_segmento {
   pernocte             Boolean  @default(false)
   orden                Int      @default(1)
   observaciones        String?  @db.Text
+  /// Concurrencia optimista del canvas de recorridos (CAS por celda).
+  /// Cubre también el marcado de bonos del tramo: un bono no tiene versión
+  /// propia, se marca contra la fila que lo contiene.
+  version              Int      @default(1)
   created_at           DateTime @default(now()) @db.Timestamptz(6)
   updated_at           DateTime @updatedAt @db.Timestamptz(6)
 
@@ -1167,6 +1175,7 @@ model usuarios {
   historial_estado_lt_final                        historial_estado_liquidacion_tercero_final[]     @relation("historial_estado_lt_final_usuario")
   historial_estado_nomina                          historial_estado_liquidacion_nomina[]            @relation("historial_estado_nomina_usuario")
   snapshots_nomina_periodo                         nomina_periodo_snapshot[]                        @relation("nomina_snapshot_usuario")
+  snapshots_recorridos_periodo                     recorridos_periodo_snapshot[]                    @relation("recorridos_snapshot_usuario")
   liquidacion_tercero_ocasional_creado_por         liquidacion_tercero_ocasional[]                  @relation("liquidacion_tercero_ocasional_creado_por")
   liquidacion_tercero_ocasional_actualizado_por    liquidacion_tercero_ocasional[]                  @relation("liquidacion_tercero_ocasional_actualizado_por")
   liquidacion_ingreso_transmeralda_creado_por      liquidacion_ingreso_transmeralda[]               @relation("liquidacion_ingreso_transmeralda_creado_por")
@@ -2804,6 +2813,43 @@ model nomina_periodo_snapshot {
   usuario         usuarios?                 @relation("nomina_snapshot_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
   revertido_de    nomina_periodo_snapshot?  @relation("nomina_snapshot_revertido_de", fields: [revertido_de_id], references: [id], onDelete: SetNull)
   revertidos      nomina_periodo_snapshot[] @relation("nomina_snapshot_revertido_de")
+
+  @@unique([anio, mes, version])
+  @@index([anio, mes, rama])
+  @@index([created_at])
+  @@index([usuario_id])
+}
+
+/// Snapshot versionado del canvas de RECORRIDOS.
+///
+/// La identidad es el PERIODO (anio, mes) y no el conductor: los bonos se
+/// cuentan por mes y placa cruzando a todos los conductores, así que revertir
+/// la hoja de una sola persona dejaría esos conteos descuadrados.
+///
+/// Misma forma que `nomina_periodo_snapshot`, para que el `SnapshotPanel` del
+/// frontend sirva sin tocarlo.
+model recorridos_periodo_snapshot {
+  id              String                        @id @default(uuid()) @db.Uuid
+  anio            Int
+  mes             Int
+  /// Rama lógica. "main" = estado vigente; cualquier otra es histórico.
+  rama            String                        @default("main") @db.VarChar(60)
+  /// Autoincremental por periodo. version=1 es la más antigua.
+  version         Int
+  /// "manual" (cambio explícito), "auto" (cron horario), "revert".
+  origen          String                        @default("manual") @db.VarChar(20)
+  /// Snapshot desde el que se revirtió, cuando origen=revert.
+  revertido_de_id String?                       @db.Uuid
+  /// Null solo en los "auto" del cron.
+  usuario_id      String?                       @db.Uuid
+  /// El libro completo: días, segmentos y bonos marcados del periodo.
+  payload         Json                          @db.JsonB
+  /// Resumen de cambios respecto a la versión anterior.
+  diff            Json?                         @db.JsonB
+  created_at      DateTime                      @default(now()) @db.Timestamptz(6)
+  usuario         usuarios?                     @relation("recorridos_snapshot_usuario", fields: [usuario_id], references: [id], onDelete: SetNull)
+  revertido_de    recorridos_periodo_snapshot?  @relation("recorridos_snapshot_revertido_de", fields: [revertido_de_id], references: [id], onDelete: SetNull)
+  revertidos      recorridos_periodo_snapshot[] @relation("recorridos_snapshot_revertido_de")
 
   @@unique([anio, mes, version])
   @@index([anio, mes, rama])
