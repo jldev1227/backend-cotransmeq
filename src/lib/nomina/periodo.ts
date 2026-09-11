@@ -200,6 +200,30 @@ export function textoDias(dias: number[], mes: number, anio: number): string {
   return `${lista} DE ${MESES[mes - 1]} DE ${anio}`;
 }
 
+/**
+ * Un rango de fechas en el mismo formato que `textoDias`, para rotular los
+ * tramos de vigencia del corte: `15 AL 20 DE JULIO DE 2026`,
+ * `21 DE JUNIO AL 14 DE JULIO DE 2026`,
+ * `21 DE DICIEMBRE DE 2026 AL 20 DE ENERO DE 2027`.
+ */
+export function textoRangoFechas(desdeISO: string, hastaISO: string): string {
+  const a = new Date(`${desdeISO}T00:00:00Z`);
+  const b = new Date(`${hastaISO}T00:00:00Z`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return '';
+
+  const dA = a.getUTCDate();
+  const dB = b.getUTCDate();
+  const mA = MESES[a.getUTCMonth()];
+  const mB = MESES[b.getUTCMonth()];
+  const yA = a.getUTCFullYear();
+  const yB = b.getUTCFullYear();
+
+  if (yA !== yB) return `${dA} DE ${mA} DE ${yA} AL ${dB} DE ${mB} DE ${yB}`;
+  if (mA !== mB) return `${dA} DE ${mA} AL ${dB} DE ${mB} DE ${yB}`;
+  if (dA === dB) return `${dA} DE ${mB} DE ${yB}`;
+  return `${dA} AL ${dB} DE ${mB} DE ${yB}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Semanas
 // ─────────────────────────────────────────────────────────────────────────

@@ -108,6 +108,29 @@ export interface DiaHoja {
   empresaColor: string | null;
 }
 
+/**
+ * Un tramo del corte con una misma configuración salarial y unas mismas
+ * tarifas.
+ *
+ * Casi siempre hay uno solo. Hay dos cuando el corte cruza un cambio de
+ * vigencia: el 21-jun → 20-jul de 2026 se parte en «21 DE JUNIO AL 14 DE
+ * JULIO» (220 h base, RD 80 %) y «15 AL 20 DE JULIO» (210 h base, RD 90 %),
+ * porque la Ley 2466 entró a mitad de corte. Cada día se valora con el tramo
+ * al que pertenece, no con el del cierre.
+ */
+export interface TramoVigencia {
+  /** Primera y última fecha del corte que caen en este tramo. */
+  desde: string;
+  hasta: string;
+  /** `21 DE JUNIO AL 14 DE JULIO DE 2026`. */
+  etiqueta: string;
+  salarioBasico: number;
+  horasMensualesBase: number;
+  valorHora: number;
+  jornadaNormalHoras: number;
+  jornadaFestivaHoras: number;
+}
+
 /** Una fila del bloque de configuración (filas 27-33 del Excel). */
 export interface TarifaRecargo {
   codigo: CodigoRecargo;
@@ -120,6 +143,12 @@ export interface TarifaRecargo {
   /** Horas acumuladas del conductor en el periodo. */
   horas: number;
   valor: number;
+  /**
+   * Índice dentro de `HojaNomina.tramos`. Con un solo tramo siempre es 0 y
+   * la tabla se pinta igual que siempre; con dos, hay una fila por código y
+   * tramo y el bloque se parte en dos sub-tablas.
+   */
+  tramo: number;
 }
 
 /** Un bloque del desglose por empresa (filas 39-47 y siguientes). */
@@ -164,10 +193,20 @@ export interface HojaNomina {
   placas: string[];
 
   dias: DiaHoja[];
+  /**
+   * Una fila por código y por tramo de vigencia. Con un solo tramo son las
+   * siete de siempre.
+   */
   tarifas: TarifaRecargo[];
+  /** Los tramos de vigencia que cruza el corte. Casi siempre uno. */
+  tramos: TramoVigencia[];
   bloquesEmpresa: BloqueEmpresa[];
 
-  /** Config salarial vigente al cierre del periodo. */
+  /**
+   * Config salarial vigente al CIERRE del periodo (el último tramo). Se
+   * conserva para lo que necesita un único número; el dinero no sale de
+   * aquí, sale de `tarifas`, que va por tramo.
+   */
   salarioBasico: number;
   valorHora: number;
   horasMensualesBase: number;
