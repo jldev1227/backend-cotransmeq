@@ -36,7 +36,10 @@ import {
   COLOR_RECARGO,
   NOMBRE_RECARGO,
   colorDeCliente,
+  colorDePlaca,
   type ClienteNomina,
+  type PlacaNomina,
+  type MatrizBonos,
   type BloqueEmpresa,
   type CodigoRecargo,
   type ConceptoDesprendible,
@@ -68,6 +71,21 @@ function valorHoraDeRecargo(valorHora: number, codigo: CodigoRecargo, porcentaje
     ? valorHora * (porcentaje / 100)
     : valorHora * (1 + porcentaje / 100);
 }
+
+/**
+ * Horas con dos decimales.
+ *
+ * Las horas se acumulan sumando decimales (1.67 + 4.67 + 3.34…) y en coma
+ * flotante eso arrastra basura: 43,71 sale como `43.71000000000001` y se
+ * imprimía tal cual en el desprendible, porque esa cifra viaja como CANTIDAD y
+ * no como texto formateado. Se corta en el DTO y no en cada vista: la misma
+ * cifra la pintan el canvas, el PDF, el Excel y el snapshot, y redondear en
+ * cuatro sitios es garantizar que uno se quede sin redondear.
+ *
+ * Dos decimales porque es la precisión con la que se registran las jornadas
+ * (media hora, un cuarto de hora); no se pierde nada real.
+ */
+const horas2 = (n: number): number => Math.round(n * 100) / 100;
 
 const dec = (v: unknown): number => {
   if (v === null || v === undefined) return 0;
@@ -156,6 +174,10 @@ export class NominaCanvasService {
             cargo: true,
             salario_base: true,
             sede_trabajo: true,
+            /// Para que el modal de envío pueda decir QUIÉN no tiene correo
+            /// antes de encolar el lote, en vez de descubrirlo cuando el envío
+            /// falla y hay que ir a buscar el fallo en la bitácora.
+            email: true,
           },
         }),
 
@@ -464,6 +486,7 @@ export class NominaCanvasService {
       numero_identificacion: string | null;
       cargo: string;
       salario_base: unknown;
+      email?: string | null;
     };
     planillas: any[];
     liquidacion: any | null;
@@ -595,7 +618,7 @@ export class NominaCanvasService {
           if (!cod || !CODIGOS_RECARGO.includes(cod)) continue;
           const h = dec(det.horas);
           if (h <= 0) continue;
-          horas[cod] = (horas[cod] ?? 0) + h;
+          horas[cod] = horas2((horas[cod] ?? 0) + h);
 
           bloque.horas.set(cod, (bloque.horas.get(cod) ?? 0) + h);
           // La tarifa es la del día que se está recorriendo, no la del cierre.
@@ -614,7 +637,7 @@ export class NominaCanvasService {
         if (existente) {
           for (const [k, v] of Object.entries(horas)) {
             const cod = k as CodigoRecargo;
-            existente.horas[cod] = (existente.horas[cod] ?? 0) + (v ?? 0);
+            existente.horas[cod] = horas2((existente.horas[cod] ?? 0) + (v ?? 0));
           }
           existente.totalHoras += dec(dl.total_horas);
           continue;
@@ -636,11 +659,27 @@ export class NominaCanvasService {
           empresa,
           empresaId,
           empresaColor: colorDeCliente(empresaId),
+          /// La placa sale de la planilla de ESE día, no del conjunto de la
+          /// hoja: un conductor que rota de vehículo tiene una distinta cada
+          /// semana y el agregado no permite saber cuál tocaba cada día.
+          placa: p.vehiculos?.placa ?? null,
+          placaColor: p.vehiculos?.placa ? colorDePlaca(p.vehiculos.placa) : null,
         });
       }
     }
 
     const diasHoja = [...porIndice.values()].sort((a, b) => a.indice - b.indice);
+
+    const placasUsadas: PlacaNomina[] = [...placas].map((placa) => ({
+      placa,
+      color: colorDePlaca(placa),
+    }));
+    /// `bonificaciones` apunta al vehículo por id, no por placa. El índice sale
+    /// de las propias planillas del conductor: son los mismos vehículos.
+    const placaPorVehiculoId = new Map<string, string>();
+    for (const p of planillas) {
+      if (p.vehiculo_id && p.vehiculos?.placa) placaPorVehiculoId.set(p.vehiculo_id, p.vehiculos.placa);
+    }
 
     // ── Tarifas y acumulado por tipo ───────────────────────────────────
     //
@@ -664,7 +703,7 @@ export class NominaCanvasService {
       CODIGOS_RECARGO.map((codigo) => {
         const porcentaje = porcentajesPorTramo[i]?.get(codigo) ?? 0;
         const vh = valorHoraDeRecargo(t.valorHora, codigo, porcentaje);
-        const horas = horasPorTramo[i]?.get(codigo) ?? 0;
+        const horas = horas2(horasPorTramo[i]?.get(codigo) ?? 0);
         return {
           codigo,
           nombre: NOMBRE_RECARGO[codigo],
@@ -685,7 +724,7 @@ export class NominaCanvasService {
       .sort((a, b) => a.anio - b.anio || a.mes - b.mes || a.empresa.localeCompare(b.empresa, 'es'))
       .map((b) => {
         const lineas = CODIGOS_RECARGO.map((codigo) => {
-          const horas = b.horas.get(codigo) ?? 0;
+          const horas = horas2(b.horas.get(codigo) ?? 0);
           // Ya viene sumado día a día con la tarifa de cada fecha.
           return {
             codigo,
@@ -704,7 +743,7 @@ export class NominaCanvasService {
           textoDias: textoDias(diasOrdenados, b.mes, b.anio),
           dias: diasOrdenados,
           lineas,
-          totalHoras: lineas.reduce((s, l) => s + l.horas, 0),
+          totalHoras: horas2(lineas.reduce((s, l) => s + l.horas, 0)),
           totalValor: lineas.reduce((s, l) => s + l.valor, 0),
         };
       });
@@ -735,8 +774,8 @@ export class NominaCanvasService {
           vDesp += v;
         }
       }
-      repartoDesprendible.push({ codigo, horas: hDesp, valor: Math.round(vDesp) });
-      repartoDisponibilidad.push({ codigo, horas: hDisp, valor: Math.round(vDisp) });
+      repartoDesprendible.push({ codigo, horas: horas2(hDesp), valor: Math.round(vDesp) });
+      repartoDisponibilidad.push({ codigo, horas: horas2(hDisp), valor: Math.round(vDisp) });
     }
 
     // Los `recargos` de la liquidación son AGREGADOS POR PLANILLA (un mes
@@ -833,10 +872,14 @@ export class NominaCanvasService {
       estado: String(liquidacion?.estado_flujo ?? 'BORRADOR'),
       nombre: base,
       cedula: conductor.numero_identificacion,
+      correo: conductor.email ?? null,
       cargo: conductor.cargo,
       nombreHoja,
       tipoVehiculo,
       placas: [...placas],
+      placasUsadas,
+      matrizBonos: this.matrizDeBonos(liquidacion, placasUsadas, placaPorVehiculoId),
+      tipoNomina: this.tipoDeNomina([...porEmpresa.values()].map((b) => b.empresa)),
       dias: diasHoja,
       tarifas,
       tramos,
@@ -846,7 +889,7 @@ export class NominaCanvasService {
       horasMensualesBase,
       jornadaNormalHoras: tramoCierre.jornadaNormalHoras,
       jornadaFestivaHoras: tramoCierre.jornadaFestivaHoras,
-      totalHorasMes: diasHoja.reduce((s, d) => s + d.totalHoras, 0),
+      totalHorasMes: horas2(diasHoja.reduce((s, d) => s + d.totalHoras, 0)),
       repartoDesprendible,
       repartoDisponibilidad,
       devengos,
@@ -864,6 +907,108 @@ export class NominaCanvasService {
    * los recargos, del reparto que se acaba de calcular con las planillas. Eso
    * es el autocompletado: lo que antes se copiaba a mano del Excel a la app.
    */
+  /**
+   * Cruza los bonos de la liquidación con las placas del periodo.
+   *
+   * Una fila por tipo de bono, una columna por placa. El total de cada fila es
+   * lo que el desprendible ya paga por ese bono, así que la matriz DESGLOSA lo
+   * que había, no lo recalcula: si las dos cifras se separaran, la de arriba
+   * seguiría siendo la que manda.
+   *
+   * Un bono sin vehículo —los hay: `vehiculo_id` es opcional— no se pierde;
+   * cae en una columna «sin placa» que se añade al final solo si hace falta.
+   */
+  /**
+   * A qué nómina pertenece el conductor en el periodo.
+   *
+   * Se decide por el NOMBRE de la empresa y no por un id de configuración: los
+   * `NOMINA_EMPRESA_PAREX_ID` / `..._GEOPARK_ID` que usa el ajuste de recargos
+   * no están puestos en ningún entorno, y además en la tabla conviven dos
+   * «GEOPARK COLOMBIA S.A.S» —uno con punto final y otro sin él—, que por id
+   * serían dos empresas distintas y por nombre son la misma nómina.
+   */
+  private static tipoDeNomina(empresas: Iterable<string>): string {
+    let parex = false;
+    let geopark = false;
+    for (const nombre of empresas) {
+      const n = (nombre ?? '').toUpperCase();
+      if (n.includes('PAREX')) parex = true;
+      if (n.includes('GEOPARK')) geopark = true;
+    }
+    const marcas: string[] = [];
+    if (parex) marcas.push('PAREX');
+    if (geopark) marcas.push('GEOPARK');
+    /// Ni una ni otra: Villanueva. Es el caso por defecto y NO una ausencia de
+    /// dato — por eso se escribe y no se deja en blanco.
+    return marcas.length ? marcas.join(', ') : 'VILLANUEVA';
+  }
+
+  private static matrizDeBonos(
+    liquidacion: any | null,
+    placasUsadas: PlacaNomina[],
+    placaPorVehiculoId: Map<string, string>,
+  ): MatrizBonos {
+    const bonos = (liquidacion?.bonificaciones ?? []) as any[];
+    if (!bonos.length) return { placas: [], filas: [] };
+
+    const SIN_PLACA = '—';
+    const columnas = [...placasUsadas];
+    const indiceDe = new Map(columnas.map((p, i) => [p.placa, i]));
+
+    /** `nombre → { valorUnitario, cantidades }`. */
+    const filas = new Map<string, { valorUnitario: number; cantidades: number[] }>();
+
+    const cantidadDe = (values: unknown): number => {
+      // `values` es un string JSON `[{ mes, quantity }]`. Se SUMAN los meses:
+      // un corte 21→20 cruza dos y quedarse con uno perdería la mitad.
+      try {
+        const parsed = JSON.parse(String(values ?? '[]'));
+        if (!Array.isArray(parsed)) return 0;
+        return parsed.reduce((s: number, v: any) => s + dec(v?.quantity), 0);
+      } catch {
+        return 0;
+      }
+    };
+
+    for (const b of bonos) {
+      const placa = b.vehiculo_id ? placaPorVehiculoId.get(b.vehiculo_id) ?? null : null;
+      let col = placa !== null ? indiceDe.get(placa) : undefined;
+      if (col === undefined) {
+        // Vehículo que no aparece en ninguna planilla del periodo, o bono sin
+        // vehículo: se le abre su propia columna en vez de sumarlo a otra.
+        if (!indiceDe.has(SIN_PLACA)) {
+          indiceDe.set(SIN_PLACA, columnas.length);
+          columnas.push({ placa: SIN_PLACA, color: '#94A3B8' });
+          for (const f of filas.values()) f.cantidades.push(0);
+        }
+        col = indiceDe.get(SIN_PLACA)!;
+      }
+
+      const nombre = String(b.name ?? 'BONO');
+      let fila = filas.get(nombre);
+      if (!fila) {
+        fila = { valorUnitario: dec(b.value), cantidades: new Array(columnas.length).fill(0) };
+        filas.set(nombre, fila);
+      }
+      while (fila.cantidades.length < columnas.length) fila.cantidades.push(0);
+      fila.cantidades[col] += cantidadDe(b.values);
+    }
+
+    return {
+      placas: columnas,
+      filas: [...filas.entries()]
+        .map(([nombre, f]) => ({
+          nombre,
+          valorUnitario: f.valorUnitario,
+          cantidades: f.cantidades,
+          total: f.cantidades.reduce((s, n) => s + n, 0),
+        }))
+        /// Primero los que tienen algo: con cinco tipos de bono y tres en cero,
+        /// ordenar alfabéticamente deja la tabla empezando por ceros.
+        .sort((a, b2) => b2.total - a.total || a.nombre.localeCompare(b2.nombre, 'es')),
+    };
+  }
+
   private static construirDesprendible(args: {
     conductor: { salario_base: unknown };
     liquidacion: any | null;
