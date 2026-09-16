@@ -79,12 +79,26 @@ function parse<T>(schema: ZodSchema<T>, value: unknown): T {
  */
 function fail(reply: FastifyReply, err: unknown, contexto: string) {
   if (err instanceof ZodError) {
+    const issues = err.issues.map((i) => ({
+      code: i.code,
+      path: i.path.join('.'),
+      message: i.message,
+    }))
+    /// Este fallo ocurre ANTES del servicio: no es una regla del formulario ni
+    /// algo que el conductor pueda corregir. Registrar las rutas rechazadas es lo
+    /// que permite distinguir un cliente viejo, un UUID corrupto o un límite sin
+    /// guardar respuestas ni otros datos personales en el log.
+    registrarEvento('submission.payload-invalid', {
+      ...contextoDePeticion(reply.request),
+      operation: contexto,
+      issues,
+    })
     return reply.status(400).send({
       success: false,
       error: {
         code: 'VALIDATION_ERROR',
         message: 'El envío no tiene el formato esperado.',
-        details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        details: issues,
       },
     })
   }
@@ -229,6 +243,26 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
   })
 
   // ── Borradores ───────────────────────────────────────────────────────────
+
+  /**
+   * Red de rescate del portal.
+   *
+   * IndexedDB sigue siendo el original. Esta lectura solo entra cuando la outbox
+   * sobrevivió pero el borrador local desapareció: devuelve la copia propia del
+   * mismo conductor para reconstruir la cola en vez de obligarlo a diligenciarla
+   * otra vez.
+   */
+  app.get(`${base}/drafts/:clientSubmissionId`, async (request, reply) => {
+    try {
+      const { clientSubmissionId } = request.params as { clientSubmissionId: string }
+      return reply.send({
+        success: true,
+        data: await portal.obtenerBorrador(actorDe(request), clientSubmissionId),
+      })
+    } catch (err) {
+      return fail(reply, err, 'recuperar borrador del portal')
+    }
+  })
 
   /// `bodyLimit` explícito: el default de Fastify es 1 MiB y un borrador del
   /// preoperacional FR-09 con 280 respuestas lo roza. Sin esto, el backup del

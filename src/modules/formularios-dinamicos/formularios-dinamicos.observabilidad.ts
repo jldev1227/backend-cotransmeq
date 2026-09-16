@@ -113,6 +113,8 @@ export interface FormMetrics {
 	limitReached: number
 	/** Rechazos por validación de respuestas. */
 	validationRejections: number
+	/** Sobres HTTP rechazados por Zod antes de entrar al servicio. */
+	payloadSchemaMismatches: number
 	/** `attachments/complete` que no encontró el objeto o vino incompleto. */
 	attachmentFailures: number
 	/** Adjuntos verificados correctamente. */
@@ -135,6 +137,7 @@ const metrics: FormMetrics = {
 	idempotencyMismatches: 0,
 	limitReached: 0,
 	validationRejections: 0,
+	payloadSchemaMismatches: 0,
 	attachmentFailures: 0,
 	attachmentsVerified: 0,
 	revisionConflicts: 0,
@@ -224,6 +227,7 @@ const CONTADOR_POR_EVENTO: Partial<Record<string, keyof FormMetrics>> = {
 	'submission.idempotency-mismatch': 'idempotencyMismatches',
 	'submission.limit-reached': 'limitReached',
 	'submission.validation-rejected': 'validationRejections',
+	'submission.payload-invalid': 'payloadSchemaMismatches',
 	'attachment.failed': 'attachmentFailures',
 	'attachment.verified': 'attachmentsVerified',
 	'version.revision-conflict': 'revisionConflicts',
@@ -252,6 +256,7 @@ export function registrarEvento(event: FormEventName, ctx: FormLogContext = {}):
 
 	if (
 		event === 'submission.idempotency-mismatch' ||
+		event === 'submission.payload-invalid' ||
 		event === 'attachment.failed' ||
 		event === 'version.revision-conflict' ||
 		event === 'assignment.target-denied'

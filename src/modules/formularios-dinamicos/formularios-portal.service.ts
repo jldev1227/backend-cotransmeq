@@ -1781,10 +1781,11 @@ export async function listarEnviosPortal(actor: PortalActor, query: ListarEnvios
  * Relee un borrador propio, con respuestas y adjuntos, por su
  * `client_submission_id`.
  *
- * El portal del conductor no la necesita: su borrador vive en IndexedDB y el
- * backup al servidor es solo una copia de seguridad. «Mis formularios» del
- * dashboard sí, porque ahí NO hay outbox local: si alguien recarga la página a
- * media inspección, el servidor es lo único que conserva lo escrito.
+ * IndexedDB sigue siendo el original del portal y el servidor, una copia. El
+ * portal solo relee esta copia como salvavidas si sobrevivió la outbox pero se
+ * perdió el borrador local. «Mis formularios» del dashboard también la usa,
+ * porque allí NO hay outbox local: si alguien recarga a media inspección, el
+ * servidor es lo único que conserva lo escrito.
  *
  * Busca por `client_submission_id` y no por `id` porque es la clave que el
  * cliente conoce —la genera él antes de escribir nada— y es la misma con la que
