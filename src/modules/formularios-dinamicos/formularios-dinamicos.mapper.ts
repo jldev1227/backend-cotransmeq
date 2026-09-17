@@ -468,6 +468,10 @@ export function toSubmissionSummaryDto(row: any) {
     updatedAt: iso(row.updated_at),
     voidedAt: iso(row.voided_at),
     voidReason: row.void_reason ?? null,
+    /// Presente solo cuando la consulta lo pidió. `null` es «vivo» y
+    /// `undefined` es «no se preguntó»: el cliente no debe deducir lo primero
+    /// de lo segundo.
+    deletedAt: row.deleted_at === undefined ? undefined : iso(row.deleted_at),
     conductor: row.conductor
       ? {
           id: row.conductor.id,

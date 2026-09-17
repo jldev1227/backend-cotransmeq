@@ -329,8 +329,11 @@ export async function construirSnapshot(dominio: DominioFuente, id: string): Pro
 
   switch (dominio) {
     case 'FORM_SUBMISSION': {
-      const s = await prisma.form_submission.findUnique({
-        where: { id },
+      /// `findFirst` y no `findUnique`: hace falta filtrar por `deleted_at`, que
+      /// no es parte de la clave. Un envío descartado se reporta como `ausente`,
+      /// que es justo lo que la evidencia tiene que decir de él.
+      const s = await prisma.form_submission.findFirst({
+        where: { id, deleted_at: null },
         select: {
           id: true,
           status: true,

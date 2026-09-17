@@ -154,6 +154,11 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
   app.get('/formularios/submissions/:id', puedeLeer, FormulariosController.obtenerEnvio)
   app.get('/formularios/submissions', puedeLeer, FormulariosController.listarEnvios)
   app.post('/formularios/submissions/:id/void', puedeEditar, FormulariosController.anularEnvio)
+  /// Descartar es borrado LÓGICO y solo de borradores; anular (`/void`) es lo
+  /// que retira un envío ya entregado. Son operaciones distintas y las dos
+  /// piden `full`.
+  app.delete('/formularios/submissions/:id', puedeEditar, FormulariosController.descartarEnvio)
+  app.post('/formularios/submissions/:id/restore', puedeEditar, FormulariosController.restaurarEnvio)
 
   /**
    * PDF del documento de un envío.

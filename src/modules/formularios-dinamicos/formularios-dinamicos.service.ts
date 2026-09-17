@@ -110,7 +110,9 @@ export async function listarFormularios(query: ListarFormulariosQuery) {
     formIds.length
       ? prisma.form_submission.groupBy({
           by: ['version_id'],
-          where: { status: 'SUBMITTED', version: { form_id: { in: formIds } } },
+          /// Los descartados no cuentan: el contador del catálogo dice cuántos
+          /// envíos tiene el formulario, y un borrador retirado no lo es.
+          where: { status: 'SUBMITTED', deleted_at: null, version: { form_id: { in: formIds } } },
           _count: { _all: true },
         })
       : [],

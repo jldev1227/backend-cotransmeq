@@ -117,6 +117,33 @@ export function descripcionActor(actor: FormActor): string {
   return `${actor.kind}:${actor.id}`
 }
 
+/**
+ * Filtro de envío VIVO: «este envío no está descartado».
+ *
+ * Mismo criterio que `propiedadDe`: aparece en todas las consultas del módulo y
+ * dejarlo como literal suelto garantiza que alguna se quede sin él y vuelva a
+ * mostrar tarjetas que el conductor ya retiró. Aquí no hay middleware global de
+ * Prisma que lo aplique por arte de magia —es el mismo criterio del resto del
+ * proyecto—: el filtro es explícito y se puede leer en cada consulta.
+ */
+const VIVO = { deleted_at: null } as const
+
+/**
+ * Corta la operación si el envío está descartado.
+ *
+ * Se llama SIEMPRE con la fila releída bajo lock, nunca con la lectura
+ * optimista: entre una y otra cabe el descarte, y es justo la carrera que hay
+ * que cerrar —la outbox reintentando un borrador que el conductor acaba de
+ * borrar desde otra pestaña—.
+ */
+function exigirVivo(fila: { deleted_at: Date | null }, clientSubmissionId?: string): void {
+  if (!fila.deleted_at) return
+  throw new FormError('SUBMISSION_DISCARDED', 'Ese formulario se descartó.', {
+    ...(clientSubmissionId ? { clientSubmissionId } : {}),
+    deletedAt: fila.deleted_at.toISOString(),
+  })
+}
+
 const PREFIJO_S3 = 'formularios-dinamicos'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,13 +304,13 @@ export async function listarAsignacionesPortal(actor: PortalActor) {
     ids.length
       ? prisma.form_submission.groupBy({
           by: ['assignment_id', 'period_key'],
-          where: { ...propiedadDe(actor), assignment_id: { in: ids }, status: 'SUBMITTED' },
+          where: { ...propiedadDe(actor), ...VIVO, assignment_id: { in: ids }, status: 'SUBMITTED' },
           _count: { _all: true },
         })
       : [],
     ids.length
       ? prisma.form_submission.findMany({
-          where: { ...propiedadDe(actor), assignment_id: { in: ids }, status: 'DRAFT' },
+          where: { ...propiedadDe(actor), ...VIVO, assignment_id: { in: ids }, status: 'DRAFT' },
           select: {
             assignment_id: true,
             client_submission_id: true,
@@ -460,15 +487,20 @@ export async function guardarBorradorPortal(
     })
   }
 
+  /// `findUnique` por la clave única y NO filtrando `deleted_at`: la fila
+  /// descartada sigue ocupando ese `client_submission_id`, así que esconderla
+  /// aquí solo conseguiría que el `create` de más abajo chocara contra el
+  /// único. Se lee y se rechaza explícitamente.
   const existente = await prisma.form_submission.findUnique({
     where: { client_submission_id: clientSubmissionId },
-    select: { id: true, conductor_id: true, usuario_id: true, status: true, started_at: true },
+    select: { id: true, conductor_id: true, usuario_id: true, status: true, started_at: true, deleted_at: true },
   })
 
   if (existente) {
     if (!esDelActor(existente, actor)) {
       throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
     }
+    exigirVivo(existente, clientSubmissionId)
     if (existente.status !== 'DRAFT') {
       /// Ya se envió. No es un error del conductor: su outbox venía retrasada.
       return { id: existente.id, status: existente.status, alreadySubmitted: true }
@@ -508,6 +540,10 @@ export async function guardarBorradorPortal(
     if (existente) {
       const bloqueada = await lockSubmissionPorId(tx, existente.id)
       if (!bloqueada) throw new FormError('SUBMISSION_NOT_FOUND', 'El borrador ya no existe.')
+      /// Releído bajo lock: el descarte pudo entrar entre la comprobación
+      /// optimista y este punto. Sin esto, el backup revive un borrador borrado
+      /// —reescribe sus respuestas— y la tarjeta reaparece en el portal.
+      exigirVivo(bloqueada, clientSubmissionId)
       if (bloqueada.status !== 'DRAFT') {
         /// Se entregó mientras el backup estaba en vuelo. No es un error: la
         /// outbox venía retrasada y el envío final ya escribió lo definitivo.
@@ -613,18 +649,69 @@ async function escribirRespuestasCrudas(
   })
 }
 
+/**
+ * Descarta un borrador propio: BORRADO LÓGICO.
+ *
+ * ── Por qué marcar y no borrar ──────────────────────────────────────────────
+ *
+ * Antes esto era un `DELETE` físico, y la cascada se llevaba `form_answers`,
+ * `form_attachments` y `form_submission_events`. Un descarte por error —el
+ * botón está al lado de «continuar»— no se podía deshacer ni auditar, y la
+ * evidencia ya subida a S3 quedaba sin ninguna fila que la nombrara. Ahora la
+ * fila se marca: deja de aparecer en todas partes y se puede recuperar.
+ *
+ * ── Qué se puede descartar ──────────────────────────────────────────────────
+ *
+ * Solo un `DRAFT`. Un envío entregado no se borra: se anula (`VOIDED`), que
+ * conserva las respuestas y exige motivo. Son operaciones distintas y quien
+ * diligencia solo tiene la primera.
+ *
+ * NO se exige que el borrador sea de hoy. El caso que originó esto es
+ * exactamente el contrario: un preoperacional de una fecha anterior que quedó
+ * abierto y al que el conductor no tenía forma de llegar.
+ *
+ * ── Idempotencia ────────────────────────────────────────────────────────────
+ *
+ * Descartar algo ya descartado responde `deleted: false` en vez de fallar: es
+ * el reintento de una operación que ya funcionó, y la outbox puede repetirlo
+ * cuando pierde la respuesta.
+ */
 export async function descartarBorradorPortal(actor: PortalActor, clientSubmissionId: string) {
-  const existente = await prisma.form_submission.findUnique({
-    where: { client_submission_id: clientSubmissionId },
-    select: { id: true, conductor_id: true, usuario_id: true, status: true },
-  })
-  if (!existente) return { id: null, deleted: false }
-  if (!esDelActor(existente, actor)) throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
-  if (existente.status !== 'DRAFT') {
-    throw new FormError('SUBMISSION_IMMUTABLE', 'Un envío entregado no se descarta.')
-  }
-  await prisma.form_submission.delete({ where: { id: existente.id } })
-  return { id: existente.id, deleted: true }
+  return prisma.$transaction(async (tx) => {
+    /// Paso 3 del orden global de locks. Se serializa con `guardarBorradorPortal`,
+    /// `enviarSubmission` y las operaciones de adjunto: sin el lock, un backup en
+    /// vuelo volvería a escribir respuestas sobre el borrador recién marcado.
+    const bloqueada = await lockSubmissionPorClientId(tx, clientSubmissionId)
+    if (!bloqueada) return { id: null, deleted: false, alreadyGone: true }
+    if (!esDelActor(bloqueada, actor)) throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
+    if (bloqueada.deleted_at) return { id: bloqueada.id, deleted: false, alreadyGone: true }
+    if (bloqueada.status !== 'DRAFT') {
+      throw new FormError('SUBMISSION_IMMUTABLE', 'Un envío entregado no se descarta.', {
+        status: bloqueada.status,
+      })
+    }
+
+    await tx.form_submission.update({
+      where: { id: bloqueada.id },
+      data: { deleted_at: new Date() },
+    })
+
+    /// La bitácora es lo que sustituye a una columna `deleted_by`: quién
+    /// descartó y cuándo queda aquí, con el mismo formato que el resto de
+    /// eventos del envío.
+    await tx.form_submission_event.create({
+      data: {
+        id: randomUUID(),
+        submission_id: bloqueada.id,
+        event_type: 'DISCARDED',
+        actor_type: actor.kind,
+        actor_id: actor.id,
+        payload_json: { source: 'portal', clientSubmissionId } as Prisma.InputJsonValue,
+      },
+    })
+
+    return { id: bloqueada.id, deleted: true, alreadyGone: false }
+  }, TX_OPCIONES)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -688,6 +775,7 @@ export async function iniciarAdjunto(actor: PortalActor, input: InitAttachmentIn
     }
     if (!esDelActor(submission, actor)) throw new FormError('FORBIDDEN', 'Ese envío no es tuyo.')
     /// Estado RELEÍDO bajo lock: es la comprobación que cierra la carrera.
+    exigirVivo(submission, input.clientSubmissionId)
     if (submission.status !== 'DRAFT') {
       throw new FormError('SUBMISSION_IMMUTABLE', 'No se añaden adjuntos a un envío ya entregado.', {
         status: submission.status,
@@ -907,6 +995,9 @@ export async function completarAdjunto(
     const submission = await lockSubmissionPorId(tx, attachment.submission_id)
     if (!submission) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío del adjunto no existe.')
     if (!esDelActor(submission, actor)) throw new FormError('FORBIDDEN', 'Ese adjunto no es tuyo.')
+    /// Antes del atajo de `UPLOADED`: verificar evidencia contra un borrador ya
+    /// descartado no tiene destino, y la outbox debe dejar de reintentarlo.
+    exigirVivo(submission, submission.client_submission_id)
 
     const identidad = {
       attachmentId,
@@ -1079,6 +1170,7 @@ export async function descartarAdjunto(actor: PortalActor, attachmentId: string)
     const submission = await lockSubmissionPorId(tx, attachment.submission_id)
     if (!submission) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío del adjunto no existe.')
     if (!esDelActor(submission, actor)) throw new FormError('FORBIDDEN', 'Ese adjunto no es tuyo.')
+    exigirVivo(submission, submission.client_submission_id)
     if (submission.status !== 'DRAFT') {
       throw new FormError(
         'SUBMISSION_IMMUTABLE',
@@ -1191,10 +1283,16 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
       submitted_at: true,
       assignment_id: true,
       device_json: true,
+      deleted_at: true,
     },
   })
   if (previo) {
     if (!esDelActor(previo, actor)) throw new FormError('FORBIDDEN', 'Ese envío no es tuyo.')
+    /// Un borrador descartado NO revive al entregarse. Sin esto, la outbox que
+    /// venía retrasada entregaría el formulario que el conductor acaba de
+    /// borrar, que es la situación más confusa posible: lo quitó de la pantalla
+    /// y reaparece como entregado.
+    exigirVivo(previo, input.clientSubmissionId)
     if (previo.status === 'SUBMITTED' || previo.status === 'VOIDED') {
       return confirmarReplay(previo, fingerprint)
     }
@@ -1247,8 +1345,10 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
         submitted_at: true,
         assignment_id: true,
         device_json: true,
+        deleted_at: true,
       },
     })
+    if (actualizado) exigirVivo(actualizado, input.clientSubmissionId)
     if (actualizado && (actualizado.status === 'SUBMITTED' || actualizado.status === 'VOIDED')) {
       return confirmarReplay(actualizado, fingerprint)
     }
@@ -1285,7 +1385,8 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
     if (actualizado) {
       const bloqueada = await lockSubmissionPorId(tx, actualizado.id)
       /// Relectura tras el lock: entre la consulta de arriba y este punto otra
-      /// transacción pudo entregarlo.
+      /// transacción pudo entregarlo —o descartarlo—.
+      if (bloqueada) exigirVivo(bloqueada, input.clientSubmissionId)
       if (bloqueada && bloqueada.status !== 'DRAFT') {
         const refrescado = await tx.form_submission.findUnique({
           where: { id: actualizado.id },
@@ -1505,6 +1606,7 @@ async function verificarLimite(
   const base: Prisma.form_submissionWhereInput = {
     assignment_id: params.assignmentId,
     ...propiedadDe(params.actor),
+    ...VIVO,
     status: 'SUBMITTED',
     ...(params.excluirSubmissionId ? { id: { not: params.excluirSubmissionId } } : {}),
   }
@@ -1748,6 +1850,7 @@ async function enlazarAdjuntos(
 export async function listarEnviosPortal(actor: PortalActor, query: ListarEnviosPortalQuery) {
   const where: Prisma.form_submissionWhereInput = {
     ...propiedadDe(actor),
+    ...VIVO,
     status: { in: ['SUBMITTED', 'VOIDED'] },
     ...(query.assignmentId ? { assignment_id: query.assignmentId } : {}),
   }
@@ -1796,7 +1899,7 @@ export async function listarEnviosPortal(actor: PortalActor, query: ListarEnvios
  */
 export async function obtenerBorrador(actor: FormActor, clientSubmissionId: string) {
   const row = await prisma.form_submission.findFirst({
-    where: { client_submission_id: clientSubmissionId, ...propiedadDe(actor) },
+    where: { client_submission_id: clientSubmissionId, ...propiedadDe(actor), ...VIVO },
     include: {
       assignment: { select: { id: true, name: true, frequency: true } },
       usuario: { select: { id: true, nombre: true, correo: true } },
@@ -1839,7 +1942,7 @@ export async function obtenerBorrador(actor: FormActor, clientSubmissionId: stri
 
 export async function obtenerEnvioPortal(actor: PortalActor, submissionId: string) {
   const row = await prisma.form_submission.findFirst({
-    where: { id: submissionId, ...propiedadDe(actor) },
+    where: { id: submissionId, ...propiedadDe(actor), ...VIVO },
     include: {
       assignment: { select: { id: true, name: true, frequency: true } },
       usuario: { select: { id: true, nombre: true, correo: true } },

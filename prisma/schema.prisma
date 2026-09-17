@@ -2615,6 +2615,14 @@ model form_submission {
   voided_by_id String?   @db.Uuid
   void_reason  String?
 
+  /// Borrado lógico. Solo un `DRAFT` se marca: abrir un formulario ya crea la
+  /// fila, así que quien lo abre por error necesita poder retirarlo sin que
+  /// desaparezca lo que llegó a escribir. Un `SUBMITTED` no se borra —se anula
+  /// con `VOIDED`, que conserva el envío y exige motivo—. Quién lo retiró queda
+  /// en `form_submission_events` con el evento `DISCARDED`, que es donde vive
+  /// la bitácora de este módulo.
+  deleted_at   DateTime? @db.Timestamptz(6)
+
   assignment  form_assignment         @relation(fields: [assignment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   version     form_version            @relation(fields: [version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   conductor   conductores?            @relation("form_submission_conductor", fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

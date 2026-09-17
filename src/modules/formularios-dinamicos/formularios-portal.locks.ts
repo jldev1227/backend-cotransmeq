@@ -180,6 +180,10 @@ export interface SubmissionLockRow {
 	version_id: string
 	assignment_id: string
 	client_submission_id: string
+	/// Borrado lógico, releído bajo el lock como el `status`. Quien escribe
+	/// sobre el envío tiene que poder distinguir «no existe» de «lo descartaron
+	/// mientras esta operación estaba en vuelo».
+	deleted_at: Date | null
 }
 
 /**
@@ -199,7 +203,7 @@ export async function lockSubmissionPorClientId(
 	clientSubmissionId: string
 ): Promise<SubmissionLockRow | null> {
 	const filas = await tx.$queryRaw<SubmissionLockRow[]>`
-		SELECT id, conductor_id, usuario_id, status, version_id, assignment_id, client_submission_id
+		SELECT id, conductor_id, usuario_id, status, version_id, assignment_id, client_submission_id, deleted_at
 		FROM form_submissions
 		WHERE client_submission_id = ${clientSubmissionId}::uuid
 		FOR UPDATE
@@ -213,7 +217,7 @@ export async function lockSubmissionPorId(
 	submissionId: string
 ): Promise<SubmissionLockRow | null> {
 	const filas = await tx.$queryRaw<SubmissionLockRow[]>`
-		SELECT id, conductor_id, usuario_id, status, version_id, assignment_id, client_submission_id
+		SELECT id, conductor_id, usuario_id, status, version_id, assignment_id, client_submission_id, deleted_at
 		FROM form_submissions
 		WHERE id = ${submissionId}::uuid
 		FOR UPDATE
