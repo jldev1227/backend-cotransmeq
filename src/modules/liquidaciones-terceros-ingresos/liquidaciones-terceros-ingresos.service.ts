@@ -57,9 +57,18 @@ export interface IngresoTerceroRow {
    * columna o en la otra.
    */
   origen: "SERVICIO" | "ADICIONAL";
-  /// Solo en `ADICIONAL`: consecutivo del cierre del que viene, para poder
-  /// rastrear la fila hasta la hoja de la placa.
+  /// Consecutivo del cierre del que viene: en `ADICIONAL`, el cierre de la
+  /// fila; en un `SERVICIO` trasladado, el cierre que lo mandó aquí.
   cierre_consecutivo?: string | null;
+  /**
+   * `SERVICIO` que un cierre de placa TRASLADÓ a esta hoja. Su
+   * `ingreso_empresa` NO es el ingreso extra del servicio sino su
+   * `valor_liquidar` —lo que el cierre le habría pagado al tercero—, que ya
+   * viene neto de administración: se trata como un ADICIONAL a efectos de
+   * cálculo (sin % de admon, íntegro a la hoja de ADICIONALES), pero en
+   * positivo, porque lo factura un cliente.
+   */
+  trasladado_de_cierre?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -124,6 +133,12 @@ function serializeRow(row: any): IngresoTerceroRow {
   // criterio que ya aplica `serializeAdicional`. `whereIngresos` lo saca del
   // mes de su liquidación por la misma regla, así que no se cuenta dos veces.
   const cierreTraslado = row.finales?.[0]?.liquidacion_tercero_final ?? null;
+  // Un trasladado trae lo que el cierre le habría pagado al tercero
+  // (`valor_liquidar`), no el ingreso extra del servicio: es ese importe el
+  // que se mueve de documento. Ver `trasladado_de_cierre` en el tipo.
+  const ingresoEmpresa = cierreTraslado
+    ? toNumber(row.valor_liquidar)
+    : toNumber(row.ingreso_empresa);
   return {
     id: row.id,
     liquidacion_id: row.liquidacion_id,
@@ -145,12 +160,13 @@ function serializeRow(row: any): IngresoTerceroRow {
     valor_admin: toNumber(row.valor_admin),
     total_facturado: toNumber(row.total_facturado),
     valor_liquidar: toNumber(row.valor_liquidar),
-    ingreso_empresa: toNumber(row.ingreso_empresa),
+    ingreso_empresa: ingresoEmpresa,
     ingreso_extra_global: toNumber(row.ingreso_extra_global),
     ingresos_extra_aval: toNumber(row.ingresos_extra_aval),
     orden: row.orden ?? 0,
     origen: "SERVICIO",
     cierre_consecutivo: cierreTraslado?.consecutivo ?? null,
+    trasladado_de_cierre: !!cierreTraslado,
   };
 }
 
@@ -494,6 +510,16 @@ function roundExcel(n: number): number {
   return n < 0 ? -Math.round(-n) : Math.round(n);
 }
 
+/**
+ * Filas cuyo importe YA es neto del tercero: los adicionales de cierre y los
+ * servicios trasladados desde un cierre. No llevan % de administración —ya se
+ * descontó en la placa— y bajan íntegras a ADICIONALES. Espejo de
+ * `llegaNeto` en `ingresos-transmeralda.ts`.
+ */
+function llegaNeto(it: IngresoTerceroRow): boolean {
+  return it.origen === "ADICIONAL" || it.trasladado_de_cierre === true;
+}
+
 function sumaConceptos(
   conceptos: any[],
   hoja: string,
@@ -546,7 +572,7 @@ export function recalcularIngresos(o: {
    * allí y la cabecera aquí, y los dos números tienen que coincidir.
    */
   const pctAdmonDe = (it: IngresoTerceroRow, propio: any, porDefecto: number) =>
-    it.origen === "ADICIONAL" ? 0 : toNumber(propio ?? porDefecto);
+    llegaNeto(it) ? 0 : toNumber(propio ?? porDefecto);
 
   // ── Hoja de INGRESOS: una fila por servicio ──
   let totalFacturadoIngresos = 0;
@@ -575,7 +601,7 @@ export function recalcularIngresos(o: {
     const vUnidad =
       f.valor_unitario_adicional != null
         ? toNumber(f.valor_unitario_adicional)
-        : it.origen === "ADICIONAL"
+        : llegaNeto(it)
           ? it.ingreso_empresa
           : (it.ingreso_empresa * toNumber(f.pct_ganancia ?? o.pctGananciaAdicionales)) /
             100;
