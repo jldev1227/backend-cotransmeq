@@ -21,6 +21,12 @@ import { LiquidacionesSnapshotsService } from "../liquidaciones-terceros-snapsho
  * sitio. Cada módulo escribe en sus propias tablas —este solo toca el
  * pivote— y el orden es DESTINO PRIMERO: si el destino rechaza el item (no
  * facturado, ocasional aprobado…), el cierre no se ha tocado todavía.
+ *
+ * Los DOS destinos usan el PERIODO DEL CIERRE: quien traslada lo hace desde
+ * la hoja de julio y es en julio donde espera encontrar el item, aunque su
+ * liquidación de servicio sea de mayo. La hoja de ingresos lo lista en ese
+ * mes leyendo la marca del pivote, así que sus totales se recalculan
+ * DESPUÉS de marcarlo.
  */
 
 export type DestinoTraslado = "OCASIONAL" | "INGRESOS";
@@ -144,6 +150,8 @@ export const TrasladoItemsService = {
           })
         : await LiquidacionesTercerosIngresosService.marcarIncluirDesdeCierre({
             liquidacion_tercero_id: p.liquidacion_tercero_id,
+            mes: p.cierre.mes,
+            anio: p.cierre.anio,
             user_id: userId,
           });
 
@@ -158,6 +166,14 @@ export const TrasladoItemsService = {
         trasladado_por_id: userId ?? null,
       },
     });
+    if (destino === "INGRESOS") {
+      // Con la marca puesta el item ya cuenta en el mes del cierre.
+      await LiquidacionesTercerosIngresosService.recalcularCabeceraPeriodo(
+        p.cierre.mes,
+        p.cierre.anio,
+        userId,
+      );
+    }
     await trasCambioDePivote(p.cierre.id, "trasladar-item", userId);
 
     return {
@@ -190,6 +206,8 @@ export const TrasladoItemsService = {
           })
         : await LiquidacionesTercerosIngresosService.desmarcarIncluirDesdeCierre({
             liquidacion_tercero_id: p.liquidacion_tercero_id,
+            mes: p.cierre.mes,
+            anio: p.cierre.anio,
             user_id: userId,
           });
 
@@ -202,6 +220,14 @@ export const TrasladoItemsService = {
         trasladado_por_id: null,
       },
     });
+    if (destino === "INGRESOS") {
+      // Sin la marca el item deja de contar en el mes del cierre.
+      await LiquidacionesTercerosIngresosService.recalcularCabeceraPeriodo(
+        p.cierre.mes,
+        p.cierre.anio,
+        userId,
+      );
+    }
     await trasCambioDePivote(p.cierre.id, "revertir-traslado", userId);
 
     return {
