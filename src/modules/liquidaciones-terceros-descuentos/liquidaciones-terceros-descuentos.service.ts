@@ -2965,6 +2965,12 @@ export const LiquidacionesTercerosDescuentosService = {
             orden: it.orden,
             aplica_impuestos: it.aplica_impuestos ?? true,
             deleted_at: it.deleted_at ?? null,
+            // A dónde se trasladó al quitarlo (OCASIONAL | INGRESOS), o null.
+            // Solo viaja con `includeDeleted`: un trasladado siempre está
+            // tachado, y el modal de «Quitados» lo usa para saber si devolverlo
+            // pasa por deshacer el otro lado.
+            trasladado_a: it.trasladado_a ?? null,
+            trasladado_at: it.trasladado_at ?? null,
             liquidacion_tercero: it.liquidacion_tercero
               ? {
                   ...it.liquidacion_tercero,
@@ -3154,9 +3160,19 @@ export const LiquidacionesTercerosDescuentosService = {
   async toggleExcluirItem(pivoteId: string, excluir: boolean) {
     const pivote = await prisma.liquidacion_tercero_final_item.findUnique({
       where: { id: pivoteId },
-      select: { id: true, liquidacion_tercero_final_id: true, deleted_at: true },
+      select: { id: true, liquidacion_tercero_final_id: true, deleted_at: true, trasladado_a: true },
     });
     if (!pivote) throw new Error('Item de pivote no encontrado');
+
+    // Un item TRASLADADO a ocasional/ingresos también lleva `deleted_at`,
+    // pero devolverlo por aquí lo dejaría en los dos documentos a la vez.
+    // Su vuelta pasa por `TrasladoItemsService.revertir`, que deshace el
+    // otro lado antes de reactivar el pivote.
+    if (pivote.trasladado_a && !excluir) {
+      throw new Error(
+        `El item está trasladado a ${pivote.trasladado_a === 'OCASIONAL' ? 'la liquidación ocasional' : 'la hoja de ingresos'}: devuélvelo con «Devolver al cierre», que lo saca también de allí.`
+      );
+    }
 
     // Si ya está en el estado deseado, no hacemos nada (idempotente).
     const isExcluido = !!pivote.deleted_at;

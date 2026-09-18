@@ -442,6 +442,65 @@ function recalcularTotales(
   };
 }
 
+/**
+ * Fila de `liquidacion_tercero_ocasional_item` a partir de un pivote
+ * `liquidacion_tercero` (con `tercero`, `item` y `liquidacion.cliente` +
+ * `factura_items` incluidos). Es la ÚNICA forma de denormalizar un item al
+ * ocasional: la usan «Traer items» y el traslado desde un cierre de placa,
+ * para que los dos caminos dejen exactamente la misma fila.
+ */
+function filaOcasionalDesdePivote(lt: any, cabeceraId: string, orden: number) {
+  const liq = lt.liquidacion;
+  return {
+    id: randomUUID(),
+    liquidacion_ocasional_id: cabeceraId,
+    liquidacion_tercero_id: lt.id,
+    liquidacion_servicio_id: lt.liquidacion_id,
+    cliente_nombre: liq?.cliente?.nombre || "",
+    consecutivo: liq?.consecutivo || "",
+    placa: String(lt.placa || "").toUpperCase().trim(),
+    tercero_id: lt.tercero_id || null,
+    tercero_nombre: lt.tercero?.nombre_completo || "",
+    tercero_documento: lt.tercero?.identificacion || null,
+    recorrido: lt.recorrido || "",
+    fechas: lt.fechas || "",
+    valor_unitario: toNumber(lt.valor_unitario),
+    cantidad: toNumber(lt.cantidad) || 1,
+    porcentaje_admin: toNumber(lt.porcentaje_admin),
+    valor_admin: toNumber(lt.valor_admin),
+    total_facturado: toNumber(lt.total_facturado),
+    valor_liquidar: toNumber(lt.valor_liquidar),
+    numero_planilla: lt.item?.numero_planilla || null,
+    ingreso_extra_global: toNumber(lt.ingreso_extra_global),
+    ingresos_extra_aval: toNumber(lt.ingresos_extra_aval),
+    ingreso_empresa: toNumber(lt.ingreso_empresa),
+    numero_factura: liq?.factura_items?.[0]?.factura?.numero_factura || "",
+    aplica_impuestos: true,
+    excluido: false,
+    orden,
+  };
+}
+
+/// `include` del pivote que necesita `filaOcasionalDesdePivote`.
+const INCLUDE_PIVOTE_OCASIONAL = {
+  tercero: { select: { id: true, nombre_completo: true, identificacion: true } },
+  item: { select: { numero_planilla: true } },
+  liquidacion: {
+    select: {
+      id: true,
+      consecutivo: true,
+      cliente: { select: { nombre: true } },
+      factura_items: {
+        where: { factura: { deleted_at: null, estado: "ACTIVA" as const } },
+        select: { factura: { select: { numero_factura: true } } },
+        take: 1,
+      },
+    },
+  },
+} as const;
+
+const ESTADOS_OCASIONAL_BLOQUEADA = ["APROBADA", "FACTURADA", "ANULADA"];
+
 function emitRowUpdated(payload: {
   id: string;
   changes: Record<string, any>;
@@ -1253,37 +1312,9 @@ export const LiquidacionesTercerosOcasionalService = {
     }
 
     let orden = cabecera.items.reduce((m, i) => Math.max(m, i.orden ?? 0), -1) + 1;
-    const filas = (candidatos as any[]).map((lt) => {
-      const liq = lt.liquidacion;
-      return {
-        id: randomUUID(),
-        liquidacion_ocasional_id: cabecera.id,
-        liquidacion_tercero_id: lt.id,
-        liquidacion_servicio_id: lt.liquidacion_id,
-        cliente_nombre: liq?.cliente?.nombre || "",
-        consecutivo: liq?.consecutivo || "",
-        placa: String(lt.placa || "").toUpperCase().trim(),
-        tercero_id: lt.tercero_id || null,
-        tercero_nombre: lt.tercero?.nombre_completo || "",
-        tercero_documento: lt.tercero?.identificacion || null,
-        recorrido: lt.recorrido || "",
-        fechas: lt.fechas || "",
-        valor_unitario: toNumber(lt.valor_unitario),
-        cantidad: toNumber(lt.cantidad) || 1,
-        porcentaje_admin: toNumber(lt.porcentaje_admin),
-        valor_admin: toNumber(lt.valor_admin),
-        total_facturado: toNumber(lt.total_facturado),
-        valor_liquidar: toNumber(lt.valor_liquidar),
-        numero_planilla: lt.item?.numero_planilla || null,
-        ingreso_extra_global: toNumber(lt.ingreso_extra_global),
-        ingresos_extra_aval: toNumber(lt.ingresos_extra_aval),
-        ingreso_empresa: toNumber(lt.ingreso_empresa),
-        numero_factura: liq?.factura_items?.[0]?.factura?.numero_factura || "",
-        aplica_impuestos: true,
-        excluido: false,
-        orden: orden++,
-      };
-    });
+    const filas = (candidatos as any[]).map((lt) =>
+      filaOcasionalDesdePivote(lt, cabecera.id, orden++),
+    );
 
     await prisma.liquidacion_tercero_ocasional_item.createMany({ data: filas });
     await prisma.liquidacion_tercero_ocasional.update({
@@ -1299,6 +1330,164 @@ export const LiquidacionesTercerosOcasionalService = {
       placas,
       message: `Se añadieron ${filas.length} item(s) de ${placas.length} placa(s)`,
     };
+  },
+
+  // ── ITEM TRASLADADO DESDE UN CIERRE DE PLACA ──
+  //
+  // `itemsDisponibles` descarta a propósito los items cuya placa tiene cierre
+  // en el periodo: traerlos desde el modal del ocasional sería colarlos por
+  // la puerta de atrás. Este es el camino de ENTRADA legítimo: lo llama el
+  // traslado desde «Filas del cierre → Items», que a la vez quita el item del
+  // pivote del cierre y deja allí la marca con la que se puede devolver.
+  //
+  // Sin cabecera para el periodo se crea una vacía en BORRADOR, igual que
+  // hace `guardarBorrador` en el primer guardado: quien traslada no debería
+  // tener que ir antes a generar el borrador ocasional.
+  async incorporarItemDesdeCierre(params: {
+    mes: number;
+    anio: number;
+    liquidacion_tercero_id: string;
+    user_id?: string;
+  }) {
+    const mes = Number(params.mes);
+    const anio = Number(params.anio);
+
+    let cabecera = await prisma.liquidacion_tercero_ocasional.findFirst({
+      where: { mes, anio, deleted_at: null },
+      select: { id: true, consecutivo: true, estado: true, actualizado_por_id: true },
+    });
+    let creada = false;
+    if (!cabecera) {
+      const consecutivo = await generarConsecutivo(mes, anio);
+      cabecera = await prisma.liquidacion_tercero_ocasional.create({
+        data: {
+          id: randomUUID(),
+          consecutivo,
+          mes,
+          anio,
+          estado: "BORRADOR",
+          creado_por_id: params.user_id || null,
+          actualizado_por_id: params.user_id || null,
+        },
+        select: { id: true, consecutivo: true, estado: true, actualizado_por_id: true },
+      });
+      creada = true;
+    }
+    if (ESTADOS_OCASIONAL_BLOQUEADA.includes(cabecera.estado || "")) {
+      throw new Error(
+        `La liquidación ocasional ${cabecera.consecutivo} de ${MESES[mes - 1]} ${anio} está ${cabecera.estado}: no admite items nuevos.`,
+      );
+    }
+
+    const lt = await prisma.liquidacion_tercero.findFirst({
+      where: { id: params.liquidacion_tercero_id, deleted_at: null },
+      include: INCLUDE_PIVOTE_OCASIONAL,
+    });
+    if (!lt) throw new Error("El item ya no existe en la base");
+
+    // En OTRO ocasional vivo: se pagaría dos veces.
+    const enOtro = await prisma.liquidacion_tercero_ocasional_item.findFirst({
+      where: {
+        liquidacion_tercero_id: lt.id,
+        deleted_at: null,
+        liquidacion_ocasional_id: { not: cabecera.id },
+        liquidacion_ocasional: { deleted_at: null },
+      },
+      select: { liquidacion_ocasional: { select: { consecutivo: true } } },
+    });
+    if (enOtro) {
+      throw new Error(
+        `El item «${lt.recorrido || lt.id}» ya está en la liquidación ocasional ${enOtro.liquidacion_ocasional?.consecutivo || ""}.`,
+      );
+    }
+
+    // Idempotente sobre `@@unique([cabecera, item])`, que NO distingue
+    // borrados: si ya hay fila —viva o tachada— se reactiva con los datos
+    // actuales del pivote en vez de reventar con P2002.
+    const existente = await prisma.liquidacion_tercero_ocasional_item.findFirst({
+      where: { liquidacion_ocasional_id: cabecera.id, liquidacion_tercero_id: lt.id },
+      select: { id: true },
+    });
+    const maxOrden = await prisma.liquidacion_tercero_ocasional_item.aggregate({
+      where: { liquidacion_ocasional_id: cabecera.id },
+      _max: { orden: true },
+    });
+    const { id: _nuevoId, ...fila } = filaOcasionalDesdePivote(
+      lt,
+      cabecera.id,
+      (maxOrden._max.orden ?? -1) + 1,
+    );
+    const item = existente
+      ? await prisma.liquidacion_tercero_ocasional_item.update({
+          where: { id: existente.id },
+          data: { ...fila, deleted_at: null },
+          select: { id: true },
+        })
+      : await prisma.liquidacion_tercero_ocasional_item.create({
+          data: { id: _nuevoId, ...fila },
+          select: { id: true },
+        });
+
+    await prisma.liquidacion_tercero_ocasional.update({
+      where: { id: cabecera.id },
+      data: { actualizado_por_id: params.user_id || cabecera.actualizado_por_id },
+    });
+    await this.recalcularTotales(cabecera.id);
+
+    return {
+      cabecera_id: cabecera.id,
+      consecutivo: cabecera.consecutivo,
+      mes,
+      anio,
+      creada,
+      item_id: item.id,
+    };
+  },
+
+  // Contrapartida de `incorporarItemDesdeCierre`: al devolver el item al
+  // cierre, su fila del ocasional se tacha. Si la cabecera ya no existe o
+  // alguien quitó la fila desde el canvas ocasional, no hay nada que deshacer
+  // y se devuelve `retirado: false` sin fallar: el cierre sí tiene que
+  // recuperar su item.
+  async retirarItemDesdeCierre(params: {
+    mes: number;
+    anio: number;
+    liquidacion_tercero_id: string;
+    user_id?: string;
+  }) {
+    const mes = Number(params.mes);
+    const anio = Number(params.anio);
+    const cabecera = await prisma.liquidacion_tercero_ocasional.findFirst({
+      where: { mes, anio, deleted_at: null },
+      select: { id: true, consecutivo: true, estado: true },
+    });
+    if (!cabecera) return { retirado: false, cabecera_id: null, consecutivo: null };
+    if (ESTADOS_OCASIONAL_BLOQUEADA.includes(cabecera.estado || "")) {
+      throw new Error(
+        `La liquidación ocasional ${cabecera.consecutivo} está ${cabecera.estado}: no se puede sacar el item de allí.`,
+      );
+    }
+    const fila = await prisma.liquidacion_tercero_ocasional_item.findFirst({
+      where: {
+        liquidacion_ocasional_id: cabecera.id,
+        liquidacion_tercero_id: params.liquidacion_tercero_id,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+    if (!fila) {
+      return { retirado: false, cabecera_id: cabecera.id, consecutivo: cabecera.consecutivo };
+    }
+    await prisma.liquidacion_tercero_ocasional_item.update({
+      where: { id: fila.id },
+      data: { deleted_at: new Date() },
+    });
+    await prisma.liquidacion_tercero_ocasional.update({
+      where: { id: cabecera.id },
+      data: { actualizado_por_id: params.user_id || undefined },
+    });
+    await this.recalcularTotales(cabecera.id);
+    return { retirado: true, cabecera_id: cabecera.id, consecutivo: cabecera.consecutivo };
   },
 
   async generarBorrador(input: GenerarBorradorOcasionalInput) {
