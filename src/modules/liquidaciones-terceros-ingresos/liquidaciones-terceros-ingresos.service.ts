@@ -81,6 +81,14 @@ function toNumber(v: any): number {
  * (ver `whereIngresos`) pero el número no se pinta en ninguna columna de
  * esta hoja, y cada `take: 1` extra es un join más por fila.
  */
+/// Pivote de un cierre VIVO desde el que el item se trasladó a esta hoja.
+/// Un item puede estar en varios cierres a lo largo del tiempo (anulados,
+/// reemplazados); solo cuenta el que sigue vivo y lo mandó aquí.
+const TRASLADADO_A_INGRESOS = {
+  trasladado_a: "INGRESOS",
+  liquidacion_tercero_final: { deleted_at: null },
+} as const;
+
 const INCLUDE_INGRESO = {
   tercero: { select: { id: true, nombre_completo: true } },
   item: { select: { numero_planilla: true } },
@@ -93,10 +101,29 @@ const INCLUDE_INGRESO = {
       cliente: { select: { id: true, nombre: true, nit: true } },
     },
   },
+  // El cierre que lo trasladó, para fechar la fila en SU periodo (ver
+  // `serializeRow`). Como mucho uno: un item no puede estar en dos cierres
+  // vivos.
+  finales: {
+    where: TRASLADADO_A_INGRESOS,
+    select: {
+      liquidacion_tercero_final: {
+        select: { mes: true, anio: true, consecutivo: true },
+      },
+    },
+    take: 1,
+  },
 } as const;
 
 function serializeRow(row: any): IngresoTerceroRow {
   const liq = row.liquidacion;
+  // Trasladado desde un cierre de placa: la fila es del PERIODO DEL CIERRE,
+  // no del de su liquidación de servicio. Quien lo trasladó lo hizo desde la
+  // hoja de julio y es en julio donde espera verlo; un item de mayo que viva
+  // en el cierre de julio se paga —por la vía que sea— en julio. Es el mismo
+  // criterio que ya aplica `serializeAdicional`. `whereIngresos` lo saca del
+  // mes de su liquidación por la misma regla, así que no se cuenta dos veces.
+  const cierreTraslado = row.finales?.[0]?.liquidacion_tercero_final ?? null;
   return {
     id: row.id,
     liquidacion_id: row.liquidacion_id,
@@ -104,8 +131,8 @@ function serializeRow(row: any): IngresoTerceroRow {
     cliente_id: liq?.cliente?.id ?? "",
     cliente_nombre: liq?.cliente?.nombre ?? "SIN CLIENTE",
     cliente_nit: liq?.cliente?.nit ?? null,
-    mes: liq?.mes ?? 0,
-    anio: liq?.anio ?? 0,
+    mes: cierreTraslado?.mes ?? liq?.mes ?? 0,
+    anio: cierreTraslado?.anio ?? liq?.anio ?? 0,
     tercero_id: row.tercero_id ?? null,
     tercero_nombre: row.tercero?.nombre_completo ?? null,
     placa: row.placa ?? "",
@@ -123,6 +150,7 @@ function serializeRow(row: any): IngresoTerceroRow {
     ingresos_extra_aval: toNumber(row.ingresos_extra_aval),
     orden: row.orden ?? 0,
     origen: "SERVICIO",
+    cierre_consecutivo: cierreTraslado?.consecutivo ?? null,
   };
 }
 
@@ -274,6 +302,10 @@ function whereAdicionales(filtro: { anio: number; mes?: number }) {
  * desaparece de la vista, no del estado.
  */
 function whereIngresos(filtro: { anio: number; mes?: number }) {
+  const periodo = {
+    anio: filtro.anio,
+    ...(filtro.mes ? { mes: filtro.mes } : {}),
+  };
   return {
     /// Del propio ítem, no solo de su liquidación: desde que el guardado marca
     /// en vez de borrar, las versiones anteriores siguen en la tabla y sin
@@ -281,16 +313,35 @@ function whereIngresos(filtro: { anio: number; mes?: number }) {
     deleted_at: null,
     NOT: { ingreso_empresa: 0 },
     // Ya liquidado al tercero por la vía ocasional: no es ingreso de aquí.
-    ocasionales_items: { none: {} },
+    // Solo las filas VIVAS de un ocasional vivo: un item que se trasladó al
+    // ocasional y se devolvió deja su fila tachada, y sin este filtro
+    // desaparecía de aquí para siempre.
+    ocasionales_items: {
+      none: { deleted_at: null, liquidacion_ocasional: { deleted_at: null } },
+    },
     liquidacion: {
-      anio: filtro.anio,
-      ...(filtro.mes ? { mes: filtro.mes } : {}),
       deleted_at: null,
       estado: { not: "ANULADA" as any },
       factura_items: {
         some: { factura: { deleted_at: null, estado: "ACTIVA" as const } },
       },
     },
+    // ── El PERIODO ──
+    // Normalmente el de la liquidación de servicio. Pero un item TRASLADADO
+    // aquí desde un cierre de placa pertenece al mes del CIERRE, que es donde
+    // se decidió pagarlo por esta vía; en el mes de su liquidación deja de
+    // aparecer para no contarlo dos veces. Ver `serializeRow`.
+    OR: [
+      { liquidacion: periodo, finales: { none: TRASLADADO_A_INGRESOS } },
+      {
+        finales: {
+          some: {
+            ...TRASLADADO_A_INGRESOS,
+            liquidacion_tercero_final: { deleted_at: null, ...periodo },
+          },
+        },
+      },
+    ],
   };
 }
 
@@ -387,6 +438,27 @@ export interface EstadoIngresoMes {
   cabecera: any | null;
   filas: any[];
   conceptos: any[];
+}
+
+/**
+ * Clientes cuyos servicios van a ADICIONALES por defecto.
+ *
+ * ESPEJO de `PRIORIDAD_CLIENTE` en `ingresos-transmeralda.ts` (cliente): el
+ * canvas preselecciona el INCLUIR de estos clientes en los meses que nadie ha
+ * guardado, y lo persiste con el primer guardado. Cuando la cabecera del mes
+ * nace en el SERVIDOR —un traslado desde un cierre— hay que sembrar lo mismo,
+ * o el mes se abriría con esos servicios desmarcados y sin explicación.
+ * Se compara por prefijo, en mayúsculas y sin tildes, igual que allí.
+ */
+const CLIENTES_PRIORITARIOS = ["FEPCO"];
+
+function esClientePrioritario(nombre: string | null | undefined): boolean {
+  const n = String(nombre ?? "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return CLIENTES_PRIORITARIOS.some((p) => n.startsWith(p));
 }
 
 /// Porcentajes por defecto. Espejo de los `@default` del schema: se usan
@@ -938,15 +1010,21 @@ export const LiquidacionesTercerosIngresosService = {
    * que se le puede pagar al tercero. El cierre, por su lado, lo quita del
    * pivote: si se quedara en los dos se pagaría dos veces.
    *
-   * El PERIODO es el de la liquidación de servicio, que es por el que la
-   * hoja filtra (`whereIngresos`), y no el del cierre: un item de mayo que
-   * viva en el cierre de julio sigue siendo un ingreso de mayo.
+   * El PERIODO es el del CIERRE, no el de la liquidación de servicio: quien
+   * traslada lo hace desde la hoja de julio y es en julio donde espera verlo.
+   * `whereIngresos` lista el item en ese mes en cuanto el pivote lleva la
+   * marca `trasladado_a`, así que aquí NO se recalculan los totales: la marca
+   * la pone después quien llama (`TrasladoItemsService`), y hasta entonces la
+   * consulta no vería el item. Recalcula con `recalcularCabeceraPeriodo`.
    *
    * Se valida lo mismo que `whereIngresos`, pero con un mensaje por causa:
    * un item que no cumpla el filtro tendría la fila marcada y nadie la vería.
    */
   async marcarIncluirDesdeCierre(params: {
     liquidacion_tercero_id: string;
+    /// Periodo del cierre desde el que se traslada.
+    mes: number;
+    anio: number;
     user_id?: string;
   }) {
     const lt = await prisma.liquidacion_tercero.findFirst({
@@ -999,14 +1077,15 @@ export const LiquidacionesTercerosIngresosService = {
         `El item ${nombre} ya está en la liquidación ocasional ${lt.ocasionales_items[0].liquidacion_ocasional?.consecutivo || ""}: allí no cuenta como ingreso de esta hoja.`,
       );
     }
-    if (!liq.mes || !liq.anio) {
-      throw new Error(`La liquidación ${liq.consecutivo || ""} no tiene mes/año definidos.`);
-    }
-    const mes = liq.mes;
-    const anio = liq.anio;
+    const mes = Number(params.mes);
+    const anio = Number(params.anio);
+    if (!mes || !anio) throw new Error("El traslado a ingresos necesita el mes/año del cierre.");
 
     // Cabecera del mes: se crea si es la primera decisión del periodo, igual
-    // que en el primer guardado del canvas.
+    // que en el primer guardado del canvas. Y como en ese primer guardado, se
+    // siembran los INCLUIR de los clientes prioritarios (ver
+    // `sembrarPrioritarios`): el canvas solo los preselecciona mientras el
+    // mes no tiene cabecera.
     const existente = await prisma.liquidacion_ingreso_transmeralda.findFirst({
       where: { mes, anio, deleted_at: null },
       select: { id: true },
@@ -1022,6 +1101,7 @@ export const LiquidacionesTercerosIngresosService = {
           },
           select: { id: true },
         });
+    if (!existente) await this.sembrarPrioritarios(cabecera.id, mes, anio, params.user_id);
 
     // `uniq_ingreso_fila_item` cuenta también las tachadas: si hay fila, se
     // reactiva y se le enciende el INCLUIR conservando lo demás que dijera.
@@ -1049,7 +1129,6 @@ export const LiquidacionesTercerosIngresosService = {
         },
       });
     }
-    await this.recalcularCabecera(cabecera.id, mes, anio, params.user_id);
 
     return {
       cabecera_id: cabecera.id,
@@ -1068,18 +1147,20 @@ export const LiquidacionesTercerosIngresosService = {
    *
    * Sin cabecera o sin fila no hay nada que deshacer y se devuelve
    * `retirado: false` sin fallar: el cierre sí tiene que recuperar su item.
+   *
+   * Tampoco recalcula: el item vuelve a listarse en el mes de su liquidación
+   * cuando el pivote pierde la marca, y eso lo hace después quien llama.
    */
   async desmarcarIncluirDesdeCierre(params: {
     liquidacion_tercero_id: string;
+    /// Periodo del cierre al que vuelve (donde vive la fila).
+    mes: number;
+    anio: number;
     user_id?: string;
   }) {
-    const lt = await prisma.liquidacion_tercero.findFirst({
-      where: { id: params.liquidacion_tercero_id },
-      select: { id: true, liquidacion: { select: { mes: true, anio: true } } },
-    });
-    const mes = lt?.liquidacion?.mes;
-    const anio = lt?.liquidacion?.anio;
-    if (!lt || !mes || !anio) return { retirado: false, cabecera_id: null, mes: null, anio: null };
+    const mes = Number(params.mes);
+    const anio = Number(params.anio);
+    if (!mes || !anio) return { retirado: false, cabecera_id: null, mes: null, anio: null };
 
     const cabecera = await prisma.liquidacion_ingreso_transmeralda.findFirst({
       where: { mes, anio, deleted_at: null },
@@ -1090,7 +1171,7 @@ export const LiquidacionesTercerosIngresosService = {
     const fila = await prisma.liquidacion_ingreso_transmeralda_fila.findFirst({
       where: {
         liquidacion_ingreso_id: cabecera.id,
-        liquidacion_tercero_id: lt.id,
+        liquidacion_tercero_id: params.liquidacion_tercero_id,
         deleted_at: null,
       },
     });
@@ -1109,8 +1190,52 @@ export const LiquidacionesTercerosIngresosService = {
         ? { incluir_adicional: false, actualizado_por_id: params.user_id || null }
         : { deleted_at: new Date(), actualizado_por_id: params.user_id || null },
     });
-    await this.recalcularCabecera(cabecera.id, mes, anio, params.user_id);
     return { retirado: true, cabecera_id: cabecera.id, mes, anio };
+  },
+
+  /**
+   * Materializa la preselección de clientes prioritarios de un mes: una fila
+   * `incluir_adicional = true` por cada servicio de `CLIENTES_PRIORITARIOS`
+   * que todavía no tenga fila. Idempotente. Es lo que el canvas hace en
+   * memoria al abrir un mes sin cabecera y persiste con el primer guardado.
+   */
+  async sembrarPrioritarios(cabeceraId: string, mes: number, anio: number, userId?: string) {
+    const servicios = await prisma.liquidacion_tercero.findMany({
+      where: whereIngresos({ anio, mes }),
+      select: { id: true, liquidacion: { select: { cliente: { select: { nombre: true } } } } },
+    });
+    const prioritarios = servicios.filter((s) => esClientePrioritario(s.liquidacion?.cliente?.nombre));
+    if (prioritarios.length === 0) return 0;
+    const yaTienen = await prisma.liquidacion_ingreso_transmeralda_fila.findMany({
+      where: {
+        liquidacion_ingreso_id: cabeceraId,
+        liquidacion_tercero_id: { in: prioritarios.map((s) => s.id) },
+      },
+      select: { liquidacion_tercero_id: true },
+    });
+    const ocupados = new Set(yaTienen.map((f) => f.liquidacion_tercero_id));
+    const nuevas = prioritarios.filter((s) => !ocupados.has(s.id));
+    if (nuevas.length === 0) return 0;
+    await prisma.liquidacion_ingreso_transmeralda_fila.createMany({
+      data: nuevas.map((s) => ({
+        liquidacion_ingreso_id: cabeceraId,
+        liquidacion_tercero_id: s.id,
+        incluir_adicional: true,
+        actualizado_por_id: userId || null,
+      })),
+    });
+    return nuevas.length;
+  },
+
+  /// `recalcularCabecera` buscando la cabecera por periodo. Sin cabecera no
+  /// hay totales cacheados que actualizar y devuelve `null`.
+  async recalcularCabeceraPeriodo(mes: number, anio: number, userId?: string) {
+    const cab = await prisma.liquidacion_ingreso_transmeralda.findFirst({
+      where: { mes, anio, deleted_at: null },
+      select: { id: true },
+    });
+    if (!cab) return null;
+    return this.recalcularCabecera(cab.id, mes, anio, userId);
   },
 
   /**
