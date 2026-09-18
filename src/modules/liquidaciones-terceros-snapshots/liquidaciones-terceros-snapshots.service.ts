@@ -195,7 +195,15 @@ export const LiquidacionesSnapshotsService = {
      * salen del filtro de periodo. Se distinguen para que el historial diga
      * cuál de los dos caminos movió el cierre.
      */
-    origen: 'manual' | 'auto' | 'revert' | 'refresh-items' | 'items-manuales';
+    origen:
+      | 'manual'
+      | 'auto'
+      | 'revert'
+      | 'refresh-items'
+      | 'items-manuales'
+      /// Traslado de un item del pivote a ocasional/ingresos y su vuelta.
+      | 'trasladar-item'
+      | 'revertir-traslado';
     usuarioId?: string | null;
     revertidoDeId?: string | null;
   }) {

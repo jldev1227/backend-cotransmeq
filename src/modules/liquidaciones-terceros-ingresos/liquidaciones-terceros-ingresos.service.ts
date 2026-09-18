@@ -853,12 +853,6 @@ export const LiquidacionesTercerosIngresosService = {
     // del cliente: la edición se veía en pantalla y no llegaba nunca a la base.
     // Así son SIEMPRE cuatro sentencias, independientemente del tamaño del mes.
     //
-    // El borrado es FÍSICO y no lógico, a diferencia del resto de tablas del
-    // módulo. Dos razones: estas filas no son documentos —son la decisión que
-    // el equipo tomó sobre un servicio, y se reescriben enteras en cada
-    // guardado, así que no hay historial que preservar—, y el índice único
-    // `(cabecera, item)` no incluye `deleted_at`, con lo que una fila marcada
-    // como borrada seguiría chocando con la que la sustituye.
     // Los conceptos se MARCAN, igual que las filas.
     //
     // El comentario anterior justificaba borrarlos en duro por el índice único
@@ -929,6 +923,250 @@ export const LiquidacionesTercerosIngresosService = {
       filas_count: filasSanitizadas.length,
       conceptos_count: conceptosSanitizados.length,
     };
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // TRASLADO DESDE UN CIERRE DE PLACA
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * INCLUIR de un item, decidido desde «Filas del cierre → Items».
+   *
+   * La hoja de ingresos ya lista este item si dejó ingreso y está facturado
+   * —esté o no en un cierre—. Lo que hace el traslado es marcarle INCLUIR
+   * para que baje a la hoja de ADICIONALES, que es el otro documento por el
+   * que se le puede pagar al tercero. El cierre, por su lado, lo quita del
+   * pivote: si se quedara en los dos se pagaría dos veces.
+   *
+   * El PERIODO es el de la liquidación de servicio, que es por el que la
+   * hoja filtra (`whereIngresos`), y no el del cierre: un item de mayo que
+   * viva en el cierre de julio sigue siendo un ingreso de mayo.
+   *
+   * Se valida lo mismo que `whereIngresos`, pero con un mensaje por causa:
+   * un item que no cumpla el filtro tendría la fila marcada y nadie la vería.
+   */
+  async marcarIncluirDesdeCierre(params: {
+    liquidacion_tercero_id: string;
+    user_id?: string;
+  }) {
+    const lt = await prisma.liquidacion_tercero.findFirst({
+      where: { id: params.liquidacion_tercero_id, deleted_at: null },
+      select: {
+        id: true,
+        recorrido: true,
+        ingreso_empresa: true,
+        liquidacion: {
+          select: {
+            consecutivo: true,
+            mes: true,
+            anio: true,
+            estado: true,
+            deleted_at: true,
+            factura_items: {
+              where: { factura: { deleted_at: null, estado: "ACTIVA" } },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+        ocasionales_items: {
+          where: { deleted_at: null, liquidacion_ocasional: { deleted_at: null } },
+          select: { liquidacion_ocasional: { select: { consecutivo: true } } },
+          take: 1,
+        },
+      },
+    });
+    if (!lt) throw new Error("El item ya no existe en la base");
+    const nombre = `«${lt.recorrido || lt.id}»`;
+    const liq = lt.liquidacion;
+    if (!liq || liq.deleted_at || liq.estado === "ANULADA") {
+      throw new Error(
+        `La liquidación ${liq?.consecutivo || ""} del item ${nombre} está anulada: no es un ingreso de la hoja.`,
+      );
+    }
+    if (toNumber(lt.ingreso_empresa) === 0) {
+      throw new Error(
+        `El item ${nombre} no dejó ingreso a Transmeralda (ING. TRANSMERALDA en 0), así que no tiene fila en la hoja de ingresos.`,
+      );
+    }
+    if (!liq.factura_items || liq.factura_items.length === 0) {
+      throw new Error(
+        `La liquidación ${liq.consecutivo || ""} del item ${nombre} no está facturada: la hoja de ingresos solo lista servicios con factura activa.`,
+      );
+    }
+    if (lt.ocasionales_items.length > 0) {
+      throw new Error(
+        `El item ${nombre} ya está en la liquidación ocasional ${lt.ocasionales_items[0].liquidacion_ocasional?.consecutivo || ""}: allí no cuenta como ingreso de esta hoja.`,
+      );
+    }
+    if (!liq.mes || !liq.anio) {
+      throw new Error(`La liquidación ${liq.consecutivo || ""} no tiene mes/año definidos.`);
+    }
+    const mes = liq.mes;
+    const anio = liq.anio;
+
+    // Cabecera del mes: se crea si es la primera decisión del periodo, igual
+    // que en el primer guardado del canvas.
+    const existente = await prisma.liquidacion_ingreso_transmeralda.findFirst({
+      where: { mes, anio, deleted_at: null },
+      select: { id: true },
+    });
+    const cabecera = existente
+      ? existente
+      : await prisma.liquidacion_ingreso_transmeralda.create({
+          data: {
+            mes,
+            anio,
+            creado_por_id: params.user_id || null,
+            actualizado_por_id: params.user_id || null,
+          },
+          select: { id: true },
+        });
+
+    // `uniq_ingreso_fila_item` cuenta también las tachadas: si hay fila, se
+    // reactiva y se le enciende el INCLUIR conservando lo demás que dijera.
+    const fila = await prisma.liquidacion_ingreso_transmeralda_fila.findFirst({
+      where: { liquidacion_ingreso_id: cabecera.id, liquidacion_tercero_id: lt.id },
+      select: { id: true, incluir_adicional: true, deleted_at: true },
+    });
+    const yaIncluida = !!fila && fila.incluir_adicional && !fila.deleted_at;
+    if (fila) {
+      await prisma.liquidacion_ingreso_transmeralda_fila.update({
+        where: { id: fila.id },
+        data: {
+          incluir_adicional: true,
+          deleted_at: null,
+          actualizado_por_id: params.user_id || null,
+        },
+      });
+    } else {
+      await prisma.liquidacion_ingreso_transmeralda_fila.create({
+        data: {
+          liquidacion_ingreso_id: cabecera.id,
+          liquidacion_tercero_id: lt.id,
+          incluir_adicional: true,
+          actualizado_por_id: params.user_id || null,
+        },
+      });
+    }
+    await this.recalcularCabecera(cabecera.id, mes, anio, params.user_id);
+
+    return {
+      cabecera_id: cabecera.id,
+      mes,
+      anio,
+      creada: !existente,
+      ya_incluida: yaIncluida,
+    };
+  },
+
+  /**
+   * Contrapartida de `marcarIncluirDesdeCierre`: al devolver el item al
+   * cierre se le apaga el INCLUIR. Si la fila solo decía eso, se tacha; si
+   * además llevaba cantidad o porcentajes propios, se conservan y solo cae
+   * el INCLUIR —es lo que `guardarBorrador` haría con ella—.
+   *
+   * Sin cabecera o sin fila no hay nada que deshacer y se devuelve
+   * `retirado: false` sin fallar: el cierre sí tiene que recuperar su item.
+   */
+  async desmarcarIncluirDesdeCierre(params: {
+    liquidacion_tercero_id: string;
+    user_id?: string;
+  }) {
+    const lt = await prisma.liquidacion_tercero.findFirst({
+      where: { id: params.liquidacion_tercero_id },
+      select: { id: true, liquidacion: { select: { mes: true, anio: true } } },
+    });
+    const mes = lt?.liquidacion?.mes;
+    const anio = lt?.liquidacion?.anio;
+    if (!lt || !mes || !anio) return { retirado: false, cabecera_id: null, mes: null, anio: null };
+
+    const cabecera = await prisma.liquidacion_ingreso_transmeralda.findFirst({
+      where: { mes, anio, deleted_at: null },
+      select: { id: true },
+    });
+    if (!cabecera) return { retirado: false, cabecera_id: null, mes, anio };
+
+    const fila = await prisma.liquidacion_ingreso_transmeralda_fila.findFirst({
+      where: {
+        liquidacion_ingreso_id: cabecera.id,
+        liquidacion_tercero_id: lt.id,
+        deleted_at: null,
+      },
+    });
+    if (!fila || !fila.incluir_adicional) {
+      return { retirado: false, cabecera_id: cabecera.id, mes, anio };
+    }
+    const conservaOtros =
+      toNumber(fila.cantidad) !== 1 ||
+      fila.pct_admon_ingresos != null ||
+      fila.pct_ganancia != null ||
+      fila.pct_admon_adicional != null ||
+      fila.valor_unitario_adicional != null;
+    await prisma.liquidacion_ingreso_transmeralda_fila.update({
+      where: { id: fila.id },
+      data: conservaOtros
+        ? { incluir_adicional: false, actualizado_por_id: params.user_id || null }
+        : { deleted_at: new Date(), actualizado_por_id: params.user_id || null },
+    });
+    await this.recalcularCabecera(cabecera.id, mes, anio, params.user_id);
+    return { retirado: true, cabecera_id: cabecera.id, mes, anio };
+  },
+
+  /**
+   * Recalcula y guarda los totales cacheados de la cabecera de un mes a
+   * partir de lo que HAY EN LA BASE.
+   *
+   * `guardarBorrador` lo hace con el payload que manda el canvas. Esto es
+   * para los cambios que entran por otra puerta —el traslado desde un
+   * cierre— y no traen payload: se leen las filas y conceptos vivos y se
+   * pasan por la misma `recalcularIngresos`, así los dos caminos dejan los
+   * mismos números.
+   */
+  async recalcularCabecera(cabeceraId: string, mes: number, anio: number, userId?: string) {
+    const cab = await prisma.liquidacion_ingreso_transmeralda.findFirst({
+      where: { id: cabeceraId, deleted_at: null },
+      include: {
+        filas: { where: { deleted_at: null } },
+        conceptos: { where: { deleted_at: null } },
+      },
+    });
+    if (!cab) return null;
+
+    const [servicios, adicionales] = await Promise.all([
+      prisma.liquidacion_tercero.findMany({
+        where: whereIngresos({ anio, mes }),
+        include: INCLUDE_INGRESO,
+        orderBy: ORDER_BY,
+      }),
+      this.listarAdicionalesPeriodo(mes, anio),
+    ]);
+    const items = [...servicios.map(serializeRow), ...adicionales];
+    const filas: FilaIngresoInput[] = cab.filas.map((f: any) => ({
+      liquidacion_tercero_id: f.liquidacion_tercero_id ?? f.adicional_id,
+      incluir_adicional: f.incluir_adicional,
+      cantidad: toNumber(f.cantidad),
+      pct_admon_ingresos: f.pct_admon_ingresos == null ? null : toNumber(f.pct_admon_ingresos),
+      pct_ganancia: f.pct_ganancia == null ? null : toNumber(f.pct_ganancia),
+      pct_admon_adicional:
+        f.pct_admon_adicional == null ? null : toNumber(f.pct_admon_adicional),
+      valor_unitario_adicional:
+        f.valor_unitario_adicional == null ? null : toNumber(f.valor_unitario_adicional),
+      orden: f.orden ?? 0,
+    }));
+    const totales = recalcularIngresos({
+      items,
+      filas,
+      conceptos: cab.conceptos.map(serializeConcepto) as any,
+      pctAdmonIngresos: toNumber(cab.pct_admon_ingresos),
+      pctGananciaAdicionales: toNumber(cab.pct_ganancia_adicionales),
+      pctAdmonAdicionales: toNumber(cab.pct_admon_adicionales),
+    });
+    await prisma.liquidacion_ingreso_transmeralda.update({
+      where: { id: cabeceraId },
+      data: { ...totales, actualizado_por_id: userId || undefined, updated_at: new Date() },
+    });
+    return totales;
   },
 };
 

@@ -101,6 +101,13 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   // la vista de edición para permitir restaurarla sin regenerar el borrador.
   app.patch('/liquidaciones-terceros/items/:pivoteId/excluir', puedeEscribir, LiquidacionesTercerosDescuentosController.toggleExcluirItem);
 
+  // ── Trasladar un item del pivote a ocasional / ingresos, y deshacerlo ──
+  // Quita el item del cierre y lo mete en el otro documento en una sola
+  // operación; la vuelta deshace los dos lados. Escritura: cambia lo que se
+  // le paga al tercero por cada documento.
+  app.post('/liquidaciones-terceros/items/:pivoteId/trasladar', puedeEscribir, LiquidacionesTercerosDescuentosController.trasladarItem);
+  app.post('/liquidaciones-terceros/items/:pivoteId/revertir-traslado', puedeEscribir, LiquidacionesTercerosDescuentosController.revertirTrasladoItem);
+
   // ── ESTADO del cierre ──
   app.post('/liquidaciones-terceros/estado-lote', puedeEscribir, LiquidacionesTercerosDescuentosController.cambiarEstadoLote);
   app.patch('/liquidaciones-terceros/:id/estado', puedeEscribir, LiquidacionesTercerosDescuentosController.cambiarEstado);

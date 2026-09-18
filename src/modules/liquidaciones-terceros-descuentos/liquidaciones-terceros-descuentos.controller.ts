@@ -5,6 +5,7 @@ import { PeriodoCierresService } from './periodo-cierres.service';
 import { CierreEstadoService, ErrorEstado } from './cierre-estado.service';
 import { emitSheetColorChanged, emitSheetInvalidate, emitSheetRemoved } from '../../sockets/sheet.gateway';
 import { CierreFinalCeldasService } from './cierre-final-celdas.service';
+import { ErrorTraslado, TrasladoItemsService } from './traslado-items.service';
 import { borradorQueueService } from '../../queue/borrador-queue.service';
 import { bulkSaveLiquidacionTerceroService } from '../../queue/bulk-save-liquidacion-tercero.service';
 
@@ -522,6 +523,40 @@ export class LiquidacionesTercerosDescuentosController {
       return reply.send(result);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
+    }
+  }
+
+  // ── TRASLADAR UN ITEM DEL PIVOTE A OCASIONAL / INGRESOS, Y DESHACERLO ──
+  //
+  // POST /liquidaciones-terceros/items/:pivoteId/trasladar  { destino }
+  // POST /liquidaciones-terceros/items/:pivoteId/revertir-traslado
+  //
+  // Los errores del destino (ocasional aprobado, item sin factura…) llegan
+  // como `Error` a secas desde su módulo: son de ESTADO y quien llama puede
+  // resolverlos, así que van como 409 igual que en `agregarItems`.
+
+  static async trasladarItem(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { pivoteId } = request.params as any;
+      const { destino } = (request.body as any) || {};
+      const userId = (request as any).user?.id;
+      const result = await TrasladoItemsService.trasladar(pivoteId, destino, userId);
+      return reply.send(result);
+    } catch (error: any) {
+      const status = error instanceof ErrorTraslado ? error.status : 409;
+      return reply.status(status).send({ error: error.message || 'Error al trasladar el item' });
+    }
+  }
+
+  static async revertirTrasladoItem(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { pivoteId } = request.params as any;
+      const userId = (request as any).user?.id;
+      const result = await TrasladoItemsService.revertir(pivoteId, userId);
+      return reply.send(result);
+    } catch (error: any) {
+      const status = error instanceof ErrorTraslado ? error.status : 409;
+      return reply.status(status).send({ error: error.message || 'Error al devolver el item' });
     }
   }
 

@@ -1172,6 +1172,7 @@ model usuarios {
   liquidacion_tercero_final_actualizado_por        liquidacion_tercero_final[]                      @relation("liquidacion_tercero_final_actualizado_por")
   lt_final_adicional_creado_por                    liquidacion_tercero_final_adicional[]            @relation("lt_final_adicional_creado_por")
   lt_final_adicional_actualizado_por               liquidacion_tercero_final_adicional[]            @relation("lt_final_adicional_actualizado_por")
+  lt_final_item_trasladado_por                     liquidacion_tercero_final_item[]                 @relation("lt_final_item_trasladado_por")
   lt_adicional_periodo_snapshots                   liquidacion_tercero_adicional_periodo_snapshot[] @relation("snapshot_adicional_periodo_usuario")
   historial_estado_lt_final                        historial_estado_liquidacion_tercero_final[]     @relation("historial_estado_lt_final_usuario")
   historial_estado_nomina                          historial_estado_liquidacion_nomina[]            @relation("historial_estado_nomina_usuario")
@@ -3366,14 +3367,24 @@ model liquidacion_tercero_final_item {
   liquidacion_tercero_id       String                    @db.Uuid
   orden                        Int                       @default(0)
   aplica_impuestos             Boolean                   @default(true)
+  /// A dónde se TRASLADÓ el item al quitarlo del cierre: `OCASIONAL`
+  /// (liquidación ocasional del periodo del cierre) o `INGRESOS` (INCLUIR en
+  /// la hoja de ingresos, baja a ADICIONALES). NULL = quitado a mano o vivo.
+  /// Un trasladado lleva SIEMPRE `deleted_at`; la marca es lo que permite
+  /// deshacer el otro lado al devolverlo. CHECK `chk_lt_final_item_trasladado_a`.
+  trasladado_a                 String?                   @db.VarChar(20)
+  trasladado_at                DateTime?                 @db.Timestamptz(6)
+  trasladado_por_id            String?                   @db.Uuid
   created_at                   DateTime                  @default(now()) @db.Timestamptz(6)
   deleted_at                   DateTime?                 @db.Timestamptz(6)
   liquidacion_tercero_final    liquidacion_tercero_final @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
   liquidacion_tercero          liquidacion_tercero       @relation(fields: [liquidacion_tercero_id], references: [id], onDelete: Cascade)
+  usuarios_trasladado_por      usuarios?                 @relation("lt_final_item_trasladado_por", fields: [trasladado_por_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "lt_final_item_trasladado_por_fkey")
 
   @@unique([liquidacion_tercero_final_id, liquidacion_tercero_id])
   @@index([liquidacion_tercero_final_id])
   @@index([liquidacion_tercero_id])
+  @@index([liquidacion_tercero_final_id, trasladado_a], map: "idx_lt_final_item_trasladado")
 }
 
 model liquidacion_tercero_final_concepto {
