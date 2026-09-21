@@ -151,7 +151,7 @@ export const hseqFr05: SeedDefinition = {
 	},
 
 	warnings: [
-		'La fecha de vencimiento solo se pide en los elementos que caducan (gasas, sueros, alcohol, guantes…). El original la pide para los 33, incluidas tijeras y pito. HSEQ debe confirmar la lista de elementos con caducidad.',
+		'La fecha de vencimiento se ofrece en todos los elementos y no se exige en ninguno: HSEQ reportó insumos que la traen impresa y otros que no, y acertar la lista por adelantado no era posible. El campo `caduca` de la lista se conserva como dato de HSEQ, pero ya no decide si el campo existe.',
 		'La sección «Cambios o reposiciones» del original repite la tabla completa en blanco; se transcribió como grupo repetible en vez de 33 campos más.',
 		'La escala del original es B / M / C-R (bueno, malo, cambiar-reemplazar). Se conservó tal cual.',
 		'El elemento «Estado general e higiene de la maleta del botiquín» del original no es un elemento inventariable; se transcribió como ítem de estado sin cantidad.',
@@ -176,7 +176,14 @@ export const hseqFr05: SeedDefinition = {
 				'Inventario del botiquín',
 				ELEMENTOS.map((e) =>
 					itemInventario(e.key, e.label, e.unidad, ESCALA_B_M_CR, {
-						conVencimiento: Boolean(e.caduca),
+						/// En TODOS, no solo en los que caducan: el campo es opcional y
+						/// quien inspecciona unas tijeras lo deja vacío. Acertar la lista
+						/// exacta resultó imposible —HSEQ reporta insumos que traen fecha
+						/// y otros que no— y equivocarse por defecto deja al inspector sin
+						/// dónde escribir una fecha que tiene impresa delante. `caduca` se
+						/// conserva como dato de HSEQ para informes de «por vencer», pero
+						/// ya no decide si el campo existe.
+						conVencimiento: true,
 						conCantidad: true
 					})
 				),

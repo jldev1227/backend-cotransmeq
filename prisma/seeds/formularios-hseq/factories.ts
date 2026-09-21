@@ -602,6 +602,18 @@ export function itemKit(key: string, label: string, cantidadEsperada: string): C
 				all: [{ fieldKey: estadoKey, operator: 'in', value: ['INCOMPLETO', 'NO_TIENE'] }],
 				effect: { action: 'show', targetFieldKey: faltanteKey }
 			} satisfies Rule
+		}),
+		/// La fecha va DETRÁS del bloque y no delante: el campo de estado lleva el
+		/// nombre del elemento a secas («Guantes de nitrilo») y no hay cantidad,
+		/// así que abrir con «…fecha de vencimiento» obligaría a leer la fecha
+		/// antes de saber de qué elemento se habla.
+		///
+		/// Opcional siempre, también en la caneca y la pala: el kit mezcla
+		/// consumibles que caducan —guantes, mascarilla con filtro, absorbente—
+		/// con herramienta que no, y exigirla o esconderla según el elemento
+		/// obliga a acertar una lista que HSEQ no ha cerrado.
+		fecha(`${key}_vencimiento`, `${label} — fecha de vencimiento`, {
+			helpText: 'Opcional: escríbela solo si el empaque la trae.'
 		})
 	]
 }
