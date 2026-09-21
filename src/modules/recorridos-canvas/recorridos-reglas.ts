@@ -8,10 +8,15 @@
  */
 
 /** Tipo de coerción de cada campo. */
-export type Coercion = 'texto' | 'hora' | 'decimal' | 'entero' | 'flag' | 'tipo_dia'
+export type Coercion = 'texto' | 'hora' | 'decimal' | 'entero' | 'flag' | 'tipo_dia' | 'fecha'
 
 /** Campos editables de una fila de RECORRIDO. Lista blanca: default-deny. */
 export const CAMPOS_SEGMENTO: Record<string, Coercion> = {
+  /// La FECHA es del DÍA, no del tramo: cambiarla en un recorrido mueve la
+  /// jornada entera, con todos sus tramos. Se admite aquí porque corregir una
+  /// fecha mal tecleada es la edición más común al revisar una planilla, y
+  /// obligar a borrar la fila y volver a crearla perdía los bonos marcados.
+  fecha: 'fecha',
   cliente_nombre: 'texto',
   vehiculo_placa: 'texto',
   hora_inicio: 'hora',
@@ -33,8 +38,12 @@ export const CAMPOS_SEGMENTO: Record<string, Coercion> = {
  * jornada sin que el usuario lo vea.
  */
 export const CAMPOS_DIA: Record<string, Coercion> = {
+  fecha: 'fecha',
   tipo_dia: 'tipo_dia',
   observaciones: 'texto',
+  /// El pernocte de un día sin recorridos va en su propia columna del día.
+  /// Ver la nota del modelo en `schema.prisma`.
+  pernocte: 'flag',
 }
 
 export const TIPOS_DIA_VALIDOS = new Set([
@@ -121,9 +130,24 @@ export function normalizar(campo: string, valor: unknown, tipo: Coercion): unkno
       return `${String(h).padStart(2, '0')}:${m[2]}`
     }
 
+    case 'fecha': {
+      const t = aTexto(valor) ?? ''
+      if (!esFechaISO(t)) {
+        throw new ValorInvalido(
+          `"${t}" no es una fecha válida. Usa el formato AAAA-MM-DD (por ejemplo 2026-09-03).`,
+          'VALOR_INVALIDO',
+        )
+      }
+      return t
+    }
+
     case 'decimal': {
       if (valor === null || valor === '' || valor === undefined) return 0
-      const n = Number(valor)
+      // La celda muestra «6 horas» —es un formato numérico, el valor sigue
+      // siendo 6—, pero quien lo ve tiende a teclearlo igual. Se acepta el
+      // número con o sin la palabra, y con coma decimal, que es la del teclado
+      // colombiano.
+      const n = typeof valor === 'number' ? valor : numeroDeHoras(String(valor))
       if (!Number.isFinite(n) || n < 0 || n > 24) {
         throw new ValorInvalido(
           'Las horas conducidas deben ser un número entre 0 y 24.',
@@ -176,7 +200,7 @@ export function exigirNoVacio(campo: string, valor: unknown): void {
         : 'La hora de fin'
   throw new ValorInvalido(
     `${que} no puede quedar vacía en un recorrido. Si el tramo no existió, ` +
-      `elimínalo desde «Registrar recorridos» en vez de borrar la celda.`,
+      `elimina la fila (clic derecho sobre su número → Eliminar fila) en vez de borrar la celda.`,
     'REGLA_NEGOCIO',
   )
 }
@@ -212,5 +236,194 @@ export function validarCoherencia(fila: {
       `El kilometraje final (${km_final}) no puede ser menor que el inicial (${km_inicial}).`,
       'REGLA_NEGOCIO',
     )
+  }
+}
+
+/** `6`, `6,5`, `6 horas`, `6.5h` → número. `NaN` si no se entiende. */
+export function numeroDeHoras(texto: string): number {
+  const m = /^\s*(\d{1,2}(?:[.,]\d+)?)\s*(?:h|hr|hrs|hora|horas)?\.?\s*$/i.exec(texto)
+  return m ? Number(m[1].replace(',', '.')) : Number.NaN
+}
+
+/** ¿Es un `YYYY-MM-DD` que existe en el calendario? */
+export function esFechaISO(v: string | null | undefined): boolean {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
+  const [a, m, d] = v.split('-').map(Number)
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false
+  const f = new Date(Date.UTC(a, m - 1, d))
+  return f.getUTCFullYear() === a && f.getUTCMonth() === m - 1 && f.getUTCDate() === d
+}
+
+/**
+ * Comprueba que una fecha cabe en el corte que el usuario tiene abierto.
+ *
+ * Una fila con fecha fuera del corte se guardaría bien y DESAPARECERÍA del
+ * libro en la siguiente recarga: el usuario la vería esfumarse sin explicación.
+ * Mejor rechazarla con la fecha y el corte en el mensaje.
+ */
+export function exigirDentroDelCorte(
+  fecha: string,
+  corte: { desde: string; hasta: string },
+): void {
+  if (fecha >= corte.desde && fecha <= corte.hasta) return
+  throw new ValorInvalido(
+    `La fecha ${fecha} queda fuera del corte abierto (${corte.desde} a ${corte.hasta}). ` +
+      `Corrígela, o cambia de corte en la barra superior.`,
+    'REGLA_NEGOCIO',
+  )
+}
+
+/**
+ * Los días futuros no se registran, ni desde el portal ni desde el canvas.
+ *
+ * `hoy` se pasa por parámetro para poder probarlo; en producción es la fecha
+ * del servidor, en la zona horaria de Colombia.
+ */
+export function exigirNoFutura(fecha: string, hoy: string): void {
+  if (fecha <= hoy) return
+  throw new ValorInvalido(
+    `La fecha ${fecha} es futura. Solo se registran días ya trabajados.`,
+    'REGLA_NEGOCIO',
+  )
+}
+
+/** `YYYY-MM-DD` de hoy en Colombia, que es donde se trabaja la planilla. */
+export function hoyISO(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(ahora)
+}
+
+/** Lo que llega de una fila insertada en el canvas, tal cual se tecleó. */
+export interface FilaNuevaEntrada {
+  fecha: unknown
+  tipo_dia?: unknown
+  vehiculo_placa?: unknown
+  hora_inicio?: unknown
+  hora_fin?: unknown
+  horas_conducidas?: unknown
+  cliente_nombre?: unknown
+  km_inicial?: unknown
+  km_final?: unknown
+  pernocte?: unknown
+  observaciones?: unknown
+}
+
+export type FilaNuevaClasificada =
+  | {
+      clase: 'recorrido'
+      fecha: string
+      vehiculo_placa: string
+      hora_inicio: string
+      hora_fin: string
+      horas_conducidas: number
+      cliente_nombre: string | null
+      km_inicial: number | null
+      km_final: number | null
+      pernocte: boolean
+      observaciones: string | null
+    }
+  | {
+      clase: 'dia'
+      fecha: string
+      tipo_dia: string
+      /// Solo para MANTENIMIENTO: el vehículo intervenido.
+      vehiculo_placa: string | null
+      pernocte: boolean
+      observaciones: string | null
+    }
+
+/**
+ * Decide qué es una fila insertada en el canvas: un RECORRIDO o un DÍA sin
+ * recorridos, y valida lo mínimo de cada una.
+ *
+ * La regla es la misma que sigue el portal del conductor: con placa y horario
+ * es un recorrido —y el día pasa a ser LABORADO—; sin ellos es un día de
+ * disponibilidad, descanso o mantenimiento, que no lleva tramo. Un día
+ * LABORADO sin recorrido no existe: no dice qué se trabajó.
+ *
+ * Todo o nada en el trío placa/inicio/fin: en el esquema de cotransmeq los tres
+ * son NOT NULL, y en el de transmeralda un recorrido sin horario tampoco vale
+ * para liquidar.
+ */
+export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasificada {
+  const fecha = normalizar('fecha', entrada.fecha, 'fecha') as string
+  const placa = aTexto(entrada.vehiculo_placa)?.toUpperCase().replace(/\s+/g, '') || null
+  const horaIni = normalizar('hora_inicio', entrada.hora_inicio, 'hora') as string | null
+  const horaFin = normalizar('hora_fin', entrada.hora_fin, 'hora') as string | null
+  const pernocte = aBooleano(entrada.pernocte)
+  const observaciones = normalizar('observaciones', entrada.observaciones, 'texto') as
+    | string
+    | null
+  const tipoCrudo = (aTexto(entrada.tipo_dia) ?? '').toUpperCase()
+
+  const esRecorrido = !!(placa || horaIni || horaFin) && tipoCrudo !== 'MANTENIMIENTO'
+
+  if (esRecorrido) {
+    const faltan = [
+      !placa && 'la placa',
+      !horaIni && 'la hora inicial',
+      !horaFin && 'la hora final',
+    ].filter(Boolean)
+    if (faltan.length) {
+      throw new ValorInvalido(
+        `A un recorrido le falta ${faltan.join(' y ')}. Completa la fila para guardarla.`,
+        'REGLA_NEGOCIO',
+      )
+    }
+    if (tipoCrudo && tipoCrudo !== 'LABORADO') {
+      throw new ValorInvalido(
+        `Una fila con placa y horario es un recorrido, y un recorrido es un día LABORADO, ` +
+          `no ${tipoCrudo}. Quita el tipo o deja la placa y el horario en blanco.`,
+        'REGLA_NEGOCIO',
+      )
+    }
+    const fila = {
+      clase: 'recorrido' as const,
+      fecha,
+      vehiculo_placa: placa!,
+      hora_inicio: horaIni!,
+      hora_fin: horaFin!,
+      horas_conducidas: normalizar('horas_conducidas', entrada.horas_conducidas, 'decimal') as number,
+      cliente_nombre: normalizar('cliente_nombre', entrada.cliente_nombre, 'texto') as string | null,
+      km_inicial: normalizar('km_inicial', entrada.km_inicial, 'entero') as number | null,
+      km_final: normalizar('km_final', entrada.km_final, 'entero') as number | null,
+      pernocte,
+      observaciones,
+    }
+    validarCoherencia(fila)
+    return fila
+  }
+
+  if (!tipoCrudo) {
+    throw new ValorInvalido(
+      'Indica qué es la fila: escribe la placa y el horario si es un recorrido, o el TIPO DE DÍA ' +
+        '(DISPONIBLE, DESCANSO o MANTENIMIENTO) si no lo es.',
+      'REGLA_NEGOCIO',
+    )
+  }
+  const tipo = normalizar('tipo_dia', tipoCrudo, 'tipo_dia') as string
+  if (tipo === 'LABORADO') {
+    throw new ValorInvalido(
+      'Un día LABORADO necesita al menos un recorrido: escribe la placa y el horario en la misma fila.',
+      'REGLA_NEGOCIO',
+    )
+  }
+  if (tipo === 'MANTENIMIENTO' && !placa) {
+    throw new ValorInvalido(
+      'Un día de MANTENIMIENTO necesita la placa del vehículo intervenido.',
+      'REGLA_NEGOCIO',
+    )
+  }
+  return {
+    clase: 'dia',
+    fecha,
+    tipo_dia: tipo,
+    vehiculo_placa: tipo === 'MANTENIMIENTO' ? placa : null,
+    pernocte,
+    observaciones,
   }
 }

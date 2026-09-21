@@ -13,9 +13,11 @@ import { requireRecorridosEdicion } from './recorridos.middleware'
  * cualquiera podría reescribir los tramos que alimentan la nómina. La regla
  * está en `config/permissions.ts` y su espejo del frontend.
  *
- * Aquí solo hay LECTURA: las escrituras del canvas viajan por socket
- * (`sheet:patch`), donde `RecorridosPatchService` vuelve a comprobar el área
- * porque los sockets no pasan por `requirePermission`.
+ * Las escrituras CELDA A CELDA viajan por socket (`sheet:patch`), donde
+ * `RecorridosPatchService` vuelve a comprobar el área porque los sockets no
+ * pasan por `requirePermission`. Por REST van solo las que cambian la
+ * geometría de la hoja —alta y baja de filas— y devuelven una fila entera, que
+ * no cabe en un acuse por celda.
  */
 const MODULO = 'recorridos'
 
@@ -33,7 +35,16 @@ export async function recorridosCanvasRoutes(app: FastifyInstance) {
   // Ruta con literal antes que cualquier paramétrica del mismo prefijo, para
   // que Fastify no tenga que desambiguar.
   app.get('/recorridos/canvas/bonos', puedeLeer, RecorridosCanvasController.bonos)
+  app.get('/recorridos/canvas/placas', puedeLeer, RecorridosCanvasController.placas)
   app.get('/recorridos/canvas', puedeLeer, RecorridosCanvasController.periodo)
+
+  // Filas insertadas o eliminadas desde el propio canvas.
+  app.post('/recorridos/canvas/filas', puedeEscribir, RecorridosCanvasController.crearFila)
+  app.delete(
+    '/recorridos/canvas/filas/:tipo/:id',
+    puedeEscribir,
+    RecorridosCanvasController.eliminarFila,
+  )
 
   // Snapshots del periodo. Capturar y revertir son escrituras: cambian lo que
   // el resto de la sala está mirando.

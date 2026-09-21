@@ -1,6 +1,8 @@
+import { randomUUID } from 'crypto'
 import { prisma } from '../../config/prisma'
 import { checkAccess, type Area } from '../../config/permissions'
 import { obtenerPermisosRutas } from '../../services/permisos-rutas.service'
+import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import {
   CAMPOS_SEGMENTO,
   CAMPOS_DIA,
@@ -11,7 +13,14 @@ import {
   normalizar,
   validarCoherencia,
   exigirNoVacio,
+  exigirDentroDelCorte,
+  exigirNoFutura,
+  hoyISO,
+  clasificarFilaNueva,
+  type FilaNuevaEntrada,
 } from './recorridos-reglas'
+import { RecorridosCanvasService } from './recorridos-canvas.service'
+import type { FilaRecorrido } from './recorridos-canvas.types'
 
 /**
  * Edición celda a celda del canvas de recorridos.
@@ -56,8 +65,21 @@ export class ConflictoVersionRecorrido extends Error {
 
 export interface ResultadoPatchRecorrido {
   version: number
-  /** Campos que el servidor derivó y el cliente debe repintar. */
+  /**
+   * Campos que el servidor derivó y el cliente debe repintar.
+   *
+   * Incluye el propio campo cuando el valor guardado no es el tecleado: «7:30»
+   * se guarda como «07:30» y «6 horas» como 6. Sin el eco, la celda se quedaba
+   * con el texto crudo hasta la siguiente recarga, y el formato numérico de la
+   * columna de horas no se aplicaba a una cadena.
+   */
   derivados: Record<string, unknown>
+  /**
+   * Otras filas del canvas que cambiaron con este patch y hay que repintar
+   * con los mismos `derivados`. Solo lo llena mover la FECHA: la fecha es del
+   * día, y los demás recorridos de esa jornada se mueven con ella.
+   */
+  afectados?: string[]
 }
 
 export class RecorridosPatchService {
@@ -188,6 +210,15 @@ export class RecorridosPatchService {
     // válida, y en cotransmeq además viola un NOT NULL.
     this.conReglas(() => exigirNoVacio(campo, valor))
 
+    if (campo === 'fecha') {
+      return this.moverDia({
+        tipoFila: 'segmento',
+        entityId: segmentoId,
+        fecha: this.conReglas(() => normalizar(campo, valor, coercion)) as string,
+        baseVersion,
+      })
+    }
+
     if (campo === 'cliente_nombre') {
       const { id, nombre } = await this.resolverCliente(valor)
       data.cliente_id = id
@@ -202,6 +233,7 @@ export class RecorridosPatchService {
       derivados.vehiculo_placa = placa
     } else {
       data[campo] = this.conReglas(() => normalizar(campo, valor, coercion))
+      if (data[campo] !== valor) derivados[campo] = data[campo]
     }
 
     // Se valida contra la fila RESULTANTE (lo que ya había más lo que se está
@@ -257,11 +289,20 @@ export class RecorridosPatchService {
       throw new PatchRecorridoError('El día ya no existe o fue eliminado.', 'NO_ENCONTRADO')
     }
 
+    if (campo === 'fecha') {
+      return this.moverDia({
+        tipoFila: 'dia',
+        entityId: registroDiaId,
+        fecha: this.conReglas(() => normalizar(campo, valor, coercion)) as string,
+        baseVersion,
+      })
+    }
+
     // `tipo_dia` es el nombre de la columna en el canvas; en la tabla es `tipo`.
     const columna = campo === 'tipo_dia' ? 'tipo' : campo
-    const data: Record<string, unknown> = {
-      [columna]: this.conReglas(() => normalizar(campo, valor, coercion)),
-    }
+    const normalizado = this.conReglas(() => normalizar(campo, valor, coercion))
+    const data: Record<string, unknown> = { [columna]: normalizado }
+    const derivados: Record<string, unknown> = normalizado !== valor ? { [campo]: normalizado } : {}
 
     const gano = await prisma.registro_dia_laboral.updateMany({
       where: { id: registroDiaId, ...(baseVersion != null ? { version: baseVersion } : {}) },
@@ -272,7 +313,375 @@ export class RecorridosPatchService {
     }
 
     const fresco = await this.filaDia(registroDiaId)
-    return { version: Number(fresco?.version ?? 0), derivados: {} }
+    return { version: Number(fresco?.version ?? 0), derivados }
+  }
+
+  // ── Fecha: mover el día ──────────────────────────────────────────────────
+
+  /**
+   * Cambia la FECHA de un día. Se mueve la jornada entera —todos sus tramos y
+   * sus bonos van con ella—, porque la fecha es del día y no del tramo.
+   *
+   * El destino tiene que estar libre: `(conductor_id, fecha)` es único y la
+   * unicidad incluye los días retirados, que conservan su fecha para poder
+   * revivirlos. Un destino ocupado, vivo o retirado, se rechaza con la
+   * instrucción de qué hacer en vez de fundir dos días a ciegas.
+   *
+   * El CAS se hace sobre la ENTIDAD de la fila editada (el segmento o el día),
+   * que es la versión que el cliente conoce; la versión del padre se sube
+   * aparte para que los demás clientes con ese día abierto detecten el cambio.
+   */
+  private static async moverDia(opts: {
+    tipoFila: 'segmento' | 'dia'
+    entityId: string
+    fecha: string
+    baseVersion: number | null
+  }): Promise<ResultadoPatchRecorrido> {
+    const { tipoFila, entityId, fecha, baseVersion } = opts
+
+    this.conReglas(() => exigirNoFutura(fecha, hoyISO()))
+
+    const registroDiaId = tipoFila === 'segmento' ? await this.diaDeSegmento(entityId) : entityId
+    const dia = await prisma.registro_dia_laboral.findFirst({
+      where: { id: registroDiaId, deleted_at: null },
+      select: {
+        id: true,
+        conductor_id: true,
+        fecha: true,
+        segmentos: { where: { deleted_at: null }, select: { id: true } },
+      },
+    })
+    if (!dia) {
+      throw new PatchRecorridoError('El día ya no existe o fue eliminado.', 'NO_ENCONTRADO')
+    }
+
+    const fechaActual = dia.fecha.toISOString().slice(0, 10)
+    if (fechaActual === fecha) {
+      const fresco = tipoFila === 'segmento' ? await this.filaSegmento(entityId) : await this.filaDia(entityId)
+      return { version: Number(fresco?.version ?? 0), derivados: {} }
+    }
+
+    const ocupado = await prisma.registro_dia_laboral.findUnique({
+      where: { conductor_id_fecha: { conductor_id: dia.conductor_id, fecha: this.aDate(fecha) } },
+      select: { id: true, deleted_at: true },
+    })
+    if (ocupado) {
+      throw new PatchRecorridoError(
+        ocupado.deleted_at
+          ? `El ${fecha} tiene un registro retirado de este conductor. Inserta una fila nueva con esa ` +
+              `fecha (la revive) y elimina esta, en vez de moverla.`
+          : `Este conductor ya tiene una fila el ${fecha}. Edita esa fila, o elimínala antes de mover esta.`,
+        'REGLA_NEGOCIO',
+      )
+    }
+
+    const version = await prisma.$transaction(async (tx) => {
+      const gano =
+        tipoFila === 'segmento'
+          ? await tx.registro_dia_laboral_segmento.updateMany({
+              where: { id: entityId, ...(baseVersion != null ? { version: baseVersion } : {}) },
+              data: { version: { increment: 1 }, updated_at: new Date() } as never,
+            })
+          : await tx.registro_dia_laboral.updateMany({
+              where: { id: entityId, ...(baseVersion != null ? { version: baseVersion } : {}) },
+              data: { version: { increment: 1 }, updated_at: new Date() } as never,
+            })
+      if (gano.count === 0) return null
+
+      await tx.registro_dia_laboral.update({
+        where: { id: registroDiaId },
+        data: {
+          fecha: this.aDate(fecha),
+          updated_at: new Date(),
+          // El padre también sube de versión cuando la fila editada es un
+          // tramo: las filas de día de otros clientes versionan por el padre.
+          ...(tipoFila === 'segmento' ? { version: { increment: 1 } } : {}),
+        } as never,
+      })
+
+      const fresco =
+        tipoFila === 'segmento'
+          ? await tx.registro_dia_laboral_segmento.findUnique({
+              where: { id: entityId },
+              select: { version: true },
+            })
+          : await tx.registro_dia_laboral.findUnique({
+              where: { id: entityId },
+              select: { version: true },
+            })
+      return fresco?.version ?? 0
+    })
+
+    if (version == null) {
+      const serverRow =
+        tipoFila === 'segmento' ? await this.filaSegmento(entityId) : await this.filaDia(entityId)
+      throw new ConflictoVersionRecorrido(entityId, serverRow)
+    }
+
+    // Los otros tramos de la jornada se movieron con ella: el canvas los
+    // repinta con la misma fecha. La propia fila no va en la lista.
+    const afectados = dia.segmentos.map((s) => s.id).filter((id) => id !== entityId)
+    return { version, derivados: { fecha }, afectados }
+  }
+
+  // ── Filas nuevas y retiradas ─────────────────────────────────────────────
+
+  /**
+   * Da de alta una fila insertada en el canvas.
+   *
+   * Es el mismo modelo que el guardado del portal del conductor —un día por
+   * `(conductor, fecha)` que se REVIVE si estaba retirado, y un segmento por
+   * recorrido—, pero de una fila en una: el canvas no reemplaza el día entero,
+   * añade un tramo o un día donde no lo había.
+   *
+   * Devuelve la fila tal y como la pintaría el libro, para vincularla a la
+   * fila insertada sin recargar. `recargar` avisa de que el cambio va más allá
+   * de esa fila: un día DISPONIBLE que recibe su primer recorrido pasa a
+   * LABORADO y su antigua fila de día ya no existe.
+   */
+  static async crearFila(opts: {
+    conductorId: string
+    corte: { desde: string; hasta: string }
+    entrada: FilaNuevaEntrada & { bonos?: string[] }
+    actor: { id: string; area?: string | string[] | null; role?: string | null }
+  }): Promise<{ fila: FilaRecorrido; recargar: boolean }> {
+    const { conductorId, corte, entrada, actor } = opts
+
+    if (!(await this.puedeEditar(actor))) {
+      throw new PatchRecorridoError(
+        'Solo Administración y Operaciones pueden modificar recorridos. Tu acceso es de consulta.',
+        'SIN_PERMISO',
+      )
+    }
+
+    const conductor = await prisma.conductores.findFirst({
+      where: { id: conductorId },
+      select: { id: true },
+    })
+    if (!conductor) throw new PatchRecorridoError('El conductor no existe.', 'NO_ENCONTRADO')
+
+    const fila = this.conReglas(() => clasificarFilaNueva(entrada))
+    this.conReglas(() => exigirDentroDelCorte(fila.fecha, corte))
+    this.conReglas(() => exigirNoFutura(fila.fecha, hoyISO()))
+
+    const bonosPedidos = [...new Set((entrada.bonos ?? []).map(String).filter(Boolean))]
+    if (bonosPedidos.length && !(await this.puedeMarcarBonos(actor.id))) {
+      throw new PatchRecorridoError(
+        'No tienes el permiso individual "bonos-planilla" para marcar bonos en la fila nueva.',
+        'SIN_PERMISO',
+      )
+    }
+
+    const vehiculo = fila.vehiculo_placa ? await this.resolverVehiculo(fila.vehiculo_placa) : null
+    const cliente =
+      fila.clase === 'recorrido' && fila.cliente_nombre
+        ? await this.resolverCliente(fila.cliente_nombre)
+        : null
+
+    const fechaDate = this.aDate(fila.fecha)
+    const ahora = new Date()
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      const existente = await tx.registro_dia_laboral.findUnique({
+        where: { conductor_id_fecha: { conductor_id: conductorId, fecha: fechaDate } },
+        select: {
+          id: true,
+          tipo: true,
+          deleted_at: true,
+          segmentos: { where: { deleted_at: null }, select: { id: true, orden: true } },
+        },
+      })
+
+      let recargar = false
+      let registroDiaId: string
+
+      if (existente && !existente.deleted_at) {
+        if (fila.clase === 'dia') {
+          throw new PatchRecorridoError(
+            `Este conductor ya tiene una fila el ${fila.fecha}. Edita esa fila en vez de insertar otra; ` +
+              `si quieres añadir un recorrido ese día, escribe placa y horario en la fila nueva.`,
+            'REGLA_NEGOCIO',
+          )
+        }
+        registroDiaId = existente.id
+        if (existente.tipo !== 'LABORADO') {
+          // Un día sin recorridos que recibe el primero: su fila de día
+          // desaparece del libro y en su lugar queda el recorrido.
+          await tx.registro_dia_laboral.update({
+            where: { id: existente.id },
+            data: { tipo: 'LABORADO', mantenimiento_vehiculo_id: null, mantenimiento_vehiculo_placa: null, version: { increment: 1 }, updated_at: ahora } as never,
+          })
+          recargar = true
+        }
+      } else if (existente) {
+        // Retirado: se REVIVE con lo tecleado, como hace el portal. Sus tramos y
+        // bonos retirados siguen retirados; solo vuelve el padre.
+        registroDiaId = existente.id
+        await tx.registro_dia_laboral.update({
+          where: { id: existente.id },
+          data: {
+            deleted_at: null,
+            tipo: fila.clase === 'recorrido' ? 'LABORADO' : fila.tipo_dia,
+            observaciones: fila.clase === 'dia' ? fila.observaciones : null,
+            pernocte: fila.clase === 'dia' ? fila.pernocte : false,
+            mantenimiento_vehiculo_id: fila.clase === 'dia' && fila.tipo_dia === 'MANTENIMIENTO' ? vehiculo?.id : null,
+            mantenimiento_vehiculo_placa: fila.clase === 'dia' && fila.tipo_dia === 'MANTENIMIENTO' ? vehiculo?.placa : null,
+            version: { increment: 1 },
+            updated_at: ahora,
+          } as never,
+        })
+      } else {
+        const creado = await tx.registro_dia_laboral.create({
+          data: {
+            id: randomUUID(),
+            conductor_id: conductorId,
+            fecha: fechaDate,
+            tipo: fila.clase === 'recorrido' ? 'LABORADO' : fila.tipo_dia,
+            observaciones: fila.clase === 'dia' ? fila.observaciones : null,
+            pernocte: fila.clase === 'dia' ? fila.pernocte : false,
+            mantenimiento_vehiculo_id: fila.clase === 'dia' && fila.tipo_dia === 'MANTENIMIENTO' ? vehiculo?.id ?? null : null,
+            mantenimiento_vehiculo_placa: fila.clase === 'dia' && fila.tipo_dia === 'MANTENIMIENTO' ? vehiculo?.placa ?? null : null,
+          } as never,
+          select: { id: true },
+        })
+        registroDiaId = creado.id
+      }
+
+      let segmentoId: string | null = null
+      if (fila.clase === 'recorrido') {
+        const orden =
+          (existente && !existente.deleted_at
+            ? Math.max(0, ...existente.segmentos.map((s) => s.orden))
+            : 0) + 1
+        const seg = await tx.registro_dia_laboral_segmento.create({
+          data: {
+            id: randomUUID(),
+            registro_dia_id: registroDiaId,
+            cliente_id: cliente?.id ?? null,
+            cliente_nombre: cliente?.nombre ?? null,
+            vehiculo_id: vehiculo?.id ?? null,
+            vehiculo_placa: vehiculo?.placa ?? fila.vehiculo_placa,
+            hora_inicio: fila.hora_inicio,
+            hora_fin: fila.hora_fin,
+            horas_conducidas: fila.horas_conducidas,
+            km_inicial: fila.km_inicial,
+            km_final: fila.km_final,
+            pernocte: fila.pernocte,
+            orden,
+            observaciones: fila.observaciones,
+          } as never,
+          select: { id: true },
+        })
+        segmentoId = seg.id
+      }
+
+      if (bonosPedidos.length) {
+        const configs = await tx.configuraciones_liquidacion.findMany({
+          where: { id: { in: bonosPedidos }, activo: true, deleted_at: null },
+          select: { id: true, valor: true },
+        })
+        for (const c of configs) {
+          await tx.registro_dia_laboral_bono.create({
+            data: {
+              registro_dia_id: registroDiaId,
+              segmento_id: segmentoId,
+              config_liquidacion_id: c.id,
+              valor: c.valor,
+              creado_por_id: actor.id,
+            },
+          })
+        }
+      }
+
+      return { registroDiaId, segmentoId, recargar }
+    })
+
+    const construida = await RecorridosCanvasService.construirFila(
+      resultado.segmentoId
+        ? { tipoFila: 'segmento', entityId: resultado.segmentoId }
+        : { tipoFila: 'dia', entityId: resultado.registroDiaId },
+    )
+    if (!construida) {
+      throw new PatchRecorridoError('La fila se guardó pero no se pudo releer.', 'NO_ENCONTRADO')
+    }
+    return { fila: construida, recargar: resultado.recargar }
+  }
+
+  /**
+   * Retira una fila eliminada en el canvas (soft delete).
+   *
+   * Un recorrido se retira con sus bonos. Si era el ÚLTIMO recorrido de un día
+   * LABORADO, se retira también el día: dejarlo sería un día laborado sin
+   * trabajo, que en la siguiente recarga aparecería como una fila fantasma que
+   * el usuario ya había borrado.
+   */
+  static async eliminarFila(opts: {
+    tipoFila: 'segmento' | 'dia'
+    entityId: string
+    baseVersion: number | null
+    actor: { id: string; area?: string | string[] | null; role?: string | null }
+  }): Promise<{ eliminado: 'segmento' | 'dia'; registro_dia_id: string }> {
+    const { tipoFila, entityId, baseVersion, actor } = opts
+
+    if (!(await this.puedeEditar(actor))) {
+      throw new PatchRecorridoError(
+        'Solo Administración y Operaciones pueden modificar recorridos. Tu acceso es de consulta.',
+        'SIN_PERMISO',
+      )
+    }
+
+    if (tipoFila === 'dia') {
+      const dia = await prisma.registro_dia_laboral.findFirst({
+        where: { id: entityId, deleted_at: null },
+        select: { id: true, version: true },
+      })
+      if (!dia) throw new PatchRecorridoError('El día ya no existe o fue eliminado.', 'NO_ENCONTRADO')
+      if (baseVersion != null && dia.version !== baseVersion) {
+        throw new ConflictoVersionRecorrido(entityId, await this.filaDia(entityId))
+      }
+      await retirarDiaLaboral(entityId)
+      return { eliminado: 'dia', registro_dia_id: entityId }
+    }
+
+    const seg = await prisma.registro_dia_laboral_segmento.findFirst({
+      where: { id: entityId, deleted_at: null },
+      select: {
+        id: true,
+        version: true,
+        registro_dia_id: true,
+        registro_dia: {
+          select: { tipo: true, segmentos: { where: { deleted_at: null }, select: { id: true } } },
+        },
+      },
+    })
+    if (!seg) throw new PatchRecorridoError('El recorrido ya no existe o fue eliminado.', 'NO_ENCONTRADO')
+    if (baseVersion != null && seg.version !== baseVersion) {
+      throw new ConflictoVersionRecorrido(entityId, await this.filaSegmento(entityId))
+    }
+
+    const eraElUltimo = seg.registro_dia.segmentos.every((s) => s.id === entityId)
+    if (eraElUltimo && seg.registro_dia.tipo === 'LABORADO') {
+      await retirarDiaLaboral(seg.registro_dia_id)
+      return { eliminado: 'dia', registro_dia_id: seg.registro_dia_id }
+    }
+
+    const ahora = new Date()
+    await prisma.$transaction(async (tx) => {
+      await tx.registro_dia_laboral_bono.updateMany({
+        where: { segmento_id: entityId, deleted_at: null },
+        data: { deleted_at: ahora },
+      })
+      await tx.registro_dia_laboral_segmento.updateMany({
+        where: { id: entityId, deleted_at: null },
+        data: { deleted_at: ahora, updated_at: ahora },
+      })
+    })
+    return { eliminado: 'segmento', registro_dia_id: seg.registro_dia_id }
+  }
+
+  /** `YYYY-MM-DD` → `Date` UTC a medianoche, que es como se guarda `@db.Date`. */
+  private static aDate(fecha: string): Date {
+    return new Date(`${fecha}T00:00:00.000Z`)
   }
 
   // ── Bonos ────────────────────────────────────────────────────────────────
@@ -429,7 +838,7 @@ export class RecorridosPatchService {
   private static filaDia(id: string) {
     return prisma.registro_dia_laboral.findUnique({
       where: { id },
-      select: { version: true, tipo: true, observaciones: true },
+      select: { version: true, tipo: true, observaciones: true, pernocte: true },
     })
   }
 
@@ -475,7 +884,7 @@ export class RecorridosPatchService {
     })
     if (!v) {
       throw new PatchRecorridoError(
-        `No existe un vehículo con placa "${placa}".`,
+        `No existe un vehículo con placa "${placa}". Regístralo en Flota antes de usarlo en un recorrido.`,
         'VALOR_INVALIDO',
       )
     }
