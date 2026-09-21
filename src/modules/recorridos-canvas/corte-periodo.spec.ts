@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   cortePorDefecto,
+  corteAnterior,
+  corteSiguiente,
   corteDeMes,
   periodoDeCorte,
   etiquetaCorte,
@@ -16,21 +18,38 @@ describe('corte por defecto', () => {
     })
   })
 
-  it('pasado el día 20 salta al corte siguiente', () => {
-    // El 25 de septiembre ya se llena el corte que cierra en octubre.
-    expect(cortePorDefecto(new Date(2026, 8, 25))).toEqual({
+  it('el día 20 todavía pertenece al corte que cierra ese día', () => {
+    expect(cortePorDefecto(new Date(2026, 8, 20)).hasta).toBe('2026-09-20')
+  })
+
+  /**
+   * LA GRACIA. Un corte se liquida los días siguientes a su cierre, así que
+   * el 21 el canvas debe seguir abriendo el que cerró el día antes y no el
+   * que empieza esa mañana, que está vacío.
+   */
+  it('el día del cierre + 1 sigue sirviendo el corte que acaba de cerrar', () => {
+    expect(cortePorDefecto(new Date(2026, 8, 21))).toEqual({
+      desde: '2026-08-21',
+      hasta: '2026-09-20',
+    })
+  })
+
+  it('dentro de la gracia sigue sirviendo el corte cerrado', () => {
+    // 27 de septiembre: último día de la gracia (20 + 7).
+    expect(cortePorDefecto(new Date(2026, 8, 27)).hasta).toBe('2026-09-20')
+  })
+
+  it('vencida la gracia pasa al corte en curso', () => {
+    // 28 de septiembre: ya manda el corte que se está registrando.
+    expect(cortePorDefecto(new Date(2026, 8, 28))).toEqual({
       desde: '2026-09-21',
       hasta: '2026-10-20',
     })
   })
 
-  it('el día 20 todavía pertenece al corte que cierra ese día', () => {
-    expect(cortePorDefecto(new Date(2026, 8, 20)).hasta).toBe('2026-09-20')
-  })
-
   it('cruza el fin de año sin romperse', () => {
-    // 25 de diciembre: el corte vivo cierra en enero del año siguiente.
-    expect(cortePorDefecto(new Date(2026, 11, 25))).toEqual({
+    // 29 de diciembre: vencida la gracia, el corte vivo cierra en enero.
+    expect(cortePorDefecto(new Date(2026, 11, 29))).toEqual({
       desde: '2026-12-21',
       hasta: '2027-01-20',
     })
@@ -79,5 +98,41 @@ describe('validación de fechas', () => {
     for (const v of ['', null, undefined, '21/08/2026', '2026-8-21', '2026-13-01', '2026-02-30']) {
       expect(esFechaValida(v as string)).toBe(false)
     }
+  })
+})
+
+describe('navegación entre cortes', () => {
+  it('el anterior y el siguiente se mueven por el mes de CIERRE', () => {
+    const actual = { desde: '2026-08-21', hasta: '2026-09-20' }
+    expect(corteAnterior(actual)).toEqual({ desde: '2026-07-21', hasta: '2026-08-20' })
+    expect(corteSiguiente(actual)).toEqual({ desde: '2026-09-21', hasta: '2026-10-20' })
+  })
+
+  it('cruzan el año por los dos lados', () => {
+    expect(corteAnterior({ desde: '2026-12-21', hasta: '2027-01-20' })).toEqual({
+      desde: '2026-11-21',
+      hasta: '2026-12-20',
+    })
+    expect(corteSiguiente({ desde: '2026-11-21', hasta: '2026-12-20' })).toEqual({
+      desde: '2026-12-21',
+      hasta: '2027-01-20',
+    })
+  })
+
+  /**
+   * Un corte a medida —dos fechas cualesquiera— no se desplaza tal cual: se
+   * vuelve al 21→20 del periodo vecino. Desplazar los extremos iría torciendo
+   * el rango un poco más en cada clic.
+   */
+  it('un corte libre vuelve al 21→20 en el primer salto', () => {
+    expect(corteAnterior({ desde: '2026-09-03', hasta: '2026-09-14' })).toEqual({
+      desde: '2026-07-21',
+      hasta: '2026-08-20',
+    })
+  })
+
+  it('ida y vuelta deja el mismo corte', () => {
+    const actual = { desde: '2026-08-21', hasta: '2026-09-20' }
+    expect(corteSiguiente(corteAnterior(actual))).toEqual(actual)
   })
 })
