@@ -6,11 +6,11 @@ Todas quedan en DRAFT. Ninguna crea asignaciones ni se publica.
 
 RESUMEN
   CÓDIGO        SEC  CAMPOS  RESP  OBLIG  OPC  REGLAS  GRUPOS  ADJ  ESTADO
-  HSEQ-FR-22      5      42    40     22   35      23       1    2  OK
+  HSEQ-FR-22      5      53    51     22   35      23       1    2  OK
   HSEQ-FR-08     18     240   238    122  334     212       0    2  OK
   HSEQ-FR-09     19     274   272    139  385     246       0    2  OK
   HSEQ-FR-04      6      53    51     31   50      29       1    2  OK
-  HSEQ-FR-05      6     129   127     75  101      67       1    2  OK
+  HSEQ-FR-05      6     148   146     75  101      67       1    2  OK
   HSEQ-FR-07      6      23    21     10   11       4       0    2  OK
   HSEQ-FR-17      5      34    32     20   26      17       1    2  OK
   HSEQ-FR-21      5      42    40     23   24      24       1    2  OK
@@ -19,7 +19,7 @@ RESUMEN
   HSEQ-FR-42      7      27    25     10   20       2       0    2  OK
   HSEQ-FR-43      9      75    73     40   87      58       1    2  OK
   HSEQ-FR-56     17     230   225     81  303     196       2    3  OK
-  TOTAL          115    1225                    1472     902
+  TOTAL          115    1255                    1472     902
 
 ──────────────────────────────────────────────────────────────────────────────
 HSEQ-FR-22 — Inspección kit de derrames
@@ -70,7 +70,7 @@ HSEQ-FR-05 — Inspección de botiquín
   id formulario : a0f48785-b202-5346-9e54-53a1761a7c6b
   id versión    : 60d6bc9a-e568-59e2-9f79-57d758d33077
   NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
-    • La fecha de vencimiento solo se pide en los elementos que caducan (gasas, sueros, alcohol, guantes…). El original la pide para los 33, incluidas tijeras y pito. HSEQ debe confirmar la lista de elementos con caducidad.
+    • La fecha de vencimiento se ofrece en todos los elementos y no se exige en ninguno: HSEQ reportó insumos que la traen impresa y otros que no, y acertar la lista por adelantado no era posible. El campo `caduca` de la lista se conserva como dato de HSEQ, pero ya no decide si el campo existe.
     • La sección «Cambios o reposiciones» del original repite la tabla completa en blanco; se transcribió como grupo repetible en vez de 33 campos más.
     • La escala del original es B / M / C-R (bueno, malo, cambiar-reemplazar). Se conservó tal cual.
     • El elemento «Estado general e higiene de la maleta del botiquín» del original no es un elemento inventariable; se transcribió como ítem de estado sin cantidad.
