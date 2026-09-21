@@ -38,14 +38,23 @@ const CLAVES_ESCALABLES = new Set([
 
 export const PDF_TOKENS: Record<string, string> = {
 	// ── Color ────────────────────────────────────────────────────────
-	/** Verde del documento. Estaba escrito a mano en tres sitios distintos. */
-	verde: '#0f4025',
-	/** Borde de las cabeceras verdes. Un tono más oscuro, no negro. */
-	'verde-borde': '#0a2e1a',
+	/**
+	 * Color de marca del documento.
+	 *
+	 * La CLAVE conserva el nombre histórico —`verde`, y de ahí `--tpdf-verde`—
+	 * igual que `app.css` de este repo conserva `--emerald-*` con valores
+	 * naranjas: renombrarla obligaría a tocar `documento.css.ts` y
+	 * `PreviewTerceroPDF.svelte`, que son idénticos a los de transmeralda y
+	 * deben seguir siéndolo. Lo que cambia es el VALOR: el naranja de
+	 * Cotransmeq, no el verde de la otra empresa.
+	 */
+	verde: '#7c2d12',
+	/** Borde de las cabeceras de marca. Un tono más oscuro, no negro. */
+	'verde-borde': '#431407',
 	/** Fondo de la banda de periodo y de las filas de adicional. */
-	'verde-suave': '#edf7f1',
-	/** Texto sobre fondos verdes claros (totales a favor). */
-	'verde-texto': '#065f46',
+	'verde-suave': '#fff7ed',
+	/** Texto sobre fondos de marca claros (totales a favor). */
+	'verde-texto': '#9a3412',
 
 	tinta: '#0f172a',
 	'tinta-suave': '#475569',
@@ -72,9 +81,9 @@ export const PDF_TOKENS: Record<string, string> = {
 	azul: '#1d4ed8',
 	/** Pagos internos por concepto: verde CLARO, para no confundirlos con
 	    el verde pleno del neto que sí se le paga a un propietario. */
-	'verde-claro': '#15803d',
+	'verde-claro': '#ea580c',
 	/** Fondo de los bloques de concepto. */
-	'verde-claro-bg': '#f0fdf4',
+	'verde-claro-bg': '#ffedd5',
 
 	// ── Bordes ───────────────────────────────────────────────────────
 	'borde-rejilla': '1px',
