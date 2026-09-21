@@ -122,11 +122,20 @@ export function etiquetaPeriodo(anio: number, mes: number): string {
 /**
  * Nombre de pestaña de un conductor, recortado a 31 caracteres.
  *
- * Univer no admite más, y tampoco `: \ / ? * [ ]`. Se prefiere apellido primero
- * porque al truncar es lo que permite distinguir a dos personas.
+ * Univer no admite más, y tampoco `: \ / ? * [ ]`. NOMBRE y luego apellido,
+ * como se presenta una persona y como aparece en el PDF: la pestaña y el papel
+ * tienen que decir lo mismo.
+ *
+ * El ORDEN de las hojas en el libro sigue siendo por apellido —lo fija
+ * `ordenAlfabetico` y es espejo del que aplica el servidor—: cambiar el rótulo
+ * no cambia dónde está cada pestaña.
+ *
+ * Al truncar se pierde el final, así que dos personas del mismo nombre de pila
+ * y apellido largo pueden colisionar; para eso está `nombresUnicos`, que les
+ * añade `~2`.
  */
 export function nombreHojaConductor(c: { nombre: string; apellido: string }): string {
-  const crudo = `${c.apellido} ${c.nombre}`.replace(/[:\\/?*[\]]/g, ' ').replace(/\s+/g, ' ').trim()
+  const crudo = `${c.nombre} ${c.apellido}`.replace(/[:\\/?*[\]]/g, ' ').replace(/\s+/g, ' ').trim()
   return (crudo || 'SIN NOMBRE').slice(0, 31)
 }
 
