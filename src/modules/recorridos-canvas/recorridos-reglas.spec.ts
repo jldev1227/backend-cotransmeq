@@ -7,6 +7,10 @@ import {
   normalizar,
   validarCoherencia,
   exigirNoVacio,
+  exigirDentroDelCorte,
+  exigirNoFutura,
+  numeroDeHoras,
+  clasificarFilaNueva,
 } from './recorridos-reglas'
 
 describe('lista blanca de campos', () => {
@@ -17,10 +21,11 @@ describe('lista blanca de campos', () => {
     expect(CAMPOS_DIA['tipo_dia']).toBe('tipo_dia')
   })
 
-  it('la fecha no es editable en ninguna fila', () => {
-    // Mover un recorrido de día descuadraría los conteos de bono por mes.
-    expect(CAMPOS_SEGMENTO['fecha']).toBeUndefined()
-    expect(CAMPOS_DIA['fecha']).toBeUndefined()
+  it('la fecha es editable en las dos filas, y es la del DÍA', () => {
+    // Corregir una fecha mal tecleada es la edición más común al revisar una
+    // planilla. Se mueve la jornada entera: la fecha es del día, no del tramo.
+    expect(CAMPOS_SEGMENTO['fecha']).toBe('fecha')
+    expect(CAMPOS_DIA['fecha']).toBe('fecha')
   })
 
   it('no deja escribir campos derivados ni de identidad', () => {
@@ -155,5 +160,144 @@ describe('campos que no se pueden vaciar', () => {
 
   it('no molesta cuando el valor viene lleno', () => {
     expect(() => exigirNoVacio('vehiculo_placa', 'FST006')).not.toThrow()
+  })
+})
+
+describe('pernocte en una fila de DÍA', () => {
+  /**
+   * Los días sin recorrido —disponibilidad, descanso— son más de la mitad de
+   * las filas de un corte y no tienen segmento donde colgar el pernocte. Antes
+   * la casilla se pintaba y el clic moría contra la guarda.
+   */
+  it('es editable, y se interpreta como bandera', () => {
+    expect(CAMPOS_DIA['pernocte']).toBe('flag')
+  })
+
+  it('el tipo de día sigue sin poder editarse desde un recorrido', () => {
+    expect(CAMPOS_SEGMENTO['tipo_dia']).toBeUndefined()
+  })
+})
+
+describe('desmarcar una casilla', () => {
+  /**
+   * El checkbox del canvas escribe «SÍ» / «NO», así que desmarcar llega como
+   * el texto «NO» —no como `false`— y tiene que apagar la bandera.
+   */
+  it('«NO» apaga la bandera, y «SÍ» la enciende con o sin tilde', () => {
+    expect(normalizar('pernocte', 'NO', 'flag')).toBe(false)
+    expect(normalizar('pernocte', 'SÍ', 'flag')).toBe(true)
+    expect(normalizar('pernocte', 'SI', 'flag')).toBe(true)
+  })
+
+  it('una celda vaciada con Supr también apaga', () => {
+    expect(normalizar('pernocte', '', 'flag')).toBe(false)
+    expect(normalizar('pernocte', null, 'flag')).toBe(false)
+  })
+})
+
+describe('fecha', () => {
+  it('exige AAAA-MM-DD y que exista en el calendario', () => {
+    expect(normalizar('fecha', '2026-09-03', 'fecha')).toBe('2026-09-03')
+    expect(() => normalizar('fecha', '03/09/2026', 'fecha')).toThrow(ValorInvalido)
+    expect(() => normalizar('fecha', '2026-02-30', 'fecha')).toThrow(ValorInvalido)
+    expect(() => normalizar('fecha', '', 'fecha')).toThrow(ValorInvalido)
+  })
+
+  it('rechaza una fecha fuera del corte abierto, con el corte en el mensaje', () => {
+    const corte = { desde: '2026-08-21', hasta: '2026-09-20' }
+    expect(() => exigirDentroDelCorte('2026-08-21', corte)).not.toThrow()
+    expect(() => exigirDentroDelCorte('2026-09-20', corte)).not.toThrow()
+    expect(() => exigirDentroDelCorte('2026-09-21', corte)).toThrow(/2026-08-21 a 2026-09-20/)
+    expect(() => exigirDentroDelCorte('2026-08-20', corte)).toThrow(ValorInvalido)
+  })
+
+  it('no admite días futuros, igual que el portal del conductor', () => {
+    expect(() => exigirNoFutura('2026-09-21', '2026-09-21')).not.toThrow()
+    expect(() => exigirNoFutura('2026-09-22', '2026-09-21')).toThrow(/futura/)
+  })
+})
+
+describe('horas tecleadas con la palabra', () => {
+  it('acepta «6 horas», «6,5», «6h» y sigue rechazando texto', () => {
+    // La columna muestra «6 horas» por formato numérico; quien lo ve lo teclea
+    // igual. El valor guardado sigue siendo el número.
+    expect(numeroDeHoras('6 horas')).toBe(6)
+    expect(numeroDeHoras('6,5')).toBe(6.5)
+    expect(numeroDeHoras('6.5h')).toBe(6.5)
+    expect(numeroDeHoras('1 hora')).toBe(1)
+    expect(Number.isNaN(numeroDeHoras('seis'))).toBe(true)
+    expect(normalizar('horas_conducidas', '6 horas', 'decimal')).toBe(6)
+    expect(() => normalizar('horas_conducidas', 'seis', 'decimal')).toThrow(ValorInvalido)
+  })
+})
+
+describe('clasificación de una fila insertada en el canvas', () => {
+  it('con placa y horario es un RECORRIDO (día LABORADO)', () => {
+    const f = clasificarFilaNueva({
+      fecha: '2026-09-03',
+      vehiculo_placa: ' fst 006 ',
+      hora_inicio: '6:00',
+      hora_fin: '18:00',
+      horas_conducidas: '6 horas',
+    })
+    expect(f.clase).toBe('recorrido')
+    if (f.clase === 'recorrido') {
+      expect(f.vehiculo_placa).toBe('FST006')
+      expect(f.hora_inicio).toBe('06:00')
+      expect(f.horas_conducidas).toBe(6)
+    }
+  })
+
+  it('con placa pero sin horario, dice qué falta', () => {
+    expect(() =>
+      clasificarFilaNueva({ fecha: '2026-09-03', vehiculo_placa: 'FST006' }),
+    ).toThrow(/la hora inicial y la hora final/)
+  })
+
+  it('sin placa ni horario es un DÍA, y necesita el tipo', () => {
+    expect(() => clasificarFilaNueva({ fecha: '2026-09-03' })).toThrow(/TIPO DE DÍA/)
+    const f = clasificarFilaNueva({ fecha: '2026-09-03', tipo_dia: 'descanso' })
+    expect(f).toMatchObject({ clase: 'dia', tipo_dia: 'DESCANSO', vehiculo_placa: null })
+  })
+
+  it('un día LABORADO sin recorrido no existe', () => {
+    expect(() => clasificarFilaNueva({ fecha: '2026-09-03', tipo_dia: 'LABORADO' })).toThrow(
+      /al menos un recorrido/,
+    )
+  })
+
+  it('MANTENIMIENTO lleva la placa en el día, no como recorrido', () => {
+    expect(() => clasificarFilaNueva({ fecha: '2026-09-03', tipo_dia: 'MANTENIMIENTO' })).toThrow(
+      /placa/,
+    )
+    const f = clasificarFilaNueva({
+      fecha: '2026-09-03',
+      tipo_dia: 'MANTENIMIENTO',
+      vehiculo_placa: 'fst006',
+    })
+    expect(f).toMatchObject({ clase: 'dia', tipo_dia: 'MANTENIMIENTO', vehiculo_placa: 'FST006' })
+  })
+
+  it('un recorrido con tipo DESCANSO se contradice y se rechaza', () => {
+    expect(() =>
+      clasificarFilaNueva({
+        fecha: '2026-09-03',
+        tipo_dia: 'DESCANSO',
+        vehiculo_placa: 'FST006',
+        hora_inicio: '06:00',
+        hora_fin: '18:00',
+      }),
+    ).toThrow(/LABORADO/)
+  })
+
+  it('aplica la coherencia de horas y kilómetros a la fila nueva', () => {
+    expect(() =>
+      clasificarFilaNueva({
+        fecha: '2026-09-03',
+        vehiculo_placa: 'FST006',
+        hora_inicio: '18:00',
+        hora_fin: '06:00',
+      }),
+    ).toThrow(/posterior/)
   })
 })

@@ -589,6 +589,9 @@ export function registerSheetGateway(io: IOServer): void {
             field,
             version: resultado.version,
             derivados: resultado.derivados,
+            // Mover una fecha mueve el día entero: las demás filas de esa
+            // jornada se repintan con los mismos derivados.
+            afectados: resultado.afectados ?? [],
           })
           socket.to(sheetRoomKey(scope, Number(anio), Number(mes))).emit('sheet:patch:applied', {
             scope,
@@ -603,6 +606,7 @@ export function registerSheetGateway(io: IOServer): void {
             // del texto tecleado, así que el resto de la sala necesita el valor
             // ya resuelto y no lo que se escribió.
             derivados: resultado.derivados,
+            afectados: resultado.afectados ?? [],
             epoch: epochActual,
             by: { id: actor.id, name: actor.name },
           })
@@ -848,8 +852,14 @@ export function emitSheetInvalidate(params: {
   mes: number
   cierreId?: string | null
   accion?: string
+  /**
+   * Quién provocó el cambio. Va a TODA la sala —incluido quien lo hizo, porque
+   * la petición REST no conoce su socket—, así que el cliente lo usa para no
+   * recargarse a sí mismo por un cambio que ya aplicó en local.
+   */
+  by?: string | null
 }): void {
-  const { scope, anio, mes, cierreId, accion } = params
+  const { scope, anio, mes, cierreId, accion, by } = params
   try {
     getIo().to(sheetRoomKey(scope, anio, mes)).emit('sheet:invalidate', {
       scope,
@@ -857,6 +867,7 @@ export function emitSheetInvalidate(params: {
       mes,
       cierre_id: cierreId ?? null,
       accion: accion ?? 'reload',
+      by: by ?? null,
     })
   } catch (e) {
     console.warn('[sheet] emitSheetInvalidate falló:', e)

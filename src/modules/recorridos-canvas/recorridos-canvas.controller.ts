@@ -1,6 +1,13 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
+import { prisma } from '../../config/prisma'
 import { RecorridosCanvasService } from './recorridos-canvas.service'
-import { cortePorDefecto, esFechaValida, type Corte } from './corte-periodo'
+import {
+  ConflictoVersionRecorrido,
+  PatchRecorridoError,
+  RecorridosPatchService,
+} from './recorridos-patch.service'
+import { cortePorDefecto, esFechaValida, periodoDeCorte, type Corte } from './corte-periodo'
+import { emitSheetInvalidate } from '../../sockets/sheet.gateway'
 
 /**
  * Tope de hojas por libro.
@@ -81,4 +88,118 @@ export class RecorridosCanvasController {
     }
     return reply.send({ anio, bonos: await RecorridosCanvasService.columnasBono(anio) })
   }
+
+  /**
+   * Placas de la flota, para validar lo que se teclea en el canvas ANTES de
+   * enviarlo: una placa que no existe se avisa al instante, con el consejo de
+   * registrarla, en vez de un error del servidor medio segundo después.
+   */
+  static async placas(_request: FastifyRequest, reply: FastifyReply) {
+    const vehiculos = await prisma.vehiculos.findMany({
+      where: { deleted_at: null },
+      select: { id: true, placa: true },
+      orderBy: { placa: 'asc' },
+    })
+    return reply.send({ placas: vehiculos })
+  }
+
+  /**
+   * Alta de una fila insertada en el canvas.
+   *
+   * REST y no socket: el alta devuelve la fila completa —ids, versión, bonos—
+   * y no encaja en el acuse por celda de `sheet:patch`. Al resto de la sala se
+   * le avisa con `sheet:invalidate`, porque una fila nueva cambia la GEOMETRÍA
+   * de la hoja y no se puede aplicar como patch.
+   */
+  static async crearFila(request: FastifyRequest, reply: FastifyReply) {
+    const body = (request.body ?? {}) as Record<string, unknown>
+    const user = (request as any).user
+    const conductorId = String(body.conductor_id ?? '')
+    const corte = { desde: String(body.desde ?? ''), hasta: String(body.hasta ?? '') }
+
+    if (!conductorId) return reply.status(400).send({ error: 'conductor_id es obligatorio' })
+    if (!esFechaValida(corte.desde) || !esFechaValida(corte.hasta) || corte.desde > corte.hasta) {
+      return reply.status(400).send({ error: 'Parámetros "desde"/"hasta" inválidos (YYYY-MM-DD)' })
+    }
+
+    try {
+      const r = await RecorridosPatchService.crearFila({
+        conductorId,
+        corte,
+        entrada: {
+          fecha: body.fecha,
+          tipo_dia: body.tipo_dia,
+          vehiculo_placa: body.vehiculo_placa,
+          hora_inicio: body.hora_inicio,
+          hora_fin: body.hora_fin,
+          horas_conducidas: body.horas_conducidas,
+          cliente_nombre: body.cliente_nombre,
+          km_inicial: body.km_inicial,
+          km_final: body.km_final,
+          pernocte: body.pernocte,
+          observaciones: body.observaciones,
+          bonos: Array.isArray(body.bonos) ? (body.bonos as string[]) : [],
+        },
+        actor: { id: user.id, area: user.area, role: user.role },
+      })
+      const { anio, mes } = periodoDeCorte(corte)
+      emitSheetInvalidate({ scope: 'recorridos', anio, mes, accion: 'filas', by: user.id })
+      return reply.status(201).send(r)
+    } catch (e: any) {
+      return responderFallo(request, reply, e, 'No se pudo crear la fila')
+    }
+  }
+
+  /** Baja lógica de una fila eliminada en el canvas. */
+  static async eliminarFila(request: FastifyRequest, reply: FastifyReply) {
+    const { tipo, id } = request.params as { tipo: string; id: string }
+    const q = request.query as Record<string, string | undefined>
+    const user = (request as any).user
+
+    if (tipo !== 'segmento' && tipo !== 'dia') {
+      return reply.status(400).send({ error: 'tipo debe ser "segmento" o "dia"' })
+    }
+    const baseVersion = q.base_version != null && q.base_version !== '' ? Number(q.base_version) : null
+    if (baseVersion != null && !Number.isInteger(baseVersion)) {
+      return reply.status(400).send({ error: 'base_version inválido' })
+    }
+    if (!esFechaValida(q.desde) || !esFechaValida(q.hasta)) {
+      return reply.status(400).send({ error: 'Parámetros "desde"/"hasta" inválidos (YYYY-MM-DD)' })
+    }
+
+    try {
+      const r = await RecorridosPatchService.eliminarFila({
+        tipoFila: tipo,
+        entityId: id,
+        baseVersion,
+        actor: { id: user.id, area: user.area, role: user.role },
+      })
+      const { anio, mes } = periodoDeCorte({ desde: q.desde!, hasta: q.hasta! })
+      emitSheetInvalidate({ scope: 'recorridos', anio, mes, accion: 'filas', by: user.id })
+      return reply.send(r)
+    } catch (e: any) {
+      return responderFallo(request, reply, e, 'No se pudo eliminar la fila')
+    }
+  }
+}
+
+/**
+ * Los errores de regla van con su mensaje tal cual —está redactado para quien
+ * corrige la planilla—; los demás se registran y se devuelven genéricos.
+ */
+function responderFallo(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  e: any,
+  generico: string,
+) {
+  if (e instanceof ConflictoVersionRecorrido) {
+    return reply.status(409).send({ error: e.message, code: e.code, server_row: e.serverRow })
+  }
+  if (e instanceof PatchRecorridoError) {
+    const status = e.code === 'SIN_PERMISO' ? 403 : e.code === 'NO_ENCONTRADO' ? 404 : 422
+    return reply.status(status).send({ error: e.message, code: e.code })
+  }
+  request.log.error({ err: e }, `recorridos-canvas: ${generico}`)
+  return reply.status(500).send({ error: generico })
 }

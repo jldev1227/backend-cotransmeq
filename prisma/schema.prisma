@@ -239,6 +239,15 @@ model registro_dia_laboral {
   /// Concurrencia optimista del canvas de recorridos (CAS por celda).
   /// Solo la usan las filas de día SIN segmentos (DESCANSO, MANTENIMIENTO):
   /// las demás versionan por segmento.
+  ///
+  /// `pernocte`: el de una jornada CON viajes vive en el segmento, porque se
+  /// pernocta en un recorrido. Un día de disponibilidad o descanso fuera de
+  /// base también se pernocta y no tiene segmento donde colgarlo: en el canvas
+  /// eran más de la mitad de las filas del corte, con la casilla pintada y
+  /// muerta. No se unifican las dos columnas: mover el pernocte al día
+  /// perdería el detalle de qué tramo lo causó en las jornadas con varios
+  /// recorridos, que es lo que se audita cuando alguien lo reclama.
+  pernocte   Boolean                     @default(false)
   version    Int                         @default(1)
   deleted_at DateTime?                   @db.Timestamptz(6)
   bonos      registro_dia_laboral_bono[]
