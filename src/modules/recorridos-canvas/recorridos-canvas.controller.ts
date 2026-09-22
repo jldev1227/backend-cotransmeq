@@ -16,14 +16,8 @@ import { emitSheetInvalidate } from '../../sockets/sheet.gateway'
  * un conductor por hoja y un mes cargado, pasar de este número deja el
  * navegador sin responder. Se corta y se avisa, en vez de servir un libro que
  * no se puede abrir.
- *
- * 200 y no 120 desde que el libro trae una hoja por conductor EN NÓMINA,
- * tenga o no recorridos: una hoja vacía es cabecera, pie y bordes, sin
- * bindings ni reglas de validación por fila. Si al abrir un corte con todos
- * los conductores el navegador se arrastra, este es el número que hay que
- * bajar (transmeralda ronda los 180 en nómina).
  */
-const MAX_HOJAS = 200
+const MAX_HOJAS = 120
 
 /**
  * Tope de días por corte.
