@@ -35,7 +35,18 @@ function parseMes(value: string | number | undefined): number | undefined {
 // TIPOS
 // ═══════════════════════════════════════════════════════════════
 
-export type TipoServicioTarifa = "HORA_24" | "HORA_12" | "HORA" | "KILOMETRO";
+/// Espejo del enum `tipo_servicio_tarifa_enum` de Prisma (claves, no las etiquetas
+/// `@map` de la base). Al añadir un valor: schema.prisma + migración + este
+/// tipo + `TipoServicioTarifa` y `TIPOS` en el frontend.
+export type TipoServicioTarifa =
+  | "TRANSPORTE_DE_PERSONAL_EN_CAMIONETA"
+  | "TRANSPORTE_DE_PERSONAL_EN_BUSETA"
+  | "TRANSPORTE_DE_PERSONAL_EN_MICROBUS"
+  | "TRANSPORTE_DE_PERSONAL_EN_BUS"
+  | "TRANSPORTE_DE_HERRAMIENTA_EN_CAMIONETA_DOBLE_CABINA"
+  | "TRANSPORTE_ADICIONAL_HORA_ADICIONAL"
+  | "TRANSPORTE_ADICIONAL_KM_ADICIONAL"
+  | "TRANSPORTE_ADICIONAL_DISPONIBILIDAD";
 export type EstadoLiquidacionServicio =
   | "BORRADOR"
   | "LIQUIDADA"
@@ -585,7 +596,8 @@ export const LiquidacionesServiciosService = {
       const diffDias = Math.ceil(diffHoras / 24) || 1;
 
       // Autodetectar tipo de servicio basado en duración
-      let tipoServicio: TipoServicioTarifa = "HORA_24";
+      // Códigos legacy del preview (no son valores del enum de la base): deuda previa.
+      let tipoServicio: string = "HORA_24";
       let cantidad = diffDias;
       let valorUnitario = Number(tarifa.valor_24h);
 
