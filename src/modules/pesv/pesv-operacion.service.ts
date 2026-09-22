@@ -564,6 +564,8 @@ export async function coberturaInspecciones(periodo: Periodo) {
         assignment_id: { in: asignaciones.map((a) => a.id) },
         business_date: { gte: desde, lte: hasta },
         status: 'SUBMITTED',
+        /// Los envíos descartados no acreditan nada.
+        deleted_at: null,
       },
       select: {
         id: true,

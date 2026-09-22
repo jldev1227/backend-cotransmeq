@@ -279,6 +279,9 @@ export async function leerInsumos(cicloId: string | null, periodo: Periodo): Pro
   const enviosRaw = await prisma.form_submission.findMany({
     where: {
       business_date: { gte: desdeFecha, lte: hastaFecha },
+      /// Un borrador descartado no es un envío: no suma al numerador ni al
+      /// denominador de ningún indicador.
+      deleted_at: null,
       ...(idsAsignacionPesv.size > 0 ? { assignment_id: { in: Array.from(idsAsignacionPesv) } } : {}),
     },
     select: {

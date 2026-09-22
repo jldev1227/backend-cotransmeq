@@ -1801,6 +1801,7 @@ enum tipo_servicio_tarifa_enum {
   TRANSPORTE_DE_PERSONAL_EN_BUSETA
   TRANSPORTE_DE_PERSONAL_EN_MICROBUS
   TRANSPORTE_DE_PERSONAL_EN_BUS
+  TRANSPORTE_DE_HERRAMIENTA_EN_CAMIONETA_DOBLE_CABINA
   TRANSPORTE_ADICIONAL_HORA_ADICIONAL
   TRANSPORTE_ADICIONAL_KM_ADICIONAL
   TRANSPORTE_ADICIONAL_DISPONIBILIDAD
@@ -2624,6 +2625,14 @@ model form_submission {
   voided_at    DateTime? @db.Timestamptz(6)
   voided_by_id String?   @db.Uuid
   void_reason  String?
+
+  /// Borrado lógico. Solo un `DRAFT` se marca: abrir un formulario ya crea la
+  /// fila, así que quien lo abre por error necesita poder retirarlo sin que
+  /// desaparezca lo que llegó a escribir. Un `SUBMITTED` no se borra —se anula
+  /// con `VOIDED`, que conserva el envío y exige motivo—. Quién lo retiró queda
+  /// en `form_submission_events` con el evento `DISCARDED`, que es donde vive
+  /// la bitácora de este módulo.
+  deleted_at   DateTime? @db.Timestamptz(6)
 
   assignment  form_assignment         @relation(fields: [assignment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   version     form_version            @relation(fields: [version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

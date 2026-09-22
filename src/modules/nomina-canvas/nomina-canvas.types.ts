@@ -70,6 +70,43 @@ export function colorDeCliente(empresaId: string): string {
   return PALETA_CLIENTES[h % PALETA_CLIENTES.length];
 }
 
+/**
+ * Paleta de las PLACAS.
+ *
+ * Deliberadamente distinta de la de clientes: en la hoja conviven dos filas de
+ * color —cliente del día y placa del día, una encima de la otra— y con la misma
+ * paleta un verde en la fila de arriba y otro en la de abajo se leerían como lo
+ * mismo. Estos son tonos más apagados y fríos; los de cliente son saturados.
+ */
+export const PALETA_PLACAS = [
+  '#5B8DEF', '#E08D3C', '#57A773', '#C05B5B',
+  '#8B72BE', '#A0744F', '#D07EA8', '#6E7B8B',
+  '#B0A43C', '#4FA3A8', '#93AFD8', '#E0B487',
+  '#9BC5A6', '#DBA0A0', '#BFAED8', '#C2A48C',
+] as const;
+
+/**
+ * Color estable de una placa.
+ *
+ * Se deriva del TEXTO de la placa y no de su posición en la lista, por lo mismo
+ * que el de cliente: así QLR098 es del mismo color en la hoja de enero y en la
+ * de agosto, y en la de un conductor y en la de otro. Con un índice por orden de
+ * aparición, un conductor que estrena vehículo repintaría a todos los demás.
+ */
+export function colorDePlaca(placa: string): string {
+  let h = 0;
+  for (let i = 0; i < placa.length; i++) {
+    h = (h * 31 + placa.charCodeAt(i)) >>> 0;
+  }
+  return PALETA_PLACAS[h % PALETA_PLACAS.length];
+}
+
+/** Una placa del periodo con su color, para la leyenda y la fila de días. */
+export interface PlacaNomina {
+  placa: string;
+  color: string;
+}
+
 /** Un cliente del periodo con su color, para pintar la leyenda. */
 export interface ClienteNomina {
   id: string;
@@ -106,6 +143,39 @@ export interface DiaHoja {
   empresaId: string | null;
   /** Color identificativo del cliente. Es lo que se pinta en la fila 18. */
   empresaColor: string | null;
+  /**
+   * Placa con la que se trabajó ESE día.
+   *
+   * Estaba solo agregada en `placas`, así que la hoja decía «usó cinco
+   * vehículos» pero no cuál en cada día — y eso es justo lo que se pregunta
+   * cuando hay que cotejar un recargo contra la planilla del vehículo.
+   */
+  placa: string | null;
+  /** Color de esa placa. Es lo que se pinta en la fila 19. */
+  placaColor: string | null;
+}
+
+/**
+ * Un tramo del corte con una misma configuración salarial y unas mismas
+ * tarifas.
+ *
+ * Casi siempre hay uno solo. Hay dos cuando el corte cruza un cambio de
+ * vigencia: el 21-jun → 20-jul de 2026 se parte en «21 DE JUNIO AL 14 DE
+ * JULIO» (220 h base, RD 80 %) y «15 AL 20 DE JULIO» (210 h base, RD 90 %),
+ * porque la Ley 2466 entró a mitad de corte. Cada día se valora con el tramo
+ * al que pertenece, no con el del cierre.
+ */
+export interface TramoVigencia {
+  /** Primera y última fecha del corte que caen en este tramo. */
+  desde: string;
+  hasta: string;
+  /** `21 DE JUNIO AL 14 DE JULIO DE 2026`. */
+  etiqueta: string;
+  salarioBasico: number;
+  horasMensualesBase: number;
+  valorHora: number;
+  jornadaNormalHoras: number;
+  jornadaFestivaHoras: number;
 }
 
 /** Una fila del bloque de configuración (filas 27-33 del Excel). */
@@ -120,6 +190,12 @@ export interface TarifaRecargo {
   /** Horas acumuladas del conductor en el periodo. */
   horas: number;
   valor: number;
+  /**
+   * Índice dentro de `HojaNomina.tramos`. Con un solo tramo siempre es 0 y
+   * la tabla se pinta igual que siempre; con dos, hay una fila por código y
+   * tramo y el bloque se parte en dos sub-tablas.
+   */
+  tramo: number;
 }
 
 /** Un bloque del desglose por empresa (filas 39-47 y siguientes). */
@@ -135,6 +211,33 @@ export interface BloqueEmpresa {
   lineas: { codigo: CodigoRecargo; nombre: string; horas: number; valor: number }[];
   totalHoras: number;
   totalValor: number;
+}
+
+/**
+ * Los bonos del periodo cruzados por placa.
+ *
+ * `bonificaciones` ya nace con `vehiculo_id`, así que el dato es una matriz
+ * desde siempre —cuántos bonos de cada tipo se pagaron con cada vehículo—, pero
+ * el desprendible solo enseñaba el total por tipo. Con cinco placas en un
+ * periodo eso deja sin responder la pregunta de quién adjudica cada bono, que
+ * es justo la que se hace al cuadrar contra los recorridos.
+ *
+ * Las cantidades se suman a lo largo de los meses que toca el corte: `values`
+ * guarda `[{ mes, quantity }]` y un corte 21→20 cruza dos.
+ */
+export interface MatrizBonos {
+  /** Placas que son columna, en el mismo orden que `placasUsadas`. */
+  placas: PlacaNomina[];
+  filas: {
+    /** «Bono de alimentación». */
+    nombre: string;
+    /** Precio unitario, que es igual para todas las placas. */
+    valorUnitario: number;
+    /** Cantidad por placa, alineada con `placas`. */
+    cantidades: number[];
+    /** Suma de la fila: es lo que el desprendible paga de este bono. */
+    total: number;
+  }[];
 }
 
 /** Una línea del desprendible. */
@@ -157,17 +260,44 @@ export interface HojaNomina {
   estado: string;
   nombre: string;
   cedula: string | null;
+  /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
+  correo: string | null;
   cargo: string;
   /** Nombre de la pestaña, ya desambiguado. */
   nombreHoja: string;
   tipoVehiculo: string | null;
+  /** Placas usadas en el periodo, en orden de aparición. */
   placas: string[];
+  /** Las mismas, con su color, para la leyenda y la fila de días. */
+  placasUsadas: PlacaNomina[];
+  /** Bonos × placa. Vacío si la liquidación no tiene bonificaciones. */
+  matrizBonos: MatrizBonos;
+  /**
+   * A qué nómina pertenece el conductor en ESTE periodo: `PAREX`, `GEOPARK`,
+   * `PAREX, GEOPARK` o `VILLANUEVA`.
+   *
+   * Sale de las empresas con las que trabajó —las mismas que alimentan el
+   * desglose por empresa—, no de un campo del conductor: alguien puede estar en
+   * Parex en julio y en Villanueva en agosto, y el dato tiene que seguir al
+   * periodo. `VILLANUEVA` es el caso por defecto: ni Parex ni Geopark.
+   */
+  tipoNomina: string;
 
   dias: DiaHoja[];
+  /**
+   * Una fila por código y por tramo de vigencia. Con un solo tramo son las
+   * siete de siempre.
+   */
   tarifas: TarifaRecargo[];
+  /** Los tramos de vigencia que cruza el corte. Casi siempre uno. */
+  tramos: TramoVigencia[];
   bloquesEmpresa: BloqueEmpresa[];
 
-  /** Config salarial vigente al cierre del periodo. */
+  /**
+   * Config salarial vigente al CIERRE del periodo (el último tramo). Se
+   * conserva para lo que necesita un único número; el dinero no sale de
+   * aquí, sale de `tarifas`, que va por tramo.
+   */
   salarioBasico: number;
   valorHora: number;
   horasMensualesBase: number;

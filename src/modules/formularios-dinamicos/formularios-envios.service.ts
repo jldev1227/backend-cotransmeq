@@ -46,6 +46,7 @@ const listSelect = {
   updated_at: true,
   voided_at: true,
   void_reason: true,
+  deleted_at: true,
   conductor: { select: { id: true, nombre: true, apellido: true, numero_identificacion: true } },
   usuario: { select: { id: true, nombre: true, correo: true } },
   vehiculo: { select: { id: true, placa: true } },
@@ -58,6 +59,16 @@ const listSelect = {
 
 function buildWhere(query: ListarEnviosQuery): Prisma.form_submissionWhereInput {
   const where: Prisma.form_submissionWhereInput = {
+    /**
+     * Los descartados quedan FUERA salvo que se pidan.
+     *
+     * Abrir un formulario ya crea la fila, así que el explorador se llenaba de
+     * borradores que nadie llegó a diligenciar y que no había forma de retirar.
+     * Un borrador descartado no es un envío: no cuenta, no se exporta y no
+     * aparece. La fila sigue en la base —y `includeDeleted` la trae— porque
+     * deshacer un descarte no debería necesitar SQL.
+     */
+    ...(query.includeDeleted ? {} : { deleted_at: null }),
     ...(query.status ? { status: query.status } : {}),
     ...(query.assignmentId ? { assignment_id: query.assignmentId } : {}),
     ...(query.versionId ? { version_id: query.versionId } : {}),
@@ -195,15 +206,22 @@ async function firmarAdjuntos(attachments: { id: string; object_key: string | nu
 export async function anularEnvio(id: string, input: AnularEnvioInput, actor: AdminActor) {
   const resultado = await prisma.$transaction(async (tx) => {
     const filas = await tx.$queryRaw<
-      { id: string; status: string; conductor_id: string; assignment_id: string }[]
+      { id: string; status: string; conductor_id: string; assignment_id: string; deleted_at: Date | null }[]
     >`
-      SELECT id, status, conductor_id, assignment_id
+      SELECT id, status, conductor_id, assignment_id, deleted_at
       FROM form_submissions
       WHERE id = ${id}::uuid
       FOR UPDATE
     `
     const envio = filas[0]
     if (!envio) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío no existe.')
+    /// Hoy es inalcanzable —solo se descarta un `DRAFT` y solo se anula un
+    /// `SUBMITTED`— pero las dos reglas viven en sitios distintos y nada
+    /// garantiza que sigan siendo disjuntas. Anular algo descartado dejaría un
+    /// registro con las dos marcas y ninguna lectura sabría cuál manda.
+    if (envio.deleted_at) {
+      throw new FormError('SUBMISSION_DISCARDED', 'Ese envío está descartado: restáuralo antes de anularlo.')
+    }
     if (envio.status === 'VOIDED') throw new FormError('SUBMISSION_ALREADY_VOIDED', 'El envío ya estaba anulado.')
     if (envio.status !== 'SUBMITTED') {
       throw new FormError('SUBMISSION_IMMUTABLE', 'Solo se anula un envío ya entregado.', { status: envio.status })
@@ -229,6 +247,98 @@ export async function anularEnvio(id: string, input: AnularEnvioInput, actor: Ad
   })
 
   return { ...(await obtenerEnvio(id)), ...resultado }
+}
+
+/**
+ * Descarta un envío desde el dashboard: BORRADO LÓGICO, y solo de borradores.
+ *
+ * ── Por qué hace falta aquí y no solo en el portal ──────────────────────────
+ *
+ * Abrir un formulario ya crea la fila. Los borradores que nadie terminó se
+ * acumulan en el explorador y en las tarjetas de quien los abrió, y quien
+ * diligenció puede haber perdido el acceso —conductor sin magic link vigente,
+ * usuario dado de baja—. Sin esta ruta, la única limpieza posible era un script
+ * contra la base.
+ *
+ * ── Lo que NO permite ───────────────────────────────────────────────────────
+ *
+ * Borrar un envío entregado. `SUBMITTED` es terminal y tiene su propia
+ * operación (`anularEnvio`), que conserva el registro, exige motivo y deja
+ * `voided_by_id`. Si descartar sirviera también para entregados, sería una vía
+ * para hacer desaparecer del explorador un documento con valor legal sin
+ * justificación ninguna.
+ */
+export async function descartarEnvio(id: string, actor: AdminActor) {
+  return prisma.$transaction(async (tx) => {
+    const filas = await tx.$queryRaw<{ id: string; status: string; deleted_at: Date | null }[]>`
+      SELECT id, status, deleted_at
+      FROM form_submissions
+      WHERE id = ${id}::uuid
+      FOR UPDATE
+    `
+    const envio = filas[0]
+    if (!envio) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío no existe.')
+    /// Idempotente: descartar lo ya descartado responde igual en vez de fallar.
+    if (envio.deleted_at) {
+      return { id, deleted: false, alreadyGone: true, deletedAt: envio.deleted_at.toISOString() }
+    }
+    if (envio.status !== 'DRAFT') {
+      throw new FormError('SUBMISSION_IMMUTABLE', 'Solo se descarta un borrador. Un envío entregado se anula.', {
+        status: envio.status,
+      })
+    }
+
+    const now = new Date()
+    await tx.form_submission.update({ where: { id }, data: { deleted_at: now } })
+    await tx.form_submission_event.create({
+      data: {
+        id: randomUUID(),
+        submission_id: id,
+        event_type: 'DISCARDED',
+        actor_type: 'USER',
+        actor_id: actor.id,
+        payload_json: { source: 'dashboard', actorName: actor.nombre ?? null } as Prisma.InputJsonValue,
+      },
+    })
+
+    return { id, deleted: true, alreadyGone: false, deletedAt: now.toISOString() }
+  })
+}
+
+/**
+ * Deshace un descarte.
+ *
+ * Existe porque el borrado es lógico: las respuestas, la evidencia y la
+ * bitácora siguen ahí, y un descarte por error no debería necesitar SQL para
+ * repararse. El envío vuelve con el estado que tenía —`DRAFT`—, no se reabre
+ * nada que estuviera cerrado.
+ */
+export async function restaurarEnvio(id: string, actor: AdminActor) {
+  await prisma.$transaction(async (tx) => {
+    const filas = await tx.$queryRaw<{ id: string; deleted_at: Date | null }[]>`
+      SELECT id, deleted_at
+      FROM form_submissions
+      WHERE id = ${id}::uuid
+      FOR UPDATE
+    `
+    const envio = filas[0]
+    if (!envio) throw new FormError('SUBMISSION_NOT_FOUND', 'El envío no existe.')
+    if (!envio.deleted_at) return
+
+    await tx.form_submission.update({ where: { id }, data: { deleted_at: null } })
+    await tx.form_submission_event.create({
+      data: {
+        id: randomUUID(),
+        submission_id: id,
+        event_type: 'RESTORED',
+        actor_type: 'USER',
+        actor_id: actor.id,
+        payload_json: { source: 'dashboard', actorName: actor.nombre ?? null } as Prisma.InputJsonValue,
+      },
+    })
+  })
+
+  return obtenerEnvio(id)
 }
 
 /**

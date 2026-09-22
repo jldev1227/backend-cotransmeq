@@ -148,8 +148,12 @@ export const NominaSnapshotsService = {
           horas: d.horas,
           empresaId: d.empresaId,
         })),
+        // `tramo` entra en el hash: con un corte que cruza un cambio de
+        // vigencia hay dos filas del mismo código y sin él la del 80 % y la
+        // del 90 % serían indistinguibles en el diff entre versiones.
         tarifas: h.tarifas.map((t) => ({
           codigo: t.codigo,
+          tramo: t.tramo,
           porcentaje: t.porcentaje,
           valorHora: t.valorHora,
           horas: t.horas,

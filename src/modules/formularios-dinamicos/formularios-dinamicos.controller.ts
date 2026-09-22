@@ -447,6 +447,33 @@ export const FormulariosController = {
     }
   },
 
+  /**
+   * Descarta un borrador desde el explorador de envíos.
+   *
+   * No emite evento de socket: las rooms del gateway son de conductores y
+   * notifican entregas y anulaciones, no la limpieza de un borrador que nadie
+   * llegó a terminar.
+   */
+  async descartarEnvio(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      return ok(reply, await envios.descartarEnvio(id, actor(request)))
+    } catch (err) {
+      return fail(reply, err, 'descartar envío')
+    }
+  },
+
+  async restaurarEnvio(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const { submission, definition } = await envios.restaurarEnvio(id, actor(request))
+      reply.header('Cache-Control', 'no-store')
+      return ok(reply, { submission, definition })
+    } catch (err) {
+      return fail(reply, err, 'restaurar envío')
+    }
+  },
+
   async exportarEnvios(request: FastifyRequest, reply: FastifyReply) {
     try {
       const query = parse(listarEnviosSchema, request.query)

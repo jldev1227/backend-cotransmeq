@@ -341,6 +341,10 @@ export const listarEnviosSchema = paginacionSchema.extend({
   status: z.enum(SUBMISSION_STATUSES).optional(),
   businessDateFrom: fechaSimple.optional(),
   businessDateTo: fechaSimple.optional(),
+  /// `true` incluye los descartados. El explorador normal NO los muestra —un
+  /// borrador retirado no es un envío—, pero sin esta puerta un descarte por
+  /// error solo se podría deshacer con SQL contra la base.
+  includeDeleted: z.coerce.boolean().optional(),
 })
 
 export const anularEnvioSchema = z.object({

@@ -38,6 +38,7 @@ export const FORM_ERROR_CODES = [
   // Envío
   'SUBMISSION_IMMUTABLE',
   'SUBMISSION_ALREADY_VOIDED',
+  'SUBMISSION_DISCARDED',
   'IDEMPOTENCY_PAYLOAD_MISMATCH',
 
   // Adjuntos
@@ -87,6 +88,12 @@ const STATUS_BY_CODE: Record<FormErrorCode, number> = {
 
   SUBMISSION_IMMUTABLE: 409,
   SUBMISSION_ALREADY_VOIDED: 409,
+  /// 409 y TERMINAL: el borrador se descartó. La outbox NO debe reintentar ni
+  /// conservar el borrador local —no hay nada que corregir, ese
+  /// `clientSubmissionId` está retirado— y tiene que eliminarlo de su cola. Un
+  /// reintento indefinido sobre un borrador borrado es justamente la tarjeta
+  /// fantasma que este borrado viene a quitar.
+  SUBMISSION_DISCARDED: 409,
   IDEMPOTENCY_PAYLOAD_MISMATCH: 409,
 
   ATTACHMENT_MISSING: 422,
