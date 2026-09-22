@@ -57,6 +57,19 @@ const SELECT_DIA = {
 
 type DiaConTramos = Prisma.registro_dia_laboralGetPayload<{ select: typeof SELECT_DIA }>
 
+type ConductorDeHoja = NonNullable<DiaConTramos['conductor']>
+
+/**
+ * Estados de conductor que NO reciben hoja en el libro mientras no tengan
+ * días registrados en el corte. Es la exclusión del selector de recorridos
+ * (`ConductoresService.listarParaSelect`) más `desvinculado`: nadie va a
+ * registrarle recorridos a quien ya no está en la empresa.
+ *
+ * Un conductor en uno de estos estados que SÍ tenga días en el corte sigue
+ * saliendo: los datos mandan sobre el estado de la ficha.
+ */
+const ESTADOS_SIN_HOJA = ['inactivo', 'retirado', 'suspendido', 'desvinculado'] as const
+
 /**
  * Construye el libro de recorridos de un periodo.
  *
@@ -161,20 +174,43 @@ export class RecorridosCanvasService {
       else porConductor.set(r.conductor_id, [r])
     }
 
-    const conductores = [...porConductor.keys()]
-      .map((id) => porConductor.get(id)![0].conductor)
-      .filter((c): c is NonNullable<typeof c> => !!c)
-      .sort((a, b) =>
-        `${a.apellido} ${a.nombre}`.localeCompare(`${b.apellido} ${b.nombre}`, 'es'),
-      )
+    // Una hoja por conductor EN NÓMINA, tenga o no días en el corte: la hoja
+    // vacía es donde se insertan las filas del conductor al que todavía no
+    // se le ha registrado nada. Los que sí tienen días entran siempre,
+    // aunque su ficha esté en un estado excluido.
+    const enNomina = await prisma.conductores.findMany({
+      where: {
+        deleted_at: null,
+        oculto: false,
+        estado: { notIn: [...ESTADOS_SIN_HOJA] },
+        ...(conductorIds?.length ? { id: { in: conductorIds } } : {}),
+      },
+      select: { id: true, nombre: true, apellido: true, numero_identificacion: true },
+    })
+
+    const porId = new Map<string, ConductorDeHoja>()
+    for (const c of enNomina) porId.set(c.id, c)
+    for (const dias of porConductor.values()) {
+      const c = dias[0].conductor
+      if (c) porId.set(c.id, c)
+    }
+
+    const porApellido = (a: ConductorDeHoja, b: ConductorDeHoja) =>
+      `${a.apellido} ${a.nombre}`.localeCompare(`${b.apellido} ${b.nombre}`, 'es')
+    const conductores = [...porId.values()].sort(porApellido)
 
     let elegidos = conductores
     if (elegidos.length > maxHojas) {
       avisos.push(
         `El periodo tiene ${elegidos.length} conductores y el libro se limita a ${maxHojas}. ` +
-          `Se muestran los ${maxHojas} primeros por apellido; filtra por conductor para ver el resto.`,
+          `Se muestran primero los que tienen recorridos y luego el resto por apellido; ` +
+          `filtra por conductor para ver a quien falte.`,
       )
-      elegidos = elegidos.slice(0, maxHojas)
+      // Al recortar, los que tienen datos van antes que las hojas vacías: una
+      // hoja con recorridos que no se ve es un problema; una vacía, no.
+      const conDias = conductores.filter((c) => porConductor.has(c.id))
+      const sinDias = conductores.filter((c) => !porConductor.has(c.id))
+      elegidos = [...conDias, ...sinDias].slice(0, maxHojas).sort(porApellido)
     }
 
     const nombres = nombresUnicos(elegidos)
@@ -196,8 +232,13 @@ export class RecorridosCanvasService {
     })
 
     const etiqueta = etiquetaCorte(corte)
-    if (hojas.length === 0) {
-      avisos.push(`No hay recorridos registrados entre el ${corte.desde} y el ${corte.hasta}.`)
+    if (registros.length === 0) {
+      avisos.push(
+        hojas.length === 0
+          ? `No hay recorridos registrados entre el ${corte.desde} y el ${corte.hasta}.`
+          : `No hay recorridos registrados entre el ${corte.desde} y el ${corte.hasta}. ` +
+              `Cada conductor tiene su hoja vacía: inserta una fila encima del pie para empezar.`,
+      )
     }
 
     return {
