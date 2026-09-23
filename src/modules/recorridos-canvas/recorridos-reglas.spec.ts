@@ -153,7 +153,7 @@ describe('campos que no se pueden vaciar', () => {
   })
 
   it('deja vaciar lo que sí admite estar en blanco', () => {
-    for (const campo of ['cliente_nombre', 'observaciones', 'km_inicial']) {
+    for (const campo of ['cliente_nombre', 'km_inicial', 'pernocte']) {
       expect(() => exigirNoVacio(campo, '')).not.toThrow()
     }
   })
@@ -239,12 +239,14 @@ describe('clasificación de una fila insertada en el canvas', () => {
       hora_inicio: '6:00',
       hora_fin: '18:00',
       horas_conducidas: '6 horas',
+      descripcion: ' Transporte de personal a Rubiales ',
     })
     expect(f.clase).toBe('recorrido')
     if (f.clase === 'recorrido') {
       expect(f.vehiculo_placa).toBe('FST006')
       expect(f.hora_inicio).toBe('06:00')
       expect(f.horas_conducidas).toBe(6)
+      expect(f.descripcion_servicio).toBe('Transporte de personal a Rubiales')
     }
   })
 
@@ -256,8 +258,19 @@ describe('clasificación de una fila insertada en el canvas', () => {
 
   it('sin placa ni horario es un DÍA, y necesita el tipo', () => {
     expect(() => clasificarFilaNueva({ fecha: '2026-09-03' })).toThrow(/TIPO DE DÍA/)
-    const f = clasificarFilaNueva({ fecha: '2026-09-03', tipo_dia: 'descanso' })
-    expect(f).toMatchObject({ clase: 'dia', tipo_dia: 'DESCANSO', vehiculo_placa: null })
+    const f = clasificarFilaNueva({
+      fecha: '2026-09-03',
+      tipo_dia: 'descanso',
+      descripcion: 'Compensatorio',
+    })
+    expect(f).toMatchObject({
+      clase: 'dia',
+      tipo_dia: 'DESCANSO',
+      vehiculo_placa: null,
+      /// En una fila de DÍA la columna DESCRIPCIÓN sigue siendo la observación
+      /// libre del día, y sigue sin ser obligatoria.
+      observaciones: 'Compensatorio',
+    })
   })
 
   it('un día LABORADO sin recorrido no existe', () => {
@@ -286,6 +299,7 @@ describe('clasificación de una fila insertada en el canvas', () => {
         vehiculo_placa: 'FST006',
         hora_inicio: '06:00',
         hora_fin: '18:00',
+        descripcion: 'Transporte de personal',
       }),
     ).toThrow(/LABORADO/)
   })
@@ -297,7 +311,43 @@ describe('clasificación de una fila insertada en el canvas', () => {
         vehiculo_placa: 'FST006',
         hora_inicio: '18:00',
         hora_fin: '06:00',
+        descripcion: 'Transporte de personal',
       }),
     ).toThrow(/posterior/)
+  })
+
+  it('un recorrido sin descripción del servicio no se guarda', () => {
+    expect(() =>
+      clasificarFilaNueva({
+        fecha: '2026-09-03',
+        vehiculo_placa: 'FST006',
+        hora_inicio: '06:00',
+        hora_fin: '18:00',
+      }),
+    ).toThrow(/la descripción del servicio/)
+  })
+
+  it('la descripción en blanco cuenta como ausente', () => {
+    expect(() =>
+      clasificarFilaNueva({
+        fecha: '2026-09-03',
+        vehiculo_placa: 'FST006',
+        hora_inicio: '06:00',
+        hora_fin: '18:00',
+        descripcion: '   ',
+      }),
+    ).toThrow(/la descripción del servicio/)
+  })
+
+  it('dice TODO lo que falta de una vez, no de uno en uno', () => {
+    expect(() =>
+      clasificarFilaNueva({ fecha: '2026-09-03', hora_inicio: '06:00' }),
+    ).toThrow(/la hora final y la descripción del servicio/)
+  })
+
+  it('vaciar la descripción de un tramo ya guardado se rechaza', () => {
+    expect(() => exigirNoVacio('descripcion_servicio', '')).toThrow(
+      /La descripción del servicio no puede quedar vacía/,
+    )
   })
 })

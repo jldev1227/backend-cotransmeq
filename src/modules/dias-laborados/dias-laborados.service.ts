@@ -250,6 +250,7 @@ export const DiasLaboradosService = {
 
       // 2) Reemplazar segmentos (idempotente): retirar los existentes y
       //    re-insertar todos. Para LABORADO se exige al menos 1 segmento.
+      //
       //    Se MARCAN, no se borran. Antes cada guardado destruía los segmentos
       //    anteriores —el mismo patrón que se llevó por delante los ítems de
       //    las liquidaciones—, y la tabla YA tenía `deleted_at` sin que nadie
@@ -273,14 +274,14 @@ export const DiasLaboradosService = {
               vehiculo_placa: seg.vehiculo_placa,
               hora_inicio: seg.hora_inicio,
               hora_fin: seg.hora_fin,
-              inicio_dia_siguiente: seg.inicio_dia_siguiente === true,
-              fin_dia_siguiente: seg.fin_dia_siguiente === true,
+              dias_offset_inicio: seg.dias_offset_inicio ?? 0,
+              dias_offset_fin: seg.dias_offset_fin ?? 0,
               horas_conducidas: Number(seg.horas_conducidas) || 0,
               km_inicial: seg.km_inicial != null ? Number(seg.km_inicial) : null,
               km_final: seg.km_final != null ? Number(seg.km_final) : null,
               pernocte: seg.pernocte === true,
               orden: idx + 1,
-              observaciones: seg.observaciones || null
+              descripcion_servicio: seg.descripcion_servicio
             }))
           });
         }
@@ -643,8 +644,13 @@ export const DiasLaboradosService = {
                 km_inicial: seg.km_inicial != null ? Number(seg.km_inicial) : null,
                 km_final: seg.km_final != null ? Number(seg.km_final) : null,
                 pernocte: seg.pernocte === true,
+                /// Antes se perdían: la carga por lote guardaba todo como si
+                /// empezara y terminara el mismo día, así que un turno nocturno
+                /// cargado en lote quedaba con horas negativas.
+                dias_offset_inicio: seg.dias_offset_inicio ?? 0,
+                dias_offset_fin: seg.dias_offset_fin ?? 0,
                 orden: 1,
-                observaciones: seg.observaciones || null
+                descripcion_servicio: seg.descripcion_servicio
               }
             })
           }
@@ -756,10 +762,10 @@ export const DiasLaboradosService = {
         vehiculo_placa: input.vehiculo_placa !== undefined ? input.vehiculo_placa : undefined,
         hora_inicio: input.hora_inicio !== undefined ? input.hora_inicio : undefined,
         hora_fin: input.hora_fin !== undefined ? input.hora_fin : undefined,
-        inicio_dia_siguiente:
-          input.inicio_dia_siguiente !== undefined ? input.inicio_dia_siguiente : undefined,
-        fin_dia_siguiente:
-          input.fin_dia_siguiente !== undefined ? input.fin_dia_siguiente : undefined,
+        dias_offset_inicio:
+          input.dias_offset_inicio !== undefined ? input.dias_offset_inicio : undefined,
+        dias_offset_fin:
+          input.dias_offset_fin !== undefined ? input.dias_offset_fin : undefined,
         horas_conducidas:
           input.horas_conducidas !== undefined && input.horas_conducidas !== null
             ? Number(input.horas_conducidas)
@@ -767,8 +773,8 @@ export const DiasLaboradosService = {
         km_inicial: input.km_inicial !== undefined ? input.km_inicial : undefined,
         km_final: input.km_final !== undefined ? input.km_final : undefined,
         pernocte: input.pernocte !== undefined ? input.pernocte : undefined,
-        observaciones:
-          input.observaciones !== undefined ? input.observaciones : undefined
+        descripcion_servicio:
+          input.descripcion_servicio !== undefined ? input.descripcion_servicio : undefined
       }
     })
 
@@ -939,10 +945,10 @@ export const DiasLaboradosService = {
               vehiculo_placa: seg.vehiculo_placa !== undefined ? seg.vehiculo_placa : undefined,
               hora_inicio: seg.hora_inicio !== undefined ? seg.hora_inicio : undefined,
               hora_fin: seg.hora_fin !== undefined ? seg.hora_fin : undefined,
-              inicio_dia_siguiente:
-                seg.inicio_dia_siguiente !== undefined ? seg.inicio_dia_siguiente : undefined,
-              fin_dia_siguiente:
-                seg.fin_dia_siguiente !== undefined ? seg.fin_dia_siguiente : undefined,
+              dias_offset_inicio:
+                seg.dias_offset_inicio !== undefined ? seg.dias_offset_inicio : undefined,
+              dias_offset_fin:
+                seg.dias_offset_fin !== undefined ? seg.dias_offset_fin : undefined,
               horas_conducidas:
                 seg.horas_conducidas !== undefined && seg.horas_conducidas !== null
                   ? Number(seg.horas_conducidas)
@@ -950,7 +956,8 @@ export const DiasLaboradosService = {
               km_inicial: seg.km_inicial !== undefined ? seg.km_inicial : undefined,
               km_final: seg.km_final !== undefined ? seg.km_final : undefined,
               pernocte: seg.pernocte !== undefined ? seg.pernocte : undefined,
-              observaciones: seg.observaciones !== undefined ? seg.observaciones : undefined
+              descripcion_servicio:
+                seg.descripcion_servicio !== undefined ? seg.descripcion_servicio : undefined
             }
           })
           if (existing.segmentos.length > 1) {
@@ -961,7 +968,19 @@ export const DiasLaboradosService = {
             })
           }
         } else {
-          // Crear el primer segmento
+          // Crear el primer segmento.
+          //
+          // Aquí la descripción SÍ es obligatoria, aunque el schema la deje
+          // opcional: ese `optional` es para las ediciones parciales —cambiar
+          // solo el kilometraje de un tramo que ya la tiene—. Un tramo que
+          // nace sin ella chocaría contra el NOT NULL de la columna y saldría
+          // como error 500; mejor decir qué falta.
+          if (!seg.descripcion_servicio) {
+            throw {
+              statusCode: 400,
+              message: 'Describe el servicio de este tramo para poder crearlo.'
+            }
+          }
           await tx.registro_dia_laboral_segmento.create({
             data: {
               id: randomUUID(),
@@ -977,14 +996,14 @@ export const DiasLaboradosService = {
               vehiculo_placa: seg.vehiculo_placa || null,
               hora_inicio: seg.hora_inicio || null,
               hora_fin: seg.hora_fin || null,
-              inicio_dia_siguiente: seg.inicio_dia_siguiente === true,
-              fin_dia_siguiente: seg.fin_dia_siguiente === true,
+              dias_offset_inicio: seg.dias_offset_inicio ?? 0,
+              dias_offset_fin: seg.dias_offset_fin ?? 0,
               horas_conducidas: seg.horas_conducidas != null ? Number(seg.horas_conducidas) : 0,
               km_inicial: seg.km_inicial != null ? Number(seg.km_inicial) : null,
               km_final: seg.km_final != null ? Number(seg.km_final) : null,
               pernocte: seg.pernocte === true,
               orden: 1,
-              observaciones: seg.observaciones || null
+              descripcion_servicio: seg.descripcion_servicio
             }
           })
         }

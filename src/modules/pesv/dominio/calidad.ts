@@ -242,17 +242,21 @@ export function kilometrosDeTramo(
 }
 
 /**
- * Horas entre `HH:MM` y `HH:MM`, respetando las banderas de día siguiente.
+ * Horas entre `HH:MM` y `HH:MM`, respetando el desfase de días de cada extremo.
  *
- * No se restan cadenas: un turno de 22:00 a 06:00 con `fin_dia_siguiente`
+ * No se restan cadenas: un turno de 22:00 a 06:00 que termina al día siguiente
  * son 8 horas, y restando literales salen −16. Es el error que el propio
- * esquema documenta con esas dos banderas.
+ * esquema documenta con `dias_offset_inicio` / `dias_offset_fin`.
+ *
+ * Los desfases son días enteros (0 = mismo día, 1 = el siguiente…), no
+ * banderas: antes eran booleanos y por eso no se podía expresar un tramo que
+ * terminara dos días después.
  */
 export function horasEntre(
   horaInicio: string | null | undefined,
   horaFin: string | null | undefined,
-  inicioDiaSiguiente = false,
-  finDiaSiguiente = false,
+  diasOffsetInicio = 0,
+  diasOffsetFin = 0,
 ): { horas: number | null; motivo: MotivoExclusion | null } {
   const min = (h: string | null | undefined): number | null => {
     if (!h) return null
@@ -268,8 +272,8 @@ export function horasEntre(
   const fin = min(horaFin)
   if (inicio == null || fin == null) return { horas: null, motivo: 'SIN_FECHA' }
 
-  const inicioAbs = inicio + (inicioDiaSiguiente ? 1440 : 0)
-  const finAbs = fin + (finDiaSiguiente ? 1440 : 0)
+  const inicioAbs = inicio + Math.max(0, Math.trunc(diasOffsetInicio)) * 1440
+  const finAbs = fin + Math.max(0, Math.trunc(diasOffsetFin)) * 1440
   const delta = finAbs - inicioAbs
   if (delta < 0 || delta > 24 * 60) return { horas: null, motivo: 'HORARIO_INCOHERENTE' }
   return { horas: delta / 60, motivo: null }

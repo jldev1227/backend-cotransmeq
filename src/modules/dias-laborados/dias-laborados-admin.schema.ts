@@ -1,5 +1,12 @@
 import { z } from 'zod'
-import { exigirPlacaSiMantenimiento, mantenimientoVehiculoFields } from './dias-laborados.schema'
+import {
+	descripcionServicio,
+	descripcionServicioOpcional,
+	diasOffset,
+	exigirHorarioCoherente,
+	exigirPlacaSiMantenimiento,
+	mantenimientoVehiculoFields
+} from './dias-laborados.schema'
 
 // ═══════════════════════════════════════════════════════════════════
 //  REGISTRO MASIVO (ADMINISTRATIVO)
@@ -37,8 +44,14 @@ const patronSegmentoSchema = z.object({
 	km_inicial: z.number().int().nonnegative().optional().nullable(),
 	km_final: z.number().int().nonnegative().optional().nullable(),
 	pernocte: z.boolean().optional().default(false),
-	observaciones: z.string().max(500).optional().nullable()
+	descripcion_servicio: descripcionServicio,
+	/// Faltaban aquí: la carga por lote era la única ruta que no sabía expresar
+	/// un turno que cruza medianoche, así que lo guardaba como si terminara el
+	/// mismo día. Es lo que dejaba a `SegmentoPatron` sin estos campos.
+	dias_offset_inicio: diasOffset.default(0),
+	dias_offset_fin: diasOffset.default(0)
 })
+	.superRefine((v, ctx) => exigirHorarioCoherente(v, ctx))
 export type PatronSegmentoInput = z.infer<typeof patronSegmentoSchema>
 
 // Un patrón de día + las fechas en que se aplica.
@@ -154,13 +167,15 @@ export const editarSegmentoSchema = z
 		vehiculo_placa: z.string().max(20).optional().nullable(),
 		hora_inicio: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
 		hora_fin: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-		inicio_dia_siguiente: z.boolean().optional(),
-		fin_dia_siguiente: z.boolean().optional(),
+		dias_offset_inicio: diasOffset.optional(),
+		dias_offset_fin: diasOffset.optional(),
 		horas_conducidas: z.number().min(0).max(24).optional().nullable(),
 		km_inicial: z.number().int().nonnegative().optional().nullable(),
 		km_final: z.number().int().nonnegative().optional().nullable(),
 		pernocte: z.boolean().optional(),
-		observaciones: z.string().max(500).optional().nullable()
+		/// Parcial: se puede editar solo el kilometraje sin reenviar la
+		/// descripción. Lo que no se admite es mandarla en blanco.
+		descripcion_servicio: descripcionServicioOpcional
 	})
 	.refine(
 		(v) => {
@@ -170,19 +185,7 @@ export const editarSegmentoSchema = z
 		},
 		{ message: 'km_final debe ser >= km_inicial', path: ['km_final'] }
 	)
-	.refine(
-		(v) => {
-			// Validar orden de horarios considerando los flags
-			// de día siguiente (turnos que cruzan medianoche).
-			if (!v.hora_inicio || !v.hora_fin) return true
-			const toMins = (h: string, next: boolean) =>
-				h.split(':').reduce((a, v) => a * 60 + Number(v), 0) + (next ? 24 * 60 : 0)
-			const inicio = toMins(v.hora_inicio, !!v.inicio_dia_siguiente)
-			const fin = toMins(v.hora_fin, !!v.fin_dia_siguiente)
-			return fin > inicio
-		},
-		{ message: 'hora_fin debe ser posterior a hora_inicio', path: ['hora_fin'] }
-	)
+	.superRefine((v, ctx) => exigirHorarioCoherente(v, ctx))
 export type EditarSegmentoInput = z.infer<typeof editarSegmentoSchema>
 
 // ─── Editar un registro (día) a nivel de metadata ──────────────
@@ -215,13 +218,13 @@ export const editarRegistroSchema = z
 				vehiculo_placa: z.string().max(20).optional().nullable(),
 				hora_inicio: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
 				hora_fin: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-				inicio_dia_siguiente: z.boolean().optional(),
-				fin_dia_siguiente: z.boolean().optional(),
+				dias_offset_inicio: diasOffset.optional(),
+				dias_offset_fin: diasOffset.optional(),
 				horas_conducidas: z.number().min(0).max(24).optional().nullable(),
 				km_inicial: z.number().int().nonnegative().optional().nullable(),
 				km_final: z.number().int().nonnegative().optional().nullable(),
 				pernocte: z.boolean().optional(),
-				observaciones: z.string().max(500).optional().nullable()
+				descripcion_servicio: descripcionServicioOpcional
 			})
 			.optional()
 			.nullable()
@@ -235,19 +238,10 @@ export const editarRegistroSchema = z
 		},
 		{ message: 'km_final debe ser >= km_inicial', path: ['segmento', 'km_final'] }
 	)
-	.refine(
-		(v) => {
-			// Si envían segmento con ambos horarios, validar orden
-			// considerando los flags de día siguiente.
-			if (!v.segmento?.hora_inicio || !v.segmento?.hora_fin) return true
-			const toMins = (h: string, next: boolean) =>
-				h.split(':').reduce((a, v) => a * 60 + Number(v), 0) + (next ? 24 * 60 : 0)
-			const inicio = toMins(v.segmento.hora_inicio, !!v.segmento.inicio_dia_siguiente)
-			const fin = toMins(v.segmento.hora_fin, !!v.segmento.fin_dia_siguiente)
-			return fin > inicio
-		},
-		{ message: 'hora_fin debe ser posterior a hora_inicio', path: ['segmento', 'hora_fin'] }
-	)
+	.superRefine((v, ctx) => {
+		if (!v.segmento) return
+		exigirHorarioCoherente(v.segmento, ctx, ['segmento'])
+	})
 	.superRefine((v, ctx) =>
 		exigirPlacaSiMantenimiento(v.tipo, v.mantenimiento_vehiculo_placa, ctx)
 	)

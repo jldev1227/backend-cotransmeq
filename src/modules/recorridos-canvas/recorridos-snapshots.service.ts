@@ -4,6 +4,7 @@ import {
   hashSnapshotPayload,
   inicioVentanaAntirrebote,
 } from '../../utils/snapshot-version'
+import { DESCRIPCION_SIN_REGISTRAR } from './recorridos-reglas'
 import { RecorridosCanvasService } from './recorridos-canvas.service'
 import type { FilaRecorrido, RecorridosPeriodoDTO } from './recorridos-canvas.types'
 import { emitSheetReverted } from '../../sockets/sheet.gateway'
@@ -202,7 +203,7 @@ export class RecorridosSnapshotsService {
     const CAMPOS: Array<keyof FilaRecorrido> = [
       'fecha', 'tipo_dia', 'cliente_nombre', 'vehiculo_placa',
       'hora_inicio', 'hora_fin', 'horas_conducidas', 'km_inicial',
-      'km_final', 'pernocte', 'observaciones',
+      'km_final', 'pernocte', 'descripcion',
     ]
 
     const cambios: Array<Record<string, unknown>> = []
@@ -285,13 +286,16 @@ export class RecorridosSnapshotsService {
                   vehiculo_placa: f.vehiculo_placa,
                   hora_inicio: f.hora_inicio,
                   hora_fin: f.hora_fin,
-                  inicio_dia_siguiente: f.inicio_dia_siguiente,
-                  fin_dia_siguiente: f.fin_dia_siguiente,
+                  dias_offset_inicio: f.dias_offset_inicio ?? 0,
+                  dias_offset_fin: f.dias_offset_fin ?? 0,
                   horas_conducidas: f.horas_conducidas,
                   km_inicial: f.km_inicial,
                   km_final: f.km_final,
                   pernocte: f.pernocte,
-                  observaciones: f.observaciones,
+                  /// Un snapshot anterior a esta columna no la trae, y la
+                  /// columna no admite nulos: se revierte con el centinela en
+                  /// vez de tumbar la reversión entera.
+                  descripcion_servicio: f.descripcion ?? DESCRIPCION_SIN_REGISTRAR,
                   // La reversión es una escritura más: sube la versión para que
                   // cualquier patch en vuelo con la versión vieja choque.
                   version: { increment: 1 },
@@ -303,7 +307,7 @@ export class RecorridosSnapshotsService {
                 where: { id: f.registro_dia_id, deleted_at: null },
                 data: {
                   tipo: f.tipo_dia,
-                  observaciones: f.observaciones,
+                  observaciones: f.descripcion,
                   version: { increment: 1 },
                   updated_at: new Date(),
                 } as never,

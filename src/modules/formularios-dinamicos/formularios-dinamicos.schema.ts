@@ -304,6 +304,20 @@ export const actualizarAsignacionSchema = crearAsignacionSchema
     path: ['endsAt'],
   })
 
+// ─── Parámetros de ruta ──────────────────────────────────────────────────────
+
+/**
+ * Ids que viajan en la URL hacia columnas `uuid`.
+ *
+ * Prisma no valida el formato antes de mandar el parámetro a Postgres: con un id
+ * que no es UUID revienta con `Inconsistent column data`, que sale como 500. Un
+ * cliente que pide un id corrupto merece un 400, y el log de `VALIDATION_ERROR`
+ * es justo donde se distingue eso de un formulario mal diligenciado.
+ */
+export const idParamSchema = z.object({ id: uuid })
+export const assignmentIdParamSchema = z.object({ assignmentId: uuid })
+export const clientSubmissionIdParamSchema = z.object({ clientSubmissionId: uuid })
+
 // ─── Listados ────────────────────────────────────────────────────────────────
 
 /// `limit` tope 100 por el contrato REST; el default es 20 porque el catálogo

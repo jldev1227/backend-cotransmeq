@@ -137,7 +137,7 @@ export class RecorridosCanvasController {
           km_inicial: body.km_inicial,
           km_final: body.km_final,
           pernocte: body.pernocte,
-          observaciones: body.observaciones,
+          descripcion: body.descripcion,
           bonos: Array.isArray(body.bonos) ? (body.bonos as string[]) : [],
         },
         actor: { id: user.id, area: user.area, role: user.role },

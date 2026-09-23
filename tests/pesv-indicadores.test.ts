@@ -499,8 +499,11 @@ describe('EJLC — exceso de jornada', () => {
     horasConducidas: horas,
     horaInicio: inicio ?? null,
     horaFin: fin ?? null,
-    inicioDiaSiguiente: false,
-    finDiaSiguiente: finSig,
+    diasOffsetInicio: 0,
+    /// `finSig` sigue siendo booleano en la firma de la factoría para no tocar
+    /// los veinte casos que la usan; lo que cambió es el dato de abajo, que
+    /// ahora cuenta días.
+    diasOffsetFin: finSig ? 1 : 0,
   })
 
   it('detecta el día por encima del límite vigente', () => {

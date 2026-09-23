@@ -145,7 +145,13 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
                     km_inicial: { type: 'integer', minimum: 0, nullable: true },
                     km_final: { type: 'integer', minimum: 0, nullable: true },
                     pernocte: { type: 'boolean' },
-                    observaciones: { type: 'string', nullable: true }
+                    dias_offset_inicio: { type: 'integer', minimum: 0, maximum: 2 },
+                    dias_offset_fin: { type: 'integer', minimum: 0, maximum: 2 },
+                    // Declarado aquí por la misma razón que el resto: lo que no
+                    // aparece en el schema no llega a zod. La obligatoriedad la
+                    // impone zod, que da un mensaje legible; ajv solo diría
+                    // "must have required property".
+                    descripcion_servicio: { type: 'string', maxLength: 500 }
                   }
                 },
                 // Vehículo intervenido cuando el patrón es MANTENIMIENTO.
@@ -344,13 +350,13 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
           vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
           hora_inicio: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
           hora_fin: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
-          inicio_dia_siguiente: { type: 'boolean' },
-          fin_dia_siguiente: { type: 'boolean' },
+          dias_offset_inicio: { type: 'integer', minimum: 0, maximum: 2 },
+          dias_offset_fin: { type: 'integer', minimum: 0, maximum: 2 },
           horas_conducidas: { type: 'number', minimum: 0, maximum: 24, nullable: true },
           km_inicial: { type: 'integer', minimum: 0, nullable: true },
           km_final: { type: 'integer', minimum: 0, nullable: true },
           pernocte: { type: 'boolean' },
-          observaciones: { type: 'string', maxLength: 500, nullable: true }
+          descripcion_servicio: { type: 'string', maxLength: 500 }
         }
       }
     }
@@ -406,13 +412,13 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
               vehiculo_placa: { type: 'string', maxLength: 20, nullable: true },
               hora_inicio: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
               hora_fin: { type: 'string', pattern: '^\\d{2}:\\d{2}$', nullable: true },
-              inicio_dia_siguiente: { type: 'boolean' },
-              fin_dia_siguiente: { type: 'boolean' },
+              dias_offset_inicio: { type: 'integer', minimum: 0, maximum: 2 },
+              dias_offset_fin: { type: 'integer', minimum: 0, maximum: 2 },
               horas_conducidas: { type: 'number', minimum: 0, maximum: 24, nullable: true },
               km_inicial: { type: 'integer', minimum: 0, nullable: true },
               km_final: { type: 'integer', minimum: 0, nullable: true },
               pernocte: { type: 'boolean' },
-              observaciones: { type: 'string', maxLength: 500, nullable: true }
+              descripcion_servicio: { type: 'string', maxLength: 500 }
             }
           }
         }
