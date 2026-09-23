@@ -1,10 +1,25 @@
 import { FastifyInstance } from 'fastify'
 import { VehiculosController } from './vehiculos.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 
 export async function vehiculosRoutes(app: FastifyInstance) {
   // Todas las rutas de vehículos requieren autenticación
   app.addHook('onRequest', authMiddleware)
+
+  /**
+   * Escribir exige nivel `full` sobre el módulo `flota`.
+   *
+   * Las LECTURAS se quedan sólo con la sesión a propósito: exigirles `read`
+   * dejaría fuera a quien tenga `limited`, que hoy sí consulta, y esto no va de
+   * recortar a nadie sino de que «Consulta» deje de ser decorativo.
+   *
+   * Respeta `PERMISSIONS_MODE`: en `warn` los rechazos por ÁREA sólo se
+   * registran, mientras que un recorte escrito en `permisos_rutas` se aplica
+   * siempre (ver `permissions.middleware.ts`).
+   */
+  const puedeEscribir = { preHandler: requirePermission('flota', 'full') }
+
 
   // Listar vehículos básicos (debe ir antes de /vehiculos para evitar conflictos)
   app.get('/flota/basicos', {
@@ -86,6 +101,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
 
   // Crear nuevo vehículo
   app.post('/vehiculos', {
+    ...puedeEscribir,
     schema: {
       description: 'Crear nuevo vehículo',
       tags: ['vehiculos'],
@@ -132,6 +148,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
 
   // Actualizar vehículo
   app.put('/vehiculos/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Actualizar vehículo',
       tags: ['vehiculos'],
@@ -146,6 +163,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
 
   // Eliminar vehículo (soft delete)
   app.delete('/vehiculos/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Eliminar vehículo (soft delete)',
       tags: ['vehiculos'],
@@ -187,6 +205,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
 
   // Restaurar vehículo eliminado (solo para administradores)
   app.post('/vehiculos/:id/restore', {
+    ...puedeEscribir,
     schema: {
       description: 'Restaurar vehículo eliminado',
       tags: ['vehiculos'],
@@ -211,6 +230,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
 
   // Cambiar estado de ocultamiento de un vehículo (solo para administradores)
   app.patch('/vehiculos/:id/ocultar', {
+    ...puedeEscribir,
     schema: {
       description: 'Ocultar o mostrar un vehículo (solo admin)',
       tags: ['vehiculos'],
@@ -256,6 +276,7 @@ export async function vehiculosRoutes(app: FastifyInstance) {
 
   // Operaciones masivas para vehículos
   app.post('/vehiculos/masivo', {
+    ...puedeEscribir,
     schema: {
       description: 'Realizar operaciones masivas sobre vehículos',
       tags: ['vehiculos'],

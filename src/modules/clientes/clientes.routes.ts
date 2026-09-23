@@ -1,10 +1,25 @@
 import { FastifyInstance } from 'fastify'
 import { ClientesController } from './clientes.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 
 export async function clientesRoutes(app: FastifyInstance) {
   // Todas las rutas de clientes requieren autenticación
   app.addHook('onRequest', authMiddleware)
+
+  /**
+   * Escribir exige nivel `full` sobre el módulo `clientes`.
+   *
+   * Las LECTURAS se quedan sólo con la sesión a propósito: exigirles `read`
+   * dejaría fuera a quien tenga `limited`, que hoy sí consulta, y esto no va de
+   * recortar a nadie sino de que «Consulta» deje de ser decorativo.
+   *
+   * Respeta `PERMISSIONS_MODE`: en `warn` los rechazos por ÁREA sólo se
+   * registran, mientras que un recorte escrito en `permisos_rutas` se aplica
+   * siempre (ver `permissions.middleware.ts`).
+   */
+  const puedeEscribir = { preHandler: requirePermission('clientes', 'full') }
+
   
   // ⚠️ IMPORTANTE: Las rutas específicas DEBEN ir ANTES que las rutas con parámetros dinámicos
 
@@ -107,6 +122,7 @@ export async function clientesRoutes(app: FastifyInstance) {
   }, ClientesController.obtenerOcultos)
 
   app.post('/clientes', {
+    ...puedeEscribir,
     schema: {
       description: 'Crear nuevo cliente',
       tags: ['clientes'],
@@ -148,6 +164,7 @@ export async function clientesRoutes(app: FastifyInstance) {
   }, ClientesController.obtenerPorId)
 
   app.put('/clientes/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Actualizar cliente',
       tags: ['clientes'],
@@ -177,6 +194,7 @@ export async function clientesRoutes(app: FastifyInstance) {
   }, ClientesController.actualizar)
 
   app.delete('/clientes/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Eliminar cliente (soft delete)',
       tags: ['clientes'],
@@ -192,6 +210,7 @@ export async function clientesRoutes(app: FastifyInstance) {
 
   // Rutas adicionales (van después de las rutas CRUD básicas)
   app.post('/clientes/:id/restore', {
+    ...puedeEscribir,
     schema: {
       description: 'Restaurar cliente eliminado',
       tags: ['clientes'],
@@ -221,6 +240,7 @@ export async function clientesRoutes(app: FastifyInstance) {
 
   // Cambiar estado de ocultamiento de un cliente (solo para administradores)
   app.patch('/clientes/:id/ocultar', {
+    ...puedeEscribir,
     schema: {
       description: 'Ocultar o mostrar un cliente (solo admin)',
       tags: ['clientes'],
@@ -266,6 +286,7 @@ export async function clientesRoutes(app: FastifyInstance) {
 
   // Operaciones masivas para clientes
   app.post('/clientes/masivo', {
+    ...puedeEscribir,
     schema: {
       description: 'Realizar operaciones masivas sobre clientes',
       tags: ['clientes'],

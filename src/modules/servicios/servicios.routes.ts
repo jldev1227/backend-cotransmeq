@@ -1,8 +1,40 @@
 import { FastifyInstance } from 'fastify'
 import { ServiciosController } from './servicios.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
+
+/**
+ * Rutas del módulo que NO exigen sesión. Todo lo demás la exige.
+ *
+ * La lista es una excepción explícita y no al revés (autenticar ruta por ruta)
+ * porque así estaba antes y salió caro: el módulo entero quedó abierto a
+ * internet —lecturas y escrituras, `POST`, `PUT` y `DELETE` incluidos— porque
+ * el `authMiddleware` se puso como `preHandler` de UNA ruta y nadie lo repitió
+ * en las demás. Con el hook global, una ruta nueva nace protegida y quien
+ * quiera abrirla tiene que venir aquí a escribirlo.
+ */
+const RUTAS_PUBLICAS = new Set(['/api/servicios/public/:token'])
 
 export async function serviciosRoutes(app: FastifyInstance) {
+
+  app.addHook('onRequest', async (request, reply) => {
+    const url = request.routeOptions?.url ?? (request as any).routerPath
+    if (url && RUTAS_PUBLICAS.has(url)) return
+    return authMiddleware(request, reply)
+  })
+
+  /**
+   * Escribir un servicio exige nivel `full` sobre el módulo.
+   *
+   * Las LECTURAS se quedan sólo con la sesión a propósito: exigirles `read`
+   * dejaría fuera a quien tenga `limited`, que hoy sí puede consultar, y este
+   * cambio no va de recortar a nadie sino de que «Consulta» signifique algo.
+   *
+   * Respeta `PERMISSIONS_MODE`: en `warn` los rechazos por ÁREA sólo se
+   * registran en el log, mientras que un recorte escrito a mano en
+   * `permisos_rutas` se aplica desde el primer día (ver el middleware).
+   */
+  const puedeEscribir = { preHandler: requirePermission('servicios', 'full') }
 
   // ⚠️ IMPORTANTE: Las rutas específicas DEBEN ir ANTES que las rutas con parámetros dinámicos
 
@@ -71,7 +103,6 @@ export async function serviciosRoutes(app: FastifyInstance) {
 
   // Vista calendario (autenticada)
   app.get('/servicios/calendar', {
-    preHandler: [authMiddleware],
     schema: {
       description: 'Obtener servicios para vista de calendario filtrados por mes/año',
       tags: ['servicios'],
@@ -282,6 +313,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
 
   // Rutas que requieren permisos de creación/edición
   app.post('/servicios', {
+    ...puedeEscribir,
     schema: {
       description: 'Crear nuevo servicio',
       tags: ['servicios'],
@@ -327,6 +359,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
   }, ServiciosController.crear)
 
   app.put('/servicios/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Actualizar servicio',
       tags: ['servicios'],
@@ -354,6 +387,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
 
   // TODO: Agregar middleware de roles para estas rutas
   app.delete('/servicios/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Eliminar servicio (requiere rol gestor_servicio o admin)',
       tags: ['servicios'],
@@ -367,6 +401,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
   }, ServiciosController.eliminar)
 
   app.patch('/servicios/:id/cancelar', {
+    ...puedeEscribir,
     schema: {
       description: 'Cancelar servicio (requiere rol gestor_servicio o admin)',
       tags: ['servicios'],
@@ -387,6 +422,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
 
   // Rutas específicas para cambiar estado
   app.patch('/servicios/:id/estado', {
+    ...puedeEscribir,
     schema: {
       description: 'Cambiar estado del servicio',
       tags: ['servicios'],
@@ -409,6 +445,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
 
   // TODO: Agregar middleware de roles para esta ruta
   app.patch('/servicios/:id/planilla', {
+    ...puedeEscribir,
     schema: {
       description: 'Asignar número de planilla (requiere rol gestor_planillas o admin)',
       tags: ['servicios'],
@@ -430,6 +467,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
 
   // Rutas para gestión de tokens públicos (TODO: Implementar JWT)
   app.post('/servicios/:id/compartir', {
+    ...puedeEscribir,
     schema: {
       description: 'Generar enlace público para servicio',
       tags: ['servicios'],
@@ -443,6 +481,7 @@ export async function serviciosRoutes(app: FastifyInstance) {
   }, ServiciosController.generarEnlacePublico)
 
   app.delete('/servicios/token/:token', {
+    ...puedeEscribir,
     schema: {
       description: 'Revocar token público',
       tags: ['servicios'],

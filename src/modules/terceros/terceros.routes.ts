@@ -1,15 +1,31 @@
 import { FastifyInstance } from 'fastify';
 import { TercerosController } from './terceros.controller';
-import { authMiddleware } from '../../middlewares/auth.middleware';
+import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware';
 
 export async function tercerosRoutes(app: FastifyInstance) {
   // Todas las rutas requieren autenticación
-  app.addHook('onRequest', authMiddleware);
+  app.addHook('onRequest', authMiddleware)
+
+  /**
+   * Escribir exige nivel `full` sobre el módulo `terceros`.
+   *
+   * Las LECTURAS se quedan sólo con la sesión a propósito: exigirles `read`
+   * dejaría fuera a quien tenga `limited`, que hoy sí consulta, y esto no va de
+   * recortar a nadie sino de que «Consulta» deje de ser decorativo.
+   *
+   * Respeta `PERMISSIONS_MODE`: en `warn` los rechazos por ÁREA sólo se
+   * registran, mientras que un recorte escrito en `permisos_rutas` se aplica
+   * siempre (ver `permissions.middleware.ts`).
+   */
+  const puedeEscribir = { preHandler: requirePermission('terceros', 'full') }
+;
 
   // ─── Rutas específicas (antes de /:id) ───
 
   // Importar terceros desde la tabla de vehículos
   app.post('/terceros/importar-vehiculos', {
+    ...puedeEscribir,
     schema: {
       description: 'Importar terceros desde propietarios de vehículos',
       tags: ['terceros'],
@@ -51,6 +67,7 @@ export async function tercerosRoutes(app: FastifyInstance) {
 
   // Crear tercero
   app.post('/terceros', {
+    ...puedeEscribir,
     schema: {
       description: 'Crear un nuevo tercero',
       tags: ['terceros'],
@@ -72,6 +89,7 @@ export async function tercerosRoutes(app: FastifyInstance) {
 
   // Actualizar tercero
   app.put('/terceros/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Actualizar un tercero',
       tags: ['terceros'],
@@ -85,6 +103,7 @@ export async function tercerosRoutes(app: FastifyInstance) {
 
   // Eliminar tercero (soft delete)
   app.delete('/terceros/:id', {
+    ...puedeEscribir,
     schema: {
       description: 'Eliminar un tercero',
       tags: ['terceros'],
