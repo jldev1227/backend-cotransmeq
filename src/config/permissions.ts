@@ -114,6 +114,15 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Gestión de clientes/empresas'
   },
 
+  // Espejo EXACTO del frontend (`config/permissions.ts`). Faltaba aquí, así que
+  // el PUT de usuario rechazaba con 500 cualquier `permisos_rutas` que lo
+  // incluyera: el esquema zod valida las claves contra ESTE mapa y el picker
+  // las ofrece desde el del frontend.
+  sarlaft: {
+    full: ['administracion', 'talento_humano'],
+    description: 'Formularios SARLAFT + PTEE (cumplimiento)'
+  },
+
   asistencias: {
     full: ['administracion', 'hseq'],
     description: 'Formularios de asistencia'
@@ -245,6 +254,12 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Plan Estratégico de Seguridad Vial'
   },
 
+  // Espejo EXACTO del frontend. Ver nota en `sarlaft`.
+  certificados: {
+    full: ['administracion', 'contabilidad'],
+    description: 'Certificados tributarios de terceros'
+  },
+
   contabilidad: {
     full: ['administracion', 'contabilidad'],
     description: 'Módulo de contabilidad'
@@ -263,6 +278,12 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   sesiones: {
     full: ['administracion'],
     description: 'Visualización de sesiones de usuarios'
+  },
+
+  // Espejo EXACTO del frontend. Ver nota en `sarlaft`.
+  directorio: {
+    full: ['administracion'],
+    description: 'Directorio del equipo — presencia e invitaciones'
   }
 }
 
