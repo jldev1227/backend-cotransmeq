@@ -5,6 +5,7 @@ import { obtenerPermisosRutas } from '../../services/permisos-rutas.service'
 import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import {
   CAMPOS_SEGMENTO,
+  exigirOffsetEnRango,
   CAMPOS_DIA,
   PREFIJO_BONO,
   ValorInvalido,
@@ -209,6 +210,8 @@ export class RecorridosPatchService {
     // Antes de resolver nada: vaciar una placa o un horario no es una edición
     // válida, y en cotransmeq además viola un NOT NULL.
     this.conReglas(() => exigirNoVacio(campo, valor))
+    // Y un desfase fuera de rango se explica aquí, no con el texto de la CHECK.
+    this.conReglas(() => exigirOffsetEnRango(campo, valor))
 
     if (campo === 'fecha') {
       return this.moverDia({
@@ -568,7 +571,7 @@ export class RecorridosPatchService {
             km_final: fila.km_final,
             pernocte: fila.pernocte,
             orden,
-            observaciones: fila.observaciones,
+            descripcion_servicio: fila.descripcion_servicio,
           } as never,
           select: { id: true },
         })
@@ -830,7 +833,7 @@ export class RecorridosPatchService {
         km_inicial: true,
         km_final: true,
         pernocte: true,
-        observaciones: true,
+        descripcion_servicio: true,
       },
     })
   }

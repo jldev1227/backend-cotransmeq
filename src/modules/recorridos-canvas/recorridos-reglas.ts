@@ -21,13 +21,17 @@ export const CAMPOS_SEGMENTO: Record<string, Coercion> = {
   vehiculo_placa: 'texto',
   hora_inicio: 'hora',
   hora_fin: 'hora',
-  inicio_dia_siguiente: 'flag',
-  fin_dia_siguiente: 'flag',
+  /// Días de desfase de cada extremo: 0 mismo día, 1 el siguiente. Enteros y
+  /// no banderas desde `20260923120000_offset_dias_tramo`.
+  dias_offset_inicio: 'entero',
+  dias_offset_fin: 'entero',
   horas_conducidas: 'decimal',
   km_inicial: 'entero',
   km_final: 'entero',
   pernocte: 'flag',
-  observaciones: 'texto',
+  /// Qué se transportó en el tramo. Obligatoria al crear la fila; al editar
+  /// una celda ya guardada, vaciarla se rechaza en `normalizarCampo`.
+  descripcion_servicio: 'texto',
 }
 
 /**
@@ -54,6 +58,17 @@ export const TIPOS_DIA_VALIDOS = new Set([
 ])
 
 export const PREFIJO_BONO = 'bono:'
+
+/**
+ * Lo que se pone cuando un tramo llega sin descripción y la columna no admite
+ * nulos: filas migradas de antes de que el campo existiera, o revertidas desde
+ * un snapshot viejo que no la guardaba.
+ *
+ * El mismo texto que usa la migración, a propósito: así un
+ * `WHERE descripcion_servicio = 'Sin descripción registrada'` los lista todos,
+ * vengan de donde vengan.
+ */
+export const DESCRIPCION_SIN_REGISTRAR = 'Sin descripción registrada'
 
 export class ValorInvalido extends Error {
   constructor(
@@ -187,7 +202,37 @@ export function normalizar(campo: string, valor: unknown, tipo: Coercion): unkno
  * La regla es la misma en los dos repos a propósito: si dependiera del esquema,
  * el canvas se comportaría distinto en cada empresa.
  */
-export const NO_VACIABLES = new Set(['vehiculo_placa', 'hora_inicio', 'hora_fin'])
+export const NO_VACIABLES = new Set([
+  'vehiculo_placa',
+  'hora_inicio',
+  'hora_fin',
+  /// La descripción del servicio es NOT NULL en las dos empresas desde
+  /// `20260922210000_descripcion_servicio_tramo`.
+  'descripcion_servicio',
+])
+
+/** Campos de desfase, con su tope. Ver `chk_segmento_offset_dias`. */
+export const CAMPOS_OFFSET_DIAS = new Set(['dias_offset_inicio', 'dias_offset_fin'])
+export const MAX_OFFSET_DIAS = 2
+
+/**
+ * Corta un desfase fuera de rango antes de que lo haga Postgres.
+ *
+ * La CHECK de la tabla dice lo mismo, pero su mensaje —«violates check
+ * constraint chk_segmento_offset_dias»— no le explica nada a quien está
+ * corrigiendo una planilla.
+ */
+export function exigirOffsetEnRango(campo: string, valor: unknown): void {
+  if (!CAMPOS_OFFSET_DIAS.has(campo)) return
+  if (valor === null || valor === undefined) return
+  const n = Number(valor)
+  if (Number.isInteger(n) && n >= 0 && n <= MAX_OFFSET_DIAS) return
+  throw new ValorInvalido(
+    `El desfase de días debe ser 0 (mismo día), 1 (el día siguiente) o ${MAX_OFFSET_DIAS}. ` +
+      `Un tramo no dura más que eso.`,
+    'REGLA_NEGOCIO',
+  )
+}
 
 export function exigirNoVacio(campo: string, valor: unknown): void {
   if (!NO_VACIABLES.has(campo)) return
@@ -197,7 +242,9 @@ export function exigirNoVacio(campo: string, valor: unknown): void {
       ? 'La placa'
       : campo === 'hora_inicio'
         ? 'La hora de inicio'
-        : 'La hora de fin'
+        : campo === 'hora_fin'
+          ? 'La hora de fin'
+          : 'La descripción del servicio'
   throw new ValorInvalido(
     `${que} no puede quedar vacía en un recorrido. Si el tramo no existió, ` +
       `elimina la fila (clic derecho sobre su número → Eliminar fila) en vez de borrar la celda.`,
@@ -309,7 +356,10 @@ export interface FilaNuevaEntrada {
   km_inicial?: unknown
   km_final?: unknown
   pernocte?: unknown
-  observaciones?: unknown
+  /// Lo tecleado en la columna DESCRIPCIÓN. `clasificarFilaNueva` decide a qué
+  /// columna va: a `descripcion_servicio` del tramo si la fila es un
+  /// recorrido, o a las `observaciones` del día si no lo es.
+  descripcion?: unknown
 }
 
 export type FilaNuevaClasificada =
@@ -324,7 +374,7 @@ export type FilaNuevaClasificada =
       km_inicial: number | null
       km_final: number | null
       pernocte: boolean
-      observaciones: string | null
+      descripcion_servicio: string
     }
   | {
       clase: 'dia'
@@ -355,9 +405,7 @@ export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasifi
   const horaIni = normalizar('hora_inicio', entrada.hora_inicio, 'hora') as string | null
   const horaFin = normalizar('hora_fin', entrada.hora_fin, 'hora') as string | null
   const pernocte = aBooleano(entrada.pernocte)
-  const observaciones = normalizar('observaciones', entrada.observaciones, 'texto') as
-    | string
-    | null
+  const descripcion = normalizar('descripcion', entrada.descripcion, 'texto') as string | null
   const tipoCrudo = (aTexto(entrada.tipo_dia) ?? '').toUpperCase()
 
   const esRecorrido = !!(placa || horaIni || horaFin) && tipoCrudo !== 'MANTENIMIENTO'
@@ -367,6 +415,10 @@ export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasifi
       !placa && 'la placa',
       !horaIni && 'la hora inicial',
       !horaFin && 'la hora final',
+      /// La descripción del servicio es lo que dice QUÉ se transportó. Sin ella
+      /// la fila no sirve para liquidar ni para responderle a un cliente, así
+      /// que se exige igual que la placa y el horario.
+      !descripcion && 'la descripción del servicio',
     ].filter(Boolean)
     if (faltan.length) {
       throw new ValorInvalido(
@@ -392,7 +444,7 @@ export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasifi
       km_inicial: normalizar('km_inicial', entrada.km_inicial, 'entero') as number | null,
       km_final: normalizar('km_final', entrada.km_final, 'entero') as number | null,
       pernocte,
-      observaciones,
+      descripcion_servicio: descripcion!,
     }
     validarCoherencia(fila)
     return fila
@@ -424,6 +476,6 @@ export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasifi
     tipo_dia: tipo,
     vehiculo_placa: tipo === 'MANTENIMIENTO' ? placa : null,
     pernocte,
-    observaciones,
+    observaciones: descripcion,
   }
 }

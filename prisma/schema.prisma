@@ -269,18 +269,32 @@ model registro_dia_laboral_segmento {
   vehiculo_placa       String   @db.VarChar(20)
   hora_inicio          String   @db.VarChar(10)
   hora_fin             String   @db.VarChar(10)
-  /// Indica si la hora de inicio corresponde al día SIGUIENTE
-  /// (caso típico: turno que arranca pasada la medianoche).
-  inicio_dia_siguiente Boolean  @default(false)
-  /// Indica si la hora de fin corresponde al día SIGUIENTE
-  /// (caso típico: turno que termina pasada la medianoche → +1).
-  fin_dia_siguiente    Boolean  @default(false)
+  /// Días de desfase respecto a la fecha del día laborado.
+  ///
+  /// 0 = ese mismo día, 1 = el siguiente, y así. Sustituyen a
+  /// `inicio_dia_siguiente` / `fin_dia_siguiente`, que eran booleanos y por eso
+  /// solo sabían decir «+1»: el label no podía escribir «2 días después» porque
+  /// el dato no existía.
+  ///
+  /// El tope (0..2, y fin >= inicio) lo impone la CHECK `chk_segmento_offset_dias`
+  /// además del DTO: el canvas y la carga por lote escriben por caminos
+  /// distintos y basta que uno se salte la validación.
+  dias_offset_inicio   Int      @default(0)
+  dias_offset_fin      Int      @default(0)
   horas_conducidas     Decimal  @default(0) @db.Decimal(4, 1)
   km_inicial           Int?
   km_final             Int?
   pernocte             Boolean  @default(false)
   orden                Int      @default(1)
-  observaciones        String?  @db.Text
+  /// Qué se transportó en este tramo. Obligatoria: sustituyó a las
+  /// `observaciones` del tramo, que eran un campo libre que nadie llenaba
+  /// —259 tramos entre las dos empresas, todos en NULL— mientras el dato que sí
+  /// hace falta para liquidar y para responderle a un cliente es la descripción
+  /// del servicio.
+  ///
+  /// Las `observaciones` del DÍA (`registro_dia_laboral`) y las del BONO siguen
+  /// existiendo y siguen siendo opcionales: son otra cosa.
+  descripcion_servicio String   @db.Text
   /// Concurrencia optimista del canvas de recorridos (CAS por celda).
   /// Cubre también el marcado de bonos del tramo: un bono no tiene versión
   /// propia, se marca contra la fila que lo contiene.

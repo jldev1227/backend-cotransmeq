@@ -66,13 +66,26 @@ export interface FilaRecorrido {
 
   hora_inicio: string | null
   hora_fin: string | null
-  inicio_dia_siguiente: boolean
-  fin_dia_siguiente: boolean
+  /// Días de desfase de cada extremo respecto a `fecha`: 0 mismo día, 1 el
+  /// siguiente. Es lo que permite que la etiqueta diga «2 días después» en vez
+  /// del «+1» que nadie entendía.
+  dias_offset_inicio: number
+  dias_offset_fin: number
   horas_conducidas: number
   km_inicial: number | null
   km_final: number | null
   pernocte: boolean
-  observaciones: string | null
+
+  /**
+   * Lo que se lee en la columna DESCRIPCIÓN, venga de donde venga.
+   *
+   * El canvas tiene UNA columna para las dos clases de fila, y detrás hay dos
+   * campos distintos: en un recorrido es `segmento.descripcion_servicio`, que
+   * es obligatoria; en un día sin recorridos es `registro_dia.observaciones`,
+   * que sigue siendo libre. Se unifican aquí, en la capa de presentación, y se
+   * vuelven a separar al escribir según la clase de la fila.
+   */
+  descripcion: string | null
 
   /**
    * Bonos marcados en esta fila, por `config_id`. Solo lleva las claves de las

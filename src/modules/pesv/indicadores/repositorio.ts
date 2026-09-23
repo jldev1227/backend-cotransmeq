@@ -118,8 +118,8 @@ export async function leerInsumos(cicloId: string | null, periodo: Periodo): Pro
             horas_conducidas: true,
             hora_inicio: true,
             hora_fin: true,
-            inicio_dia_siguiente: true,
-            fin_dia_siguiente: true,
+            dias_offset_inicio: true,
+            dias_offset_fin: true,
           },
         },
       },
@@ -348,8 +348,8 @@ export async function leerInsumos(cicloId: string | null, periodo: Periodo): Pro
         horasConducidas: num(s.horas_conducidas),
         horaInicio: s.hora_inicio,
         horaFin: s.hora_fin,
-        inicioDiaSiguiente: s.inicio_dia_siguiente,
-        finDiaSiguiente: s.fin_dia_siguiente,
+        diasOffsetInicio: s.dias_offset_inicio,
+        diasOffsetFin: s.dias_offset_fin,
       })),
     })
   }

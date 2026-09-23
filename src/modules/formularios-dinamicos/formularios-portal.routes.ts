@@ -12,9 +12,12 @@ import {
 } from './formularios-dinamicos.observabilidad'
 import * as portal from './formularios-portal.service'
 import {
+  assignmentIdParamSchema,
   backupDraftSchema,
+  clientSubmissionIdParamSchema,
   completeAttachmentSchema,
   enviarSubmissionSchema,
+  idParamSchema,
   initAttachmentSchema,
   listarEnviosPortalSchema,
 } from './formularios-dinamicos.schema'
@@ -198,7 +201,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
 
   app.get(`${base}/:assignmentId`, async (request, reply) => {
     try {
-      const { assignmentId } = request.params as { assignmentId: string }
+      const { assignmentId } = parse(assignmentIdParamSchema, request.params)
       const { etag, data } = await portal.obtenerDefinicionPortal(actorDe(request), assignmentId)
 
       /// `304` cuando el cliente ya tiene esta versión: la definición de una
@@ -235,7 +238,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
 
   app.get(`${base}/submissions/:id`, async (request, reply) => {
     try {
-      const { id } = request.params as { id: string }
+      const { id } = parse(idParamSchema, request.params)
       return reply.send({ success: true, data: await portal.obtenerEnvioPortal(actorDe(request), id) })
     } catch (err) {
       return fail(reply, err, 'obtener envío del portal')
@@ -254,7 +257,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
    */
   app.get(`${base}/drafts/:clientSubmissionId`, async (request, reply) => {
     try {
-      const { clientSubmissionId } = request.params as { clientSubmissionId: string }
+      const { clientSubmissionId } = parse(clientSubmissionIdParamSchema, request.params)
       return reply.send({
         success: true,
         data: await portal.obtenerBorrador(actorDe(request), clientSubmissionId),
@@ -270,7 +273,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
   /// validación y bloquearía el envío.
   app.put(`${base}/drafts/:clientSubmissionId`, { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
     try {
-      const { clientSubmissionId } = request.params as { clientSubmissionId: string }
+      const { clientSubmissionId } = parse(clientSubmissionIdParamSchema, request.params)
       const input = parse(backupDraftSchema, request.body)
       const data = await portal.guardarBorradorPortal(actorDe(request), clientSubmissionId, input)
       return reply.send({ success: true, data })
@@ -281,7 +284,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
 
   app.delete(`${base}/drafts/:clientSubmissionId`, async (request, reply) => {
     try {
-      const { clientSubmissionId } = request.params as { clientSubmissionId: string }
+      const { clientSubmissionId } = parse(clientSubmissionIdParamSchema, request.params)
       return reply.send({ success: true, data: await portal.descartarBorradorPortal(actorDe(request), clientSubmissionId) })
     } catch (err) {
       return fail(reply, err, 'descartar borrador del portal')
@@ -308,7 +311,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
    */
   app.delete(`${base}/attachments/:id`, async (request, reply) => {
     try {
-      const { id } = request.params as { id: string }
+      const { id } = parse(idParamSchema, request.params)
       return reply.send({ success: true, data: await portal.descartarAdjunto(actorDe(request), id) })
     } catch (err) {
       return fail(reply, err, 'descartar adjunto')
@@ -317,7 +320,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
 
   app.post(`${base}/attachments/:id/complete`, async (request, reply) => {
     try {
-      const { id } = request.params as { id: string }
+      const { id } = parse(idParamSchema, request.params)
       const input = parse(completeAttachmentSchema, request.body)
       const actor = actorDe(request)
       const data = await portal.completarAdjunto(actor, id, input)

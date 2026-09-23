@@ -553,8 +553,8 @@ export interface DiaLaboralInsumo {
     horasConducidas: number | null
     horaInicio: string | null
     horaFin: string | null
-    inicioDiaSiguiente: boolean
-    finDiaSiguiente: boolean
+    diasOffsetInicio: number
+    diasOffsetFin: number
   }>
 }
 
@@ -622,8 +622,8 @@ export function calcularEJLC(dias: DiaLaboralInsumo[], politicas: PoliticaJornad
       const { horas: calculadas, motivo } = horasEntre(
         seg.horaInicio,
         seg.horaFin,
-        seg.inicioDiaSiguiente,
-        seg.finDiaSiguiente,
+        seg.diasOffsetInicio,
+        seg.diasOffsetFin,
       )
       if (calculadas == null) {
         if (motivo === 'HORARIO_INCOHERENTE') incoherente = true
