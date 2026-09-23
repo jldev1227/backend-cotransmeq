@@ -247,9 +247,16 @@ function firstString(value: unknown): string | null {
 }
 
 // ──────────────────────────────────────────────────────────
-// Validación de campos obligatorios
+// Validación de respuestas (obligatorios + rango de los porcentajes)
 // ──────────────────────────────────────────────────────────
-function validarObligatorios(
+/**
+ * Recorre las secciones visibles y devuelve los problemas de las respuestas:
+ * obligatorios pendientes y porcentajes fuera de rango. El DTO de zod solo
+ * garantiza el tipo (`string | number | null | string[]`) porque no conoce la
+ * definición del formato; las reglas por pregunta viven aquí, que es donde sí
+ * se tiene a mano `modo_respuesta` y el árbol de condicionales.
+ */
+function validarRespuestas(
   formulario: FormularioDefinicion,
   respuestas: Record<string, any>,
 ): string[] {
@@ -275,22 +282,58 @@ function validarObligatorios(
             errores.push(
               `Fila ${i + 1} de "${seccion.seccion}" — campo "${p.pregunta}" es obligatorio.`,
             );
+            continue;
+          }
+          const errPct = errorPorcentaje(p, fila[p.id]);
+          if (errPct) {
+            errores.push(
+              `Fila ${i + 1} de "${seccion.seccion}" — campo "${p.pregunta}" ${errPct}.`,
+            );
           }
         }
       }
     } else {
       for (const p of seccion.preguntas) {
-        if (!p.obligatorio) continue;
         if (p.tipo_respuesta === "declaracion_informativa") continue;
         if (!esPreguntaVisible(p, respuestas)) continue;
-        if (estaVacio(respuestas[p.id])) {
+        if (p.obligatorio && estaVacio(respuestas[p.id])) {
           errores.push(`Campo obligatorio pendiente: "${p.pregunta}"`);
+          continue;
+        }
+        const errPct = errorPorcentaje(p, respuestas[p.id]);
+        if (errPct) {
+          errores.push(`Campo "${p.pregunta}" ${errPct}.`);
         }
       }
     }
   }
 
   return errores;
+}
+
+/**
+ * Acota los campos `modo_respuesta: "Porcentaje"` (los % de participación de
+ * accionistas y beneficiarios finales). Llegan como texto libre desde el
+ * navegador, así que sin esto un 150 o un -20 quedaría radicado en el PDF.
+ *
+ * Se admite la coma decimal: es la que teclea un usuario colombiano y algunos
+ * navegadores la entregan sin normalizar. Devuelve el motivo del rechazo, o
+ * `null` si el valor es aceptable.
+ */
+function errorPorcentaje(
+  pregunta: PreguntaDefinicion,
+  valor: unknown,
+): string | null {
+  if (pregunta.modo_respuesta !== "Porcentaje") return null;
+  // Un porcentaje vacío no es asunto de esta regla: lo cubre el obligatorio.
+  if (estaVacio(valor)) return null;
+  const n =
+    typeof valor === "number"
+      ? valor
+      : Number(String(valor).trim().replace(",", "."));
+  if (!Number.isFinite(n)) return "debe ser un número (por ejemplo 22,5)";
+  if (n < 0 || n > 100) return "debe estar entre 0 y 100";
+  return null;
 }
 
 /** Una respuesta cuenta como vacía si es null/undefined, string en blanco o
@@ -446,13 +489,13 @@ export const FormulariosSarlaftService = {
       );
     }
 
-    // 1. Validar obligatorios
-    const errores = validarObligatorios(formulario, input.respuestas);
+    // 1. Validar respuestas (obligatorios + rango de los porcentajes)
+    const errores = validarRespuestas(formulario, input.respuestas);
     if (errores.length > 0) {
-      throw Object.assign(new Error("Hay campos obligatorios pendientes"), {
-        statusCode: 422,
-        details: errores,
-      });
+      throw Object.assign(
+        new Error("Hay campos pendientes o con datos inválidos"),
+        { statusCode: 422, details: errores },
+      );
     }
 
     // 2. Validar archivos subidos

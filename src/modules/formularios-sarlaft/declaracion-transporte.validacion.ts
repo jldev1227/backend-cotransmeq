@@ -166,7 +166,7 @@ export interface ContextoValidacion {
  * Valida coherencia, formato y anexos condicionales. Devuelve la lista de
  * errores; vacía significa que el envío es aceptable.
  *
- * No valida obligatorios genéricos: de eso ya se encarga `validarObligatorios`
+ * No valida obligatorios genéricos: de eso ya se encarga `validarRespuestas`
  * recorriendo la definición. Aquí van las reglas que la definición no puede
  * expresar de forma declarativa.
  */

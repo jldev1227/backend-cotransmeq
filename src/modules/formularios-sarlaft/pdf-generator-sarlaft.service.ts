@@ -173,7 +173,15 @@ export class PDFGeneratorSarlaftService {
 
         const fmtPorcentaje = (v: unknown): string => {
           if (v === null || v === undefined || v === "") return "—";
-          const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
+          // El navegador normaliza la coma decimal a punto, pero el snapshot
+          // puede traer "22,5" si el valor llegó por otra vía (carga manual,
+          // migración). `parseFloat("22,5")` daría 22 y se perdería el decimal.
+          const n =
+            typeof v === "string"
+              ? parseFloat(v.trim().replace(",", "."))
+              : typeof v === "number"
+                ? v
+                : NaN;
           if (!Number.isFinite(n)) return String(v);
           return `${n}%`;
         };
