@@ -1,15 +1,30 @@
 import { FastifyInstance } from 'fastify'
 import { AccionesCorrectivasController } from './acciones-correctivas.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 
 export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   // Todas las rutas requieren autenticación
   fastify.addHook('onRequest', authMiddleware)
 
+  /**
+   * Escribir exige nivel `full` sobre el módulo `acciones-correctivas`.
+   *
+   * Este archivo llama `fastify` al parámetro en vez de `app`, y por eso se
+   * quedó fuera de la primera pasada de guards: el inventario buscaba
+   * `app.post(...)` y contó cero escrituras donde hay 18.
+   *
+   * Las LECTURAS se quedan sólo con la sesión, igual que en el resto: pedirles
+   * `read` dejaría fuera a quien tenga `limited`.
+   */
+  const puedeEscribir = { preHandler: requirePermission('acciones-correctivas', 'full') }
+
+
   // POST /api/acciones-correctivas - Crear nueva acción
   fastify.post(
     '/acciones-correctivas',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Crear nueva acción correctiva/preventiva',
@@ -67,6 +82,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/duplicar',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Duplicar una acción correctiva/preventiva',
@@ -86,6 +102,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/upload',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Subir un archivo adjunto para acciones correctivas'
@@ -180,6 +197,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.put(
     '/acciones-correctivas/:id',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Actualizar acción correctiva/preventiva',
@@ -208,6 +226,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.delete(
     '/acciones-correctivas/:id',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Mover acción a la papelera (eliminación suave)',
@@ -227,6 +246,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/restaurar',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Restaurar una acción eliminada desde la papelera',
@@ -246,6 +266,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.delete(
     '/acciones-correctivas/:id/permanente',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Eliminar permanentemente una acción de la papelera',
@@ -265,6 +286,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/causas',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Crear nueva causa para una acción correctiva',
@@ -300,6 +322,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.put(
     '/acciones-correctivas/:id/causas/:causaId',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Actualizar una causa específica de una acción correctiva',
@@ -354,6 +377,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/causas/:causaId/seguimientos',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Crear un seguimiento (trazabilidad) para una causa específica',
@@ -406,6 +430,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/sugerencias-ia',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas', 'IA'],
         description: 'Obtener sugerencias de IA para plan de acción basado en análisis de causa',
@@ -431,6 +456,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/causas/:causa_id/cierre',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Cerrar una causa específica después de evaluar su eficacia',
@@ -487,6 +513,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/causas/:causa_id/sugerencias-seguimiento',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas', 'IA'],
         description: 'Obtener sugerencias de IA para el seguimiento de una causa',
@@ -540,6 +567,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/aprobaciones/aprobar',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Aprueba la acción. Valida que el cargo del usuario coincida con el rol esperado.',
@@ -561,6 +589,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/aprobaciones/rechazar',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Rechaza la acción. Valida que el cargo del usuario coincida con el rol esperado.',
@@ -583,6 +612,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/aprobaciones/reset',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Elimina la aprobación existente (uso admin / cambio de tipo de hallazgo)',
@@ -604,6 +634,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/calcular-estado',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Calcular automáticamente el estado global según reglas de negocio',
@@ -621,6 +652,7 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/acciones-correctivas/:id/estado-global',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Actualizar manualmente el estado global de la acción',

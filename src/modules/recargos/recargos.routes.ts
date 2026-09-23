@@ -1,12 +1,26 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { RecargosController } from './recargos.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 import { prisma } from '../../config/prisma'
 import { randomUUID } from 'crypto'
 
 export async function recargosRoutes(fastify: FastifyInstance) {
   // Aplicar middleware de autenticación a TODAS las rutas de recargos
   fastify.addHook('onRequest', authMiddleware)
+
+  /**
+   * Escribir exige nivel `full` sobre el módulo `recargos`.
+   *
+   * Este archivo llama `fastify` al parámetro en vez de `app`, y por eso se
+   * quedó fuera de la primera pasada de guards: el inventario buscaba
+   * `app.post(...)` y contó cero escrituras donde hay 18.
+   *
+   * Las LECTURAS se quedan sólo con la sesión, igual que en el resto: pedirles
+   * `read` dejaría fuera a quien tenga `limited`.
+   */
+  const puedeEscribir = { preHandler: requirePermission('recargos', 'full') }
+
   
   // Obtener tipos de recargo (debe ir primero para evitar conflicto con /:id)
   fastify.get('/recargos/tipos-recargo/activos', RecargosController.obtenerTiposRecargo)
@@ -28,42 +42,42 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   fastify.get('/recargos/reporte', RecargosController.reportePdf)
 
   // Crear recargo
-  fastify.post('/recargos', RecargosController.crear)
+  fastify.post('/recargos', puedeEscribir, RecargosController.crear)
 
   // Actualizar recargo
-  fastify.put('/recargos/:id', RecargosController.actualizar)
+  fastify.put('/recargos/:id', puedeEscribir, RecargosController.actualizar)
 
   // Eliminar recargo (soft delete)
-  fastify.delete('/recargos/:id', RecargosController.eliminar)
+  fastify.delete('/recargos/:id', puedeEscribir, RecargosController.eliminar)
 
   // Eliminar múltiples recargos (soft delete)
-  fastify.post('/recargos/eliminar-multiple', RecargosController.eliminarMultiple)
+  fastify.post('/recargos/eliminar-multiple', puedeEscribir, RecargosController.eliminarMultiple)
 
   // Restaurar recargo
-  fastify.patch('/recargos/restaurar/:id', RecargosController.restaurar)
+  fastify.patch('/recargos/restaurar/:id', puedeEscribir, RecargosController.restaurar)
 
   // Restaurar múltiples recargos
-  fastify.post('/recargos/restaurar-multiple', RecargosController.restaurarMultiple)
+  fastify.post('/recargos/restaurar-multiple', puedeEscribir, RecargosController.restaurarMultiple)
 
   // Cambiar estado de múltiples recargos
-  fastify.patch('/recargos/cambiar-estado-multiple', RecargosController.cambiarEstadoMultiple)
+  fastify.patch('/recargos/cambiar-estado-multiple', puedeEscribir, RecargosController.cambiarEstadoMultiple)
 
   // Liquidar recargo
-  fastify.post('/recargos/:id/liquidar', RecargosController.liquidar)
+  fastify.post('/recargos/:id/liquidar', puedeEscribir, RecargosController.liquidar)
 
   // Duplicar recargo
-  fastify.post('/recargos/:id/duplicar', RecargosController.duplicar)
+  fastify.post('/recargos/:id/duplicar', puedeEscribir, RecargosController.duplicar)
 
   // Recalcular un recargo existente con la config salarial y % de tipos
   // vigentes en cada día. Útil cuando cambian tarifarios y se quiere
   // aplicar el recálculo a planillas ya creadas.
-  fastify.post('/recargos/:id/recalcular', RecargosController.recalcular)
+  fastify.post('/recargos/:id/recalcular', puedeEscribir, RecargosController.recalcular)
 
   // Recalcular MÚLTIPLES recargos en bulk. Retorna inmediatamente con
   // `{ batchId, total }` y procesa en background, emitiendo progress
   // events al room del usuario. El cliente persiste el batchId en
   // localStorage para reanudar tras recarga de página.
-  fastify.post('/recargos/recalcular-bulk', RecargosController.recalcularBulk)
+  fastify.post('/recargos/recalcular-bulk', puedeEscribir, RecargosController.recalcularBulk)
 
   // Consultar el estado de un batch bulk (para reanudar UI tras
   // recarga de página). Retorna 404 si no existe o si ya fue purgado.
@@ -82,6 +96,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // antes de pedir el preview.
   fastify.post(
     '/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq',
+    puedeEscribir,
     RecargosController.sincronizarConductoresCotransmeqTransmeralda,
   )
 
@@ -89,6 +104,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // controller acepta ambos). Filtra por mes/año en Transmeralda.
   fastify.post(
     '/recargos/importar-desde-transmeralda/preview',
+    puedeEscribir,
     RecargosController.previewImportarTransmeralda,
   )
   // Mismo endpoint accesible por GET (conveniencia para el botón del page
@@ -102,12 +118,14 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // NO importa planillas — solo entidades. POST con body { mes, año }.
   fastify.post(
     '/recargos/importar-desde-transmeralda/crear-entidades-faltantes',
+    puedeEscribir,
     RecargosController.crearEntidadesFaltantesTransmeralda,
   )
 
   // Ejecuta la importación de las planillas seleccionadas.
   fastify.post(
     '/recargos/importar-desde-transmeralda',
+    puedeEscribir,
     RecargosController.importarDesdeTransmeralda,
   )
 
@@ -162,7 +180,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   })
 
   // POST /api/recargos/configuraciones-salarios — Crear
-  fastify.post('/recargos/configuraciones-salarios', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/recargos/configuraciones-salarios', puedeEscribir, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as any
       const userId = (request as any).user?.id
@@ -214,7 +232,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   })
 
   // PUT /api/recargos/configuraciones-salarios/:id — Actualizar
-  fastify.put('/recargos/configuraciones-salarios/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.put('/recargos/configuraciones-salarios/:id', puedeEscribir, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string }
       const body = request.body as any
@@ -266,7 +284,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   })
 
   // DELETE /api/recargos/configuraciones-salarios/:id — Soft delete
-  fastify.delete('/recargos/configuraciones-salarios/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.delete('/recargos/configuraciones-salarios/:id', puedeEscribir, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string }
 

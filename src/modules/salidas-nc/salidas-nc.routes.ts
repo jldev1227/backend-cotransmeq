@@ -1,15 +1,30 @@
 import { FastifyInstance } from 'fastify'
 import { SalidasNCController } from './salidas-nc.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 
 export async function salidasNCRoutes(fastify: FastifyInstance) {
   // Todas las rutas requieren autenticación
   fastify.addHook('onRequest', authMiddleware)
 
+  /**
+   * Escribir exige nivel `full` sobre el módulo `salidas-nc`.
+   *
+   * Este archivo llama `fastify` al parámetro en vez de `app`, y por eso se
+   * quedó fuera de la primera pasada de guards: el inventario buscaba
+   * `app.post(...)` y contó cero escrituras donde hay 3.
+   *
+   * Las LECTURAS se quedan sólo con la sesión, igual que en el resto: pedirles
+   * `read` dejaría fuera a quien tenga `limited`.
+   */
+  const puedeEscribir = { preHandler: requirePermission('salidas-nc', 'full') }
+
+
   // POST /api/salidas-nc - Crear nueva salida no conforme
   fastify.post(
     '/salidas-nc',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Salidas No Conformes'],
         description: 'Registrar nueva salida no conforme',
@@ -161,6 +176,7 @@ export async function salidasNCRoutes(fastify: FastifyInstance) {
   fastify.put(
     '/salidas-nc/:id',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Salidas No Conformes'],
         description: 'Actualizar salida no conforme',
@@ -180,6 +196,7 @@ export async function salidasNCRoutes(fastify: FastifyInstance) {
   fastify.delete(
     '/salidas-nc/:id',
     {
+      ...puedeEscribir,
       schema: {
         tags: ['Salidas No Conformes'],
         description: 'Eliminar salida no conforme',
