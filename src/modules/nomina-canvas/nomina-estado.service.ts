@@ -77,6 +77,28 @@ export function permiteRefrescarDias(estado: string): boolean {
   return ESTADOS_CON_REFRESCO_DIAS.includes(estado);
 }
 
+/**
+ * Estados cuya liquidación se puede REHACER ENTERA desde «Generar borradores».
+ *
+ * Solo BORRADOR, por la misma razón que el refresco de días y con más motivo:
+ * reemplazar no edita, DESTRUYE. Reescribe todos los totales desde las
+ * planillas y además devuelve `estado_flujo` a BORRADOR, así que marcando la
+ * casilla en una APROBADA se perdía la aprobación y las cifras revisadas de
+ * golpe, sin aviso y sin forma de volver atrás.
+ *
+ * ANULADA entra en la lista de prohibidas aunque suene inofensiva: anular es
+ * una decisión con motivo escrito, y rehacerla la resucitaría como borrador
+ * dejando el motivo colgando de una liquidación viva.
+ *
+ * ESPEJO de `ingreso-svelte/src/lib/editor/builders/nomina-estado.ts`.
+ */
+export const ESTADOS_QUE_SE_PUEDEN_REEMPLAZAR: string[] = ['BORRADOR'];
+
+/** ¿Se puede rehacer entera la liquidación que ya existe en este estado? */
+export function permiteReemplazar(estado: string): boolean {
+  return ESTADOS_QUE_SE_PUEDEN_REEMPLAZAR.includes(estado);
+}
+
 /** Estados que exigen escribir un motivo. */
 export const ESTADOS_QUE_EXIGEN_MOTIVO: EstadoNomina[] = ['ANULADA'];
 

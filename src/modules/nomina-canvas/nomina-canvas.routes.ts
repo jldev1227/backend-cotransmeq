@@ -57,6 +57,13 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
     puedeEscribir,
     NominaBorradoresController.rehacerBonos,
   );
+  /// Retirar el borrador de una hoja. Solo BORRADOR, y con el permiso de
+  /// escritura: es la acción más destructiva del carril.
+  app.delete(
+    '/nomina/liquidaciones/:id',
+    puedeEscribir,
+    NominaBorradoresController.eliminarBorrador,
+  );
   app.delete('/nomina/borradores/job/:jobId', puedeEscribir, NominaBorradoresController.cancelar);
 
   app.get('/nomina/snapshots', puedeLeer, NominaSnapshotsController.listar);

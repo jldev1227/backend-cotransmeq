@@ -28,6 +28,7 @@
 
 import { randomUUID } from 'crypto'
 import { prisma } from '../config/prisma'
+import { permiteReemplazar } from '../modules/nomina-canvas/nomina-estado.service'
 import { NominaCanvasService } from '../modules/nomina-canvas/nomina-canvas.service'
 import { sheetRoomKey } from '../sockets/sheet-rooms'
 import { env } from '../config/env'
@@ -353,6 +354,27 @@ class BorradorNominaQueueService {
         return {
           ...base,
           motivo: `Ya tiene liquidación en este periodo (${hoja.estado}).`,
+          liquidacionId: hoja.liquidacionId,
+        }
+      }
+
+      /**
+       * SOLO SE REEMPLAZA UN BORRADOR.
+       *
+       * Reemplazar no edita, destruye: reescribe todos los totales desde las
+       * planillas y devuelve `estado_flujo` a BORRADOR. No había ninguna
+       * guarda, así que marcar la casilla en una liquidación APROBADA borraba
+       * la aprobación y las cifras revisadas sin aviso y sin vuelta atrás.
+       *
+       * La casilla ya no se ofrece fuera de BORRADOR, pero el servidor no
+       * depende de eso: un `sobrescribir` con un id colado —desde la API, o
+       * desde una pestaña abierta antes de que la liquidación se aprobara— se
+       * rechaza aquí.
+       */
+      if (hoja.liquidacionId && !permiteReemplazar(String(hoja.estado ?? ''))) {
+        return {
+          ...base,
+          motivo: `Está en ${hoja.estado} y no se puede rehacer. Devuélvela a BORRADOR primero.`,
           liquidacionId: hoja.liquidacionId,
         }
       }

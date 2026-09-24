@@ -234,31 +234,59 @@ export class NominaCanvasService {
         // si no trabajó nada, no tiene por qué aparecer.
         prisma.conductores.findMany({
           where: {
-            /**
-             * El flag solo filtra cuando NADIE ha nombrado a los conductores.
-             *
-             * Pedir ids explícitos ya es la decisión de incluirlos: si aquí se
-             * siguiera exigiendo `nomina`, un conductor seleccionado a mano en
-             * «Generar borradores» no traería hoja, y el generador lo daría por
-             * «omitido» sin decir por qué. `incluirFueraDeNomina` abre lo mismo
-             * para el LISTADO previo, que necesita enseñar a quién se puede
-             * generar antes de que nadie haya elegido.
-             */
-            ...(opts.incluirFueraDeNomina || opts.conductorIds?.length ? {} : { nomina: true }),
             ...(opts.conductorIds?.length ? { id: { in: opts.conductorIds } } : {}),
             OR: [
-              { estado: { notIn: ['desvinculado', 'inactivo'] } },
+              /**
+               * Rama normal: la nómina del periodo.
+               *
+               * El flag `nomina` solo filtra cuando NADIE ha nombrado a los
+               * conductores. Pedir ids explícitos ya es la decisión de
+               * incluirlos: si aquí se siguiera exigiendo, un conductor
+               * seleccionado a mano en «Generar borradores» no traería hoja y el
+               * generador lo daría por «omitido» sin decir por qué.
+               * `incluirFueraDeNomina` abre lo mismo para el LISTADO previo, que
+               * necesita enseñar a quién se puede generar antes de elegir.
+               */
               {
-                recargos_planillas: {
-                  some: {
-                    deleted_at: null,
-                    OR: ventana.map((v) => ({ a_o: v.anio, mes: v.mes })),
+                ...(opts.incluirFueraDeNomina || opts.conductorIds?.length
+                  ? {}
+                  : { nomina: true }),
+                OR: [
+                  { estado: { notIn: ['desvinculado', 'inactivo'] } },
+                  {
+                    recargos_planillas: {
+                      some: {
+                        deleted_at: null,
+                        OR: ventana.map((v) => ({ a_o: v.anio, mes: v.mes })),
+                      },
+                    },
                   },
-                },
+                ],
               },
+              /**
+               * TIENE LIQUIDACIÓN EN EL CORTE: ENTRA SIEMPRE.
+               *
+               * Fuera del `nomina` y fuera del estado, a propósito. Si existe el
+               * documento, tiene que poder verse, editarse, pagarse y retirarse.
+               *
+               * Esta condición vivía DENTRO del `AND` del flag, así que una
+               * liquidación de alguien con `nomina = false` quedaba invisible en
+               * el canvas: existía en la base, sumaba en los informes y no había
+               * ninguna hoja desde la que tocarla. Con los borradores que se
+               * generan ahora sin mirar el flag, eran once de golpe.
+               */
               {
                 liquidaciones: {
-                  some: { periodo_start: { lte: hastaISO }, periodo_end: { gte: desdeISO } },
+                  /// `deleted_at: null` OBLIGATORIO. Sin él, retirar un borrador
+                  /// dejaba al conductor con una hoja fantasma para siempre: sin
+                  /// liquidación, de solo lectura y sin forma de quitarla. Es la
+                  /// regla de siempre con el soft-delete de liquidaciones —el
+                  /// filtro va en el propio ítem—, y aquí faltaba.
+                  some: {
+                    deleted_at: null,
+                    periodo_start: { lte: hastaISO },
+                    periodo_end: { gte: desdeISO },
+                  },
                 },
               },
             ],

@@ -9,6 +9,7 @@ import { copiarDiasDesdePlanillas } from '../../queue/borrador-nomina-queue.serv
 import { rehacerBonificacionesDesdeRecorridos } from '../../queue/borrador-nomina-queue.service';
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway';
 import { ESTADOS_BLOQUEADOS, permiteRefrescarDias } from './nomina-estado.service';
+import { LiquidacionesService } from '../liquidaciones/liquidaciones.service';
 
 /** Techo por lote. Un periodo real ronda los quince conductores. */
 const MAX_CONDUCTORES = 200;
@@ -298,6 +299,60 @@ export class NominaBorradoresController {
       return reply.send(r);
     } catch (e: any) {
       return reply.status(400).send({ error: e?.message || 'No se pudieron restaurar los bonos.' });
+    }
+  }
+
+  /**
+   * Retira el BORRADOR de una hoja.
+   *
+   * SOLO BORRADOR. Una liquidación liquidada, aprobada, pagada o anulada es un
+   * documento con decisiones tomadas encima —y a partir de PAGADA, con dinero
+   * movido—; retirarla desde un botón del carril sería la acción más
+   * destructiva de la pantalla y la más fácil de pulsar sin querer.
+   *
+   * El borrado en sí lo hace `LiquidacionesService.eliminar`, que MARCA la
+   * liquidación y no toca ninguna de las siete tablas hijas: ahí vive la firma
+   * del conductor sobre su desprendible, que es la prueba de que recibió su
+   * pago. No se reimplementa aquí para que esa decisión siga viviendo en un
+   * solo sitio.
+   */
+  static async eliminarBorrador(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string };
+    const b = (request.body ?? {}) as Record<string, any>;
+    const p = periodoDe(b);
+
+    const actor = actorDe(request);
+    if (!actor.id) return reply.status(401).send({ error: 'Sesión no válida.' });
+
+    const liq = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, estado_flujo: true, conductor_id: true },
+    });
+    if (!liq) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
+
+    if (liq.estado_flujo !== 'BORRADOR') {
+      return reply.status(409).send({
+        error: `Está en ${liq.estado_flujo} y no se puede eliminar desde aquí. Devuélvela a BORRADOR primero, o anúlala si lo que quieres es dejarla sin efecto.`,
+      });
+    }
+
+    try {
+      await LiquidacionesService.eliminar(id);
+
+      /// Desaparece una hoja del libro: eso es geometría, no una celda. La sala
+      /// entera relee.
+      if (p) {
+        emitSheetInvalidate({
+          scope: 'nomina',
+          anio: p.anio,
+          mes: p.mes,
+          accion: 'borrador-eliminado',
+          by: actor.id,
+        });
+      }
+      return reply.send({ ok: true, conductor_id: liq.conductor_id });
+    } catch (e: any) {
+      return reply.status(400).send({ error: e?.message || 'No se pudo eliminar.' });
     }
   }
 
