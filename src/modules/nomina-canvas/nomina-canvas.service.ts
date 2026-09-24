@@ -39,6 +39,7 @@ import {
   colorDePlaca,
   type ClienteNomina,
   type PlacaNomina,
+  type PlacaBono,
   type MatrizBonos,
   type BloqueEmpresa,
   type CodigoRecargo,
@@ -48,7 +49,61 @@ import {
   type NominaPeriodoDTO,
   type TarifaRecargo,
   type TramoVigencia,
+  type VacacionesHoja,
+  type BaseSalarial,
 } from './nomina-canvas.types';
+
+/**
+ * Un bono marcado en el canvas de RECORRIDOS, ya aplanado.
+ *
+ * Una marca por tramo: la cantidad del periodo es el número de estas filas,
+ * no un campo. El nombre viene de `configuraciones_liquidacion` porque es lo
+ * único con lo que se puede casar contra `bonificaciones`, que no guarda a qué
+ * configuración pertenece cada bono que paga.
+ */
+interface BonoRecorrido {
+  vehiculoId: string | null;
+  nombre: string;
+  valor: number;
+  /** `YYYY-MM` del día en que se marcó: es la subcolumna donde cae. */
+  mes: string;
+}
+
+const MESES_LARGO = [
+  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE',
+];
+
+/**
+ * Etiqueta de cada trozo del corte: `21 AL 31 DE AGOSTO DE 2026`.
+ *
+ * El desprendible lista los bonos y los pernotes POR SUBPERIODO, con sus fechas
+ * escritas, que es como los leen quienes vienen de los Excel: un corte 21→20
+ * cruza dos meses y «12 bonos» no dice cuántos cayeron en cada uno. La cantidad
+ * ya se guarda así en `bonificaciones.values`; esto solo le pone nombre.
+ */
+function etiquetasDeSubperiodo(desde: string, hasta: string): Map<string, string> {
+  const salida = new Map<string, string>();
+  const [aD, mD, dD] = desde.split('-').map(Number);
+  const [aH, mH, dH] = hasta.split('-').map(Number);
+  const mesDe = (a: number, m: number) => `${a}-${String(m).padStart(2, '0')}`;
+
+  if (aD === aH && mD === mH) {
+    salida.set(mesDe(aD, mD), `${dD} AL ${dH} DE ${MESES_LARGO[mD - 1]} DE ${aD}`);
+    return salida;
+  }
+  /// Último día del primer mes: el día 0 del siguiente.
+  const finPrimero = new Date(Date.UTC(aD, mD, 0)).getUTCDate();
+  salida.set(mesDe(aD, mD), `${dD} AL ${finPrimero} DE ${MESES_LARGO[mD - 1]} DE ${aD}`);
+  salida.set(mesDe(aH, mH), `01 AL ${dH} DE ${MESES_LARGO[mH - 1]} DE ${aH}`);
+  return salida;
+}
+
+/**
+ * Días de un mes comercial. Es la base sobre la que se prorratea el sueldo y el
+ * auxilio (`salario / 30 * días`), y el valor con el que nace un borrador.
+ */
+const DIAS_MES_COMERCIAL = 30;
 
 /** Topes legales que el Excel lleva escritos a mano en el bloque N24:S37. */
 const TOPES = { horasSemanales: 42, horasMensuales: 210, horasExtrasMes: 44 };
@@ -104,6 +159,15 @@ export interface OpcionesPeriodo {
   corte?: number;
   /** Restringe a estos conductores; por defecto, todos los de nómina. */
   conductorIds?: string[];
+  /**
+   * Ignora la COPIA de días y deriva todo de las planillas.
+   *
+   * Lo usa «Actualizar días»: sin esto, el refresco lee la copia que va a
+   * reemplazar y se copia a sí misma —un no-op silencioso que parece que el
+   * botón no hace nada—. Es una lectura, no un modo: no borra la copia, solo
+   * no la mira.
+   */
+  ignorarCopia?: boolean;
 }
 
 export class NominaCanvasService {
@@ -132,8 +196,17 @@ export class NominaCanvasService {
     const desdeISO = primera.fecha;
     const hastaISO = `${ultima.fecha}T23:59:59`;
 
-    const [conductores, planillas, tipos, configsSalario, configsLiq, liquidaciones] =
-      await Promise.all([
+    const [
+      conductores,
+      planillas,
+      tipos,
+      configsSalario,
+      configsLiq,
+      liquidaciones,
+      diasPropios,
+      ajustesHoras,
+      bonosRecorrido,
+    ] = await Promise.all([
         // OJO con `conductores.estado`: NO es un estado laboral, es
         // OPERATIVO (activo / programado / servicio / disponible / inactivo /
         // desvinculado). Un conductor `programado` o `en servicio` está
@@ -254,7 +327,150 @@ export class NominaCanvasService {
             recargos: { where: { deleted_at: null } },
           },
         }),
+
+        // La COPIA de días de cada liquidación del periodo. Cuando existe,
+        // sustituye por completo a lo que dicen las planillas: el borrador es
+        // editable y no se valida contra el documento de origen.
+        opts.ignorarCopia
+          ? Promise.resolve([] as any[])
+          : prisma.liquidaciones_dias.findMany({
+          where: {
+            deleted_at: null,
+            liquidacion: {
+              deleted_at: null,
+              periodo_start: { lte: hastaISO },
+              periodo_end: { gte: desdeISO },
+              ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
+            },
+          },
+          orderBy: [{ fecha: 'asc' }, { ocurrencia: 'asc' }],
+        }),
+
+        // Horas de recargo corregidas a mano. Se traen del periodo entero y
+        // se reparten por liquidación, igual que los bonos: una consulta por
+        // hoja serían 27 en un corte normal.
+        prisma.ajustes_horas_recargo.findMany({
+          where: {
+            deleted_at: null,
+            liquidacion: {
+              deleted_at: null,
+              periodo_start: { lte: hastaISO },
+              periodo_end: { gte: desdeISO },
+              ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
+            },
+          },
+          select: { liquidacion_id: true, codigo: true, tramo: true, horas: true },
+        }),
+
+        // Los bonos MARCADOS EN EL CANVAS DE RECORRIDOS, que son otra tabla y
+        // otra historia: `bonificaciones` es lo que la liquidación paga y esto
+        // es lo que se registró tramo a tramo. No hay puente automático entre
+        // las dos, así que el canvas las enseña juntas y señala dónde no
+        // coinciden.
+        //
+        // El `deleted_at` del propio bono no basta: un tramo retirado deja sus
+        // bonos vivos —el soft-delete no cascadea—, así que hace falta mirar
+        // también el del segmento. Se trae la columna y se filtra en memoria
+        // porque un `segmento: { deleted_at: null }` en el `where` descartaría
+        // además los bonos SIN segmento, que son los de días sin recorridos.
+        prisma.registro_dia_laboral_bono.findMany({
+          where: {
+            deleted_at: null,
+            registro_dia: {
+              deleted_at: null,
+              fecha: { gte: fechaInicio, lte: fechaFin },
+              ...(opts.conductorIds?.length
+                ? { conductor_id: { in: opts.conductorIds } }
+                : {}),
+            },
+          },
+          select: {
+            valor: true,
+            registro_dia: { select: { conductor_id: true, fecha: true } },
+            segmento: { select: { vehiculo_id: true, deleted_at: true } },
+            config_liquidacion: { select: { nombre: true, valor: true } },
+          },
+        }),
       ]);
+
+    /**
+     * `empresa_id → nombre`, sacado de TODAS las planillas del periodo.
+     *
+     * Hace falta para los días que vienen de la copia: la copia guarda el id
+     * del cliente pero no su nombre, y el nombre lo pinta la hoja. Se toma de
+     * las planillas —que es de donde salió el día— en vez de consultar
+     * `clientes`: una consulta más por algo que ya está en memoria.
+     */
+    const nombreCliente = new Map<string, string>();
+    for (const p of planillas) {
+      if (p.empresa_id && p.clientes?.nombre) nombreCliente.set(p.empresa_id, p.clientes.nombre);
+    }
+
+    /** `liquidacion_id → sus días propios`. */
+    const diasPropiosPorLiquidacion = new Map<string, typeof diasPropios>();
+    for (const d of diasPropios) {
+      const lista = diasPropiosPorLiquidacion.get(d.liquidacion_id) ?? [];
+      lista.push(d);
+      diasPropiosPorLiquidacion.set(d.liquidacion_id, lista);
+    }
+
+    /**
+     * Nombre de las empresas con configuración salarial propia.
+     *
+     * `configuraciones_salarios` guarda el `empresa_id` pero no el nombre, y en
+     * la tabla de tarifas una columna rotulada con un UUID no dice nada.
+     */
+    const idsConConfig = [...new Set(configsSalario.map((c) => c.empresa_id).filter(Boolean))] as string[];
+    const nombreEmpresa = new Map<string, string>();
+    if (idsConConfig.length) {
+      const empresas = await prisma.clientes.findMany({
+        where: { id: { in: idsConConfig } },
+        select: { id: true, nombre: true },
+      });
+      for (const e of empresas) nombreEmpresa.set(e.id, String(e.nombre ?? '').trim() || 'EMPRESA');
+    }
+
+    /// `liquidacion_id → { "tramo|codigo" → horas }`.
+    const ajustesPorLiquidacion = new Map<string, Map<string, number>>();
+    for (const a of ajustesHoras) {
+      const m = ajustesPorLiquidacion.get(a.liquidacion_id) ?? new Map<string, number>();
+      m.set(`${a.tramo}|${a.codigo}`, dec(a.horas));
+      ajustesPorLiquidacion.set(a.liquidacion_id, m);
+    }
+
+    // ── Bonos de recorridos, agrupados por conductor ───────────────────
+    //
+    // El `valor` del bono es el que tenía la config AL MARCARLO; si falta se
+    // cae al de la config vigente. El precio unitario que se enseña sigue
+    // siendo el de la liquidación cuando el bono existe en las dos fuentes:
+    // aquí solo hace falta para las filas que únicamente están en recorridos.
+    const bonosRecorridoPorConductor = new Map<string, BonoRecorrido[]>();
+    let bonosDeTramoRetirado = 0;
+    for (const b of bonosRecorrido) {
+      if (b.segmento?.deleted_at) {
+        bonosDeTramoRetirado++;
+        continue;
+      }
+      const conductorId = b.registro_dia?.conductor_id;
+      if (!conductorId) continue;
+      const lista = bonosRecorridoPorConductor.get(conductorId) ?? [];
+      /// `fecha` es `@db.Date`, así que el ISO ya viene en UTC a medianoche y
+      /// los diez primeros caracteres son el día tal cual se guardó. Construir
+      /// el mes con `getMonth()` lo correría un día en zonas al oeste de UTC.
+      const iso = b.registro_dia.fecha.toISOString().slice(0, 7);
+      lista.push({
+        vehiculoId: b.segmento?.vehiculo_id ?? null,
+        nombre: String(b.config_liquidacion?.nombre ?? 'BONO'),
+        valor: dec(b.valor ?? b.config_liquidacion?.valor),
+        mes: iso,
+      });
+      bonosRecorridoPorConductor.set(conductorId, lista);
+    }
+    if (bonosDeTramoRetirado > 0) {
+      avisos.push(
+        `${bonosDeTramoRetirado} bono(s) de recorridos cuelgan de un tramo retirado y no se contaron.`,
+      );
+    }
 
     // ── Tramos de vigencia del corte ───────────────────────────────────
     //
@@ -296,15 +512,39 @@ export class NominaCanvasService {
       const cfg = configEn(t.desde);
       const salarioBasico = dec(cfg?.salario_basico);
       const horasMensualesBase = Number(cfg?.horas_mensuales_base ?? 240) || 240;
+      const valorHora = horasMensualesBase ? salarioBasico / horasMensualesBase : 0;
+
+      /// La general primero —es la que usa la liquidación— y después las de
+      /// empresa, por nombre para que el orden de las columnas no dependa de
+      /// en qué orden respondió la base.
+      const delTramo = configsSalario.filter((c) => vigenteEn([c], t.desde) !== null);
+      const bases: BaseSalarial[] = [
+        { empresaId: null, nombre: 'BÁSICO', salarioBasico, valorHora },
+      ];
+      for (const c of delTramo.filter((x) => x.empresa_id)) {
+        const sb = dec(c.salario_basico);
+        const hb = Number(c.horas_mensuales_base ?? horasMensualesBase) || horasMensualesBase;
+        bases.push({
+          empresaId: c.empresa_id,
+          nombre: nombreEmpresa.get(c.empresa_id!) ?? 'EMPRESA',
+          salarioBasico: sb,
+          valorHora: hb ? sb / hb : 0,
+        });
+      }
+      bases.sort((a, b) =>
+        a.empresaId === null ? -1 : b.empresaId === null ? 1 : a.nombre.localeCompare(b.nombre, 'es'),
+      );
+
       return {
         desde: t.desde,
         hasta: t.hasta,
         etiqueta: textoRangoFechas(t.desde, t.hasta),
         salarioBasico,
         horasMensualesBase,
-        valorHora: horasMensualesBase ? salarioBasico / horasMensualesBase : 0,
+        valorHora,
         jornadaNormalHoras: dec(cfg?.jornada_normal_horas) || 10.33,
         jornadaFestivaHoras: dec(cfg?.jornada_festiva_horas) || 7.33,
+        bases,
       };
     });
     /** `fecha ISO → índice dentro de `tramos``. */
@@ -422,6 +662,16 @@ export class NominaCanvasService {
         conductor: c,
         planillas: planillasPorConductor.get(c.id) ?? [],
         liquidacion: liquidacionPorConductor.get(c.id) ?? null,
+        bonosRecorrido: bonosRecorridoPorConductor.get(c.id) ?? [],
+        diasPropios:
+          diasPropiosPorLiquidacion.get(liquidacionPorConductor.get(c.id)?.id ?? '') ?? [],
+        nombreCliente,
+        ajustesHoras:
+          ajustesPorLiquidacion.get(liquidacionPorConductor.get(c.id)?.id ?? '') ?? new Map(),
+        /// Los meses que cruza el corte, que son las subcolumnas de la matriz
+        /// de bonos. Salen del periodo y no de los bonos guardados: un mes sin
+        /// ninguno necesita su columna igual para poder escribir en ella.
+        mesesCorte: ventana.map((v) => `${v.anio}-${String(v.mes).padStart(2, '0')}`),
         columnasPorFecha,
         totalDias: dias.length,
         ventanaCanvas: { desde: primera.fecha, hasta: ultima.fecha },
@@ -490,6 +740,16 @@ export class NominaCanvasService {
     };
     planillas: any[];
     liquidacion: any | null;
+    /** Bonos marcados en el canvas de recorridos para ESTE conductor. */
+    bonosRecorrido: BonoRecorrido[];
+    /** La copia de días de la liquidación. Vacía mientras no se haya hecho. */
+    diasPropios: any[];
+    /** `empresa_id → nombre`, para los días que vienen de la copia. */
+    nombreCliente: Map<string, string>;
+    /** Horas corregidas a mano: `"tramo|codigo" → horas`. */
+    ajustesHoras: Map<string, number>;
+    /** Meses `YYYY-MM` que cruza el corte, en orden. */
+    mesesCorte: string[];
     columnasPorFecha: Map<string, DiaPeriodo[]>;
     totalDias: number;
     ventanaCanvas: { desde: string; hasta: string };
@@ -503,6 +763,11 @@ export class NominaCanvasService {
       conductor,
       planillas,
       liquidacion,
+      bonosRecorrido,
+      diasPropios,
+      nombreCliente,
+      ajustesHoras,
+      mesesCorte,
       columnasPorFecha,
       ventanaCanvas,
       tramos,
@@ -663,16 +928,82 @@ export class NominaCanvasService {
           /// hoja: un conductor que rota de vehículo tiene una distinta cada
           /// semana y el agregado no permite saber cuál tocaba cada día.
           placa: p.vehiculos?.placa ?? null,
+          vehiculoId: p.vehiculo_id ?? null,
           placaColor: p.vehiculos?.placa ? colorDePlaca(p.vehiculos.placa) : null,
+          /// Derivado de la planilla mientras no haya copia propia.
+          propio: false,
         });
       }
     }
 
-    const diasHoja = [...porIndice.values()].sort((a, b) => a.indice - b.indice);
+    /**
+     * LA COPIA MANDA sobre las planillas.
+     *
+     * Si la liquidación tiene días propios se usan esos y lo derivado se
+     * descarta entero, sin mezclar: mezclar dejaría medio borrador editable y
+     * medio no, y nadie sabría cuál es cuál. Cuando la copia está vacía —toda
+     * liquidación anterior a esto, y las hojas sin borrador— se sigue
+     * derivando como siempre.
+     *
+     * `indice` se recalcula contra la rejilla de columnas del periodo, no se
+     * guarda: la rejilla es global al libro y cambia cuando OTRO conductor
+     * abre una columna nueva. Un índice guardado apuntaría a la columna
+     * equivocada en cuanto eso pasara.
+     */
+    const diasHoja: DiaHoja[] = diasPropios.length
+      ? diasPropios
+          .map((d: any) => {
+            const fecha = d.fecha.toISOString().slice(0, 10);
+            const columnas = columnasPorFecha.get(fecha) ?? [];
+            const col = columnas[d.ocurrencia] ?? columnas[0];
+            if (!col) return null;
+            const horas = (d.horas ?? {}) as Record<string, number>;
+            const empresa = d.empresa_id ? (nombreCliente.get(d.empresa_id) ?? 'SIN EMPRESA') : null;
+            return {
+              indice: col.indice,
+              fecha,
+              ocurrencia: d.ocurrencia,
+              horaInicio: decOrNull(d.hora_inicio),
+              horaFin: decOrNull(d.hora_fin),
+              totalHoras: dec(d.total_horas),
+              esFestivo: !!d.es_festivo,
+              esDomingo: !!d.es_domingo,
+              disponibilidad: !!d.disponibilidad,
+              pernocte: !!d.pernocte,
+              continuaSiguienteDia: !!d.continua_siguiente_dia,
+              horas: Object.fromEntries(
+                CODIGOS_RECARGO.filter((c) => dec(horas[c])).map((c) => [c, dec(horas[c])]),
+              ) as Partial<Record<CodigoRecargo, number>>,
+              empresa,
+              empresaId: d.empresa_id ?? null,
+              empresaColor: d.empresa_id ? colorDeCliente(d.empresa_id) : null,
+              placa: d.placa ?? null,
+              vehiculoId: d.vehiculo_id ?? null,
+              placaColor: d.placa ? colorDePlaca(d.placa) : null,
+              propio: true,
+            } as DiaHoja;
+          })
+          .filter((d): d is DiaHoja => d !== null)
+          .sort((a, b) => a.indice - b.indice)
+      : [...porIndice.values()].sort((a, b) => a.indice - b.indice);
 
-    const placasUsadas: PlacaNomina[] = [...placas].map((placa) => ({
+    /// Placa → vehículo, que es el sentido contrario al de
+    /// `placaPorVehiculoId` (declarado más abajo, de ahí que se recorran las
+    /// planillas otra vez y no se invierta aquél). Hace falta porque la matriz
+    /// de bonos ahora se EDITA: la celda tiene que saber a qué vehículo
+    /// pertenece la fila de `bonificaciones` que escribe, y la placa es un
+    /// rótulo, no una clave.
+    const vehiculoIdPorPlaca = new Map<string, string>();
+    for (const p of planillas) {
+      const placa = p.vehiculos?.placa;
+      if (p.vehiculo_id && placa && !vehiculoIdPorPlaca.has(placa)) {
+        vehiculoIdPorPlaca.set(placa, p.vehiculo_id);
+      }
+    }
+    const placasUsadas: PlacaBono[] = [...placas].map((placa) => ({
       placa,
       color: colorDePlaca(placa),
+      vehiculoId: vehiculoIdPorPlaca.get(placa) ?? null,
     }));
     /// `bonificaciones` apunta al vehículo por id, no por placa. El índice sale
     /// de las propias planillas del conductor: son los mismos vehículos.
@@ -703,14 +1034,29 @@ export class NominaCanvasService {
       CODIGOS_RECARGO.map((codigo) => {
         const porcentaje = porcentajesPorTramo[i]?.get(codigo) ?? 0;
         const vh = valorHoraDeRecargo(t.valorHora, codigo, porcentaje);
-        const horas = horas2(horasPorTramo[i]?.get(codigo) ?? 0);
+        const horasPlanilla = horas2(horasPorTramo[i]?.get(codigo) ?? 0);
+        /// El ajuste REEMPLAZA a la planilla, no se suma: quien lo escribe está
+        /// diciendo cuántas horas se pagan, no cuántas añadir.
+        const ajuste = ajustesHoras.get(`${i}|${codigo}`);
+        const ajustada = ajuste !== undefined;
+        const horas = ajustada ? horas2(ajuste) : horasPlanilla;
+        /// El mismo recargo sobre cada base del tramo. `valorHoraDeRecargo` es
+        /// quien sabe que un RECARGO es solo el % y una HORA EXTRA es 1 + %;
+        /// repetir esa regla aquí sería duplicarla.
+        const valorHoraPorBase = t.bases.map((b) =>
+          valorHoraDeRecargo(b.valorHora, codigo, porcentaje),
+        );
         return {
           codigo,
           nombre: NOMBRE_RECARGO[codigo],
           color: COLOR_RECARGO[codigo],
           porcentaje,
           valorHora: vh,
+          valorHoraPorBase,
+          valorPorBase: valorHoraPorBase.map((v) => Math.round(horas * v)),
           horas,
+          horasPlanilla,
+          ajustada,
           valor: Math.round(horas * vh),
           tramo: i,
         };
@@ -778,6 +1124,40 @@ export class NominaCanvasService {
       repartoDisponibilidad.push({ codigo, horas: horas2(hDisp), valor: Math.round(vDisp) });
     }
 
+    /**
+     * Las horas corregidas a mano tienen que llegar AL DINERO, no solo a la
+     * tabla de tarifas.
+     *
+     * `repartoDesprendible` se calcula día a día —es lo que permite valorar
+     * cada fecha con la tarifa de SU tramo— mientras que el ajuste es un
+     * agregado por código y tramo. Sin este paso, el canvas enseñaría 32 horas
+     * en la tabla de recargos y seguiría pagando 30: exactamente la clase de
+     * mentira que el bloque de ajustes existe para evitar.
+     *
+     * La diferencia se aplica al DESPRENDIBLE y no a disponibilidad porque lo
+     * que alguien corrige es lo que se paga; «disponibilidad» es una propiedad
+     * del día (standby) y un agregado no sabe a qué día tocarla. Si el ajuste
+     * dejara las horas pagadas en negativo se queda en cero: no existe pagar
+     * horas negativas, y es mejor un cero visible que un importe que resta.
+     */
+    if (ajustesHoras.size) {
+      const tarifaPorClave = new Map(tarifas.map((x) => [`${x.tramo}|${x.codigo}`, x]));
+      for (const [clave, horasAjustadas] of ajustesHoras) {
+        const tarifa = tarifaPorClave.get(clave);
+        if (!tarifa) continue;
+        const [tramoStr, codigo] = clave.split('|');
+        const iTramo = Number(tramoStr);
+        const planilla = horas2(horasPorTramo[iTramo]?.get(codigo as CodigoRecargo) ?? 0);
+        const delta = horas2(horasAjustadas) - planilla;
+        if (!delta) continue;
+        const fila = repartoDesprendible.find((r) => r.codigo === codigo);
+        if (!fila) continue;
+        const horas = Math.max(0, horas2(fila.horas + delta));
+        fila.valor = Math.round(fila.valor + (horas - fila.horas) * tarifa.valorHora);
+        fila.horas = horas;
+      }
+    }
+
     // Los `recargos` de la liquidación son AGREGADOS POR PLANILLA (un mes
     // entero), mientras que esta hoja los reconstruye día a día desde
     // `detalles_recargos_dias` y solo con los días de la ventana. Cuando las
@@ -797,21 +1177,31 @@ export class NominaCanvasService {
     // Un peso arriba o abajo es redondeo; a partir de ahí es otra cosa.
     if (liquidacion && Math.abs(recargosLiquidacion - recargosCalculados) > 10) {
       const fmt = (n: number) => Math.round(n).toLocaleString('es-CO');
+      /// Con horas ajustadas a mano la diferencia es ESPERADA —la acaba de
+      /// causar quien las corrigió— y el texto de siempre («suele ser un
+      /// recargo cuyos días caen fuera del periodo») mandaría a investigar algo
+      /// que no ha pasado.
       avisos.push(
-        `Los recargos de las planillas de este periodo suman ${fmt(recargosCalculados)}, ` +
-          `pero la liquidación guardada tiene ${fmt(recargosLiquidacion)}. ` +
-          'Suele ser un recargo cuyos días caen fuera del periodo, o uno colgado de una planilla sin días laborales.',
+        ajustesHoras.size
+          ? `Los recargos de este periodo suman ${fmt(recargosCalculados)} con las horas ajustadas a mano, ` +
+              `y la liquidación guardada tiene ${fmt(recargosLiquidacion)}. ` +
+              'El total guardado no se reescribe solo: sigue siendo el de las planillas.'
+          : `Los recargos de las planillas de este periodo suman ${fmt(recargosCalculados)}, ` +
+              `pero la liquidación guardada tiene ${fmt(recargosLiquidacion)}. ` +
+              'Suele ser un recargo cuyos días caen fuera del periodo, o uno colgado de una planilla sin días laborales.',
       );
     }
 
     // ── Desprendible ───────────────────────────────────────────────────
-    const { devengos, deducciones, totales } = this.construirDesprendible({
+    const { devengos, deducciones, totales, vacaciones } = this.construirDesprendible({
       conductor,
       liquidacion,
       repartoDesprendible,
       repartoDisponibilidad,
       parametros,
       diasConPlanilla: diasHoja.length,
+      subperiodos: etiquetasDeSubperiodo(ventanaCanvas.desde, ventanaCanvas.hasta),
+      bonosRecorrido,
     });
 
     if (!dec(conductor.salario_base)) {
@@ -878,7 +1268,7 @@ export class NominaCanvasService {
       tipoVehiculo,
       placas: [...placas],
       placasUsadas,
-      matrizBonos: this.matrizDeBonos(liquidacion, placasUsadas, placaPorVehiculoId),
+      matrizBonos: this.matrizDeBonos(liquidacion, placasUsadas, placaPorVehiculoId, bonosRecorrido, mesesCorte),
       tipoNomina: this.tipoDeNomina([...porEmpresa.values()].map((b) => b.empresa)),
       dias: diasHoja,
       tarifas,
@@ -892,6 +1282,7 @@ export class NominaCanvasService {
       totalHorasMes: horas2(diasHoja.reduce((s, d) => s + d.totalHoras, 0)),
       repartoDesprendible,
       repartoDisponibilidad,
+      vacaciones,
       devengos,
       deducciones,
       totales,
@@ -943,75 +1334,214 @@ export class NominaCanvasService {
     return marcas.length ? marcas.join(', ') : 'VILLANUEVA';
   }
 
+  /**
+   * Los bonos del periodo, por placa y mes.
+   *
+   * REGLA: lo marcado en el canvas de recorridos ES el valor, salvo que la
+   * liquidación ya tenga su propia fila para ese bono y ese vehículo.
+   *
+   * Antes esto enseñaba las dos cuentas y marcaba la diferencia. Con la
+   * metodología nueva —los bonos se marcan en recorridos y de ahí salen— esa
+   * comparación daba `0 → 11` en todas las celdas de cualquier conductor sin
+   * liquidación todavía, que es ruido, no información: no hay dos cifras en
+   * conflicto, hay una sola que aún no se ha materializado.
+   *
+   * La comparación se reserva para el caso en que sí hay conflicto de verdad:
+   * la liquidación tiene una cantidad para ese bono y no coincide con lo
+   * marcado. Eso sigue saliendo en ámbar, porque entonces alguien cambió una
+   * de las dos a mano.
+   *
+   * Las filas se emparejan POR NOMBRE normalizado, que es lo único que hay:
+   * `bonificaciones` guarda `name` y `value` y no referencia la
+   * `configuraciones_liquidacion` de la que salió.
+   */
   private static matrizDeBonos(
     liquidacion: any | null,
-    placasUsadas: PlacaNomina[],
+    placasUsadas: PlacaBono[],
     placaPorVehiculoId: Map<string, string>,
+    bonosRecorrido: BonoRecorrido[],
+    meses: string[],
   ): MatrizBonos {
     const bonos = (liquidacion?.bonificaciones ?? []) as any[];
-    if (!bonos.length) return { placas: [], filas: [] };
+    const hayRecorridos = bonosRecorrido.length > 0;
+    if (!bonos.length && !hayRecorridos) {
+      return { placas: [], meses, filas: [], hayRecorridos: false };
+    }
 
     const SIN_PLACA = '—';
     const columnas = [...placasUsadas];
     const indiceDe = new Map(columnas.map((p, i) => [p.placa, i]));
+    const indiceMes = new Map(meses.map((m, i) => [m, i]));
 
-    /** `nombre → { valorUnitario, cantidades }`. */
-    const filas = new Map<string, { valorUnitario: number; cantidades: number[] }>();
+    interface Acumulado {
+      nombre: string;
+      valorUnitario: number;
+      cantidades: number[][];
+      cantidadesRecorridos: number[][];
+      /**
+       * Placas para las que la LIQUIDACIÓN tiene fila propia de este bono.
+       *
+       * Es lo que distingue «la liquidación dice 0» de «la liquidación no dice
+       * nada»: en el primer caso alguien puso un cero y hay que respetarlo, en
+       * el segundo el valor lo pone recorridos.
+       */
+      enLiquidacion: Set<number>;
+    }
+    /** `nombre normalizado → acumulado`. */
+    const filas = new Map<string, Acumulado>();
 
-    const cantidadDe = (values: unknown): number => {
-      // `values` es un string JSON `[{ mes, quantity }]`. Se SUMAN los meses:
-      // un corte 21→20 cruza dos y quedarse con uno perdería la mitad.
+    /// Trim, minúsculas y espacios colapsados. Es el emparejamiento más
+    /// permisivo que sigue siendo predecible: «Bono  de Alimentación » y
+    /// «bono de alimentación» son el mismo bono, y nadie escribió eso a mano
+    /// esperando que fueran dos.
+    const clave = (nombre: string) => nombre.trim().toLowerCase().replace(/\s+/g, ' ');
+
+    const filaVacia = () => meses.map(() => 0);
+
+    /** Abre la columna de una placa, o la de «sin placa» si no se conoce. */
+    const columnaDe = (vehiculoId: string | null): number => {
+      const placa = vehiculoId ? placaPorVehiculoId.get(vehiculoId) ?? null : null;
+      const col = placa !== null ? indiceDe.get(placa) : undefined;
+      if (col !== undefined) return col;
+      // Vehículo que no aparece en ninguna planilla del periodo, o bono sin
+      // vehículo: se le abre su propia columna en vez de sumarlo a otra. Sin
+      // `vehiculoId` no se puede editar, y por eso no lleva binding.
+      if (!indiceDe.has(SIN_PLACA)) {
+        indiceDe.set(SIN_PLACA, columnas.length);
+        columnas.push({ placa: SIN_PLACA, color: '#94A3B8', vehiculoId: null });
+        for (const f of filas.values()) {
+          f.cantidades.push(filaVacia());
+          f.cantidadesRecorridos.push(filaVacia());
+        }
+      }
+      return indiceDe.get(SIN_PLACA)!;
+    };
+
+    const filaDe = (nombre: string, valorUnitario: number): Acumulado => {
+      const k = clave(nombre);
+      let fila = filas.get(k);
+      if (!fila) {
+        fila = {
+          nombre,
+          valorUnitario,
+          cantidades: columnas.map(filaVacia),
+          cantidadesRecorridos: columnas.map(filaVacia),
+          enLiquidacion: new Set<number>(),
+        };
+        filas.set(k, fila);
+      }
+      while (fila.cantidades.length < columnas.length) fila.cantidades.push(filaVacia());
+      while (fila.cantidadesRecorridos.length < columnas.length) {
+        fila.cantidadesRecorridos.push(filaVacia());
+      }
+      return fila;
+    };
+
+    /**
+     * Reparte `values` por mes.
+     *
+     * Un mes que no es del corte se suma al ÚLTIMO del corte en vez de
+     * perderse: son liquidaciones viejas cuyo periodo no coincide con la
+     * ventana que se está mirando, y descartarlas haría que el canvas enseñara
+     * menos bonos de los que la liquidación paga.
+     */
+    const repartir = (values: unknown, destino: number[]): void => {
       try {
         const parsed = JSON.parse(String(values ?? '[]'));
-        if (!Array.isArray(parsed)) return 0;
-        return parsed.reduce((s: number, v: any) => s + dec(v?.quantity), 0);
+        if (!Array.isArray(parsed)) return;
+        for (const v of parsed) {
+          const i = indiceMes.get(String(v?.mes ?? ''));
+          const j = i ?? destino.length - 1;
+          if (j >= 0) destino[j] += dec(v?.quantity);
+        }
       } catch {
-        return 0;
+        /* un `values` corrupto no debe tumbar la hoja entera */
       }
     };
 
+    // ── Lo que paga la liquidación ────────────────────────────────────
     for (const b of bonos) {
-      const placa = b.vehiculo_id ? placaPorVehiculoId.get(b.vehiculo_id) ?? null : null;
-      let col = placa !== null ? indiceDe.get(placa) : undefined;
-      if (col === undefined) {
-        // Vehículo que no aparece en ninguna planilla del periodo, o bono sin
-        // vehículo: se le abre su propia columna en vez de sumarlo a otra.
-        if (!indiceDe.has(SIN_PLACA)) {
-          indiceDe.set(SIN_PLACA, columnas.length);
-          columnas.push({ placa: SIN_PLACA, color: '#94A3B8' });
-          for (const f of filas.values()) f.cantidades.push(0);
-        }
-        col = indiceDe.get(SIN_PLACA)!;
-      }
-
-      const nombre = String(b.name ?? 'BONO');
-      let fila = filas.get(nombre);
-      if (!fila) {
-        fila = { valorUnitario: dec(b.value), cantidades: new Array(columnas.length).fill(0) };
-        filas.set(nombre, fila);
-      }
-      while (fila.cantidades.length < columnas.length) fila.cantidades.push(0);
-      fila.cantidades[col] += cantidadDe(b.values);
+      const col = columnaDe(b.vehiculo_id ?? null);
+      const fila = filaDe(String(b.name ?? 'BONO'), dec(b.value));
+      fila.enLiquidacion.add(col);
+      repartir(b.values, fila.cantidades[col]);
     }
+
+    // ── Lo que se marcó en recorridos ─────────────────────────────────
+    //
+    // Cada bono es UNA marca en un tramo, así que la cantidad es el conteo de
+    // filas y no un campo. El precio unitario solo se pisa cuando la fila nace
+    // aquí: si el bono también está en la liquidación, manda el de la
+    // liquidación, que es el que se está pagando.
+    for (const b of bonosRecorrido) {
+      const col = columnaDe(b.vehiculoId);
+      const fila = filaDe(b.nombre, b.valor);
+      const j = indiceMes.get(b.mes) ?? meses.length - 1;
+      if (j >= 0) fila.cantidadesRecorridos[col][j] += 1;
+    }
+
+    /**
+     * Donde la liquidación no tiene fila, el valor ES el de recorridos.
+     *
+     * No se toca `cantidadesRecorridos`: sigue haciendo falta para saber si una
+     * celda con cifra propia de la liquidación se ha separado de lo marcado.
+     */
+    for (const f of filas.values()) {
+      for (let col = 0; col < columnas.length; col++) {
+        if (f.enLiquidacion.has(col)) continue;
+        f.cantidades[col] = [...f.cantidadesRecorridos[col]];
+      }
+    }
+
+    const suma = (m: number[][]) => m.reduce((s, f) => s + f.reduce((x, n) => x + n, 0), 0);
 
     return {
       placas: columnas,
-      filas: [...filas.entries()]
-        .map(([nombre, f]) => ({
-          nombre,
-          valorUnitario: f.valorUnitario,
-          cantidades: f.cantidades,
-          total: f.cantidades.reduce((s, n) => s + n, 0),
-        }))
+      meses,
+      filas: [...filas.values()]
+        .map((f) => {
+          const total = suma(f.cantidades);
+          const totalRecorridos = suma(f.cantidadesRecorridos);
+          return {
+            nombre: f.nombre,
+            valorUnitario: f.valorUnitario,
+            cantidades: f.cantidades,
+            cantidadesRecorridos: f.cantidadesRecorridos,
+            total,
+            totalRecorridos,
+            /// Celda a celda y no por total: dos meses que se compensan entre
+            /// sí —uno con un bono de más y otro con uno de menos— dan el mismo
+            /// total y son justamente el error que hay que ver.
+            /// Solo hay descuadre donde la liquidación tiene cifra PROPIA y no
+            /// coincide con lo marcado. Una celda que salió de recorridos no
+            /// puede descuadrar consigo misma.
+            descuadra:
+              hayRecorridos &&
+              f.cantidades.some(
+                (fila, i) =>
+                  f.enLiquidacion.has(i) &&
+                  fila.some((n, j) => n !== f.cantidadesRecorridos[i][j]),
+              ),
+          };
+        })
         /// Primero los que tienen algo: con cinco tipos de bono y tres en cero,
         /// ordenar alfabéticamente deja la tabla empezando por ceros.
-        .sort((a, b2) => b2.total - a.total || a.nombre.localeCompare(b2.nombre, 'es')),
+        .sort(
+          (a, b2) =>
+            Math.max(b2.total, b2.totalRecorridos) - Math.max(a.total, a.totalRecorridos) ||
+            a.nombre.localeCompare(b2.nombre, 'es'),
+        ),
+      hayRecorridos,
     };
   }
 
   private static construirDesprendible(args: {
     conductor: { salario_base: unknown };
     liquidacion: any | null;
+    /** `YYYY-MM → "21 AL 31 DE AGOSTO DE 2026"`, para las líneas por subperiodo. */
+    subperiodos: Map<string, string>;
+    /** Bonos marcados en recorridos, para los que la liquidación no tiene. */
+    bonosRecorrido: BonoRecorrido[];
     repartoDesprendible: { codigo: CodigoRecargo; horas: number; valor: number }[];
     repartoDisponibilidad: { codigo: CodigoRecargo; horas: number; valor: number }[];
     parametros: ParametrosNomina;
@@ -1020,15 +1550,75 @@ export class NominaCanvasService {
     devengos: ConceptoDesprendible[];
     deducciones: ConceptoDesprendible[];
     totales: ReturnType<typeof liquidarNomina>;
+    vacaciones: VacacionesHoja;
   } {
-    const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, parametros } = args;
+    const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, parametros, subperiodos } = args;
+
+    /**
+     * Los bonos que el desprendible debe REFLEJAR, vengan de donde vengan.
+     *
+     * Si la liquidación no tiene fila de un bono, manda lo marcado en
+     * recorridos — la misma regla que ya aplica el bloque BONOS POR VEHÍCULO.
+     * Sin esto, un conductor sin borrador todavía enseñaba «1 y 11» arriba y un
+     * desprendible sin una sola línea de bonos abajo, que es la misma hoja
+     * diciendo dos cosas distintas.
+     *
+     * Se construyen como si fueran filas de `bonificaciones` para que ALIMENTEN
+     * TAMBIÉN el cálculo: si solo se pintaran, el total devengado de la hoja y
+     * el que calcula el servidor dirían cifras distintas.
+     *
+     * `__deRecorridos` las marca como NO editables: no existe fila en la base a
+     * la que escribir. Se vuelven reales al generar el borrador, que es quien
+     * las siembra.
+     */
+    const claveBono = (s: unknown) =>
+      String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const bonificacionesLiq = (l?.bonificaciones ?? []) as any[];
+    const nombresEnLiquidacion = new Set(bonificacionesLiq.map((b) => claveBono(b.name)));
+
+    /** `nombre → { valor, porMes }` de lo marcado en recorridos y no liquidado. */
+    const pendientes = new Map<string, { nombre: string; valor: number; porMes: Map<string, number> }>();
+    for (const b of args.bonosRecorrido) {
+      const k = claveBono(b.nombre);
+      if (nombresEnLiquidacion.has(k)) continue;
+      const item = pendientes.get(k) ?? { nombre: b.nombre, valor: b.valor, porMes: new Map<string, number>() };
+      item.porMes.set(b.mes, (item.porMes.get(b.mes) ?? 0) + 1);
+      pendientes.set(k, item);
+    }
+
+    const bonificaciones = [
+      ...bonificacionesLiq,
+      ...[...pendientes.values()].map((x) => ({
+        id: `rec:${claveBono(x.nombre)}`,
+        name: x.nombre,
+        value: x.valor,
+        values: JSON.stringify(
+          [...x.porMes.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([mes, quantity]) => ({ mes, quantity })),
+        ),
+        __deRecorridos: true,
+      })),
+    ];
     const salarioBase = dec(conductor.salario_base);
-    const diasLaborados = Number(l?.dias_laborados ?? args.diasConPlanilla) || 0;
+    /**
+     * Días que se pagan: los de la liquidación, y si no la hay, el MES
+     * COMERCIAL.
+     *
+     * El respaldo era `diasConPlanilla` —los días con planilla cargada— y de
+     * ahí salía el sueldo de cualquier conductor que todavía no tuviera
+     * borrador: el que tenía tres planillas en el corte aparecía cobrando 3/30
+     * del básico, y el que no tenía ninguna, cero. Las planillas mandan sobre
+     * los RECARGOS; el salario de alguien mensual no depende de cuántas hayan
+     * llegado.
+     *
+     * `?? ` y no `||`: un cero guardado a propósito —un retiro a principio de
+     * corte— es un dato y tiene que sobrevivir.
+     */
+    const diasLaborados = Number(l?.dias_laborados ?? DIAS_MES_COMERCIAL) || 0;
 
     const totalRecargos = repartoDesprendible.reduce((s, r) => s + r.valor, 0);
     const totalDisponibilidad = repartoDisponibilidad.reduce((s, r) => s + r.valor, 0);
 
-    const bonos = (l?.bonificaciones ?? []).map((b: any) => {
+    const bonos = bonificaciones.map((b: any) => {
       // `values` es un string JSON con `[{ mes, quantity }]`.
       let values: { quantity: number }[] = [];
       try {
@@ -1045,12 +1635,20 @@ export class NominaCanvasService {
     }));
     const anticipos = (l?.anticipos ?? []).map((a: any) => ({ valor: dec(a.valor) }));
 
-    // `conceptos_adicionales` es Json libre `[{ nombre, valor }]`. Aquí vive
-    // también el AJUSTE A NETO PACTADO, que antes era una celda sin rótulo.
+    /**
+     * `conceptos_adicionales` es Json libre. Aquí vive también el AJUSTE A
+     * NETO PACTADO, que antes era una celda sin rótulo.
+     *
+     * EL RÓTULO ESTÁ EN `observaciones`, NO EN `nombre`. Es lo que escribe el
+     * formulario de la liquidación —`{ valor, observaciones }`— y lo único
+     * que hay en la base: leer `nombre` dejaba TODOS los conceptos rotulados
+     * «CONCEPTO ADICIONAL», así que el importe se veía y su motivo no. Se
+     * acepta `nombre` de respaldo por si alguna fila vieja lo trae.
+     */
     let conceptosAdicionales: { nombre: string; valor: number }[] = [];
     if (Array.isArray(l?.conceptos_adicionales)) {
       conceptosAdicionales = (l.conceptos_adicionales as any[]).map((c) => ({
-        nombre: String(c?.nombre ?? 'CONCEPTO ADICIONAL'),
+        nombre: String(c?.observaciones ?? c?.nombre ?? 'CONCEPTO ADICIONAL').trim() || 'CONCEPTO ADICIONAL',
         valor: dec(c?.valor),
       }));
     }
@@ -1066,6 +1664,7 @@ export class NominaCanvasService {
       anticipos,
       conceptosAdicionales,
       valorVacaciones: dec(l?.total_vacaciones),
+      salarioVacaciones: l?.salario_vacaciones != null ? dec(l.salario_vacaciones) : null,
       vacacionesInicio: l?.periodo_start_vacaciones ?? null,
       vacacionesFin: l?.periodo_end_vacaciones ?? null,
       interesCesantias: dec(l?.interes_cesantias),
@@ -1089,10 +1688,69 @@ export class NominaCanvasService {
 
     const totales = salarioBase || l ? liquidarNomina(entrada, parametros) : RESULTADO_VACIO;
 
+    /**
+     * El bloque de vacaciones: dos fechas, los días que salen de ellas y el
+     * salario con el que se liquidan.
+     *
+     * Los días se cuentan CON el día de inicio —del 1 al 15 son 15— y no se
+     * guardan: se recalculan de las fechas cada vez, para que no pueda quedar
+     * un número que contradiga a sus propias fechas.
+     */
+    const soloFecha = (v: unknown): string | null => {
+      if (!v) return null;
+      const s = v instanceof Date ? v.toISOString() : String(v);
+      const iso = s.slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+    };
+    const vacDesde = soloFecha(l?.periodo_start_vacaciones);
+    const vacHasta = soloFecha(l?.periodo_end_vacaciones);
+    const salarioVacacionesFijado = l?.salario_vacaciones != null ? dec(l.salario_vacaciones) : 0;
+    const vacaciones: VacacionesHoja = {
+      desde: vacDesde,
+      hasta: vacHasta,
+      dias:
+        vacDesde && vacHasta
+          ? Math.max(
+              0,
+              Math.round(
+                (Date.parse(`${vacHasta}T00:00:00Z`) - Date.parse(`${vacDesde}T00:00:00Z`)) /
+                  86400000,
+              ) + 1,
+            )
+          : 0,
+      salarioBase: salarioVacacionesFijado || salarioBase,
+      salarioHeredado: !salarioVacacionesFijado,
+    };
+
     const devengos: ConceptoDesprendible[] = [
       { clave: 'salario', nombre: 'SALARIO', cantidad: diasLaborados, valor: totales.salarioDevengado, editable: true },
-      { clave: 'vacaciones', nombre: 'VACACIONES', cantidad: null, valor: totales.totalVacaciones, editable: true },
+      { clave: 'vacaciones', nombre: 'VACACIONES', cantidad: vacaciones.dias || null, valor: totales.totalVacaciones, editable: true },
       { clave: 'auxilio_transporte', nombre: 'AUXILIO DE TRANSPORTE', cantidad: diasLaborados, valor: totales.auxilioTransporte, editable: true },
+      /**
+       * Conceptos adicionales, PEGADOS AL BLOQUE FIJO.
+       *
+       * Estaban al final de todo, dentro de la sección OTROS, y ahí hacían
+       * dos daños: se leían como un recargo más —que es justo lo que no
+       * son— y el `TOTAL OTROS` se los tragaba, así que esa cifra decía
+       * «recargos del periodo» y traía dentro un bono pactado a mano.
+       *
+       * Aquí arriba van con lo que tampoco sale de las planillas (salario,
+       * vacaciones, auxilio) y quedan fuera de los dos subtotales.
+       *
+       * La clave LLEVA EL NOMBRE porque es la dirección de la celda: el
+       * canvas la convierte en `adicional|<nombre>` para editarla y el
+       * índice no sirve —se corre en cuanto se borra uno de en medio—.
+       */
+      ...conceptosAdicionales.map((c) => ({
+        clave: `adicional:${c.nombre}`,
+        nombre: c.nombre.toUpperCase(),
+        /// `1` y no vacío: es la cantidad que ya imprime el desprendible en PDF
+        /// y la que ve el conductor en el portal. Dejarla en blanco aquí haría
+        /// que el canvas y el papel no dijeran lo mismo sobre la misma línea.
+        cantidad: 1,
+        valor: c.valor,
+        editable: true,
+      })),
       ...(totales.bonificacionVillanueva
         ? [{ clave: 'ajuste_salarial', nombre: 'BONO NIVELACION DE SALARIO', cantidad: entrada.diasLaboradosVillanueva, valor: totales.bonificacionVillanueva, editable: true }]
         : []),
@@ -1101,29 +1759,177 @@ export class NominaCanvasService {
       // están en `values` (`[{ mes, quantity }]`), que es como las suma
       // `liquidarNomina`. Poner aquí `b.value` hacía que el desprendible
       // listara el precio unitario y su total no cuadrara con el neto.
-      ...(l?.bonificaciones ?? []).map((b: any, i: number) => {
-        let cantidad = 0;
-        try {
-          const parsed = JSON.parse(b.values ?? '[]');
-          if (Array.isArray(parsed)) cantidad = parsed.reduce((s, v: any) => s + dec(v?.quantity), 0);
-        } catch {
-          cantidad = 0;
-        }
-        return {
-          clave: `bono:${b.id ?? i}`,
-          nombre: String(b.name ?? 'BONO').toUpperCase(),
-          cantidad,
-          valor: cantidad * dec(b.value),
-          editable: true,
+      /**
+       * Bonos y pernotes, AGRUPADOS POR SUBPERIODO.
+       *
+       * El orden es el del Excel: todo lo del primer trozo del corte junto
+       * —sus bonos y sus pernotes— y después todo lo del segundo. Agrupar por
+       * concepto en vez de por fechas obliga a ir saltando arriba y abajo para
+       * cuadrar un mes, que es justo lo que se hace al revisar.
+       *
+       * Un bono o un pernote que está a cero en TODO el corte se queda en una
+       * sola línea sin fechas, al final: partirlo daría dos filas mudas donde
+       * había una, y una liquidación trae una fila por cada tipo de bono
+       * configurado aunque no se haya otorgado ninguno.
+       */
+      ...(() => {
+        const lineas: ConceptoDesprendible[] = [];
+        const mudos: ConceptoDesprendible[] = [];
+
+        /** `[{ mes, quantity }]` de una bonificación, tolerando basura. */
+        const mesesDeBono = (crudo: unknown): { mes: string; quantity: number }[] => {
+          try {
+            const parsed = JSON.parse(String(crudo ?? '[]'));
+            if (!Array.isArray(parsed)) return [];
+            return parsed
+              .filter((v: any) => typeof v?.mes === 'string')
+              .map((v: any) => ({ mes: String(v.mes), quantity: dec(v?.quantity) }));
+          } catch {
+            return [];
+          }
         };
-      }),
-      ...(l?.pernotes ?? []).map((p: any, i: number) => ({
-        clave: `pernote:${p.id ?? i}`,
-        nombre: 'PERNOTES',
-        cantidad: dec(p.cantidad),
-        valor: dec(p.cantidad) * dec(p.valor),
-        editable: true,
-      })),
+
+        /** Meses de un pernote, contados desde sus fechas. */
+        const mesesDePernote = (crudo: unknown): Map<string, number> => {
+          const m = new Map<string, number>();
+          try {
+            const parsed = JSON.parse(String(crudo ?? '[]'));
+            if (Array.isArray(parsed)) {
+              for (const f of parsed) {
+                const mes = String(f).slice(0, 7);
+                m.set(mes, (m.get(mes) ?? 0) + 1);
+              }
+            }
+          } catch {
+            /* fila vieja sin fechas */
+          }
+          return m;
+        };
+
+        const bonos = bonificaciones;
+        const pernotes = (l?.pernotes ?? []) as any[];
+
+        /**
+         * ¿Este corte va a pintar ALGUNA línea de pernote?
+         *
+         * Un pernote solo entra si tiene fechas (se reparte por subperiodo) o,
+         * sin ellas, si tiene cantidad (va al bloque de los que no se pudieron
+         * repartir). Cuando no se cumple ninguna de las dos —y el caso normal
+         * es el más mudo de todos: la liquidación NO TIENE NI UNA FILA de
+         * `pernotes`— el desprendible se quedaba sin rastro del concepto.
+         *
+         * Eso no se lee como «no hubo pernotes», se lee como que el canvas se
+         * los comió: el resto de conceptos del corte sí están, cada uno con su
+         * cero. Por eso abajo se pinta el concepto igual, a cero y por
+         * subperiodo, como referencia de que se miró y no había.
+         */
+        const hayAlgunPernote = pernotes.some(
+          (pn) => mesesDePernote(pn.fechas).size > 0 || dec(pn.cantidad) > 0,
+        );
+
+        for (const [mes, etiqueta] of subperiodos) {
+          for (const [i, b] of bonos.entries()) {
+            const porMes = mesesDeBono(b.values);
+            if (!porMes.reduce((s, v) => s + v.quantity, 0)) continue;
+            const cantidad = porMes.find((v) => v.mes === mes)?.quantity ?? 0;
+            lineas.push({
+              clave: `bono:${b.id ?? i}:${mes}`,
+              nombre: `${String(b.name ?? 'BONO').toUpperCase()} (${etiqueta})`,
+              cantidad,
+              valor: cantidad * dec(b.value),
+              editable: !b.__deRecorridos,
+            });
+          }
+          for (const [i, pn] of pernotes.entries()) {
+            const porMes = mesesDePernote(pn.fechas);
+            if (!porMes.size) continue;
+            const cantidad = porMes.get(mes) ?? 0;
+            lineas.push({
+              clave: `pernote:${pn.id ?? i}:${mes}`,
+              nombre: `PERNOTES (${etiqueta})`,
+              cantidad,
+              valor: cantidad * dec(pn.valor),
+              editable: true,
+            });
+          }
+
+          /**
+           * La referencia del pernote vacío, en el sitio que le tocaría.
+           *
+           * No es editable: detrás no hay ninguna fila de `pernotes` a la que
+           * escribir —un pernote necesita empresa y vehículo, que esta celda
+           * no sabe— así que se pinta como derivada. Dice «aquí van los
+           * pernotes y este corte no trajo ninguno», que es justo lo que
+           * faltaba; darlos de alta sigue siendo cosa del formulario.
+           */
+          if (!hayAlgunPernote) {
+            lineas.push({
+              clave: `pernote:vacio:${mes}`,
+              nombre: `PERNOTES (${etiqueta})`,
+              cantidad: 0,
+              valor: 0,
+              editable: false,
+            });
+          }
+        }
+
+        // ── Los que no se pudieron repartir ──────────────────────────────
+        for (const [i, b] of bonos.entries()) {
+          const porMes = mesesDeBono(b.values);
+          const total = porMes.reduce((s, v) => s + v.quantity, 0);
+          const fuera = porMes.filter((v) => !subperiodos.has(v.mes)).reduce((s, v) => s + v.quantity, 0);
+          const nombre = String(b.name ?? 'BONO').toUpperCase();
+          if (!total) {
+            mudos.push({ clave: `bono:${b.id ?? i}`, nombre, cantidad: 0, valor: 0, editable: true });
+          } else if (fuera) {
+            mudos.push({
+              clave: `bono:${b.id ?? i}:fuera`,
+              nombre: `${nombre} (FUERA DEL CORTE)`,
+              cantidad: fuera,
+              valor: fuera * dec(b.value),
+              editable: true,
+            });
+          }
+        }
+        for (const [i, pn] of pernotes.entries()) {
+          const porMes = mesesDePernote(pn.fechas);
+          const total = dec(pn.cantidad);
+          if (!porMes.size) {
+            // Fila vieja sin fechas: no hay cómo repartirla, pero su importe
+            // cuenta y perderlo sería peor que no desglosarlo.
+            if (total) {
+              mudos.push({
+                clave: `pernote:${pn.id ?? i}`,
+                nombre: 'PERNOTES',
+                cantidad: total,
+                valor: total * dec(pn.valor),
+                editable: true,
+              });
+            }
+            continue;
+          }
+          const fuera = [...porMes.entries()]
+            .filter(([mes]) => !subperiodos.has(mes))
+            .reduce((s, [, n]) => s + n, 0);
+          if (fuera) {
+            mudos.push({
+              clave: `pernote:${pn.id ?? i}:fuera`,
+              nombre: 'PERNOTES (FUERA DEL CORTE)',
+              cantidad: fuera,
+              valor: fuera * dec(pn.valor),
+              editable: true,
+            });
+          }
+        }
+
+        return [...lineas, ...mudos];
+      })(),
+
+      /// Rótulo de sección: debajo van los recargos, que no son conceptos
+      /// fijos sino lo que salió de las planillas. Es la separación que hace
+      /// el Excel y sin ella las dos clases de línea se leen como una lista.
+      { clave: 'seccion:otros', nombre: 'OTROS', cantidad: null, valor: 0, editable: false, seccion: true },
+
       // Las siete filas de recargo, ya autocompletadas desde las planillas.
       ...repartoDesprendible.map((r) => ({
         clave: `recargo:${r.codigo}`,
@@ -1133,13 +1939,6 @@ export class NominaCanvasService {
         editable: false,
       })),
       { clave: 'disponibilidad', nombre: 'DISPONIBILIDAD MES', cantidad: null, valor: totalDisponibilidad, editable: false },
-      ...conceptosAdicionales.map((c, i) => ({
-        clave: `adicional:${i}`,
-        nombre: c.nombre.toUpperCase(),
-        cantidad: null,
-        valor: c.valor,
-        editable: true,
-      })),
     ];
 
     const deducciones: ConceptoDesprendible[] = [
@@ -1148,6 +1947,6 @@ export class NominaCanvasService {
       { clave: 'anticipos', nombre: 'ANTICIPOS', cantidad: null, valor: totales.totalAnticipos, editable: true },
     ];
 
-    return { devengos, deducciones, totales };
+    return { devengos, deducciones, totales, vacaciones };
   }
 }

@@ -250,6 +250,17 @@ export const RecargosImportarTransmeraldaService = {
         mes,
         a_o: año
       },
+      /**
+       * Estas dos columnas NO EXISTEN en la base de Transmeralda.
+       *
+       * Son contabilidad nuestra —qué planilla vino de allí y cuándo— y su
+       * migración `reconciliar_schema` las borra a propósito. Pero el cliente
+       * con el que leemos allí se genera con NUESTRO esquema, así que sin
+       * excluirlas Prisma las mete en el SELECT y Postgres responde «la columna
+       * no existe». Se omiten en vez de enumerar las otras cuarenta con un
+       * `select`: así, una columna nueva en el futuro sigue llegando sola.
+       */
+      omit: { imported_from_transmeralda_id: true, imported_from_transmeralda_at: true },
       include: {
         conductores: {
           select: {
@@ -731,6 +742,17 @@ export const RecargosImportarTransmeraldaService = {
         id: { in: cleanIds },
         deleted_at: null
       },
+      /**
+       * Estas dos columnas NO EXISTEN en la base de Transmeralda.
+       *
+       * Son contabilidad nuestra —qué planilla vino de allí y cuándo— y su
+       * migración `reconciliar_schema` las borra a propósito. Pero el cliente
+       * con el que leemos allí se genera con NUESTRO esquema, así que sin
+       * excluirlas Prisma las mete en el SELECT y Postgres responde «la columna
+       * no existe». Se omiten en vez de enumerar las otras cuarenta con un
+       * `select`: así, una columna nueva en el futuro sigue llegando sola.
+       */
+      omit: { imported_from_transmeralda_id: true, imported_from_transmeralda_at: true },
       include: {
         dias_laborales_planillas: {
           where: { deleted_at: null },

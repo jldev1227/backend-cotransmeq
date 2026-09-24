@@ -42,6 +42,21 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
   app.get('/nomina/borradores/previo', puedeLeer, NominaBorradoresController.previo);
   app.post('/nomina/borradores/generar', puedeEscribir, NominaBorradoresController.generar);
   app.get('/nomina/borradores/status/:jobId', puedeLeer, NominaBorradoresController.estado);
+  /// Vuelve a copiar los días de una liquidación desde las planillas. Escribe,
+  /// así que exige permiso de escritura como el resto de la generación.
+  app.post(
+    '/nomina/borradores/:id/refrescar-dias',
+    puedeEscribir,
+    NominaBorradoresController.refrescarDias,
+  );
+  /// Restaurar los bonos de una hoja desde lo marcado en recorridos. Pisa
+  /// cantidades, así que exige el permiso de escritura igual que el refresco
+  /// de días.
+  app.post(
+    '/nomina/borradores/:id/rehacer-bonos',
+    puedeEscribir,
+    NominaBorradoresController.rehacerBonos,
+  );
   app.delete('/nomina/borradores/job/:jobId', puedeEscribir, NominaBorradoresController.cancelar);
 
   app.get('/nomina/snapshots', puedeLeer, NominaSnapshotsController.listar);

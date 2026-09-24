@@ -94,6 +94,13 @@ export function buildApp() {
     const defaultOrigins = [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
+        /// Los dos repos gemelos arrancan su frontend en el 5173 por defecto, así
+        /// que al levantarlos a la vez uno tiene que moverse. El 5174 es el
+        /// puerto de esa segunda app: sin él aquí, su login falla con «Not
+        /// allowed by CORS», que el navegador enseña como «no se pudo conectar
+        /// con el servidor» y manda a buscar el fallo al sitio equivocado.
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
         'http://localhost:3000',
         'http://127.0.0.1:3000',
         'https://www.cotransmeq.com',

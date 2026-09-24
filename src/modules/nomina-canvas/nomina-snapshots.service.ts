@@ -19,6 +19,7 @@ import {
 import { NominaCanvasService } from './nomina-canvas.service';
 import { ESTADOS_BLOQUEADOS } from './nomina-estado.service';
 import type { NominaPeriodoDTO } from './nomina-canvas.types';
+import { CORTE_DEFECTO } from '../../lib/nomina/periodo';
 
 export type OrigenSnapshot = 'manual' | 'auto' | 'revert';
 
@@ -380,5 +381,52 @@ export const NominaSnapshotsService = {
     });
 
     return { restauradas, omitidas, nuevoSnapshot };
+  },
+
+  /**
+   * Captura automática de los periodos VIVOS. La llama el cron cada hora.
+   *
+   * Hasta ahora nómina era el único canvas con versionado que no capturaba
+   * sola: existía «Guardar versión» en el carril y nada más, así que el
+   * historial solo tenía las versiones que alguien se acordó de guardar —y
+   * revertir sirve de poco cuando el punto al que querrías volver nunca se
+   * grabó. Cierres, ocasional, adicionales y recorridos ya tenían su cron.
+   *
+   * QUÉ SE CAPTURA. Un periodo de nómina va del 21 al 20, así que en
+   * cualquier momento hay DOS vivos: el que está abierto y el que se acaba de
+   * cerrar y se está liquidando. Pasado el día de corte el abierto es el del
+   * mes siguiente; antes, el del mes en curso y el que se liquida es el
+   * anterior. Los dos se capturan, porque los dos se editan.
+   *
+   * No hace falta filtrar horas tranquilas: `capturar` descarta la captura
+   * `auto` si el contenido es idéntico al último snapshot o si hay otro
+   * dentro de la ventana antirrebote.
+   */
+  async capturarHorario() {
+    const ahora = new Date();
+    const anio = ahora.getFullYear();
+    const mes = ahora.getMonth() + 1;
+
+    /// Desplazamiento en meses sobre (anio, mes), normalizando el salto de año.
+    const desplazar = (delta: number) => {
+      const bruto = mes - 1 + delta;
+      return { anio: anio + Math.floor(bruto / 12), mes: (((bruto % 12) + 12) % 12) + 1 };
+    };
+
+    const periodos =
+      ahora.getDate() >= CORTE_DEFECTO
+        ? [{ anio, mes }, desplazar(1)]
+        : [desplazar(-1), { anio, mes }];
+
+    let capturados = 0;
+    for (const p of periodos) {
+      try {
+        const s = await this.capturar({ ...p, origen: 'auto' });
+        if (s) capturados++;
+      } catch (e) {
+        console.warn('[nomina-snapshots] fallo capturando', p, e);
+      }
+    }
+    return { capturados, periodos };
   },
 };

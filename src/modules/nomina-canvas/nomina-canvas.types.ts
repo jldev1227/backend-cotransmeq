@@ -151,8 +151,18 @@ export interface DiaHoja {
    * cuando hay que cotejar un recargo contra la planilla del vehículo.
    */
   placa: string | null;
+  /** Id del vehículo, para que la copia del borrador no dependa del rótulo. */
+  vehiculoId: string | null;
   /** Color de esa placa. Es lo que se pinta en la fila 19. */
   placaColor: string | null;
+  /**
+   * `true` cuando este día viene de la COPIA de la liquidación y no de la
+   * planilla.
+   *
+   * Es lo que permite que el canvas deje editarlo sin tocar el documento de
+   * origen, y que el aviso sepa distinguir «esto es derivado» de «esto es tuyo».
+   */
+  propio: boolean;
 }
 
 /**
@@ -176,6 +186,30 @@ export interface TramoVigencia {
   valorHora: number;
   jornadaNormalHoras: number;
   jornadaFestivaHoras: number;
+  /**
+   * Las bases salariales vigentes en este tramo, la general primero.
+   *
+   * El mismo recargo vale distinto según con qué cliente se trabajó: hay
+   * `configuraciones_salarios` con `empresa_id` y un salario básico propio
+   * —2.358.897 frente a los 1.750.905 de la general—, y hasta ahora el canvas
+   * usaba solo la general y las demás no se veían por ningún lado. El Excel del
+   * que viene esta nómina sí las enseña, en columnas paralelas.
+   *
+   * Es una LISTA y no dos campos fijos porque el número de empresas con
+   * configuración propia lo decide la tabla, no el código.
+   */
+  bases: BaseSalarial[];
+}
+
+/** Una base salarial del tramo: la general, o la de un cliente concreto. */
+export interface BaseSalarial {
+  /** `null` en la base general, que es la que usa la liquidación. */
+  empresaId: string | null;
+  /** `BÁSICO` para la general; el nombre del cliente para las demás. */
+  nombre: string;
+  salarioBasico: number;
+  /** `salarioBasico / horasMensualesBase` del tramo. */
+  valorHora: number;
 }
 
 /** Una fila del bloque de configuración (filas 27-33 del Excel). */
@@ -187,8 +221,28 @@ export interface TarifaRecargo {
   porcentaje: number;
   /** Valor de una hora de este recargo, ya con el % aplicado. */
   valorHora: number;
-  /** Horas acumuladas del conductor en el periodo. */
+  /**
+   * Lo mismo, calculado sobre cada una de las bases del tramo y alineado con
+   * `TramoVigencia.bases`. El primero repite `valorHora` (la base general).
+   */
+  valorHoraPorBase: number[];
+  /** `horas × valorHoraPorBase`, para no recalcularlo en tres sitios. */
+  valorPorBase: number[];
+  /**
+   * Horas que se PAGAN: las de la planilla, o las corregidas a mano si hay
+   * un ajuste vivo en `ajustes_horas_recargo`.
+   */
   horas: number;
+  /**
+   * Lo que dicen las planillas, siempre.
+   *
+   * Cuando no hay ajuste vale lo mismo que `horas`. Viaja aparte para que el
+   * canvas pueda enseñar «30 → 32» y para que deshacer el ajuste no tenga que
+   * ir a buscar el valor original a ninguna parte.
+   */
+  horasPlanilla: number;
+  /** `true` si estas horas están corregidas a mano. */
+  ajustada: boolean;
   valor: number;
   /**
    * Índice dentro de `HojaNomina.tramos`. Con un solo tramo siempre es 0 y
@@ -225,19 +279,78 @@ export interface BloqueEmpresa {
  * Las cantidades se suman a lo largo de los meses que toca el corte: `values`
  * guarda `[{ mes, quantity }]` y un corte 21→20 cruza dos.
  */
+/**
+ * Una placa que es columna de la matriz de bonos.
+ *
+ * Lleva `vehiculoId` porque la celda AHORA SE EDITA, y una escritura tiene que
+ * saber a qué fila de `bonificaciones` va: la placa es un rótulo y puede
+ * repetirse o cambiar, el id no. `null` en la columna «sin placa», que agrupa
+ * los bonos cuyo vehículo no está en ninguna planilla del periodo y que por eso
+ * mismo no se puede editar desde aquí.
+ */
+export interface PlacaBono extends PlacaNomina {
+  vehiculoId: string | null;
+}
+
+export interface FilaBono {
+  /** «Bono de alimentación». */
+  nombre: string;
+  /** Precio unitario, que es igual para todas las placas. */
+  valorUnitario: number;
+  /**
+   * Cantidad por PLACA y MES: `cantidades[iPlaca][iMes]`, alineado con
+   * `placas` y `meses`.
+   *
+   * Es una matriz y no un total por placa porque la celda se edita, y un corte
+   * 21→20 SIEMPRE cruza dos meses: con un solo número no se sabría a cuál de
+   * los dos va lo que alguien teclea, y `bonificaciones.values` guarda
+   * `[{ mes, quantity }]` mes a mes.
+   */
+  cantidades: number[][];
+  /**
+   * La misma cuenta, pero contando los bonos MARCADOS EN RECORRIDOS.
+   *
+   * Es la otra mitad del cuadre: `cantidades` dice lo que la liquidación paga
+   * y esto lo que el canvas de recorridos registra. Son dos tablas distintas
+   * (`bonificaciones` y `registro_dia_laboral_bono`) sin puente automático
+   * entre ellas, así que pueden discrepar y nadie se entera.
+   */
+  cantidadesRecorridos: number[][];
+  /** Suma de la fila: es lo que el desprendible paga de este bono. */
+  total: number;
+  totalRecorridos: number;
+  /**
+   * `true` si alguna celda no cuadra entre las dos fuentes.
+   *
+   * Se calcula aquí y no en el builder porque el PDF y el XLSX tienen que
+   * resaltar exactamente las mismas celdas que el canvas.
+   */
+  descuadra: boolean;
+}
+
 export interface MatrizBonos {
   /** Placas que son columna, en el mismo orden que `placasUsadas`. */
-  placas: PlacaNomina[];
-  filas: {
-    /** «Bono de alimentación». */
-    nombre: string;
-    /** Precio unitario, que es igual para todas las placas. */
-    valorUnitario: number;
-    /** Cantidad por placa, alineada con `placas`. */
-    cantidades: number[];
-    /** Suma de la fila: es lo que el desprendible paga de este bono. */
-    total: number;
-  }[];
+  placas: PlacaBono[];
+  /**
+   * Meses del corte en `YYYY-MM`, en orden. Son las subcolumnas de cada placa.
+   *
+   * Salen del periodo y no de lo que traigan los bonos guardados: si un mes no
+   * tiene ninguno, su columna tiene que existir igual para poder escribir en
+   * ella.
+   */
+  meses: string[];
+  filas: FilaBono[];
+  /**
+   * `true` si el conductor tiene ALGÚN bono marcado en recorridos en el
+   * periodo.
+   *
+   * Cuando es `false` no se pinta la comparación: el caso normal de un
+   * conductor al que nadie le ha marcado bonos en el canvas de recorridos
+   * daría una columna entera de ceros frente a las cantidades de la
+   * liquidación, y eso se lee como «todo está mal» cuando en realidad es
+   * «aquí no hay nada con qué comparar».
+   */
+  hayRecorridos: boolean;
 }
 
 /** Una línea del desprendible. */
@@ -249,6 +362,41 @@ export interface ConceptoDesprendible {
   valor: number;
   /** `false` en los conceptos derivados que el usuario no debe teclear. */
   editable: boolean;
+  /**
+   * `true` en las filas que solo son un RÓTULO DE SECCIÓN, como «OTROS».
+   *
+   * No llevan cantidad ni valor y no suman: separan el bloque de conceptos
+   * fijos del de recargos, igual que en los Excel de los que viene esta
+   * nómina. El builder las pinta a lo ancho y centradas.
+   */
+  seccion?: boolean;
+}
+
+/**
+ * El bloque de vacaciones que se teclea al lado del desprendible.
+ *
+ * Los días NO se guardan: salen de las dos fechas y se recalculan solos. Un día
+ * guardado que no cuadre con sus fechas es un dato que miente, y aquí las
+ * fechas son lo que alguien puede justificar.
+ */
+export interface VacacionesHoja {
+  /** `YYYY-MM-DD`, o `null` si no hay vacaciones en el periodo. */
+  desde: string | null;
+  hasta: string | null;
+  /**
+   * Días disfrutados, CONTANDO EL DÍA DE INICIO.
+   *
+   * Del 1 al 15 son 15 días, no 14: el primer día se disfruta entero. Es la
+   * cuenta que hace nómina y la que espera quien revisa.
+   */
+  dias: number;
+  /**
+   * Salario sobre el que se liquidan. Si la liquidación no lo fija, es el
+   * básico del tramo.
+   */
+  salarioBase: number;
+  /** `true` cuando `salarioBase` viene del tramo y no de la liquidación. */
+  salarioHeredado: boolean;
 }
 
 export interface HojaNomina {
@@ -308,6 +456,9 @@ export interface HojaNomina {
   /** Horas repartidas entre lo que va al desprendible y lo que va a disponibilidad. */
   repartoDesprendible: { codigo: CodigoRecargo; horas: number; valor: number }[];
   repartoDisponibilidad: { codigo: CodigoRecargo; horas: number; valor: number }[];
+
+  /** Fechas, días y salario de las vacaciones del periodo. */
+  vacaciones: VacacionesHoja;
 
   devengos: ConceptoDesprendible[];
   deducciones: ConceptoDesprendible[];

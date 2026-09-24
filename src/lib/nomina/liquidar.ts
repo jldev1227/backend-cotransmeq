@@ -109,6 +109,14 @@ export interface EntradaLiquidacion {
   valorVacaciones: number;
   vacacionesInicio?: string | Date | null;
   vacacionesFin?: string | Date | null;
+  /**
+   * Salario sobre el que se liquidan las vacaciones.
+   *
+   * Cuando falta se usa el básico, que es lo que se hacía siempre. Se separa
+   * porque las vacaciones se pagan sobre el promedio del último año o sobre lo
+   * pactado, y eso no tiene por qué ser el básico vigente.
+   */
+  salarioVacaciones?: number | null;
   interesCesantias: number;
   disponibilidad: number;
 
@@ -365,12 +373,21 @@ export function liquidarNomina(
 
   // ── Vacaciones ────────────────────────────────────────────────────────
   const valorVacacionesManual = num(entrada.valorVacaciones);
+  /// El salario de vacaciones si se fijó; si no, el básico, como siempre.
+  const salarioVacaciones = num(entrada.salarioVacaciones) || salarioBase;
   let totalVacaciones = 0;
-  if (valorVacacionesManual > 0) {
+  if (entrada.vacacionesInicio && entrada.vacacionesFin) {
+    /**
+     * LAS FECHAS MANDAN sobre el importe tecleado.
+     *
+     * Antes era al revés: un `total_vacaciones` guardado ganaba y las fechas no
+     * movían nada, así que escribirlas parecía no hacer efecto. Si alguien se
+     * tomó la molestia de poner desde y hasta, es ESE el dato que puede
+     * justificar; el importe suelto sigue valiendo cuando no hay fechas.
+     */
+    totalVacaciones = (salarioVacaciones / 30) * diasEntre(entrada.vacacionesInicio, entrada.vacacionesFin);
+  } else if (valorVacacionesManual > 0) {
     totalVacaciones = valorVacacionesManual;
-  } else if (entrada.vacacionesInicio && entrada.vacacionesFin) {
-    totalVacaciones =
-      (salarioBase / 30) * diasEntre(entrada.vacacionesInicio, entrada.vacacionesFin);
   }
 
   // ── Base prestacional (IBC) ───────────────────────────────────────────
