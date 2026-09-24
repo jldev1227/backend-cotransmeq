@@ -354,22 +354,29 @@ export const RecargosImportarTransmeraldaService = {
       })
     ])
 
-    // 3b. Regla de negocio: califican para import los conductores que
-    //     existen en Cotransmeq Y cuyo `estado` NO es `inactivo`.
-    //     Se incluyen TODOS los demás enums del estado:
-    //       activo, suspendido, retirado, disponible, programado,
-    //       servicio, descanso.
-    //
-    //     `inactivo` se considera "conductor que no nos interesa"
-    //     (probablemente un ex-conductor o uno dado de baja). El
-    //     usuario puede correr el query PSQL de sincronización
-    //     para marcar `inactivo` a los que no tengan liquidaciones
-    //     2026 — pero esa decisión es de negocio, no del import.
-    const idsConductorCalifica = new Set(
-      conductoresCM
-        .filter((c) => c.estado !== 'inactivo')
-        .map((c) => c.id)
-    )
+    /**
+     * 3b. EL ESTADO QUE MANDA ES EL DE TRANSMERALDA, no el de Cotransmeq.
+     *
+     * La regla era «existe en Cotransmeq Y su estado allí no es inactivo», y
+     * eso hacía que el `inactivo` de Cotransmeq —que significa «no está en
+     * NUESTRA nómina»— bloqueara la importación de planillas perfectamente
+     * válidas. Medido en septiembre de 2026: de 26 conductores con planilla
+     * en TM, 15 estaban marcados `inactivo` en Cotransmeq (todos con
+     * `nomina = false` y cero liquidaciones) y otros 6 ni existían. Solo
+     * pasaban 5, y por eso el modal salía casi vacío.
+     *
+     * Esos 15 están TODOS activos en Transmeralda —programado, servicio,
+     * activo o disponible—: conducen, generan recargos y esos recargos hay
+     * que traerlos. Que estén o no en la nómina de Cotransmeq es una decisión
+     * posterior, de la liquidación, no de la importación.
+     *
+     * Así que quien decide es la FUENTE: se importa si el conductor no está
+     * `inactivo` en Transmeralda. Seguir existiendo en Cotransmeq sigue
+     * siendo obligatorio —la planilla necesita un `conductor_id` y los
+     * conductores no se crean solos por temas contractuales—, pero eso es
+     * otro motivo y se cuenta aparte.
+     */
+    const idsConductorCalifica = new Set(conductoresCM.map((c) => c.id))
 
     const condByIdent = new Map(
       conductoresCM.map((c) => [c.numero_identificacion, c])
@@ -485,14 +492,22 @@ export const RecargosImportarTransmeraldaService = {
       const yaImportado = importedBySourceId.has(p.id) || importedByKey.has(key)
 
       const conductorExiste = !!conductorDestino
-      // Conductor califica en CM: existe y su estado NO es 'inactivo'.
-      // Cualquier otro enum (activo, disponible, servicio, programado,
-      // descanso, suspendido, retirado) es válido.
-      const conductorActivoEnCM =
-        !!conductorDestino && idsConductorCalifica.has(conductorDestino.id)
       const vehiculoNoExiste = !!placa && !vehiculoDestino
       const empresaNoExiste = !!nombreEmpresaLower && !empresaDestino
-      const conductorActivoTM = p.conductores?.estado === 'activo'
+      /**
+       * Activo EN LA FUENTE: cualquier estado que no sea `inactivo`.
+       *
+       * No `=== 'activo'`: el enum tiene ocho valores y siete son conductores
+       * trabajando —programado, servicio, disponible, descanso…—. De los 26
+       * con planilla en septiembre solo UNO estaba en `activo` a secas; pedir
+       * ese literal habría dejado fuera a los otros 25.
+       */
+      const conductorActivoTM = p.conductores?.estado !== 'inactivo'
+      /// Califica: existe en Cotransmeq y no está dado de baja en TM.
+      const conductorCalifica = conductorExiste && conductorActivoTM
+      /// Informativo: su estado en Cotransmeq ya NO decide nada.
+      const conductorActivoEnCM =
+        !!conductorDestino && idsConductorCalifica.has(conductorDestino.id)
 
       // Días laborados: array ascendente + versión compacta en rangos.
       // Esto permite al usuario ver "1-10, 15-20" en la columna
@@ -509,19 +524,22 @@ export const RecargosImportarTransmeraldaService = {
         empresasACrear.add(empresaTMData.nombre)
       }
 
-      // Motivo no importable (casos residuales, ya filtramos por
-      // estado del conductor en CM al final del map):
-      //   1. Conductor sin identificación
-      //   2. Conductor no existe en CM
-      //   3. Conductor existe pero está inactivo en CM
-      //      (importante para que el badge muestre el motivo correcto
-      //      cuando el toggle "Mostrar tachadas" está activo)
-      //   4. Sin número de planilla
+      /**
+       * Por qué NO se puede importar. Solo tres cosas lo impiden:
+       *
+       *   1. El conductor no tiene identificación en TM: sin ella no hay por
+       *      dónde cruzarlo.
+       *   2. No existe en Cotransmeq. Los conductores no se crean solos por
+       *      temas contractuales, así que hay que darlo de alta a mano.
+       *   3. Está `inactivo` EN TRANSMERALDA, que es quien manda.
+       *
+       * Estar `inactivo` en Cotransmeq ya NO es un motivo: significaba «fuera
+       * de nuestra nómina» y estaba bloqueando planillas buenas.
+       */
       const motivos: string[] = []
       if (!identificacion) motivos.push('Conductor sin identificación')
       else if (!conductorDestino) motivos.push('Conductor no existe en Cotransmeq')
-      else if (!conductorActivoEnCM)
-        motivos.push('Conductor inactivo en Cotransmeq')
+      else if (!conductorActivoTM) motivos.push('Conductor inactivo en Transmeralda')
       if (!p.numero_planilla) motivos.push('Sin número de planilla')
 
       return {
@@ -540,7 +558,10 @@ export const RecargosImportarTransmeraldaService = {
         dias_rangos: diasRangos,
         ya_importado: yaImportado,
         conductor_existe_en_destino: conductorExiste,
-        conductor_activo_en_destino: conductorActivoEnCM,
+        /// Lo que decide. Se conserva el nombre del campo para no romper al
+        /// cliente, pero ya no mira el estado en Cotransmeq.
+        conductor_activo_en_destino: conductorCalifica,
+        conductor_inactivo_en_cotransmeq: conductorExiste && !conductorActivoEnCM,
         conductor_activo_en_origen: conductorActivoTM,
         vehiculo_no_existe_en_destino: vehiculoNoExiste,
         empresa_no_existe_en_destino: empresaNoExiste,
@@ -788,7 +809,8 @@ export const RecargosImportarTransmeraldaService = {
       conductorIdsTMSet.size
         ? tm.conductores.findMany({
             where: { id: { in: Array.from(conductorIdsTMSet) } },
-            select: { id: true, numero_identificacion: true }
+            /// `estado` hace falta: es la FUENTE la que decide si se importa.
+            select: { id: true, numero_identificacion: true, estado: true }
           })
         : Promise.resolve([])
     ])
@@ -798,6 +820,8 @@ export const RecargosImportarTransmeraldaService = {
     const tmConductorById = new Map(
       conductoresTMFull.map((c) => [c.id, c.numero_identificacion || ''])
     )
+    /// Estado del conductor EN TRANSMERALDA, por id de origen.
+    const tmCondEstadoById = new Map(conductoresTMFull.map((c) => [c.id, c.estado]))
 
     const identsSet = new Set<string>(
       Array.from(tmConductorById.values()).filter((x) => !!x)
@@ -834,17 +858,11 @@ export const RecargosImportarTransmeraldaService = {
         : Promise.resolve([])
     ])
 
-    // 3b. Regla: solo importamos planillas de conductores que NO estén
-    //     `inactivo` en Cotransmeq. Cualquier otro enum del estado
-    //     (activo, disponible, servicio, programado, descanso, etc.)
-    //     califica. Coincide con el filtro del preview (defensa en
-    //     profundidad por si el cliente seleccionó source_ids que ya
-    //     no califican).
-    const idsConductorCalifica = new Set(
-      conductoresCM
-        .filter((c) => c.estado !== 'inactivo')
-        .map((c) => c.id)
-    )
+    /// 3b. La misma regla que el preview: decide el estado en TRANSMERALDA,
+    ///     no el de Cotransmeq. Aquí solo queda la comprobación de que el
+    ///     conductor exista; el `inactivo` de la fuente se mira abajo, contra
+    ///     la planilla, que es donde está el dato.
+    const idsConductorCalifica = new Set(conductoresCM.map((c) => c.id))
 
     const condByIdent = new Map(
       conductoresCM.map((c) => [c.numero_identificacion, c.id])
@@ -951,9 +969,15 @@ export const RecargosImportarTransmeraldaService = {
           return
         }
         if (!idsConductorCalifica.has(conductorIdCM)) {
+          omitidas.push({ source_id: p.id, motivo: 'Conductor no encontrado en Cotransmeq' })
+          return
+        }
+        /// Dado de baja EN LA FUENTE. Es lo único del conductor que impide
+        /// importar: su estado en Cotransmeq ya no decide.
+        if (tmCondEstadoById.get(p.conductor_id) === 'inactivo') {
           omitidas.push({
             source_id: p.id,
-            motivo: 'Conductor inactivo en Cotransmeq (no se importa)'
+            motivo: 'Conductor inactivo en Transmeralda (no se importa)'
           })
           return
         }
