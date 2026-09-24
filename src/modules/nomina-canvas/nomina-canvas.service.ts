@@ -168,6 +168,20 @@ export interface OpcionesPeriodo {
    * no la mira.
    */
   ignorarCopia?: boolean;
+  /**
+   * Incluye también a quien NO tiene marcado `conductores.nomina`.
+   *
+   * El canvas NO lo usa: su libro es la nómina del periodo y meter ahí una
+   * hoja por cada conductor de la empresa lo haría ilegible. Lo usa la lista
+   * previa de «Generar borradores», donde la pregunta es otra —«¿a quién puedo
+   * generarle?»— y esconder a un conductor que trabajó porque tiene un flag a
+   * `false` obliga a ir a editarlo a otra pantalla para poder pagarle.
+   *
+   * El flag está desactualizado en la práctica: en cotransmeq había 15
+   * conductores no inactivos con `nomina = false`, 14 de ellos con planillas
+   * del año y dos con liquidaciones ya hechas.
+   */
+  incluirFueraDeNomina?: boolean;
 }
 
 export class NominaCanvasService {
@@ -220,7 +234,17 @@ export class NominaCanvasService {
         // si no trabajó nada, no tiene por qué aparecer.
         prisma.conductores.findMany({
           where: {
-            nomina: true,
+            /**
+             * El flag solo filtra cuando NADIE ha nombrado a los conductores.
+             *
+             * Pedir ids explícitos ya es la decisión de incluirlos: si aquí se
+             * siguiera exigiendo `nomina`, un conductor seleccionado a mano en
+             * «Generar borradores» no traería hoja, y el generador lo daría por
+             * «omitido» sin decir por qué. `incluirFueraDeNomina` abre lo mismo
+             * para el LISTADO previo, que necesita enseñar a quién se puede
+             * generar antes de que nadie haya elegido.
+             */
+            ...(opts.incluirFueraDeNomina || opts.conductorIds?.length ? {} : { nomina: true }),
             ...(opts.conductorIds?.length ? { id: { in: opts.conductorIds } } : {}),
             OR: [
               { estado: { notIn: ['desvinculado', 'inactivo'] } },
@@ -251,6 +275,9 @@ export class NominaCanvasService {
             /// antes de encolar el lote, en vez de descubrirlo cuando el envío
             /// falla y hay que ir a buscar el fallo en la bitácora.
             email: true,
+            /// Para que la lista previa pueda MARCAR a quien está fuera de
+            /// nómina en vez de esconderlo o de mezclarlo con el resto.
+            nomina: true,
           },
         }),
 
@@ -737,6 +764,9 @@ export class NominaCanvasService {
       cargo: string;
       salario_base: unknown;
       email?: string | null;
+      /// `conductores.nomina`. Solo lo mira la lista previa de «Generar
+      /// borradores», para rotular a quien trabaja sin estar marcado.
+      nomina?: boolean;
     };
     planillas: any[];
     liquidacion: any | null;
@@ -1263,6 +1293,9 @@ export class NominaCanvasService {
       nombre: base,
       cedula: conductor.numero_identificacion,
       correo: conductor.email ?? null,
+      /// Viaja para que la lista previa pueda rotular a quien está fuera de
+      /// nómina. El canvas no lo mira: allí todas las hojas ya son de nómina.
+      enNomina: conductor.nomina !== false,
       cargo: conductor.cargo,
       nombreHoja,
       tipoVehiculo,

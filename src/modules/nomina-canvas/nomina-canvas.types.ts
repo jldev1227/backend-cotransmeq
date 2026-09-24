@@ -408,6 +408,8 @@ export interface HojaNomina {
   estado: string;
   nombre: string;
   cedula: string | null;
+  /// `conductores.nomina`. `false` = trabaja pero no está marcado para nómina.
+  enNomina?: boolean;
   /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
   correo: string | null;
   cargo: string;

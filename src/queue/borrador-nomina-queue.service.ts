@@ -302,6 +302,16 @@ class BorradorNominaQueueService {
       hasta: dias[dias.length - 1]?.fecha ?? '',
     }
 
+    /**
+     * Conductores NOMBRADOS uno a uno desde el modal.
+     *
+     * Vacío cuando se lanza sobre el periodo entero. La diferencia importa: un
+     * barrido no debe crear borradores de quien no tiene días, pero marcar una
+     * casilla que la interfaz dejó desmarcada a propósito es una decisión
+     * explícita y el servidor no debe ignorarla en silencio.
+     */
+    const pedidos = new Set(p.conductorIds ?? [])
+
     for (let i = 0; i < hojas.length; i++) {
       // No se puede abortar una escritura en vuelo, así que la promesa es
       // «se detiene al terminar el conductor en curso».
@@ -313,7 +323,7 @@ class BorradorNominaQueueService {
       job.progress = Math.round((i / Math.max(1, hojas.length)) * 100)
       this.emit({ userId: job.userId }, 'borrador-nomina:progress', this.publico(job))
 
-      const item = await this.generarUno(h, ventana, sobrescribir, job.userId)
+      const item = await this.generarUno(h, ventana, sobrescribir, job.userId, pedidos)
       job.items.push(item)
 
       // El alta va al room del libro: quien tenga el periodo abierto la ve
@@ -329,6 +339,8 @@ class BorradorNominaQueueService {
     ventana: { desde: string; hasta: string },
     sobrescribir: Set<string>,
     userId: string,
+    /** Ids marcados a mano. Vacío en un barrido del periodo. */
+    pedidos: Set<string> = new Set(),
   ): Promise<BorradorNominaItem> {
     const base: BorradorNominaItem = {
       conductorId: hoja.conductorId,
@@ -344,7 +356,25 @@ class BorradorNominaQueueService {
           liquidacionId: hoja.liquidacionId,
         }
       }
-      if (!hoja.dias?.length) {
+      /**
+       * Sin días no se genera... SALVO que lo hayan pedido por nombre.
+       *
+       * En un barrido del periodo la guarda es buena: crea solo a quien
+       * trabajó y no ensucia el corte con borradores de todo el mundo.
+       *
+       * Pero marcando la casilla la respuesta era `omitido` con un «Sin
+       * planillas en el periodo» que sonaba a que el conductor no había
+       * trabajado, cuando lo que suele pasar es que SU PLANILLA LLEGÓ TARDE O
+       * ESTÁ VACÍA. Y contradecía a la propia creación, que unas líneas más
+       * abajo escribe `dias_laborados: DIAS_MES_COMERCIAL` precisamente porque
+       * «alguien a sueldo mensual cobra el mes aunque su planilla llegue
+       * tarde». Las dos cosas no pueden ser ciertas a la vez.
+       *
+       * Así que lo pedido a mano se crea, con el mes comercial como todos. Los
+       * recargos seguirán en cero hasta que la planilla llegue, y eso se
+       * arregla con «Actualizar días».
+       */
+      if (!hoja.dias?.length && !pedidos.has(hoja.conductorId)) {
         return { ...base, motivo: 'Sin planillas en el periodo.' }
       }
 

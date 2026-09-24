@@ -49,7 +49,22 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte ?? undefined,
-      });
+        /**
+         * La lista previa enseña a TODO el que no esté inactivo, tenga o no
+         * marcado `conductores.nomina`.
+         *
+         * La pregunta aquí no es «¿quién es la nómina del periodo?» —eso es el
+         * canvas— sino «¿a quién puedo generarle un borrador?». Esconder a un
+         * conductor que trabajó porque tiene un flag a `false` obligaba a ir a
+         * otra pantalla a editarlo solo para poder pagarle, y el flag está
+         * desactualizado: la mayoría de los que salían fuera tenían planillas
+         * del año, y algunos hasta liquidaciones hechas.
+         *
+         * Vienen MARCADOS como fuera de nómina y el modal los deja sin
+         * seleccionar, así que aparecer aquí no genera nada por sí solo.
+         */
+        incluirFueraDeNomina: true,
+      } as any);
 
       const dias = periodo.periodo.dias;
       return reply.send({
@@ -62,6 +77,9 @@ export class NominaBorradoresController {
           conductor_id: h.conductorId,
           nombre: h.nombre,
           cedula: h.cedula,
+          /// `false` = trabaja pero no está marcado para nómina. El modal lo
+          /// rotula y lo deja desmarcado en vez de esconderlo.
+          en_nomina: (h as any).enNomina !== false,
           dias: h.dias?.length ?? 0,
           placas: h.placas ?? [],
           /// Null cuando no hay nada guardado todavía: es la señal de que
