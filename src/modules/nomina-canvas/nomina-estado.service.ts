@@ -52,6 +52,31 @@ export const ESTADOS_QUE_EXIGEN_ADMIN: EstadoNomina[] = ['APROBADA', 'PAGADA'];
 /** Estados en los que el canvas deja la hoja en solo lectura. */
 export const ESTADOS_BLOQUEADOS: string[] = ['APROBADA', 'PAGADA', 'ANULADA'];
 
+/**
+ * Estados en los que se pueden volver a traer los días desde las planillas.
+ *
+ * SOLO BORRADOR, y es más estricto que `ESTADOS_BLOQUEADOS` a propósito.
+ *
+ * «Actualizar días» no es una edición más: DESCARTA la copia del corte y la
+ * rehace desde las planillas, así que se lleva por delante las horas que
+ * alguien corrigió a mano. En BORRADOR eso es justo lo que se busca —se está
+ * armando la liquidación y las planillas mandan—, pero una vez liquidada la
+ * cifra ya se revisó y en muchos casos ya se firmó: rehacerla desde el origen
+ * no es refrescar, es deshacer el trabajo sin dejar rastro.
+ *
+ * Por eso no se resuelve con `ESTADOS_BLOQUEADOS`: en LIQUIDADA la hoja SÍ se
+ * edita —se retocan bonos, vacaciones y conceptos— y lo único que se cierra es
+ * esta acción.
+ *
+ * ESPEJO de `ingreso-svelte/src/lib/editor/builders/nomina-estado.ts`.
+ */
+export const ESTADOS_CON_REFRESCO_DIAS: string[] = ['BORRADOR'];
+
+/** ¿Se pueden volver a traer los días de las planillas en este estado? */
+export function permiteRefrescarDias(estado: string): boolean {
+  return ESTADOS_CON_REFRESCO_DIAS.includes(estado);
+}
+
 /** Estados que exigen escribir un motivo. */
 export const ESTADOS_QUE_EXIGEN_MOTIVO: EstadoNomina[] = ['ANULADA'];
 
@@ -136,7 +161,7 @@ export const NominaEstadoService = {
     }
 
     const actual = await prisma.liquidaciones.findFirst({
-      where: { deleted_at: null, id },
+      where: { id, deleted_at: null },
       select: { id: true, estado_flujo: true, version: true, conductor_id: true },
     });
     if (!actual) {
@@ -194,7 +219,7 @@ export const NominaEstadoService = {
       });
 
       if (gano.count === 0) {
-        const server = await tx.liquidaciones.findFirst({
+        const server = await tx.liquidaciones.findUnique({
           where: { deleted_at: null, id },
           select: { estado_flujo: true, version: true },
         });

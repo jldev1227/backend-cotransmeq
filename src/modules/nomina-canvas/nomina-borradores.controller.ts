@@ -8,7 +8,7 @@ import { prisma } from '../../config/prisma';
 import { copiarDiasDesdePlanillas } from '../../queue/borrador-nomina-queue.service';
 import { rehacerBonificacionesDesdeRecorridos } from '../../queue/borrador-nomina-queue.service';
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway';
-import { ESTADOS_BLOQUEADOS } from './nomina-estado.service';
+import { ESTADOS_BLOQUEADOS, permiteRefrescarDias } from './nomina-estado.service';
 
 /** Techo por lote. Un periodo real ronda los quince conductores. */
 const MAX_CONDUCTORES = 200;
@@ -152,11 +152,21 @@ export class NominaBorradoresController {
     });
     if (!liq) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
 
-    /// Una liquidación aprobada o pagada no se repisa desde la planilla: eso
-    /// no es refrescar, es rehacer un documento que alguien ya firmó.
-    if (ESTADOS_BLOQUEADOS.includes(liq.estado_flujo)) {
+    /**
+     * SOLO EN BORRADOR, que es más estricto que `ESTADOS_BLOQUEADOS`.
+     *
+     * Esto no refresca: DESCARTA la copia del corte y la rehace desde las
+     * planillas, llevándose por delante las horas corregidas a mano. Mientras
+     * se arma el borrador es justo lo que se busca; a partir de LIQUIDADA la
+     * cifra ya se revisó y a menudo ya se firmó, así que rehacerla desde el
+     * origen es deshacer el trabajo sin dejar rastro.
+     *
+     * La guarda vieja solo miraba APROBADA/PAGADA/ANULADA, así que en LIQUIDADA
+     * el botón pasaba sin preguntar nada.
+     */
+    if (!permiteRefrescarDias(liq.estado_flujo)) {
       return reply.status(409).send({
-        error: `La liquidación está en ${liq.estado_flujo}. Devuélvela a LIQUIDADA para poder actualizarla.`,
+        error: `La liquidación está en ${liq.estado_flujo} y sus días ya no se vuelven a traer de las planillas. Devuélvela a BORRADOR si de verdad hay que rehacerlos.`,
       });
     }
 
