@@ -446,6 +446,30 @@ class BorradorNominaQueueService {
           where: { id: hoja.liquidacionId },
           data: { ...datos, actualizado_por_id: userId, version: { increment: 1 } },
         })
+        /**
+         * También al REEMPLAZAR, no solo al crear.
+         *
+         * `total_recargos` se acaba de reescribir arriba; si las filas no se
+         * rehacen con él, la columna y la tabla quedan diciendo cifras
+         * distintas y el desprendible se queda con la vieja. Lo mismo con los
+         * bonos: el sembrado se abstiene si ya hay bonificaciones, así que
+         * llamarlo aquí no pisa nada tecleado a mano y sí rellena el borrador
+         * que nació sin ellas.
+         */
+        await sembrarRecargosDesdePlanillas(
+          hoja.liquidacionId,
+          hoja.conductorId,
+          ventana.desde,
+          ventana.hasta,
+          dec(t.totalRecargos),
+        )
+        await sembrarBonificacionesDesdeRecorridos(
+          hoja.liquidacionId,
+          hoja.conductorId,
+          ventana.desde,
+          ventana.hasta,
+          userId,
+        )
         return {
           ...base,
           estado: 'reemplazado',
@@ -468,6 +492,17 @@ class BorradorNominaQueueService {
         ventana.desde,
         ventana.hasta,
         userId,
+      )
+
+      /// Las filas de `recargos`, que son de donde el desprendible saca
+      /// «Otros». Sin esto el comprobante del borrador recién hecho sale con
+      /// los recargos en cero aunque la columna los tenga.
+      await sembrarRecargosDesdePlanillas(
+        creada.id,
+        hoja.conductorId,
+        ventana.desde,
+        ventana.hasta,
+        dec(t.totalRecargos),
       )
 
       /// La copia de los días: a partir de aquí el canvas lee de ella y el
@@ -854,6 +889,188 @@ export async function copiarDiasDesdePlanillas(
     })
   })
   return dias.length
+}
+
+/**
+ * Crea las filas de `recargos` del borrador a partir de las planillas del corte.
+ *
+ * POR QUÉ EXISTE: el generador escribía la COLUMNA `liquidaciones.total_recargos`
+ * con la cifra buena y ni una FILA en `recargos`. Pero el desprendible —el PDF
+ * del servidor y el preview del navegador— no lee la columna: suma
+ * `item.recargos`, que es la tabla. Con la tabla vacía el comprobante salía con
+ * «Otros … $ 0» y un neto corto en todos los recargos del mes. En la base de
+ * cotransmeq eran 37 de 101 liquidaciones, las 4 aprobadas incluidas.
+ *
+ * UNA FILA POR PLANILLA, que es como las escribe el formulario de la
+ * liquidación (`liquidaciones.service.ts`) y lo que la unicidad
+ * `(liquidacion_id, origen_planilla_id)` espera. Así el upsert es idempotente:
+ * sembrar dos veces corrige las filas en vez de duplicarlas.
+ *
+ * EL REPARTO ES PROPORCIONAL, Y NO PODÍA SER EXACTO. Lo que se paga es
+ * `hoja.totales.totalRecargos`, que sale del reparto día a día del canvas:
+ * valora cada fecha con la tarifa de SU tramo de vigencia, deja fuera los días
+ * de disponibilidad y aplica encima las horas corregidas a mano. La suma de
+ * `detalles_recargos_dias` no da eso —en WILSON se quedaba 325.687 corta,
+ * justo el ajuste manual—, así que cada planilla recibe su PARTE del total que
+ * de verdad se paga, con el redondeo a la mayor para que la suma cuadre al
+ * peso. Repartirlo importa: en transmeralda el corte por empresa decide el
+ * ajuste del 8 % de PAREX/Geopark y la base prestacional.
+ *
+ * Los recargos escritos A MANO (`es_automatico: false`) no se tocan: los puso
+ * una persona y no salen de ninguna planilla.
+ */
+export async function sembrarRecargosDesdePlanillas(
+  liquidacionId: string,
+  conductorId: string,
+  desde: string,
+  hasta: string,
+  objetivo: number,
+): Promise<{ filas: number; total: number; sinAtribuir: number }> {
+  const [aD, mD] = desde.split('-').map(Number)
+  const [aH, mH] = hasta.split('-').map(Number)
+  /// Los meses que toca el corte. Un 21→20 cruza dos; uno natural, uno solo.
+  const meses =
+    aD === aH && mD === mH ? [{ anio: aD, mes: mD }] : [{ anio: aD, mes: mD }, { anio: aH, mes: mH }]
+
+  const planillas = await prisma.recargos_planillas.findMany({
+    where: {
+      deleted_at: null,
+      conductor_id: conductorId,
+      OR: meses.map((m) => ({ a_o: m.anio, mes: m.mes })),
+    },
+    select: {
+      id: true,
+      empresa_id: true,
+      vehiculo_id: true,
+      numero_planilla: true,
+      mes: true,
+      a_o: true,
+      dias_laborales_planillas: {
+        where: { deleted_at: null },
+        select: {
+          dia: true,
+          disponibilidad: true,
+          detalles_recargos_dias: {
+            where: { activo: true, deleted_at: null },
+            select: { valor_calculado: true },
+          },
+        },
+      },
+    },
+  })
+
+  const objetivoRedondo = Math.round(objetivo)
+  const ahora = new Date()
+
+  /// Peso de cada planilla: lo que valen sus días DENTRO del corte, saltando
+  /// los de disponibilidad. Es el mismo criterio con el que el canvas separa
+  /// lo que va al desprendible de lo que va a disponibilidad.
+  const pesos = planillas.map((p) => {
+    let peso = 0
+    for (const d of p.dias_laborales_planillas) {
+      if (d.disponibilidad) continue
+      const fecha = `${p.a_o}-${String(p.mes).padStart(2, '0')}-${String(d.dia).padStart(2, '0')}`
+      if (fecha < desde || fecha > hasta) continue
+      for (const det of d.detalles_recargos_dias) peso += dec(det.valor_calculado)
+    }
+    return { planilla: p, peso }
+  })
+
+  const sumaPesos = pesos.reduce((s, x) => s + x.peso, 0)
+
+  /**
+   * Sin peso no hay a qué planilla colgarlo.
+   *
+   * Pasa cuando el corte no tiene ni un día con recargo valorado y aun así
+   * `totalRecargos` trae algo. Antes que atribuirlo a una empresa al azar
+   * —lo que en transmeralda movería el ajuste del 8 %— se deja sin sembrar y
+   * se devuelve en `sinAtribuir` para que quien llama lo pueda contar.
+   */
+  if (!objetivoRedondo || sumaPesos <= 0) {
+    await retirarAutomaticosSalvo(liquidacionId, new Set<string>(), ahora)
+    return { filas: 0, total: 0, sinAtribuir: objetivoRedondo }
+  }
+
+  const conValor = pesos
+    .filter((x) => x.peso > 0)
+    .map((x) => ({ ...x, valor: Math.round((objetivoRedondo * x.peso) / sumaPesos) }))
+  /// El redondeo se lleva a la planilla mayor: la suma tiene que dar el mismo
+  /// número que `total_recargos` o el desprendible y el canvas volverían a
+  /// decir cosas distintas, que es de lo que veníamos.
+  const repartido = conValor.reduce((s, x) => s + x.valor, 0)
+  if (repartido !== objetivoRedondo && conValor.length) {
+    const mayor = conValor.reduce((a, b) => (b.valor > a.valor ? b : a))
+    mayor.valor += objetivoRedondo - repartido
+  }
+
+  const vivos = new Set<string>()
+  let filas = 0
+  for (const x of conValor) {
+    const p = x.planilla
+    const datos = {
+      liquidacion_id: liquidacionId,
+      empresa_id: p.empresa_id,
+      vehiculo_id: p.vehiculo_id ?? null,
+      valor: x.valor,
+      es_automatico: true,
+      incluir: true,
+      mes: `${p.a_o}-${String(p.mes).padStart(2, '0')}`,
+      numero_planilla: p.numero_planilla ?? null,
+      deleted_at: null,
+      updated_at: ahora,
+    }
+    /**
+     * Buscar y actualizar, en vez de `upsert`.
+     *
+     * Hay que REVIVIR la fila archivada, no crear otra: de los dos índices
+     * únicos sobre `(liquidacion_id, origen_planilla_id)` solo uno es parcial,
+     * así que una fila con `deleted_at` puesto sigue ocupando el par y un
+     * `create` chocaría.
+     *
+     * Y no se usa `upsert` con la clave compuesta porque **los dos repos la
+     * llaman distinto**: en cotransmeq el `@@unique` lleva `map:` y Prisma la
+     * expone como `liquidacion_id_origen_planilla_id`; en transmeralda lleva
+     * `name:` y la expone como `uniq_recargo_origen_planilla`. Nombrarla aquí
+     * obligaría a que este archivo dejara de ser el mismo en los dos sitios.
+     */
+    const existente = await prisma.recargos.findFirst({
+      where: { liquidacion_id: liquidacionId, origen_planilla_id: p.id },
+      select: { id: true },
+    })
+    if (existente) {
+      await prisma.recargos.update({ where: { id: existente.id }, data: datos })
+    } else {
+      await prisma.recargos.create({
+        data: { id: randomUUID(), origen_planilla_id: p.id, ...datos, created_at: ahora },
+      })
+    }
+    vivos.add(p.id)
+    filas++
+  }
+
+  await retirarAutomaticosSalvo(liquidacionId, vivos, ahora)
+  return { filas, total: objetivoRedondo, sinAtribuir: 0 }
+}
+
+/**
+ * Archiva los recargos AUTOMÁTICOS de la liquidación que ya no corresponden a
+ * ninguna planilla del corte: una planilla borrada, o movida a otro mes.
+ * Los manuales se quedan.
+ */
+async function retirarAutomaticosSalvo(
+  liquidacionId: string,
+  vivos: Set<string>,
+  ahora: Date,
+): Promise<void> {
+  await prisma.recargos.updateMany({
+    where: {
+      liquidacion_id: liquidacionId,
+      es_automatico: true,
+      deleted_at: null,
+      ...(vivos.size ? { NOT: { origen_planilla_id: { in: [...vivos] } } } : {}),
+    },
+    data: { deleted_at: ahora, updated_at: ahora },
+  })
 }
 
 export const borradorNominaQueueService = new BorradorNominaQueueService()

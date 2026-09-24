@@ -57,6 +57,21 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
     puedeEscribir,
     NominaBorradoresController.rehacerBonos,
   );
+  /// Las tablas de recargo del desprendible, construidas desde el canvas.
+  /// Es de LECTURA: no escribe nada, solo reordena lo que la hoja ya calcula.
+  app.get(
+    '/nomina/liquidaciones/:id/desprendible-data',
+    puedeLeer,
+    NominaBorradoresController.desprendibleData,
+  );
+  /// Rehacer las filas de `recargos` de una hoja desde sus planillas. No pisa
+  /// nada escrito a mano, pero cambia el neto del comprobante, así que va con
+  /// el permiso de escritura como el resto del carril.
+  app.post(
+    '/nomina/borradores/:id/reparar-recargos',
+    puedeEscribir,
+    NominaBorradoresController.repararRecargos,
+  );
   /// Retirar el borrador de una hoja. Solo BORRADOR, y con el permiso de
   /// escritura: es la acción más destructiva del carril.
   app.delete(

@@ -794,7 +794,7 @@ model liquidaciones {
   mantenimientos                                mantenimientos[]
   pernotes                                      pernotes[]
   recargos                                      recargos[]
-  mostrar_recargos                              Boolean                               @default(false)
+  mostrar_recargos                              Boolean                               @default(true)
   es_cotransmeq                                 Boolean                               @default(false)
   descontar_salud_salario                       Boolean                               @default(false)
   descontar_pension_salario                     Boolean                               @default(false)

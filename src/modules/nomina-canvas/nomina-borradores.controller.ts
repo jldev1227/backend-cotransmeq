@@ -7,6 +7,12 @@ import { NominaCanvasService } from './nomina-canvas.service';
 import { prisma } from '../../config/prisma';
 import { copiarDiasDesdePlanillas } from '../../queue/borrador-nomina-queue.service';
 import { rehacerBonificacionesDesdeRecorridos } from '../../queue/borrador-nomina-queue.service';
+import {
+  sembrarRecargosDesdePlanillas,
+  sembrarBonificacionesDesdeRecorridos,
+} from '../../queue/borrador-nomina-queue.service';
+import { NominaPatchService } from './nomina-patch.service';
+import { construirRecargosDataDesdeHoja } from './nomina-desprendible.service';
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway';
 import { ESTADOS_BLOQUEADOS, permiteRefrescarDias } from './nomina-estado.service';
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service';
@@ -299,6 +305,144 @@ export class NominaBorradoresController {
       return reply.send(r);
     } catch (e: any) {
       return reply.status(400).send({ error: e?.message || 'No se pudieron restaurar los bonos.' });
+    }
+  }
+
+  /**
+   * Las tablas de recargo del desprendible, sacadas del CANVAS.
+   *
+   * Sustituye a `recargos_preview` como fuente de las páginas de detalle. El
+   * preview lee las planillas; el canvas paga desde su copia del corte
+   * (`liquidaciones_dias`), que es la que se edita en la hoja. En cuanto
+   * alguien corrige una hora, las dos se separan y el comprobante contradice
+   * al canvas — en WILSON eran $325.687 de diferencia, repartidos en ocho días
+   * de septiembre.
+   *
+   * Devuelve la MISMA forma que traía el preview, así que el renderizador del
+   * PDF no se entera del cambio.
+   */
+  static async desprendibleData(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string };
+    const p = periodoDe((request.query ?? {}) as Record<string, any>);
+    if (!p) return reply.status(400).send({ error: 'Periodo inválido (anio/mes).' });
+
+    const liq = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, conductor_id: true },
+    });
+    if (!liq) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
+
+    try {
+      const dto = await NominaCanvasService.construirPeriodo({
+        anio: p.anio,
+        mes: p.mes,
+        corte: p.corte,
+        conductorIds: [liq.conductor_id!],
+      } as any);
+      const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
+      if (!hoja) return reply.status(404).send({ error: 'El conductor no está en este periodo.' });
+
+      const dias = dto.periodo.dias;
+      const desde = dias[0]?.fecha ?? '';
+      const hasta = dias[dias.length - 1]?.fecha ?? '';
+      return reply.send(construirRecargosDataDesdeHoja(hoja, { desde, hasta }));
+    } catch (e: any) {
+      return reply
+        .status(400)
+        .send({ error: e?.message || 'No se pudieron construir las tablas de recargo.' });
+    }
+  }
+
+  /**
+   * Rehace las filas de `recargos` (y los bonos que falten) de una hoja.
+   *
+   * QUÉ ARREGLA: el desprendible —el PDF y su preview— no lee la columna
+   * `liquidaciones.total_recargos`, sino las FILAS de la tabla `recargos`. El
+   * generador de borradores escribía la columna y ninguna fila, así que el
+   * comprobante salía con «Otros … $ 0» y el neto corto en todos los recargos
+   * del mes. Esto las reconstruye desde las planillas del corte.
+   *
+   * NO ES DESTRUCTIVO, y por eso no pide confirmación como «Actualizar días»:
+   *
+   *   • Los recargos escritos A MANO (`es_automatico: false`) no se tocan.
+   *   • Los bonos solo se siembran si la liquidación no tiene ninguno; lo
+   *     tecleado en la matriz se queda donde está. Para pisarlos a propósito
+   *     está «rehacer desde recorridos», que es otro botón.
+   *   • Los días de la copia ni se miran.
+   *
+   * Al final recalcula y guarda los totales, para que la columna y la tabla
+   * salgan de la misma pasada y no puedan volver a contradecirse.
+   */
+  static async repararRecargos(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string };
+    const b = (request.body ?? {}) as Record<string, any>;
+    const p = periodoDe(b);
+    if (!p) return reply.status(400).send({ error: 'Periodo inválido (anio/mes).' });
+
+    const actor = actorDe(request);
+    if (!actor.id) return reply.status(401).send({ error: 'Sesión no válida.' });
+
+    const liq = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, conductor_id: true, estado_flujo: true },
+    });
+    if (!liq) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
+
+    /// Igual que el resto del carril: una aprobada o pagada es un documento
+    /// con decisiones encima, y aunque esto solo añada lo que faltaba, cambia
+    /// el neto del comprobante. Que pase por una reversión de estado.
+    if (ESTADOS_BLOQUEADOS.includes(liq.estado_flujo)) {
+      return reply.status(409).send({
+        error: `La liquidación está en ${liq.estado_flujo} y esto cambia su neto. Devuélvela a LIQUIDADA para repararla.`,
+      });
+    }
+
+    try {
+      const dto = await NominaCanvasService.construirPeriodo({
+        anio: p.anio,
+        mes: p.mes,
+        corte: p.corte,
+        conductorIds: [liq.conductor_id!],
+      } as any);
+      const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
+      if (!hoja) return reply.status(404).send({ error: 'El conductor no está en este periodo.' });
+
+      const dias = dto.periodo.dias;
+      const desde = dias[0]?.fecha ?? '';
+      const hasta = dias[dias.length - 1]?.fecha ?? '';
+      if (!desde || !hasta) return reply.status(400).send({ error: 'El periodo no tiene días.' });
+
+      const r = await sembrarRecargosDesdePlanillas(
+        liq.id,
+        liq.conductor_id!,
+        desde,
+        hasta,
+        Number(hoja.totales?.totalRecargos ?? 0),
+      );
+      const bonos = await sembrarBonificacionesDesdeRecorridos(
+        liq.id,
+        liq.conductor_id!,
+        desde,
+        hasta,
+        actor.id,
+      );
+
+      /// Los totales, desde las filas que se acaban de escribir.
+      await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
+
+      /// Cambia la geometría del desprendible (una línea de bono puede nacer),
+      /// así que no hay patch de celda que lo describa: la sala entera relee.
+      emitSheetInvalidate({
+        scope: 'nomina',
+        anio: p.anio,
+        mes: p.mes,
+        accion: 'bonos',
+        by: actor.id,
+      });
+
+      return reply.send({ ...r, bonos });
+    } catch (e: any) {
+      return reply.status(400).send({ error: e?.message || 'No se pudieron rehacer los recargos.' });
     }
   }
 

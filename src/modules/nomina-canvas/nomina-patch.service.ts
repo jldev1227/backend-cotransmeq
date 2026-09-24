@@ -7,6 +7,10 @@
  * cifra de recargos está mal, lo que hay que corregir es la planilla, no el
  * desprendible. Por eso hay lista blanca y no una lista negra.
  *
+ * La excepción es el IMPORTE de disponibilidad, que sí se teclea: no se deriva
+ * de nada. El reparto por días de standby reparte HORAS, y esas horas valen
+ * cero siempre porque un día de disponibilidad no genera recargos.
+ *
  * Después de cada cambio se recalculan los totales con `liquidarNomina()` y se
  * persisten, para que la fila de la base y lo que enseña el canvas no puedan
  * separarse.
@@ -36,6 +40,9 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   dias_ajuste_deducciones: 'entero',
   total_vacaciones: 'moneda',
   interes_cesantias: 'moneda',
+  /// Lo que se imputa a disponibilidad. NO es dinero nuevo: se descuenta de la
+  /// bolsa de OTROS, igual que en el desprendible. Por eso no mueve el neto.
+  disponibilidad: 'moneda',
   valor_incapacidad: 'moneda',
   cesantias: 'moneda',
   ajuste_salarial: 'moneda',
@@ -899,13 +906,34 @@ export const NominaPatchService = {
         {
           bonos,
           pernotes: l.pernotes.map((p) => ({ cantidad: dec(p.cantidad), valor: dec(p.valor) })),
-          recargos: l.recargos.map((r) => ({
-            valor: dec(r.valor),
-            empresa_id: r.empresa_id,
-            es_automatico: r.es_automatico,
-            es_override: r.es_override,
-            origen_planilla_id: r.origen_planilla_id,
-          })),
+          /**
+           * TODOS los recargos guardados cuentan, también los automáticos.
+           *
+           * `liquidarNomina()` suma por un lado los recargos MANUALES
+           * (`!es_automatico`) y por otro el preview de planillas, porque en
+           * el formulario de la liquidación los automáticos llegan en el
+           * preview y sumarlos dos veces los duplicaría. Aquí no hay preview:
+           * lo único que existe son las filas ya persistidas en `recargos`,
+           * que es de donde los lee también el desprendible.
+           *
+           * Mientras viajaron con `es_automatico: true`, el recálculo los
+           * descartaba y dejaba `total_recargos` en CERO: editar una celda
+           * cualquiera —unas vacaciones, un anticipo— borraba 1.463.258 de
+           * recargos de la liquidación de JONATHAN y le recortaba el neto en
+           * esa misma cifra. 44 liquidaciones de esta base tenían recargos
+           * automáticos expuestos a eso.
+           *
+           * `es_override` y `origen_planilla_id` solo sirven para decidir qué
+           * grupos del preview quedan sobrescritos, así que sin preview no
+           * cambian nada y se dejan de mandar.
+           */
+          recargos: l.recargos
+            .filter((r) => r.incluir !== false)
+            .map((r) => ({
+              valor: dec(r.valor),
+              empresa_id: r.empresa_id,
+              es_automatico: false,
+            })),
         },
       ],
       previewRecargosGrupos: [],

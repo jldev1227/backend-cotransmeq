@@ -468,6 +468,14 @@ export interface HojaNomina {
 
   /** Clientes que aparecen en esta hoja, en orden alfabético. Es la leyenda. */
   clientes: ClienteNomina[];
+  /**
+   * La liquidación existe y tiene recargos, pero NINGUNA fila en `recargos`.
+   *
+   * El desprendible suma las filas, no la columna `total_recargos`, así que en
+   * ese estado el comprobante del conductor sale con «Otros … $ 0». Lo enciende
+   * el carril para ofrecer «Rehacer recargos».
+   */
+  sinFilasDeRecargos: boolean;
   /** Avisos por hoja: planilla sin config salarial, conductor sin salario… */
   avisos: string[];
 }

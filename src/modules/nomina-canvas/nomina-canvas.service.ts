@@ -1250,6 +1250,32 @@ export class NominaCanvasService {
       );
     }
 
+    /**
+     * EL DESPRENDIBLE SIN FILAS DE RECARGOS.
+     *
+     * El comprobante —el PDF y su preview— no lee `total_recargos`: suma las
+     * FILAS de la tabla `recargos`. El generador de borradores escribía la
+     * columna y ninguna fila, así que el conductor recibía un desprendible con
+     * «Otros … $ 0» y un neto corto en todos los recargos del mes, mientras el
+     * canvas enseñaba la cifra buena. Nadie lo veía hasta abrir el PDF.
+     *
+     * No es lo mismo que el descuadre de arriba —ahí las dos cifras existen y
+     * no coinciden—: aquí la tabla está VACÍA y el desprendible no tiene de
+     * dónde sacar nada. Se arregla con «Rehacer recargos» del carril.
+     */
+    const sinFilasDeRecargos =
+      !!liquidacion &&
+      (liquidacion.recargos?.length ?? 0) === 0 &&
+      (recargosLiquidacion > 0 || recargosCalculados > 0);
+    if (sinFilasDeRecargos) {
+      const fmt = (n: number) => Math.round(n).toLocaleString('es-CO');
+      avisos.push(
+        `El desprendible saldría con los recargos en CERO: la liquidación no tiene ninguna fila en \`recargos\`, ` +
+          `aunque el periodo suma ${fmt(recargosCalculados || recargosLiquidacion)}. ` +
+          'Pulsa «Rehacer recargos» en el carril para escribirlas desde las planillas.',
+      );
+    }
+
     // ── Desprendible ───────────────────────────────────────────────────
     const { devengos, deducciones, totales, vacaciones } = this.construirDesprendible({
       conductor,
@@ -1348,6 +1374,7 @@ export class NominaCanvasService {
       deducciones,
       totales,
       clientes,
+      sinFilasDeRecargos,
       avisos: [...new Set(avisos)],
     };
   }
@@ -1677,7 +1704,23 @@ export class NominaCanvasService {
     const diasLaborados = Number(l?.dias_laborados ?? DIAS_MES_COMERCIAL) || 0;
 
     const totalRecargos = repartoDesprendible.reduce((s, r) => s + r.valor, 0);
-    const totalDisponibilidad = repartoDisponibilidad.reduce((s, r) => s + r.valor, 0);
+    /**
+     * La DISPONIBILIDAD DEL MES sale de `liquidaciones.disponibilidad`, no del
+     * reparto.
+     *
+     * `repartoDisponibilidad` reparte las horas de los días marcados como
+     * standby, y esas horas VALEN CERO SIEMPRE: el generador de recargos salta
+     * los días de disponibilidad (`if (!fechaDia || dia.disponibilidad)
+     * continue` en `recargos.service.ts`), así que nunca tienen un
+     * `detalles_recargos_dias` del que sacar dinero. Comprobado en la base: de
+     * 34 días del corte de WILSON, los 6 de standby suman 0 detalles y $0.
+     * Mientras el importe salió de ahí, la línea DISPONIBILIDAD MES enseñaba
+     * $0 en las 49 liquidaciones que sí tienen disponibilidad guardada.
+     *
+     * El reparto se conserva: alimenta la columna DISPONIBILIDAD del bloque de
+     * horas, que es un recuento de HORAS y ahí sí es lo que corresponde.
+     */
+    const disponibilidad = dec(l?.disponibilidad);
 
     const bonos = bonificaciones.map((b: any) => {
       // `values` es un string JSON con `[{ mes, quantity }]`.
@@ -1729,7 +1772,7 @@ export class NominaCanvasService {
       vacacionesInicio: l?.periodo_start_vacaciones ?? null,
       vacacionesFin: l?.periodo_end_vacaciones ?? null,
       interesCesantias: dec(l?.interes_cesantias),
-      disponibilidad: totalDisponibilidad,
+      disponibilidad,
       descontarTransporte: !dec(l?.auxilio_transporte) && !!l,
       aplicaAjusteVillanueva: dec(l?.ajuste_salarial) > 0,
       ajusteVillanuevaPorDia: !!l?.ajuste_salarial_por_dia,
@@ -1999,7 +2042,13 @@ export class NominaCanvasService {
         valor: r.valor,
         editable: false,
       })),
-      { clave: 'disponibilidad', nombre: 'DISPONIBILIDAD MES', cantidad: null, valor: totalDisponibilidad, editable: false },
+      /**
+       * Se teclea. Es lo que la empresa decide imputar a disponibilidad de la
+       * bolsa de OTROS, y no hay ningún dato del que derivarlo: el reparto por
+       * días standby vale cero por construcción (ver arriba). Sin liquidación
+       * no hay dónde guardarlo, y entonces tampoco se edita.
+       */
+      { clave: 'disponibilidad', nombre: 'DISPONIBILIDAD MES', cantidad: null, valor: disponibilidad, editable: !!l },
     ];
 
     const deducciones: ConceptoDesprendible[] = [
