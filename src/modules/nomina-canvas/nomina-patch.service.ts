@@ -46,6 +46,9 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   valor_incapacidad: 'moneda',
   cesantias: 'moneda',
   ajuste_salarial: 'moneda',
+  /// Lo que se le descuenta al conductor por anticipos. La tabla `anticipos`
+  /// es el detalle de dónde salió; esta columna es lo que se descuenta.
+  total_anticipos: 'moneda',
   /// Básico del desprendible. Lo que se divide entre 30 por los días. NO es
   /// el valor hora de los recargos, que sale de la config de la empresa.
   salario_basico: 'moneda',
@@ -945,7 +948,11 @@ export const NominaPatchService = {
         },
       ],
       previewRecargosGrupos: [],
-      anticipos: l.anticipos.map((a) => ({ valor: dec(a.valor) })),
+      /// La COLUMNA, no la suma de los hijos: ver el mismo punto en
+      /// `nomina-canvas.service`. Si esto sumara los hijos, teclear el total
+      /// en el desprendible lo guardaría y el recálculo lo pisaría acto
+      /// seguido con la suma vieja.
+      anticipos: [{ valor: dec(l.total_anticipos) }],
       conceptosAdicionales,
       valorVacaciones: dec(l.total_vacaciones),
       vacacionesInicio: l.periodo_start_vacaciones,

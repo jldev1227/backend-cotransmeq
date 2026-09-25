@@ -1821,7 +1821,20 @@ export class NominaCanvasService {
       cantidad: dec(p.cantidad),
       valor: dec(p.valor),
     }));
-    const anticipos = (l?.anticipos ?? []).map((a: any) => ({ valor: dec(a.valor) }));
+    /**
+     * LOS ANTICIPOS SON `total_anticipos`, NO LA SUMA DE SUS HIJOS.
+     *
+     * Aquí se sumaba la tabla `anticipos`, y el resto de la aplicación —el
+     * formulario de liquidaciones, el desprendible en PDF— lee la COLUMNA. Con
+     * las dos cosas de acuerdo daba igual; cuando no, el canvas se quedaba
+     * corto y el neto salía DE MÁS. En transmeralda había ocho liquidaciones
+     * con total y sin un solo hijo: entre 95.000 y 1.137.377 pesos que el
+     * canvas enseñaba como cero, 3.170.173 en total.
+     *
+     * Los hijos siguen siendo el detalle de dónde salió la cifra; lo que se
+     * descuenta es la cifra.
+     */
+    const anticipos = [{ valor: dec(l?.total_anticipos) }];
 
     /**
      * `conceptos_adicionales` es Json libre. Aquí vive también el AJUSTE A
