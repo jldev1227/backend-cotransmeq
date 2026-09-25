@@ -225,6 +225,33 @@ describe('ajuste salarial Villanueva', () => {
     );
     expect(r.baseCalculoSalud).toBeCloseTo(1750905 + ((2358897 - 1750905) / 30) * 6, 6);
   });
+
+  it('con 0 días no paga bono, aunque el interruptor esté puesto', () => {
+    const r = liquidarNomina(
+      entrada({ aplicaAjusteVillanueva: true, diasLaboradosVillanueva: 0 }),
+      PARAMS,
+    );
+    expect(r.bonificacionVillanueva).toBe(0);
+  });
+
+  /**
+   * La nivelación SUBE el sueldo hasta el de Villanueva. A quien ya cobra más
+   * no se le nivela nada: la resta a pelo devolvía un «bono» negativo que
+   * restaba del neto y rebajaba el IBC. Alcanzable desde que la hoja de nómina
+   * deja teclear el básico de la liquidación.
+   */
+  it('un básico por encima del de Villanueva no genera bono negativo', () => {
+    const r = liquidarNomina(
+      entrada({
+        salarioBase: 3000000,
+        aplicaAjusteVillanueva: true,
+        diasLaboradosVillanueva: 30,
+      }),
+      PARAMS,
+    );
+    expect(r.bonificacionVillanueva).toBe(0);
+    expect(r.baseCalculoSalud).toBeCloseTo(3000000, 6);
+  });
 });
 
 describe('ajustes del 8 %', () => {

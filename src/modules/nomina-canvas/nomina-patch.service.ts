@@ -881,8 +881,44 @@ export const NominaPatchService = {
     });
     if (!l) throw new PatchNominaError('Liquidación no encontrada.', 'NO_ENCONTRADO');
 
+    /**
+     * LA CONFIGURACIÓN ES DEL AÑO DEL CORTE.
+     *
+     * `configuraciones_liquidacion` tiene una fila por concepto Y POR AÑO, y
+     * esta consulta no filtraba ninguno: `find()` se quedaba con la primera que
+     * devolviera la base, que era la de 2025. El canvas sí filtra
+     * (`OR: [{ anio }, { anio: null }]`), así que la hoja y el recálculo
+     * liquidaban con parámetros distintos.
+     *
+     * Solo se notaba en la NIVELACIÓN DE SALARIO: «Salario villanueva» pasó de
+     * 2.210.775 a 2.358.897, y el resto de los parámetros no cambió entre los
+     * dos años —el auxilio sigue en 249.095 y salud y pensión en el 4 %—, de
+     * modo que el error estaba tapado. Con el año bueno, un corte de 2026 paga
+     * 607.992 de diferencia y no 459.870: 148.122 al mes por persona.
+     *
+     * SE USA EL AÑO DEL FIN DEL PERIODO, que es como el canvas nombra el corte
+     * —el 21-dic → 20-ene es «enero»— y por tanto el mismo que ya usa la hoja.
+     * Que las dos coincidan es lo que importa aquí: si no, el recálculo pagaría
+     * con parámetros distintos de los que la hoja acaba de enseñar.
+     *
+     * OJO, SIN UNIFICAR: el formulario de la liquidación toma el año del INICIO
+     * (`LiquidacionFormComplete`, `new Date(periodo_inicio).getFullYear()`), así
+     * que en un corte que cruza de año las dos pantallas siguen discrepando —el
+     * 25-dic-2025 → 25-ene-2026 se liquidó con la tabla de 2025—. Cuál de los
+     * dos años gobierna ese corte es una decisión de nómina, no del código, y
+     * cambiarla movería liquidaciones ya pagadas: se deja anotada.
+     */
+    /// `periodo_end` es un `VarChar` `YYYY-MM-DD`: se recorta, como en el resto
+    /// del módulo, en vez de construir un `Date` que además metería zona horaria.
+    const anioCorte = Number(String(l.periodo_end).slice(0, 4)) || null;
     const configs = await prisma.configuraciones_liquidacion.findMany({
-      where: { activo: true, deleted_at: null },
+      where: {
+        activo: true,
+        deleted_at: null,
+        /// Sin año legible no se filtra: es mejor liquidar con la configuración
+        /// que haya que dejar todos los parámetros en cero.
+        ...(anioCorte ? { OR: [{ anio: anioCorte }, { anio: null }] } : {}),
+      },
       select: { nombre: true, valor: true },
     });
     const buscar = (nombre: string) =>
@@ -960,7 +996,10 @@ export const NominaPatchService = {
       interesCesantias: dec(l.interes_cesantias),
       disponibilidad: dec(l.disponibilidad),
       descontarTransporte: dec(l.auxilio_transporte) === 0,
-      aplicaAjusteVillanueva: dec(l.ajuste_salarial) > 0,
+      /// Los días encienden el bono, igual que en el canvas: ver el comentario
+      /// largo en `nomina-canvas.service`. Las dos lecturas tienen que coincidir
+      /// o la hoja enseñaría un bono que el recálculo no paga.
+      aplicaAjusteVillanueva: dec(l.ajuste_salarial) > 0 || l.dias_laborados_villanueva > 0,
       ajusteVillanuevaPorDia: l.ajuste_salarial_por_dia,
       aplicaAjusteParex: dec(l.ajuste_parex) > 0,
       aplicaAjusteGeopark: dec((l as any).ajuste_geopark) > 0,
@@ -992,6 +1031,20 @@ export const NominaPatchService = {
         total_pernotes: t.totalPernotes,
         total_recargos: t.totalRecargos,
         total_anticipos: t.totalAnticipos,
+        /**
+         * LA NIVELACIÓN TAMBIÉN SE GUARDA, o la línea miente.
+         *
+         * `ajuste_salarial` es la cifra que IMPRIME el desprendible, y el
+         * recálculo la dejaba intacta mientras sí actualizaba `sueldo_total`
+         * —que la lleva dentro— y las deducciones —cuyo IBC la incluye—. Así,
+         * cambiar los días de Villanueva movía el neto, la salud y la pensión,
+         * y el papel seguía enseñando el bono viejo: el mismo desajuste que
+         * tenían los anticipos, con el total corregido y su explicación no.
+         *
+         * Es derivada de los días, como `salario_devengado` lo es de
+         * `dias_laborados`. Por eso la celda del importe no se teclea.
+         */
+        ajuste_salarial: t.bonificacionVillanueva,
         salud: t.salud,
         pension: t.pension,
         sueldo_total: t.sueldoTotal,

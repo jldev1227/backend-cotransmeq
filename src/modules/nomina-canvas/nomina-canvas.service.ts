@@ -30,6 +30,7 @@ import {
   type EntradaLiquidacion,
   type ParametrosNomina,
   RESULTADO_VACIO,
+  DIAS_VILLANUEVA_COMPLETO,
 } from '../../lib/nomina/liquidar';
 import {
   CODIGOS_RECARGO,
@@ -892,6 +893,8 @@ export class NominaCanvasService {
       valorHora: 0,
       jornadaNormalHoras: 10.33,
       jornadaFestivaHoras: 7.33,
+      /// Sin tramos no hay bases de cliente: `tarifaEmpresaEn` cae a la general.
+      bases: [] as BaseSalarial[],
     };
     const salarioBasico = tramoCierre.salarioBasico;
     const horasMensualesBase = tramoCierre.horasMensualesBase;
@@ -905,6 +908,31 @@ export class NominaCanvasService {
       const i = indiceTramo(fecha);
       const t = tramos[i] ?? tramoCierre;
       return valorHoraDeRecargo(t.valorHora, codigo, porcentajesPorTramo[i]?.get(codigo) ?? 0);
+    };
+    /**
+     * La misma hora, pero sobre la BASE SALARIAL DE SU CLIENTE.
+     *
+     * Un cliente con `configuraciones_salario` propia —PAREX liquida sobre
+     * 2.358.897 y no sobre los 1.750.905 de la general— paga sus recargos a su
+     * tarifa. El desglose por empresa los valoraba TODOS con la general, así
+     * que el bloque de PAREX decía 67.744 donde a su propia base son 91.267, y
+     * contradecía a la columna «$ PAREX» de la tabla de arriba, que sí usa la
+     * base del cliente.
+     *
+     * Sin configuración propia se cae a la general, que es lo correcto: la
+     * mayoría de los clientes no tiene una y su recargo es el de la empresa.
+     */
+    const tarifaEmpresaEn = (
+      fecha: string,
+      codigo: CodigoRecargo,
+      empresaId: string | null,
+    ): number => {
+      if (!empresaId) return tarifaEn(fecha, codigo);
+      const i = indiceTramo(fecha);
+      const t = tramos[i] ?? tramoCierre;
+      const base = (t.bases ?? []).find((b) => b.empresaId === empresaId);
+      if (!base) return tarifaEn(fecha, codigo);
+      return valorHoraDeRecargo(base.valorHora, codigo, porcentajesPorTramo[i]?.get(codigo) ?? 0);
     };
 
     // ── Días ───────────────────────────────────────────────────────────
@@ -989,7 +1017,12 @@ export class NominaCanvasService {
 
           bloque.horas.set(cod, (bloque.horas.get(cod) ?? 0) + h);
           // La tarifa es la del día que se está recorriendo, no la del cierre.
-          bloque.valores.set(cod, (bloque.valores.get(cod) ?? 0) + h * tarifaEn(fecha, cod));
+          /// A la tarifa de SU cliente: el bloque dice lo que ese cliente
+          /// generó sobre la base con la que se le liquida.
+          bloque.valores.set(
+            cod,
+            (bloque.valores.get(cod) ?? 0) + h * tarifaEmpresaEn(fecha, cod, empresaId),
+          );
           const set = bloque.diasPorTipo.get(cod) ?? new Set<number>();
           set.add(dl.dia);
           bloque.diasPorTipo.set(cod, set);
@@ -1260,6 +1293,47 @@ export class NominaCanvasService {
       }
     }
 
+    /**
+     * PAREX y GEOPARK, APARTE del resto.
+     *
+     * El desprendible en papel no imprime un único bloque de recargos: imprime
+     * «Otros», «Recargos PAREX» y «Recargos GEOPARK», tres cubos que suman
+     * `total_recargos`. El canvas los enseñaba todos mezclados en OTROS, así
+     * que quien liquidaba no veía cuánto puso cada una de esas dos sin bajar al
+     * desglose por empresa y sumar a mano.
+     *
+     * POR NOMBRE Y NO POR ID, igual que `tipoDeNomina`: los
+     * `NOMINA_EMPRESA_PAREX_ID` / `..._GEOPARK_ID` no están puestos en ningún
+     * entorno, y en la tabla conviven dos «GEOPARK COLOMBIA S.A.S» —uno con
+     * punto final y otro sin él— que por id serían dos empresas y por nombre
+     * son la misma nómina.
+     *
+     * Solo estas dos tienen bloque propio. El resto de clientes se queda en
+     * OTROS: son la nómina de Villanueva y no se facturan aparte.
+     */
+    const cuboDeEmpresa = (nombre: string | null | undefined): 'PAREX' | 'GEOPARK' | null => {
+      const n = (nombre ?? '').toUpperCase();
+      if (n.includes('PAREX')) return 'PAREX';
+      if (n.includes('GEOPARK')) return 'GEOPARK';
+      return null;
+    };
+    const repartoPorCubo = (cubo: 'PAREX' | 'GEOPARK') =>
+      CODIGOS_RECARGO.map((codigo) => {
+        let horas = 0;
+        let valor = 0;
+        for (const d of diasHoja) {
+          if (d.disponibilidad) continue;
+          if (cuboDeEmpresa(d.empresa) !== cubo) continue;
+          const h = d.horas[codigo] ?? 0;
+          if (!h) continue;
+          horas += h;
+          valor += h * tarifaEn(d.fecha, codigo);
+        }
+        return { codigo, horas: horas2(horas), valor: Math.round(valor) };
+      });
+    const repartoParex = repartoPorCubo('PAREX');
+    const repartoGeopark = repartoPorCubo('GEOPARK');
+
     // Los `recargos` de la liquidación son AGREGADOS POR PLANILLA (un mes
     // entero), mientras que esta hoja los reconstruye día a día desde
     // `detalles_recargos_dias` y solo con los días de la ventana. Cuando las
@@ -1333,6 +1407,8 @@ export class NominaCanvasService {
       liquidacion,
       repartoDesprendible,
       repartoDisponibilidad,
+      repartoParex,
+      repartoGeopark,
       parametros,
       diasConPlanilla: diasHoja.length,
       subperiodos: etiquetasDeSubperiodo(ventanaCanvas.desde, ventanaCanvas.hasta),
@@ -1695,6 +1771,10 @@ export class NominaCanvasService {
     bonosRecorrido: BonoRecorrido[];
     repartoDesprendible: { codigo: CodigoRecargo; horas: number; valor: number }[];
     repartoDisponibilidad: { codigo: CodigoRecargo; horas: number; valor: number }[];
+    /// Los dos cubos que el desprendible imprime aparte. Son un SUBCONJUNTO de
+    /// `repartoDesprendible`: OTROS es lo que queda al restarlos.
+    repartoParex: { codigo: CodigoRecargo; horas: number; valor: number }[];
+    repartoGeopark: { codigo: CodigoRecargo; horas: number; valor: number }[];
     parametros: ParametrosNomina;
     diasConPlanilla: number;
   }): {
@@ -1708,7 +1788,7 @@ export class NominaCanvasService {
     salarioBasicoDesprendible: number;
     salarioBasicoFijado: boolean;
   } {
-    const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, parametros, subperiodos } = args;
+    const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, repartoParex, repartoGeopark, parametros, subperiodos } = args;
 
     /**
      * Los bonos que el desprendible debe REFLEJAR, vengan de donde vengan.
@@ -1871,7 +1951,22 @@ export class NominaCanvasService {
       interesCesantias: dec(l?.interes_cesantias),
       disponibilidad,
       descontarTransporte: !dec(l?.auxilio_transporte) && !!l,
-      aplicaAjusteVillanueva: dec(l?.ajuste_salarial) > 0,
+      /**
+       * LOS DÍAS SON EL INTERRUPTOR, no el importe ya guardado.
+       *
+       * Leía solo `ajuste_salarial > 0`, y eso era un círculo cerrado: el
+       * importe lo escribía únicamente el formulario de la liquidación, así que
+       * desde la hoja no se podía encender el bono —sin importe no se pintaba
+       * la línea, y sin línea no había celda donde teclear los días—. Quien
+       * liquidaba desde el canvas no tenía forma de reconocer Villanueva.
+       *
+       * Con los días dentro, teclear la cantidad enciende el bono y ponerla a
+       * cero lo apaga, que es como se describe la prestación. Se conserva el
+       * importe en el OR para no apagarlo en una liquidación vieja a la que
+       * alguien le puso el valor a mano sin días.
+       */
+      aplicaAjusteVillanueva:
+        dec(l?.ajuste_salarial) > 0 || Number(l?.dias_laborados_villanueva ?? 0) > 0,
       ajusteVillanuevaPorDia: !!l?.ajuste_salarial_por_dia,
       aplicaAjusteParex: dec(l?.ajuste_parex) > 0,
       aplicaAjusteGeopark: dec(l?.ajuste_geopark) > 0,
@@ -1973,8 +2068,39 @@ export class NominaCanvasService {
         valor: c.valor,
         editable: true,
       })),
-      ...(totales.bonificacionVillanueva
-        ? [{ clave: 'ajuste_salarial', nombre: 'BONO NIVELACION DE SALARIO', cantidad: entrada.diasLaboradosVillanueva, valor: totales.bonificacionVillanueva, editable: true }]
+      /**
+       * NIVELACIÓN DE SALARIO: SIEMPRE QUE HAYA LIQUIDACIÓN, aunque valga cero.
+       *
+       * Se pintaba solo si el bono ya tenía importe, y entonces la línea no
+       * existía justo cuando hacía falta: para reconocer Villanueva hay que
+       * escribir los días, y los días se escriben EN ESTA LÍNEA. El
+       * desprendible en PDF ya la imprime siempre —con «0 días $0» cuando no
+       * aplica—, así que la hoja ahora dice lo mismo que el papel.
+       *
+       * `baseMensual` es la diferencia a nivelar: «Salario villanueva» de la
+       * configuración menos el básico con el que se liquida. Con ella la celda
+       * del importe se escribe como fórmula y teclear los días mueve el valor
+       * en el acto. Va como cifra y no como referencia a una celda —igual que
+       * el auxilio de transporte— porque su origen es un parámetro de la
+       * empresa que no tiene casilla propia en la hoja.
+       */
+      ...(l
+        ? [
+            {
+              clave: 'ajuste_salarial',
+              nombre: 'BONO NIVELACION DE SALARIO',
+              cantidad: entrada.diasLaboradosVillanueva,
+              valor: totales.bonificacionVillanueva,
+              editable: true,
+              baseMensual: Math.max(0, dec(parametros.salarioVillanueva) - salarioBase),
+              /// El tope de los 17 días no aplica cuando la liquidación
+              /// prorratea siempre; mandarlo igual haría que la fórmula pagara
+              /// el mes entero donde el servidor prorratea.
+              ...(entrada.ajusteVillanuevaPorDia
+                ? {}
+                : { umbralCompleto: DIAS_VILLANUEVA_COMPLETO }),
+            },
+          ]
         : []),
       // OJO: la línea lleva `cantidad × valor`, no el valor unitario.
       // `bonificaciones.value` es el precio de UNA unidad y las cantidades
@@ -2152,12 +2278,24 @@ export class NominaCanvasService {
       /// el Excel y sin ella las dos clases de línea se leen como una lista.
       { clave: 'seccion:otros', nombre: 'OTROS', cantidad: null, valor: 0, editable: false, seccion: true },
 
-      // Las siete filas de recargo, ya autocompletadas desde las planillas.
-      ...repartoDesprendible.map((r) => ({
+      /**
+       * OTROS es EL RESTO: el reparto menos los dos cubos con bloque propio.
+       *
+       * Antes eran todas las empresas juntas. Ahora PAREX y GEOPARK se imprimen
+       * debajo en su propia tabla —como en el desprendible en papel— y los tres
+       * bloques son disjuntos, así que siguen sumando lo mismo y el neto no se
+       * mueve.
+       *
+       * La corrección a mano de horas (`ajustesHoras`) ya está aplicada sobre
+       * `repartoDesprendible` y no sabe de qué cliente es, así que cae aquí, en
+       * el resto. Es lo correcto: quien la escribe corrige el total del periodo,
+       * no lo que facturó un cliente concreto.
+       */
+      ...repartoDesprendible.map((r, i) => ({
         clave: `recargo:${r.codigo}`,
         nombre: NOMBRE_RECARGO[r.codigo],
-        cantidad: r.horas,
-        valor: r.valor,
+        cantidad: horas2(r.horas - repartoParex[i].horas - repartoGeopark[i].horas),
+        valor: r.valor - repartoParex[i].valor - repartoGeopark[i].valor,
         editable: false,
       })),
       /**
@@ -2167,6 +2305,38 @@ export class NominaCanvasService {
        * no hay dónde guardarlo, y entonces tampoco se edita.
        */
       { clave: 'disponibilidad', nombre: 'DISPONIBILIDAD MES', cantidad: null, valor: disponibilidad, editable: !!l },
+
+      /**
+       * Los dos bloques propios, con las MISMAS siete líneas que OTROS.
+       *
+       * SOLO SI HAY HORAS. La mayoría de los conductores no pisa ninguna de las
+       * dos, y catorce filas en cero en todos sus desprendibles serían ruido;
+       * el papel tampoco las imprime cuando no hay importe.
+       *
+       * DISPONIBILIDAD MES no se repite: es una sola bolsa del periodo, se
+       * teclea una vez y se descuenta de OTROS.
+       */
+      ...(['PAREX', 'GEOPARK'] as const).flatMap((cubo) => {
+        const reparto = cubo === 'PAREX' ? repartoParex : repartoGeopark;
+        if (!reparto.some((r) => r.horas > 0)) return [];
+        return [
+          {
+            clave: `seccion:${cubo.toLowerCase()}`,
+            nombre: `RECARGOS ${cubo}`,
+            cantidad: null,
+            valor: 0,
+            editable: false,
+            seccion: true,
+          },
+          ...reparto.map((r) => ({
+            clave: `recargo:${cubo}:${r.codigo}`,
+            nombre: NOMBRE_RECARGO[r.codigo],
+            cantidad: r.horas,
+            valor: r.valor,
+            editable: false,
+          })),
+        ];
+      }),
     ];
 
     const deducciones: ConceptoDesprendible[] = [

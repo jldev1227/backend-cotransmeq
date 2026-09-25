@@ -377,6 +377,17 @@ export interface ConceptoDesprendible {
    */
   baseMensual?: number;
   /**
+   * Cantidad desde la que el concepto se paga ENTERO, sin prorratear.
+   *
+   * Solo lo lleva la NIVELACIÓN DE SALARIO: con 17 días de Villanueva o más se
+   * paga la diferencia completa del mes (ver `DIAS_VILLANUEVA_COMPLETO`). Viaja
+   * con el concepto porque la hoja escribe el importe como fórmula sobre la
+   * cantidad, y sin el tope la celda diría menos que el servidor.
+   *
+   * Ausente en todo lo demás, que prorratea siempre.
+   */
+  umbralCompleto?: number;
+  /**
    * `true` en las filas que solo son un RÓTULO DE SECCIÓN, como «OTROS».
    *
    * No llevan cantidad ni valor y no suman: separan el bloque de conceptos

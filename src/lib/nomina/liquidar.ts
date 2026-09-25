@@ -42,6 +42,19 @@ export interface ParametrosNomina {
   fraccionAjusteRecargos: number;
 }
 
+/**
+ * Días de Villanueva desde los que la nivelación se paga ENTERA.
+ *
+ * Con 17 días o más el bono no se prorratea: se paga la diferencia completa
+ * del mes. Es un tope, no un prorrateo, y por eso la hoja de nómina tiene que
+ * conocerlo: la celda del importe lleva una fórmula sobre la cantidad de días,
+ * y sin el tope enseñaría menos de lo que el servidor va a guardar en cuanto
+ * alguien teclee 20.
+ *
+ * `ajuste_salarial_por_dia` lo desactiva: esa liquidación prorratea siempre.
+ */
+export const DIAS_VILLANUEVA_COMPLETO = 17;
+
 export const PARAMETROS_DEFECTO: Omit<
   ParametrosNomina,
   'auxilioTransporteMensual' | 'salarioVillanueva' | 'porcentajeSalud' | 'porcentajePension'
@@ -329,9 +342,19 @@ export function liquidarNomina(
   let bonificacionVillanueva = 0;
   let ajusteSalarialCompleto = 0;
   if (entrada.aplicaAjusteVillanueva) {
-    ajusteSalarialCompleto = num(parametros.salarioVillanueva) - salarioBase;
+    /**
+     * NUNCA NEGATIVO.
+     *
+     * La nivelación SUBE el sueldo hasta el de Villanueva; a quien ya cobra
+     * más no hay que nivelarle nada. La resta a pelo devolvía la diferencia
+     * con signo, así que un básico por encima del de Villanueva pintaba un
+     * «bono» que RESTABA del neto y rebajaba el IBC. Era inalcanzable
+     * mientras el básico salía solo de la ficha del conductor; desde que la
+     * hoja lo deja teclear, basta con escribir 3.000.000 en la celda.
+     */
+    ajusteSalarialCompleto = Math.max(0, num(parametros.salarioVillanueva) - salarioBase);
     const diasVillanueva = num(entrada.diasLaboradosVillanueva);
-    if (!entrada.ajusteVillanuevaPorDia && diasVillanueva >= 17) {
+    if (!entrada.ajusteVillanuevaPorDia && diasVillanueva >= DIAS_VILLANUEVA_COMPLETO) {
       bonificacionVillanueva = ajusteSalarialCompleto;
     } else {
       bonificacionVillanueva = (ajusteSalarialCompleto / 30) * diasVillanueva;
