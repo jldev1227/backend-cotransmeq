@@ -637,7 +637,17 @@ export async function generatePayslipPdfContent(
     ]
   ];
 
-  if (item.anticipos && item.anticipos.length > 0) {
+  /**
+   * LA LÍNEA SALE POR EL TOTAL, NO POR SUS HIJOS.
+   *
+   * Se condicionaba a `anticipos.length > 0` —las filas de detalle— pero lo
+   * que imprime es `total_anticipos`. Una liquidación con total y sin detalle,
+   * que es lo normal cuando el anticipo se teclea en el canvas, salía SIN la
+   * línea mientras el neto sí la descontaba: un desprendible cuyas
+   * deducciones no suman lo que dice restar, con la diferencia inexplicada en
+   * contra del conductor. Y este es el que se manda por correo.
+   */
+  if (Number(item.total_anticipos) > 0 || (item.anticipos?.length ?? 0) > 0) {
     deduccionesBody.push([
       { text: 'Anticipos' },
       {
