@@ -422,6 +422,17 @@ class BorradorNominaQueueService {
          * bajan a mano: la celda del desprendible es editable.
          */
         dias_laborados: DIAS_MES_COMERCIAL,
+        /**
+         * El básico SE CONGELA AQUÍ, y esto es lo que hace que
+         * `conductores.salario_base` sea una sugerencia y no la fuente.
+         *
+         * Sin guardarlo, el desprendible seguiría leyendo la ficha del
+         * conductor cada vez: subirle el sueldo en enero cambiaría el
+         * desprendible de un corte de septiembre que ya se pagó. Guardado, el
+         * corte conserva el número con el que se liquidó y la ficha puede
+         * moverse sin arrastrarlo.
+         */
+        salario_basico: hoja.salarioBasicoDesprendible ?? null,
         salario_devengado: t.salarioDevengado,
         auxilio_transporte: t.auxilioTransporte,
         total_bonificaciones: t.totalBonificaciones,

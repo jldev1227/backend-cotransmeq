@@ -1,0 +1,15 @@
+-- El salario básico del desprendible pasa a ser de la LIQUIDACIÓN.
+--
+-- Hasta ahora salía de `conductores.salario_base`: el mismo número para
+-- todos los periodos de esa persona, y para cambiarlo en un corte había que
+-- editar la ficha del conductor —con lo que se movían también los cortes ya
+-- cerrados que se volvieran a abrir—.
+--
+-- `conductores.salario_base` no desaparece: sigue siendo la SUGERENCIA con
+-- la que nace el borrador. A partir de ahí manda esta columna.
+--
+-- NULL a propósito, y sin DEFAULT: es la señal de «esta liquidación nunca
+-- fijó el suyo, usa el del conductor». Con un DEFAULT 0 toda liquidación
+-- anterior a esto pasaría a tener un básico de cero y el desprendible
+-- entero se iría a cero sin que nadie tocara nada.
+ALTER TABLE "liquidaciones" ADD COLUMN "salario_basico" DECIMAL(10,2);

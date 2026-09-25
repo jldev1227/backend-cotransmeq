@@ -46,6 +46,9 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   valor_incapacidad: 'moneda',
   cesantias: 'moneda',
   ajuste_salarial: 'moneda',
+  /// Básico del desprendible. Lo que se divide entre 30 por los días. NO es
+  /// el valor hora de los recargos, que sale de la config de la empresa.
+  salario_basico: 'moneda',
   observaciones: 'flag', // texto libre; se valida aparte
   descontar_salud_salario: 'flag',
   descontar_pension_salario: 'flag',
@@ -899,7 +902,12 @@ export const NominaPatchService = {
     }
 
     const entrada: EntradaLiquidacion = {
-      salarioBase: dec(l.conductores?.salario_base),
+      /// Igual que en el canvas: manda el básico de la liquidación, y el del
+      /// conductor solo mientras aquel esté en null. Si esto leyera solo la
+      /// ficha, editar el básico guardaría el número pero recalcularía con el
+      /// viejo, y la hoja enseñaría dos cifras que no cuadran entre sí.
+      salarioBase:
+        l.salario_basico != null ? dec(l.salario_basico) : dec(l.conductores?.salario_base),
       diasLaborados: l.dias_laborados,
       diasLaboradosVillanueva: l.dias_laborados_villanueva,
       detallesVehiculos: [

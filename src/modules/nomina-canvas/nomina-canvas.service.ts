@@ -1321,7 +1321,14 @@ export class NominaCanvasService {
     }
 
     // ── Desprendible ───────────────────────────────────────────────────
-    const { devengos, deducciones, totales, vacaciones } = this.construirDesprendible({
+    const {
+      devengos,
+      deducciones,
+      totales,
+      vacaciones,
+      salarioBasicoDesprendible,
+      salarioBasicoFijado,
+    } = this.construirDesprendible({
       conductor,
       liquidacion,
       repartoDesprendible,
@@ -1407,6 +1414,17 @@ export class NominaCanvasService {
       tramos,
       bloquesEmpresa,
       salarioBasico,
+      /**
+       * El básico que usa el DESPRENDIBLE, que puede no ser el de la empresa.
+       *
+       * Viaja aparte de `salarioBasico` —el de `configuraciones_salario`, del
+       * que salen el valor hora y los recargos— porque son dos cifras
+       * distintas en cuanto alguien fija la de esta liquidación, y la hoja
+       * tiene que poder enseñar las dos sin que una se haga pasar por la otra.
+       */
+      salarioBasicoDesprendible,
+      /// `true` = lo fijó esta liquidación; `false` = viene del conductor.
+      salarioBasicoFijado,
       valorHora,
       horasMensualesBase,
       jornadaNormalHoras: tramoCierre.jornadaNormalHoras,
@@ -1684,6 +1702,11 @@ export class NominaCanvasService {
     deducciones: ConceptoDesprendible[];
     totales: ReturnType<typeof liquidarNomina>;
     vacaciones: VacacionesHoja;
+    /// El básico con el que se liquidó, que es el de la liquidación si lo
+    /// fijó y el del conductor si no. Sube porque la hoja lo enseña y lo
+    /// deja editar, y deducirlo fuera sería repetir aquí la misma regla.
+    salarioBasicoDesprendible: number;
+    salarioBasicoFijado: boolean;
   } {
     const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, parametros, subperiodos } = args;
 
@@ -1731,7 +1754,23 @@ export class NominaCanvasService {
         __deRecorridos: true,
       })),
     ];
-    const salarioBase = dec(conductor.salario_base);
+    /**
+     * EL BÁSICO DEL DESPRENDIBLE LO FIJA LA LIQUIDACIÓN.
+     *
+     * `conductores.salario_base` es la SUGERENCIA con la que nace el borrador:
+     * el mismo número para todos los periodos de esa persona, y cambiarlo para
+     * corregir un corte movía también cualquier otro que se volviera a abrir.
+     * En cuanto la liquidación fija el suyo, manda el suyo.
+     *
+     * `null` —toda liquidación anterior a la columna— sigue cayendo en el del
+     * conductor, así que ninguna cifra ya emitida se mueve sola.
+     *
+     * NO toca el valor hora ni los recargos: esos salen de
+     * `configuraciones_salario`, que es la base de la EMPRESA por vigencia, no
+     * la de la persona.
+     */
+    const salarioBase =
+      l?.salario_basico != null ? dec(l.salario_basico) : dec(conductor.salario_base);
     /**
      * Días que se pagan: los de la liquidación, y si no la hay, el MES
      * COMERCIAL.
@@ -1872,9 +1911,30 @@ export class NominaCanvasService {
     };
 
     const devengos: ConceptoDesprendible[] = [
-      { clave: 'salario', nombre: 'SALARIO', cantidad: diasLaborados, valor: totales.salarioDevengado, editable: true },
+      /// `baseMensual`: lo que la hoja divide entre 30 para escribir el valor
+      /// como fórmula sobre la celda de cantidad. Ver `ConceptoDesprendible`.
+      {
+        clave: 'salario',
+        nombre: 'SALARIO',
+        cantidad: diasLaborados,
+        valor: totales.salarioDevengado,
+        editable: true,
+        baseMensual: salarioBase,
+      },
       { clave: 'vacaciones', nombre: 'VACACIONES', cantidad: vacaciones.dias || null, valor: totales.totalVacaciones, editable: true },
-      { clave: 'auxilio_transporte', nombre: 'AUXILIO DE TRANSPORTE', cantidad: diasLaborados, valor: totales.auxilioTransporte, editable: true },
+      {
+        clave: 'auxilio_transporte',
+        nombre: 'AUXILIO DE TRANSPORTE',
+        cantidad: diasLaborados,
+        valor: totales.auxilioTransporte,
+        editable: true,
+        /// Sin base cuando la liquidación lo tiene descontado: entonces el
+        /// importe es cero por decisión, no por prorrateo, y una fórmula
+        /// pintaría el auxilio completo.
+        ...(entrada.descontarTransporte
+          ? {}
+          : { baseMensual: dec(parametros.auxilioTransporteMensual) }),
+      },
       /**
        * Conceptos adicionales, PEGADOS AL BLOQUE FIJO.
        *
@@ -2102,6 +2162,13 @@ export class NominaCanvasService {
       { clave: 'anticipos', nombre: 'ANTICIPOS', cantidad: null, valor: totales.totalAnticipos, editable: true },
     ];
 
-    return { devengos, deducciones, totales, vacaciones };
+    return {
+      devengos,
+      deducciones,
+      totales,
+      vacaciones,
+      salarioBasicoDesprendible: salarioBase,
+      salarioBasicoFijado: l?.salario_basico != null,
+    };
   }
 }

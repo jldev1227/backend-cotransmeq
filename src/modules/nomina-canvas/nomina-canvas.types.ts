@@ -363,6 +363,20 @@ export interface ConceptoDesprendible {
   /** `false` en los conceptos derivados que el usuario no debe teclear. */
   editable: boolean;
   /**
+   * Importe MENSUAL que este concepto prorratea entre 30.
+   *
+   * Está para que la hoja pueda escribir el valor como FÓRMULA —«base entre
+   * 30 por la cantidad»— en vez de como una cifra fija: así cambiar los días
+   * en la columna CANT. mueve el importe en el acto, sin ir y volver al
+   * servidor, y se ve de dónde sale el número.
+   *
+   * Ausente cuando el concepto NO prorratea: los que se teclean enteros
+   * (vacaciones, bonos, conceptos adicionales) y el auxilio de transporte
+   * cuando esta liquidación lo tiene descontado, donde la fórmula pintaría un
+   * importe que no corresponde.
+   */
+  baseMensual?: number;
+  /**
    * `true` en las filas que solo son un RÓTULO DE SECCIÓN, como «OTROS».
    *
    * No llevan cantidad ni valor y no suman: separan el bloque de conceptos
@@ -414,6 +428,16 @@ export interface HojaNomina {
   /// disponible / inactivo / desvinculado). NO es un estado laboral: un
   /// `programado` o `en servicio` está trabajando y cobra igual.
   estadoConductor?: string | null;
+  /**
+   * Básico con el que se liquida el DESPRENDIBLE (`salario_basico` de la
+   * liquidación, o el del conductor mientras esté en null).
+   *
+   * Aparte de `salarioBasico`, que es el de `configuraciones_salario` y es de
+   * donde salen el valor hora y los siete recargos.
+   */
+  salarioBasicoDesprendible?: number;
+  /** `true` = lo fijó esta liquidación; `false` = viene del conductor. */
+  salarioBasicoFijado?: boolean;
   /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
   correo: string | null;
   cargo: string;
