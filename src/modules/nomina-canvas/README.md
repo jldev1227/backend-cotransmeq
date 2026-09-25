@@ -60,13 +60,20 @@ Encima de eso hay un segundo corte por estado: una liquidación `APROBADA`,
 BORRADOR  → LIQUIDADA, ANULADA
 LIQUIDADA → APROBADA, BORRADOR (reversión), ANULADA
 APROBADA  → PAGADA, LIQUIDADA (reversión), ANULADA
-PAGADA    → ANULADA
+PAGADA    → APROBADA (reversión, SOLO Administración), ANULADA
 ANULADA   → (terminal, exige motivo)
 ```
 
 `APROBADA` y `PAGADA` son de Administración, y el guard va en las dos
 direcciones: entrar y salir. Con solo el de salida, aprobar lo podría hacer
 cualquiera y la cadena de aprobación no significaría nada.
+
+La vuelta desde `PAGADA` no vive en `TRANSICIONES` sino en
+`TRANSICIONES_ADMIN`, para que la matriz base siga describiendo el flujo normal
+y la puerta de atrás se lea como lo que es. `cambiar()` valida contra la UNIÓN
+de las dos y deja el permiso a los guards: así una transición que no existe es
+409 y una que existe pero no te corresponde es 403. `ANULADA` se queda fuera —
+resucitar una anulación dejaría su motivo colgando de una liquidación viva.
 
 `liquidaciones.estado_flujo` es la columna nueva; `estado` (el enum
 `Pendiente|Liquidado`) se mantiene sincronizado para no romper lo que ya lo lee.

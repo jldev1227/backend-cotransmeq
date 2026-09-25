@@ -44,6 +44,44 @@ export const TRANSICIONES: Record<string, EstadoNomina[]> = {
 };
 
 /**
+ * Transiciones que SOLO ejecuta Administración, ADEMÁS de las de `TRANSICIONES`.
+ *
+ * La matriz base es casi un camino de ida: de LIQUIDADA se baja a BORRADOR y de
+ * APROBADA a LIQUIDADA, pero PAGADA no tenía vuelta —su única salida era
+ * ANULADA—. Y una hoja se marca pagada por error igual que cualquier otra cosa:
+ * el único arreglo era anularla y rehacer la liquidación entera, perdiendo por
+ * el camino todo lo que ya estaba revisado.
+ *
+ * Va aparte y no dentro de `TRANSICIONES` para que la matriz base siga
+ * describiendo el flujo NORMAL: esto es la puerta de atrás, no el camino. No
+ * hace falta un guard nuevo —APROBADA ya exige Administración para entrar, y
+ * PAGADA para salir—, pero sí que `cambiar()` valide contra la UNIÓN: si la
+ * matriz base fuera la única verdad, la transición se rechazaría antes de
+ * llegar a los guards.
+ *
+ * ANULADA sigue fuera: anular es una decisión con motivo escrito y resucitarla
+ * dejaría ese motivo colgando de una liquidación viva.
+ *
+ * ESPEJO de `ingreso-svelte/src/lib/editor/builders/nomina-estado.ts`.
+ */
+export const TRANSICIONES_ADMIN: Record<string, EstadoNomina[]> = {
+  PAGADA: ['APROBADA'],
+};
+
+/**
+ * Destinos que EXISTEN desde `estadoActual`, con o sin la puerta de atrás.
+ *
+ * Responde «¿esta transición está en el mapa?», no «¿puede este usuario
+ * hacerla?». De lo segundo se encargan los guards.
+ */
+export function destinosPosibles(estadoActual: string, admin: boolean): EstadoNomina[] {
+  const base = TRANSICIONES[estadoActual] ?? [];
+  if (!admin) return base;
+  const extra = (TRANSICIONES_ADMIN[estadoActual] ?? []).filter((e) => !base.includes(e));
+  return [...base, ...extra];
+}
+
+/**
  * Estados a los que solo puede llevar Administración: son los que congelan
  * el desprendible de cara a contabilidad y al conductor.
  */
@@ -147,9 +185,9 @@ export function transicionesPermitidas(
   actor: Actor | null | undefined,
 ): EstadoNomina[] {
   const admin = esAdmin(actor);
-  const posibles = TRANSICIONES[estadoActual] ?? [];
   // Guard de SALIDA: sacar algo de APROBADA o PAGADA es de Administración.
   if (ESTADOS_BLOQUEADOS.includes(estadoActual) && !admin) return [];
+  const posibles = destinosPosibles(estadoActual, admin);
   // Guard de ENTRADA.
   return admin ? posibles : posibles.filter((e) => !ESTADOS_QUE_EXIGEN_ADMIN.includes(e));
 }
@@ -192,10 +230,21 @@ export const NominaEstadoService = {
 
     const estadoActual = actual.estado_flujo || 'BORRADOR';
 
-    if (!(TRANSICIONES[estadoActual] ?? []).includes(estado as EstadoNomina)) {
+    /**
+     * Existencia primero, permiso después.
+     *
+     * Se valida contra la unión (base + puerta de atrás de Administración) y no
+     * contra lo que ESTE actor puede hacer, porque así el error distingue las
+     * dos cosas: una transición que no está en el mapa es 409, y una que existe
+     * pero no te corresponde es el 403 de los guards de abajo. Validando contra
+     * los permisos, a un contable se le diría que PAGADA → APROBADA «no es
+     * válida» cuando lo que pasa es que no es suya.
+     */
+    const existentes = destinosPosibles(estadoActual, true);
+    if (!existentes.includes(estado as EstadoNomina)) {
       throw new ErrorEstadoNomina(
         `Transición no válida de ${estadoActual} a ${estado}. Permitidas: ${
-          TRANSICIONES[estadoActual]?.join(', ') || 'ninguna'
+          existentes.join(', ') || 'ninguna'
         }`,
         409,
         'TRANSICION_INVALIDA',

@@ -3,6 +3,7 @@ import {
   NominaEstadoService,
   ErrorEstadoNomina,
   TRANSICIONES,
+  TRANSICIONES_ADMIN,
   ESTADOS_VALIDOS,
   ESTADOS_BLOQUEADOS,
   ESTADOS_QUE_EXIGEN_ADMIN,
@@ -37,6 +38,9 @@ export class NominaEstadoController {
     return reply.send({
       estados: ESTADOS_VALIDOS,
       transiciones: TRANSICIONES,
+      // La puerta de atrás va aparte de la matriz base: quien lea esto tiene
+      // que poder distinguir el flujo normal de lo que solo hace un admin.
+      transiciones_admin: TRANSICIONES_ADMIN,
       bloqueados: ESTADOS_BLOQUEADOS,
       exigen_admin: ESTADOS_QUE_EXIGEN_ADMIN,
       exigen_motivo: ESTADOS_QUE_EXIGEN_MOTIVO,

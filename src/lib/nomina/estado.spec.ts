@@ -7,6 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   TRANSICIONES,
+  TRANSICIONES_ADMIN,
+  destinosPosibles,
   ESTADOS_VALIDOS,
   ESTADOS_BLOQUEADOS,
   ESTADOS_QUE_EXIGEN_ADMIN,
@@ -62,6 +64,12 @@ describe('matriz de transiciones', () => {
     expect(TRANSICIONES.APROBADA).toContain('LIQUIDADA');
   });
 
+  it('la vuelta desde PAGADA no está en la matriz base', () => {
+    // La puerta de atrás vive en TRANSICIONES_ADMIN justamente para que la
+    // matriz base siga describiendo el flujo normal.
+    expect(TRANSICIONES.PAGADA).toEqual(['ANULADA']);
+  });
+
   it('todos los estados son alcanzables desde BORRADOR', () => {
     const vistos = new Set<string>(['BORRADOR']);
     const cola: string[] = ['BORRADOR'];
@@ -74,6 +82,45 @@ describe('matriz de transiciones', () => {
       }
     }
     expect([...vistos].sort()).toEqual([...ESTADOS_VALIDOS].sort());
+  });
+});
+
+describe('TRANSICIONES_ADMIN — la puerta de atrás', () => {
+  it('solo apunta a estados válidos y desde estados válidos', () => {
+    for (const [origen, destinos] of Object.entries(TRANSICIONES_ADMIN)) {
+      expect(ESTADOS_VALIDOS).toContain(origen as EstadoNomina);
+      for (const d of destinos) expect(ESTADOS_VALIDOS).toContain(d);
+    }
+  });
+
+  it('no repite lo que ya está en la matriz base', () => {
+    for (const [origen, destinos] of Object.entries(TRANSICIONES_ADMIN)) {
+      for (const d of destinos) expect(TRANSICIONES[origen] ?? []).not.toContain(d);
+    }
+  });
+
+  it('no resucita anuladas', () => {
+    expect(TRANSICIONES_ADMIN.ANULADA ?? []).toEqual([]);
+  });
+
+  it('destinosPosibles la añade solo para el admin', () => {
+    expect(destinosPosibles('PAGADA', false)).toEqual(['ANULADA']);
+    expect(destinosPosibles('PAGADA', true)).toContain('APROBADA');
+  });
+
+  it('un estado sin puerta de atrás devuelve lo mismo con y sin admin', () => {
+    expect(destinosPosibles('LIQUIDADA', true)).toEqual(destinosPosibles('LIQUIDADA', false));
+  });
+
+  it('el admin puede devolver una PAGADA a APROBADA', () => {
+    expect(transicionesPermitidas('PAGADA', admin)).toContain('APROBADA');
+  });
+
+  it('quien no es admin no puede tocar una PAGADA', () => {
+    // Dos guards la cierran: el de SALIDA (PAGADA está bloqueada) y el de
+    // ENTRADA (APROBADA exige admin).
+    expect(transicionesPermitidas('PAGADA', contable)).toEqual([]);
+    expect(transicionesPermitidas('PAGADA', th)).toEqual([]);
   });
 });
 
