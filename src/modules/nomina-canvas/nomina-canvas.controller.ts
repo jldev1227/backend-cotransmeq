@@ -45,7 +45,25 @@ export class NominaCanvasController {
       : undefined;
 
     try {
-      const dto = await NominaCanvasService.construirPeriodo({ anio, mes, corte, conductorIds });
+      /**
+       * `soloConLiquidacion`: el libro es el de las LIQUIDACIONES del periodo.
+       *
+       * Antes venía una hoja por cada conductor de la nómina, tuviera o no
+       * liquidación, y las que no la tenían eran pestañas de solo lectura con
+       * un botón «Crear borrador» encima —una hoja ya creada ofreciendo
+       * crearse—. En un mes recién abierto eso son veintitantas pestañas
+       * vacías entre las que hay que buscar las de verdad.
+       *
+       * Crear es cosa de «Generar borradores», que sigue listando a todo el
+       * mundo y dice lo que va a escribir antes de escribirlo.
+       */
+      const dto = await NominaCanvasService.construirPeriodo({
+        anio,
+        mes,
+        corte,
+        conductorIds,
+        soloConLiquidacion: true,
+      });
 
       if (dto.hojas.length > MAX_HOJAS) {
         const sobran = dto.hojas.length - MAX_HOJAS;

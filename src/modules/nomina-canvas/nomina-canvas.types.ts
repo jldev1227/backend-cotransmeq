@@ -410,6 +410,10 @@ export interface HojaNomina {
   cedula: string | null;
   /// `conductores.nomina`. `false` = trabaja pero no está marcado para nómina.
   enNomina?: boolean;
+  /// Estado OPERATIVO del conductor (activo / programado / servicio /
+  /// disponible / inactivo / desvinculado). NO es un estado laboral: un
+  /// `programado` o `en servicio` está trabajando y cobra igual.
+  estadoConductor?: string | null;
   /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
   correo: string | null;
   cargo: string;

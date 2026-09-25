@@ -74,28 +74,80 @@ export class NominaBorradoresController {
       } as any);
 
       const dias = periodo.periodo.dias;
+
+      const conDatos = (periodo.hojas as any[]).map((h) => ({
+        conductor_id: h.conductorId,
+        nombre: h.nombre,
+        cedula: h.cedula,
+        /// `false` = trabaja pero no está marcado para nómina. El modal lo
+        /// rotula y lo deja desmarcado en vez de esconderlo.
+        en_nomina: (h as any).enNomina !== false,
+        estado_conductor: (h as any).estadoConductor ?? null,
+        dias: h.dias?.length ?? 0,
+        placas: h.placas ?? [],
+        /// Null cuando no hay nada guardado todavía: es la señal de que
+        /// generar aquí crea, no reemplaza.
+        liquidacion_id: h.liquidacionId,
+        estado: h.liquidacionId ? h.estado : null,
+        sueldo_estimado: Number(h.totales?.sueldoTotal ?? 0),
+        /// `false` = no tiene ni planilla ni liquidación en el corte, así que
+        /// de él no se ha calculado nada: la fila es solo el nombre.
+        con_datos: true,
+        avisos: h.avisos ?? [],
+      }));
+
+      /**
+       * EL RESTO DE LA EMPRESA, en crudo.
+       *
+       * `construirPeriodo` solo devuelve a quien tiene algo en el corte
+       * —planilla, liquidación o estado operativo—, y eso deja fuera a quien
+       * está inactivo y no trabajó: exactamente a quien se viene a buscar
+       * cuando alguien reingresa o cuando el estado quedó mal puesto. La
+       * pregunta de esta pantalla es «¿a quién puedo generarle un borrador?»,
+       * y la respuesta honesta es «a cualquiera que siga en la empresa».
+       *
+       * Van por una consulta APARTE y barata, no por `construirPeriodo`:
+       * calcularle el periodo a los 140 inactivos de cotransmeq para enseñar
+       * «0 días» sería pagar un cálculo entero por fila para no decir nada.
+       * Llegan sin estimación —`con_datos: false`— y el modal los rotula.
+       */
+      const yaListados = new Set(conDatos.map((c) => c.conductor_id));
+      const resto = await prisma.conductores.findMany({
+        where: { deleted_at: null, id: { notIn: [...yaListados] } },
+        select: {
+          id: true,
+          nombre: true,
+          apellido: true,
+          numero_identificacion: true,
+          nomina: true,
+          estado: true,
+        },
+        orderBy: [{ nombre: 'asc' }, { apellido: 'asc' }],
+      });
+
       return reply.send({
         anio: p.anio,
         mes: p.mes,
         etiqueta: periodo.etiqueta,
         desde: dias[0]?.fecha ?? null,
         hasta: dias[dias.length - 1]?.fecha ?? null,
-        conductores: (periodo.hojas as any[]).map((h) => ({
-          conductor_id: h.conductorId,
-          nombre: h.nombre,
-          cedula: h.cedula,
-          /// `false` = trabaja pero no está marcado para nómina. El modal lo
-          /// rotula y lo deja desmarcado en vez de esconderlo.
-          en_nomina: (h as any).enNomina !== false,
-          dias: h.dias?.length ?? 0,
-          placas: h.placas ?? [],
-          /// Null cuando no hay nada guardado todavía: es la señal de que
-          /// generar aquí crea, no reemplaza.
-          liquidacion_id: h.liquidacionId,
-          estado: h.liquidacionId ? h.estado : null,
-          sueldo_estimado: Number(h.totales?.sueldoTotal ?? 0),
-          avisos: h.avisos ?? [],
-        })),
+        conductores: [
+          ...conDatos,
+          ...resto.map((c) => ({
+            conductor_id: c.id,
+            nombre: `${c.nombre ?? ''} ${c.apellido ?? ''}`.trim(),
+            cedula: c.numero_identificacion ?? null,
+            en_nomina: c.nomina !== false,
+            estado_conductor: c.estado ?? null,
+            dias: 0,
+            placas: [] as string[],
+            liquidacion_id: null,
+            estado: null,
+            sueldo_estimado: 0,
+            con_datos: false,
+            avisos: [] as string[],
+          })),
+        ],
       });
     } catch (e: any) {
       return reply

@@ -182,6 +182,20 @@ export interface OpcionesPeriodo {
    * del año y dos con liquidaciones ya hechas.
    */
   incluirFueraDeNomina?: boolean;
+  /**
+   * Solo los conductores que YA TIENEN liquidación en el corte.
+   *
+   * Es lo que usa el CANVAS. Su libro es el de las liquidaciones del periodo,
+   * no el censo de la empresa: una hoja de alguien sin liquidación no se puede
+   * editar —no hay dónde guardar— y anunciaba «Crear borrador» en una pestaña
+   * que ya existía, que es la contradicción que se ve al abrir un mes en el
+   * que nadie ha generado nada todavía. Crear es cosa de «Generar borradores»,
+   * que lista a todo el mundo y avisa de lo que va a escribir.
+   *
+   * No lo usan ni el generador —necesita hoja justo de quien aún no la
+   * tiene— ni la lista previa.
+   */
+  soloConLiquidacion?: boolean;
 }
 
 export class NominaCanvasService {
@@ -234,8 +248,34 @@ export class NominaCanvasService {
         // si no trabajó nada, no tiene por qué aparecer.
         prisma.conductores.findMany({
           where: {
+            /// Un conductor retirado de la lista no vuelve por la puerta de
+            /// atrás del canvas. Faltaba: la consulta no miraba `deleted_at`
+            /// y bastaba con que tuviera una planilla vieja para reaparecer.
+            deleted_at: null,
             ...(opts.conductorIds?.length ? { id: { in: opts.conductorIds } } : {}),
-            OR: [
+            ...(opts.soloConLiquidacion
+              ? {
+                  liquidaciones: {
+                    some: {
+                      deleted_at: null,
+                      periodo_start: { lte: hastaISO },
+                      periodo_end: { gte: desdeISO },
+                    },
+                  },
+                }
+              : {}),
+            /**
+             * PEDIR IDS EXPLÍCITOS YA ES LA DECISIÓN DE INCLUIRLOS.
+             *
+             * El resto del filtro —estado operativo, planillas del corte— es
+             * para decidir QUIÉNES son la nómina del periodo cuando nadie los
+             * ha nombrado. Si se aplica también sobre una lista concreta, un
+             * conductor elegido a mano en «Generar borradores» no trae hoja y
+             * el generador lo da por «omitido»: el modal decía «Terminado ·
+             * 0 creados» sin explicar nada. Se veía al marcar a un inactivo,
+             * que es justo a quien se selecciona a mano cuando reingresa.
+             */
+            ...(opts.soloConLiquidacion || opts.conductorIds?.length ? {} : { OR: [
               /**
                * Rama normal: la nómina del periodo.
                *
@@ -289,7 +329,7 @@ export class NominaCanvasService {
                   },
                 },
               },
-            ],
+            ] }),
           },
           select: {
             id: true,
@@ -306,6 +346,10 @@ export class NominaCanvasService {
             /// Para que la lista previa pueda MARCAR a quien está fuera de
             /// nómina en vez de esconderlo o de mezclarlo con el resto.
             nomina: true,
+            /// Estado OPERATIVO (activo / programado / servicio / disponible /
+            /// inactivo / desvinculado). Mismo motivo que `nomina`: rotular en
+            /// vez de esconder.
+            estado: true,
           },
         }),
 
@@ -1350,6 +1394,7 @@ export class NominaCanvasService {
       /// Viaja para que la lista previa pueda rotular a quien está fuera de
       /// nómina. El canvas no lo mira: allí todas las hojas ya son de nómina.
       enNomina: conductor.nomina !== false,
+      estadoConductor: (conductor as any).estado ?? null,
       cargo: conductor.cargo,
       nombreHoja,
       tipoVehiculo,
