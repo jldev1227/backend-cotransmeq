@@ -1349,6 +1349,20 @@ export class NominaCanvasService {
       });
     const repartoParex = repartoPorCubo('PAREX');
     const repartoGeopark = repartoPorCubo('GEOPARK');
+    /**
+     * El id de cada cubo, tomado del primer día de ese cliente.
+     *
+     * Hace falta porque `liquidarNomina` filtra los recargos por `empresa_id`
+     * exacto y las variables de entorno que deberían traerlo no están puestas
+     * en ningún entorno. Con dos «GEOPARK COLOMBIA S.A.S» en la tabla, el
+     * primero vale de canónico: las filas de recargo que se le pasan al motor
+     * se construyen aquí mismo con ese id.
+     */
+    const idsCubo: Record<'PAREX' | 'GEOPARK', string | null> = { PAREX: null, GEOPARK: null };
+    for (const d of diasHoja) {
+      const cubo = cuboDeEmpresa(d.empresa);
+      if (cubo && d.empresaId && !idsCubo[cubo]) idsCubo[cubo] = d.empresaId;
+    }
 
     // Los `recargos` de la liquidación son AGREGADOS POR PLANILLA (un mes
     // entero), mientras que esta hoja los reconstruye día a día desde
@@ -1425,6 +1439,7 @@ export class NominaCanvasService {
       repartoDisponibilidad,
       repartoParex,
       repartoGeopark,
+      idsCubo,
       parametros,
       diasConPlanilla: diasHoja.length,
       subperiodos: etiquetasDeSubperiodo(ventanaCanvas.desde, ventanaCanvas.hasta),
@@ -1804,6 +1819,10 @@ export class NominaCanvasService {
     /// `repartoDesprendible`: OTROS es lo que queda al restarlos.
     repartoParex: { codigo: CodigoRecargo; horas: number; valor: number }[];
     repartoGeopark: { codigo: CodigoRecargo; horas: number; valor: number }[];
+    /// Id de cada cliente con bloque propio, resuelto por NOMBRE. El motor
+    /// filtra los recargos por id exacto y las env que deberían traerlo están
+    /// sin poner en todos los entornos.
+    idsCubo: Record<'PAREX' | 'GEOPARK', string | null>;
     parametros: ParametrosNomina;
     diasConPlanilla: number;
   }): {
@@ -1817,7 +1836,7 @@ export class NominaCanvasService {
     salarioBasicoDesprendible: number;
     salarioBasicoFijado: boolean;
   } {
-    const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, repartoParex, repartoGeopark, parametros, subperiodos } = args;
+    const { conductor, liquidacion: l, repartoDesprendible, repartoDisponibilidad, repartoParex, repartoGeopark, idsCubo, parametros, subperiodos } = args;
 
     /**
      * Los bonos que el desprendible debe REFLEJAR, vengan de donde vengan.
@@ -1897,6 +1916,35 @@ export class NominaCanvasService {
     const diasLaborados = Number(l?.dias_laborados ?? DIAS_MES_COMERCIAL) || 0;
 
     const totalRecargos = repartoDesprendible.reduce((s, r) => s + r.valor, 0);
+    /**
+     * LOS RECARGOS VIAJAN SEPARADOS POR CLIENTE, no en una sola fila anónima.
+     *
+     * Iban como `[{ valor: totalRecargos, empresa_id: null }]`, así que
+     * `liquidarNomina` no podía atribuir un solo peso a PAREX o a GEOPARK y su
+     * 100 % nunca entraba en el IBC aunque el interruptor del 8 % estuviera
+     * puesto. El formulario de liquidaciones sí los mete —allí el id está
+     * escrito en el código—, de modo que la misma liquidación tenía dos bases
+     * prestacionales según quién la mirara.
+     *
+     * `sumarManuales(detalles, null)` suma TODAS las filas no automáticas, así
+     * que partir una en tres no mueve `totalRecargos`: solo permite el filtro
+     * por empresa.
+     */
+    const valorParex = repartoParex.reduce((s, r) => s + r.valor, 0);
+    const valorGeopark = repartoGeopark.reduce((s, r) => s + r.valor, 0);
+    const recargosPorEmpresa = [
+      ...(idsCubo.PAREX && valorParex ? [{ valor: valorParex, empresa_id: idsCubo.PAREX }] : []),
+      ...(idsCubo.GEOPARK && valorGeopark
+        ? [{ valor: valorGeopark, empresa_id: idsCubo.GEOPARK }]
+        : []),
+      {
+        valor:
+          totalRecargos -
+          (idsCubo.PAREX ? valorParex : 0) -
+          (idsCubo.GEOPARK ? valorGeopark : 0),
+        empresa_id: null,
+      },
+    ];
     /**
      * La DISPONIBILIDAD DEL MES sale de `liquidaciones.disponibilidad`, no del
      * reparto.
@@ -1981,7 +2029,7 @@ export class NominaCanvasService {
       diasLaborados,
       diasLaboradosVillanueva: Number(l?.dias_laborados_villanueva ?? 0) || 0,
       detallesVehiculos: [
-        { bonos, pernotes, recargos: [{ valor: totalRecargos, empresa_id: null }] },
+        { bonos, pernotes, recargos: recargosPorEmpresa },
       ],
       previewRecargosGrupos: [],
       anticipos,
@@ -2024,7 +2072,20 @@ export class NominaCanvasService {
       descontarPensionSalario: !!l?.descontar_pension_salario,
     };
 
-    const totales = salarioBase || l ? liquidarNomina(entrada, parametros) : RESULTADO_VACIO;
+    /**
+     * Los ids de PAREX y GEOPARK, resueltos por NOMBRE para esta hoja.
+     *
+     * `NOMINA_EMPRESA_PAREX_ID` y `..._GEOPARK_ID` no están puestas en ningún
+     * entorno, así que `parametrosDesdeConfig` los deja en `null` y el filtro
+     * por empresa del motor no encontraba nada. Por nombre es además la regla
+     * del resto del módulo: hay dos «GEOPARK COLOMBIA S.A.S» por id.
+     */
+    const parametrosHoja: ParametrosNomina = {
+      ...parametros,
+      empresaParexId: idsCubo.PAREX ?? parametros.empresaParexId,
+      empresaGeoparkId: idsCubo.GEOPARK ?? parametros.empresaGeoparkId,
+    };
+    const totales = salarioBase || l ? liquidarNomina(entrada, parametrosHoja) : RESULTADO_VACIO;
 
     /**
      * El bloque de vacaciones: dos fechas, los días que salen de ellas y el

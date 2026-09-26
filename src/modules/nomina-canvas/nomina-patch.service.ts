@@ -880,7 +880,9 @@ export const NominaPatchService = {
         bonificaciones: { where: { deleted_at: null } },
         pernotes: { where: { deleted_at: null } },
         anticipos: { where: { deleted_at: null } },
-        recargos: { where: { deleted_at: null } },
+        /// Con el NOMBRE del cliente: es lo que decide si un recargo es de
+        /// PAREX o de GEOPARK, y de eso depende que entre en el IBC.
+        recargos: { where: { deleted_at: null }, include: { clientes: { select: { nombre: true } } } },
         conductores: { select: { id: true, salario_base: true } },
       },
     });
@@ -945,6 +947,26 @@ export const NominaPatchService = {
       conceptosAdicionales = (l.conceptos_adicionales as any[]).map((c) => ({ valor: dec(c?.valor) }));
     }
 
+    /**
+     * Un id por CUBO —PAREX y GEOPARK—, resuelto por nombre.
+     *
+     * Es el mismo criterio que usa el resto del módulo de nómina, y el único
+     * que funciona aquí: las variables de entorno no están puestas y la tabla
+     * tiene dos «GEOPARK COLOMBIA S.A.S» distintos por id.
+     */
+    const idPorCubo = new Map<string, string>();
+    for (const r of l.recargos) {
+      const n = (r.clientes?.nombre ?? '').toUpperCase();
+      const cubo = n.includes('PAREX') ? 'PAREX' : n.includes('GEOPARK') ? 'GEOPARK' : null;
+      if (cubo && r.empresa_id && !idPorCubo.has(cubo)) idPorCubo.set(cubo, r.empresa_id);
+    }
+    const idCanonico = (nombre: string | null | undefined, propio: string | null) => {
+      const n = (nombre ?? '').toUpperCase();
+      if (n.includes('PAREX')) return idPorCubo.get('PAREX') ?? propio;
+      if (n.includes('GEOPARK')) return idPorCubo.get('GEOPARK') ?? propio;
+      return propio;
+    };
+
     const entrada: EntradaLiquidacion = {
       /// Igual que en el canvas: manda el básico de la liquidación, y el del
       /// conductor solo mientras aquel esté en null. Si esto leyera solo la
@@ -983,7 +1005,12 @@ export const NominaPatchService = {
             .filter((r) => r.incluir !== false)
             .map((r) => ({
               valor: dec(r.valor),
-              empresa_id: r.empresa_id,
+              /// El id CANÓNICO de su cubo, no el suyo. `liquidarNomina` filtra
+              /// por id exacto, y en la tabla conviven dos «GEOPARK COLOMBIA
+              /// S.A.S» —uno con punto final y otro sin él— que por id son dos
+              /// empresas y por nómina son la misma: sin normalizar, los
+              /// recargos del segundo se quedaban fuera del IBC.
+              empresa_id: idCanonico(r.clientes?.nombre, r.empresa_id),
               es_automatico: false,
             })),
         },
@@ -1022,8 +1049,27 @@ export const NominaPatchService = {
       salarioVillanueva: buscar('Salario villanueva'),
       porcentajeSalud: buscar('Salud'),
       porcentajePension: buscar('Pensión'),
-      empresaParexId: process.env.NOMINA_EMPRESA_PAREX_ID ?? null,
-      empresaGeoparkId: process.env.NOMINA_EMPRESA_GEOPARK_ID ?? null,
+      /**
+       * LOS IDS SE RESUELVEN POR NOMBRE, no de la variable de entorno.
+       *
+       * `NOMINA_EMPRESA_PAREX_ID` y `..._GEOPARK_ID` no están puestas en NINGÚN
+       * entorno, así que llegaban en `null` y `liquidarNomina` no podía
+       * atribuir un solo recargo a esos dos clientes. Resultado: los recargos
+       * de PAREX y GEOPARK NO entraban en el IBC aunque su interruptor del 8 %
+       * estuviera activo —y el formulario de liquidaciones sí los mete, porque
+       * allí el id va escrito en el código—.
+       *
+       * Con eso, editar cualquier celda del canvas en una liquidación de PAREX
+       * recalculaba la salud y la pensión sin esos recargos y las derrumbaba:
+       * medido en JULIO CESAR, de 235.271,91 a 91.923,91 cada una. El neto
+       * subía 286.695 a favor del conductor y nadie lo veía.
+       *
+       * Por nombre es además la regla que ya usa el resto del módulo: en la
+       * tabla conviven dos «GEOPARK COLOMBIA S.A.S» que por id son dos
+       * empresas y por nómina son la misma.
+       */
+      empresaParexId: idPorCubo.get('PAREX') ?? process.env.NOMINA_EMPRESA_PAREX_ID ?? null,
+      empresaGeoparkId: idPorCubo.get('GEOPARK') ?? process.env.NOMINA_EMPRESA_GEOPARK_ID ?? null,
       fraccionAjusteRecargos: Number(process.env.NOMINA_FRACCION_AJUSTE ?? 0.08),
     });
 

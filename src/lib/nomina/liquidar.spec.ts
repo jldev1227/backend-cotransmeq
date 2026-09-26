@@ -294,6 +294,51 @@ describe('ajustes del 8 %', () => {
     expect(r.baseCalculoSalud).toBeCloseTo(1750905 + 400000, 6);
   });
 
+  /**
+   * LA TRAMPA QUE COSTÓ DINERO.
+   *
+   * El canvas le pasaba TODOS los recargos en una sola fila con
+   * `empresa_id: null`, y sus parámetros traían el UUID en `null` porque las
+   * variables de entorno no están puestas en ningún entorno. Con cualquiera de
+   * las dos cosas, el filtro por empresa no encuentra nada y el 100 % de PAREX
+   * se queda FUERA del IBC aunque el interruptor esté puesto: medido en una
+   * liquidación real, la salud caía de 235.271,91 a 91.923,91 al editar una
+   * celda cualquiera.
+   *
+   * Quien llame a este módulo tiene que mandar los recargos separados por
+   * cliente Y el id de ese cliente. Estos dos tests fijan las dos mitades.
+   */
+  it('recargos sin empresa_id NO entran al IBC, aunque el interruptor esté puesto', () => {
+    const r = liquidarNomina(
+      entrada({
+        detallesVehiculos: [
+          { bonos: [], pernotes: [], recargos: [{ valor: 400000, empresa_id: null }] },
+        ],
+        aplicaAjusteParex: true,
+      }),
+      PARAMS,
+    );
+    expect(r.totalRecargos).toBeCloseTo(400000, 6);
+    expect(r.baseCalculoSalud).toBeCloseTo(1750905, 6);
+  });
+
+  it('con su empresa_id sí entran', () => {
+    const r = liquidarNomina(
+      entrada({
+        detallesVehiculos: [
+          {
+            bonos: [],
+            pernotes: [],
+            recargos: [{ valor: 400000, empresa_id: PARAMS.empresaParexId }],
+          },
+        ],
+        aplicaAjusteParex: true,
+      }),
+      PARAMS,
+    );
+    expect(r.baseCalculoSalud).toBeCloseTo(1750905 + 400000, 6);
+  });
+
   it('sin UUID configurado no se calcula ajuste (antes era un literal en tres archivos)', () => {
     const r = liquidarNomina(
       entrada({ previewRecargosGrupos: grupos, aplicaAjusteParex: true }),
