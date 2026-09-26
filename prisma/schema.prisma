@@ -783,7 +783,11 @@ model liquidaciones {
   creado_por_id                                 String?                               @db.Uuid
   actualizado_por_id                            String?                               @db.Uuid
   liquidado_por_id                              String?                               @db.Uuid
+  /// DISPONIBILIDAD MES de OTROS. Con PAREX y GEOPARK en bloques propios,
+  /// esta es la del resto de clientes; las otras dos van aparte.
   disponibilidad                                Decimal?                              @default(0) @db.Decimal(10, 2)
+  disponibilidad_parex                          Decimal?                              @default(0) @db.Decimal(10, 2)
+  disponibilidad_geopark                        Decimal?                              @default(0) @db.Decimal(10, 2)
   dias_ajuste_deducciones                       Int?
   ajuste_parex_recargos_completos               Boolean                               @default(false)
   share_token                                   String?                               @unique @db.VarChar(64)

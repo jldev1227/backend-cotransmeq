@@ -221,23 +221,30 @@ export async function generatePayslipPdfContent(
   const hayRecargosParex = totalRecargosParex > 0;
   const hayRecargosGeopark = totalRecargosGeopark > 0;
 
-  let disponibilidadParaOtros = disponibilidadVal;
-
-  if (totalRecargosParex > disponibilidadParaOtros) {
-    totalRecargosParexFinal = totalRecargosParex - disponibilidadParaOtros;
-    disponibilidadParaOtros = 0;
-  } else {
-    totalRecargosParexFinal = totalRecargosParex;
-  }
-
-  if (disponibilidadParaOtros > 0 && totalRecargosGeopark > disponibilidadParaOtros) {
-    totalRecargosGeoparkFinal = totalRecargosGeopark - disponibilidadParaOtros;
-    disponibilidadParaOtros = 0;
-  } else {
-    totalRecargosGeoparkFinal = totalRecargosGeopark;
-  }
-
-  totalRecargosNormalFinal = Math.max(0, recargosNormal - disponibilidadParaOtros);
+  /**
+   * CADA BLOQUE DESCUENTA LA SUYA.
+   *
+   * Había una sola `disponibilidad` para todo el corte y aquí se iba gastando
+   * en cascada empezando por PAREX; la vista previa del canvas hacía la misma
+   * cascada pero empezando por el cubo MAYOR. Dos repartos inventados y
+   * distintos para el mismo mes, según por dónde se pidiera el documento: el
+   * dato no decía de quién era la disponibilidad.
+   *
+   * Ahora cada cliente con bloque propio tiene su columna. `disponibilidad` es
+   * la de OTROS, que es lo que venía siendo en las liquidaciones sin PAREX ni
+   * GEOPARK.
+   */
+  const imputar = (bolsa: number, imputado: number) =>
+    bolsa - Math.min(Math.max(0, bolsa), Math.max(0, imputado));
+  totalRecargosParexFinal = imputar(
+    totalRecargosParex,
+    Number(safeValue((item as any).disponibilidad_parex, 0)),
+  );
+  totalRecargosGeoparkFinal = imputar(
+    totalRecargosGeopark,
+    Number(safeValue((item as any).disponibilidad_geopark, 0)),
+  );
+  totalRecargosNormalFinal = imputar(recargosNormal, disponibilidadVal);
 
   const bonosAgrupados: Record<string, { name: string; quantity: number; totalValue: number }> = {};
   if (item.bonificaciones && item.bonificaciones.length > 0) {

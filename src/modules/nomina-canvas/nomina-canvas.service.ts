@@ -1246,7 +1246,20 @@ export class NominaCanvasService {
         // Cada columna es una fecha, y por tanto un tramo: la tarifa sale de
         // ahí. Sumar las horas primero y multiplicar después por una tarifa
         // única era lo que pagaba junio a precio de julio.
-        const v = h * tarifaEn(d.fecha, codigo);
+        /**
+         * A LA TARIFA DEL CLIENTE DE ESE DÍA, que es lo que de verdad se paga.
+         *
+         * `recargos.service` valora las planillas con la configuración salarial
+         * MÁS ESPECÍFICA —«específica de la empresa > base»—, y eso queda
+         * guardado en `detalles_recargos_dias.valor_hora_calculado`: una hora
+         * extra diurna de GEOPARK vale 13.831 y no los 10.422 de la general.
+         *
+         * El canvas revaloraba TODO a la general, así que pagaba de menos los
+         * días de un cliente con base propia y contradecía a `recargos.valor`,
+         * que es de donde sale el dinero del desprendible. De ahí venía el
+         * aviso de «las planillas suman X pero la liquidación tiene Y».
+         */
+        const v = h * tarifaEmpresaEn(d.fecha, codigo, d.empresaId ?? null);
         if (d.disponibilidad) {
           hDisp += h;
           vDisp += v;
@@ -1327,7 +1340,10 @@ export class NominaCanvasService {
           const h = d.horas[codigo] ?? 0;
           if (!h) continue;
           horas += h;
-          valor += h * tarifaEn(d.fecha, codigo);
+          /// A su propia base, igual que el reparto: es el mismo dinero, solo
+          /// que separado por cliente. Si aquí fuera la general, OTROS —que es
+          /// el resto— saldría descuadrado en la diferencia.
+          valor += h * tarifaEmpresaEn(d.fecha, codigo, d.empresaId ?? null);
         }
         return { codigo, horas: horas2(horas), valor: Math.round(valor) };
       });
@@ -1898,6 +1914,19 @@ export class NominaCanvasService {
      * horas, que es un recuento de HORAS y ahí sí es lo que corresponde.
      */
     const disponibilidad = dec(l?.disponibilidad);
+    /**
+     * Una DISPONIBILIDAD por bloque del desprendible.
+     *
+     * Era una sola cifra para todo el corte, y con PAREX y GEOPARK en tablas
+     * propias el desprendible enseñaba la suma de las tres dentro de OTROS. La
+     * columna de siempre pasa a ser la de OTROS —que es lo que venía siendo en
+     * las liquidaciones sin esos dos clientes, la inmensa mayoría— y cada una
+     * de las nuevas se resta de SU bloque.
+     */
+    const disponibilidadCubo: Record<'PAREX' | 'GEOPARK', number> = {
+      PAREX: dec((l as any)?.disponibilidad_parex),
+      GEOPARK: dec((l as any)?.disponibilidad_geopark),
+    };
 
     const bonos = bonificaciones.map((b: any) => {
       // `values` es un string JSON con `[{ mes, quantity }]`.
@@ -2348,6 +2377,15 @@ export class NominaCanvasService {
             valor: r.valor,
             editable: false,
           })),
+          /// Su propia disponibilidad, que se teclea y se descuenta de ESTE
+          /// bloque. La de OTROS vive arriba y no se toca.
+          {
+            clave: `disponibilidad:${cubo}`,
+            nombre: 'DISPONIBILIDAD MES',
+            cantidad: null,
+            valor: disponibilidadCubo[cubo],
+            editable: !!l,
+          },
         ];
       }),
     ];

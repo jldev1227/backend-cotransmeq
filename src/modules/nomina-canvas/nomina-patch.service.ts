@@ -42,7 +42,12 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   interes_cesantias: 'moneda',
   /// Lo que se imputa a disponibilidad. NO es dinero nuevo: se descuenta de la
   /// bolsa de OTROS, igual que en el desprendible. Por eso no mueve el neto.
+  ///
+  /// Una por bloque: PAREX y GEOPARK tienen la suya y esta es la del resto.
+  /// Antes era una sola cifra y el desprendible enseñaba la suma de las tres.
   disponibilidad: 'moneda',
+  disponibilidad_parex: 'moneda',
+  disponibilidad_geopark: 'moneda',
   valor_incapacidad: 'moneda',
   cesantias: 'moneda',
   ajuste_salarial: 'moneda',

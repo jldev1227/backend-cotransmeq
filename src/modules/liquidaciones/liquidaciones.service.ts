@@ -306,6 +306,9 @@ export const LiquidacionesService = {
           (liq as any).ajuste_parex_recargos_completos ?? false,
         dias_ajuste_deducciones: (liq as any).dias_ajuste_deducciones ?? null,
         disponibilidad: Number((liq as any).disponibilidad ?? 0),
+        /// Una por bloque del desprendible: la de arriba es la de OTROS.
+        disponibilidad_parex: Number((liq as any).disponibilidad_parex ?? 0),
+        disponibilidad_geopark: Number((liq as any).disponibilidad_geopark ?? 0),
         conceptos_adicionales: liq.conceptos_adicionales ?? [],
         // total_devengado = neto + deducciones (sueldo_total ya es sueldoBruto - deducciones)
         total_devengado:
@@ -480,6 +483,9 @@ export const LiquidacionesService = {
       dias_ajuste_deducciones:
         (liquidacion as any).dias_ajuste_deducciones ?? null,
       disponibilidad: Number((liquidacion as any).disponibilidad ?? 0),
+      /// Una por bloque del desprendible: la de arriba es la de OTROS.
+      disponibilidad_parex: Number((liquidacion as any).disponibilidad_parex ?? 0),
+      disponibilidad_geopark: Number((liquidacion as any).disponibilidad_geopark ?? 0),
       conceptos_adicionales: liquidacion.conceptos_adicionales ?? [],
       // total_devengado = neto + deducciones (sueldo_total ya es sueldoBruto - deducciones)
       total_devengado:
