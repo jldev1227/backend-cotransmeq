@@ -51,6 +51,7 @@ import {
   type TarifaRecargo,
   type TramoVigencia,
   type VacacionesHoja,
+  type LicenciaHoja,
   type BaseSalarial,
 } from './nomina-canvas.types';
 
@@ -351,6 +352,9 @@ export class NominaCanvasService {
             /// inactivo / desvinculado). Mismo motivo que `nomina`: rotular en
             /// vez de esconder.
             estado: true,
+            /// Decide si la licencia se rotula MATERNIDAD o PATERNIDAD. Está
+            /// vacío en la mayoría de las fichas: ver `rotuloLicencia`.
+            genero: true,
           },
         }),
 
@@ -857,6 +861,7 @@ export class NominaCanvasService {
       numero_identificacion: string | null;
       cargo: string;
       salario_base: unknown;
+      genero?: string | null;
       email?: string | null;
       /// `conductores.nomina`. Solo lo mira la lista previa de «Generar
       /// borradores», para rotular a quien trabaja sin estar marcado.
@@ -1451,6 +1456,7 @@ export class NominaCanvasService {
       deducciones,
       totales,
       vacaciones,
+      licencia,
       salarioBasicoDesprendible,
       salarioBasicoFijado,
     } = this.construirDesprendible({
@@ -1586,6 +1592,7 @@ export class NominaCanvasService {
       repartoDesprendible,
       repartoDisponibilidad,
       vacaciones,
+      licencia,
       devengos,
       deducciones,
       totales,
@@ -1839,8 +1846,31 @@ export class NominaCanvasService {
     };
   }
 
+  /**
+   * MATERNIDAD o PATERNIDAD según el género de la ficha.
+   *
+   * `conductores.genero` es texto libre y está VACÍO en la inmensa mayoría de
+   * las fichas —365 de 420 en esta base—, y lo poco que hay viene en cuatro
+   * formas distintas: `M`, `MASCULINO`, `masculino`, `FEMENINO`. Se normaliza
+   * por la inicial, sin acentos ni mayúsculas.
+   *
+   * Sin género NO se adivina: se rotula con las dos palabras. Elegir una sería
+   * inventarse un dato de la persona en un documento laboral, y con la ficha
+   * vacía en el 87 % de los casos el error sería la norma, no la excepción.
+   */
+  private static rotuloLicencia(genero: string | null | undefined): string {
+    const g = String(genero ?? '')
+      .trim()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (g.startsWith('F')) return 'LICENCIA DE MATERNIDAD';
+    if (g.startsWith('M')) return 'LICENCIA DE PATERNIDAD';
+    return 'LICENCIA DE MATERNIDAD / PATERNIDAD';
+  }
+
   private static construirDesprendible(args: {
-    conductor: { salario_base: unknown };
+    conductor: { salario_base: unknown; genero?: string | null };
     liquidacion: any | null;
     /** `YYYY-MM → "21 AL 31 DE AGOSTO DE 2026"`, para las líneas por subperiodo. */
     subperiodos: Map<string, string>;
@@ -1863,6 +1893,7 @@ export class NominaCanvasService {
     deducciones: ConceptoDesprendible[];
     totales: ReturnType<typeof liquidarNomina>;
     vacaciones: VacacionesHoja;
+    licencia: LicenciaHoja;
     /// El básico con el que se liquidó, que es el de la liquidación si lo
     /// fijó y el del conductor si no. Sube porque la hoja lo enseña y lo
     /// deja editar, y deducirlo fuera sería repetir aquí la misma regla.
@@ -2068,6 +2099,11 @@ export class NominaCanvasService {
       anticipos,
       conceptosAdicionales,
       valorVacaciones: dec(l?.total_vacaciones),
+      /// Licencia de maternidad o paternidad: dos fechas y un interruptor,
+      /// como las vacaciones, pero sobre el básico del desprendible.
+      aplicaLicencia: !!(l as any)?.aplica_licencia,
+      licenciaInicio: (l as any)?.periodo_start_licencia ?? null,
+      licenciaFin: (l as any)?.periodo_end_licencia ?? null,
       salarioVacaciones: l?.salario_vacaciones != null ? dec(l.salario_vacaciones) : null,
       vacacionesInicio: l?.periodo_start_vacaciones ?? null,
       vacacionesFin: l?.periodo_end_vacaciones ?? null,
@@ -2168,6 +2204,36 @@ export class NominaCanvasService {
       salarioHeredado: !salarioVacacionesFijado,
     };
 
+    /**
+     * LICENCIA DE MATERNIDAD O PATERNIDAD.
+     *
+     * Los días se cuentan igual que los de vacaciones —CON el de inicio, del 1
+     * al 15 son 15— y tampoco se guardan: salen de las dos fechas cada vez.
+     *
+     * El interruptor va aparte para poder apagarla sin borrar las fechas, que
+     * es lo que se quiere al corregir una liquidación ya hecha.
+     */
+    const licDesde = soloFecha((l as any)?.periodo_start_licencia);
+    const licHasta = soloFecha((l as any)?.periodo_end_licencia);
+    const licencia: LicenciaHoja = {
+      aplica: !!(l as any)?.aplica_licencia,
+      desde: licDesde,
+      hasta: licHasta,
+      dias:
+        licDesde && licHasta
+          ? Math.max(
+              0,
+              Math.round(
+                (Date.parse(`${licHasta}T00:00:00Z`) - Date.parse(`${licDesde}T00:00:00Z`)) /
+                  86400000,
+              ) + 1,
+            )
+          : 0,
+      /// La misma base con la que se paga el sueldo: la licencia no tiene
+      /// salario propio, al contrario que las vacaciones.
+      salarioBase,
+    };
+
     const devengos: ConceptoDesprendible[] = [
       /// `baseMensual`: lo que la hoja divide entre 30 para escribir el valor
       /// como fórmula sobre la celda de cantidad. Ver `ConceptoDesprendible`.
@@ -2180,6 +2246,25 @@ export class NominaCanvasService {
         baseMensual: salarioBase,
       },
       { clave: 'vacaciones', nombre: 'VACACIONES', cantidad: vacaciones.dias || null, valor: totales.totalVacaciones, editable: true },
+      /**
+       * LICENCIA, justo debajo de las vacaciones y SOLO SI ESTÁ MARCADA.
+       *
+       * Es la prestación de maternidad o paternidad: se paga y cotiza. A
+       * diferencia de las vacaciones no se teclea el importe —sale de las dos
+       * fechas y del básico— y por eso la celda no es editable: lo que se
+       * teclea son las fechas, abajo.
+       */
+      ...(licencia.aplica
+        ? [
+            {
+              clave: 'licencia',
+              nombre: this.rotuloLicencia(conductor.genero),
+              cantidad: licencia.dias || null,
+              valor: totales.totalLicencia,
+              editable: false,
+            },
+          ]
+        : []),
       {
         clave: 'auxilio_transporte',
         nombre: 'AUXILIO DE TRANSPORTE',
@@ -2509,6 +2594,7 @@ export class NominaCanvasService {
       deducciones,
       totales,
       vacaciones,
+      licencia,
       salarioBasicoDesprendible: salarioBase,
       salarioBasicoFijado: l?.salario_basico != null,
     };

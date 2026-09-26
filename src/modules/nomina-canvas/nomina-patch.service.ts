@@ -34,6 +34,11 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   periodo_start_vacaciones: 'fecha',
   periodo_end_vacaciones: 'fecha',
   salario_vacaciones: 'moneda',
+  /// Licencia de maternidad o paternidad: mismo trato que las vacaciones.
+  /// El importe NO se teclea, sale de las dos fechas y del básico.
+  aplica_licencia: 'flag',
+  periodo_start_licencia: 'fecha',
+  periodo_end_licencia: 'fecha',
   dias_laborados: 'dias',
   dias_laborados_villanueva: 'dias',
   dias_laborados_anual: 'entero',
@@ -1064,6 +1069,9 @@ export const NominaPatchService = {
       anticipos: [{ valor: dec(l.total_anticipos) }],
       conceptosAdicionales,
       valorVacaciones: dec(l.total_vacaciones),
+      aplicaLicencia: !!(l as any).aplica_licencia,
+      licenciaInicio: (l as any).periodo_start_licencia,
+      licenciaFin: (l as any).periodo_end_licencia,
       vacacionesInicio: l.periodo_start_vacaciones,
       vacacionesFin: l.periodo_end_vacaciones,
       interesCesantias: dec(l.interes_cesantias),
@@ -1154,6 +1162,8 @@ export const NominaPatchService = {
         /// También derivados: el 8 % de los recargos de cada cliente. Se
         /// quedaban con el valor viejo mientras el interruptor los encendía o
         /// apagaba, así que la columna decía una cosa y el IBC otra.
+        /// Derivado de las dos fechas y del básico, igual que el bono.
+        total_licencia: t.totalLicencia,
         ajuste_parex: t.ajusteParex,
         ajuste_geopark: t.ajusteGeopark,
         salud: t.salud,

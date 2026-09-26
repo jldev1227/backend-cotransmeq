@@ -254,6 +254,49 @@ describe('ajuste salarial Villanueva', () => {
   });
 });
 
+describe('licencia de maternidad o paternidad', () => {
+  const conLicencia = (over = {}) =>
+    entrada({
+      aplicaLicencia: true,
+      licenciaInicio: '2026-09-01',
+      licenciaFin: '2026-09-14',
+      ...over,
+    });
+
+  /** Del 1 al 14 son CATORCE días: el de inicio cuenta. */
+  it('prorratea el básico por los días, con el de inicio incluido', () => {
+    const r = liquidarNomina(conLicencia(), PARAMS);
+    expect(r.totalLicencia).toBeCloseTo((1750905 / 30) * 14, 6);
+  });
+
+  it('un solo día vale un día, no cero', () => {
+    const r = liquidarNomina(conLicencia({ licenciaFin: '2026-09-01' }), PARAMS);
+    expect(r.totalLicencia).toBeCloseTo(1750905 / 30, 6);
+  });
+
+  /** El interruptor va aparte para poder apagarla sin borrar las fechas. */
+  it('sin el interruptor no paga, aunque haya fechas', () => {
+    const r = liquidarNomina(conLicencia({ aplicaLicencia: false }), PARAMS);
+    expect(r.totalLicencia).toBe(0);
+  });
+
+  it('sin fechas no paga, aunque esté marcada', () => {
+    const r = liquidarNomina(
+      conLicencia({ licenciaInicio: null, licenciaFin: null }),
+      PARAMS,
+    );
+    expect(r.totalLicencia).toBe(0);
+  });
+
+  it('se paga Y cotiza: entra en el bruto y en la base prestacional', () => {
+    const sin = liquidarNomina(entrada(), PARAMS);
+    const con = liquidarNomina(conLicencia(), PARAMS);
+    const licencia = (1750905 / 30) * 14;
+    expect(con.sueldoBruto - sin.sueldoBruto).toBeCloseTo(licencia, 6);
+    expect(con.baseCalculoSalud - sin.baseCalculoSalud).toBeCloseTo(licencia, 6);
+  });
+});
+
 describe('ajustes del 8 %', () => {
   const grupos = [
     { key: 'gp', valor: 400000, empresa_id: PAREX, origen_planilla_id: 'p1' },

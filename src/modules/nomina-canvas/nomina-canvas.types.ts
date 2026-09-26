@@ -404,6 +404,23 @@ export interface ConceptoDesprendible {
  * guardado que no cuadre con sus fechas es un dato que miente, y aquí las
  * fechas son lo que alguien puede justificar.
  */
+/**
+ * La licencia de maternidad o paternidad que se teclea bajo las vacaciones.
+ *
+ * Mismo trato que ellas: los DÍAS no se guardan, salen de las dos fechas con
+ * el de inicio incluido. Lo que sí es propio es el interruptor, que permite
+ * apagarla sin borrar las fechas.
+ */
+export interface LicenciaHoja {
+  aplica: boolean;
+  /** `YYYY-MM-DD`, o `null` si no hay licencia. */
+  desde: string | null;
+  hasta: string | null;
+  dias: number;
+  /** El básico del desprendible: la licencia no tiene salario propio. */
+  salarioBase: number;
+}
+
 export interface VacacionesHoja {
   /** `YYYY-MM-DD`, o `null` si no hay vacaciones en el periodo. */
   desde: string | null;
@@ -539,6 +556,8 @@ export interface HojaNomina {
 
   /** Fechas, días y salario de las vacaciones del periodo. */
   vacaciones: VacacionesHoja;
+  /// Ausente en snapshots anteriores a la licencia.
+  licencia?: LicenciaHoja;
 
   devengos: ConceptoDesprendible[];
   deducciones: ConceptoDesprendible[];

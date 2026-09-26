@@ -120,6 +120,19 @@ export interface EntradaLiquidacion {
 
   /** Vacaciones tecleadas a mano. Si es > 0, manda sobre el cálculo por fechas. */
   valorVacaciones: number;
+  /**
+   * LICENCIA DE MATERNIDAD O PATERNIDAD.
+   *
+   * Se liquida como las vacaciones por fechas —básico entre 30 por los días,
+   * con el de inicio incluido— pero sobre el básico del desprendible, sin
+   * salario propio: es la misma base con la que se paga el sueldo.
+   *
+   * El interruptor va aparte de las fechas para poder dejarlas escritas y
+   * apagar la licencia sin borrarlas.
+   */
+  aplicaLicencia?: boolean;
+  licenciaInicio?: string | Date | null;
+  licenciaFin?: string | Date | null;
   vacacionesInicio?: string | Date | null;
   vacacionesFin?: string | Date | null;
   /**
@@ -160,6 +173,8 @@ export interface ResultadoLiquidacion {
   totalRecargosParex: number;
   totalRecargosGeopark: number;
   totalVacaciones: number;
+  /// Licencia de maternidad o paternidad. Se paga Y cotiza.
+  totalLicencia: number;
   bonificacionVillanueva: number;
   valorIncapacidad: number;
   ajusteParex: number;
@@ -187,6 +202,7 @@ export const RESULTADO_VACIO: ResultadoLiquidacion = {
   totalRecargosParex: 0,
   totalRecargosGeopark: 0,
   totalVacaciones: 0,
+  totalLicencia: 0,
   bonificacionVillanueva: 0,
   valorIncapacidad: 0,
   ajusteParex: 0,
@@ -413,6 +429,15 @@ export function liquidarNomina(
     totalVacaciones = valorVacacionesManual;
   }
 
+  // ── Licencia de maternidad o paternidad ───────────────────────────────
+  // Mismo prorrateo que las vacaciones por fechas y sobre EL MISMO BÁSICO con
+  // el que se paga el sueldo: la licencia no tiene salario propio. Los días
+  // incluyen el de inicio, como en `diasEntre`.
+  const totalLicencia =
+    entrada.aplicaLicencia && entrada.licenciaInicio && entrada.licenciaFin
+      ? (salarioBase / 30) * diasEntre(entrada.licenciaInicio, entrada.licenciaFin)
+      : 0;
+
   // ── Base prestacional (IBC) ───────────────────────────────────────────
   // Entran: salario devengado, vacaciones, la fracción del ajuste Villanueva
   // y el 100 % de los recargos de PAREX/Geopark cuando su interruptor está
@@ -439,6 +464,8 @@ export function liquidarNomina(
   const baseIbc =
     salarioDevengado +
     totalVacaciones +
+    /// La licencia COTIZA: es salario para todos los efectos.
+    totalLicencia +
     ajusteParaBase +
     recargosAjusteParaBase +
     recargosGeoparkParaBase;
@@ -480,6 +507,9 @@ export function liquidarNomina(
     totalPernotes +
     totalRecargos +
     valorVacacionesManual +
+    /// …y se PAGA, al contrario que las vacaciones derivadas de fechas (ver
+    /// el aviso de arriba): es una prestación, no un descuento de días.
+    totalLicencia +
     bonificacionVillanueva +
     valorIncapacidad +
     num(entrada.interesCesantias) +
@@ -496,6 +526,7 @@ export function liquidarNomina(
     totalRecargosParex,
     totalRecargosGeopark,
     totalVacaciones,
+    totalLicencia,
     bonificacionVillanueva,
     valorIncapacidad,
     ajusteParex,

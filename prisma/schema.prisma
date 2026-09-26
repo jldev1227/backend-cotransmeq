@@ -769,6 +769,13 @@ model liquidaciones {
   /// del tramo. Las vacaciones se pagan sobre el promedio del último año o
   /// sobre lo pactado, que no tiene por qué ser el básico vigente.
   salario_vacaciones                            Decimal?                              @db.Decimal(10, 2)
+  /// LICENCIA DE MATERNIDAD / PATERNIDAD. Mismo patrón que las vacaciones:
+  /// dos fechas y un interruptor; los días salen de restarlas, con el de
+  /// inicio incluido, y no se guardan.
+  aplica_licencia                               Boolean                               @default(false)
+  periodo_start_licencia                        String?                               @db.VarChar(255)
+  periodo_end_licencia                          String?                               @db.VarChar(255)
+  total_licencia                                Decimal                               @default(0) @db.Decimal(10, 2)
   /// Salario básico de ESTA liquidación, el que divide entre 30 el
   /// desprendible. `null` = usar `conductores.salario_base`, que es solo la
   /// sugerencia con la que nace el borrador. No toca el valor hora ni los
