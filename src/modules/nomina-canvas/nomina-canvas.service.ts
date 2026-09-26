@@ -1501,6 +1501,19 @@ export class NominaCanvasService {
       salarioBasicoDesprendible,
       /// `true` = lo fijó esta liquidación; `false` = viene del conductor.
       salarioBasicoFijado,
+      /**
+       * Cuántos días de la NIVELACIÓN entran en la base prestacional.
+       *
+       * `null` NO es cero: es «sin decidir», y entonces entra el ajuste
+       * completo del mes. Es la distinción que ya hace el formulario y la
+       * única forma de expresar «cero días a la base», que es un caso real y
+       * distinto de no haber tocado el campo.
+       */
+      diasAjusteDeducciones:
+        liquidacion?.dias_ajuste_deducciones === null ||
+        liquidacion?.dias_ajuste_deducciones === undefined
+          ? null
+          : Number(liquidacion.dias_ajuste_deducciones),
       valorHora,
       horasMensualesBase,
       jornadaNormalHoras: tramoCierre.jornadaNormalHoras,

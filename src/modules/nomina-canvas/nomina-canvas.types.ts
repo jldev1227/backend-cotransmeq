@@ -449,6 +449,16 @@ export interface HojaNomina {
   salarioBasicoDesprendible?: number;
   /** `true` = lo fijó esta liquidación; `false` = viene del conductor. */
   salarioBasicoFijado?: boolean;
+  /**
+   * Días de la NIVELACIÓN DE SALARIO que entran en la base prestacional.
+   *
+   * `null` es «sin decidir» y significa el ajuste ENTERO del mes; `0` es una
+   * decisión: nada del bono cotiza. Son dos cosas distintas y por eso el campo
+   * admite nulo en vez de caer a cero.
+   *
+   * Ausente en snapshots anteriores a que la hoja lo dejara teclear.
+   */
+  diasAjusteDeducciones?: number | null;
   /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
   correo: string | null;
   cargo: string;
