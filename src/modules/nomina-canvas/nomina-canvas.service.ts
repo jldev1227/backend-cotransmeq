@@ -1568,10 +1568,16 @@ export class NominaCanvasService {
           : Number(liquidacion.dias_ajuste_deducciones),
       /// Los tres interruptores del ajuste de recargos: se marcan en la hoja
       /// y deciden qué recargos cotizan. Ver `ConceptoDesprendible`.
-      aplicaAjusteParex: !!(liquidacion as any)?.aplica_ajuste_parex || dec(liquidacion?.ajuste_parex) > 0,
-      aplicaAjusteGeopark:
-        !!(liquidacion as any)?.aplica_ajuste_geopark || dec(liquidacion?.ajuste_geopark) > 0,
+      aplicaAjusteParex: !!(liquidacion as any)?.aplica_ajuste_parex,
+      aplicaAjusteGeopark: !!(liquidacion as any)?.aplica_ajuste_geopark,
       ajusteRecargosCompletos: !!liquidacion?.ajuste_parex_recargos_completos,
+      /// Para que la hoja calcule la base prestacional y las deducciones sin
+      /// volver a preguntar. Ver `HojaNomina`.
+      salarioVillanueva: dec(parametros.salarioVillanueva),
+      porcentajeSalud: dec(parametros.porcentajeSalud),
+      porcentajePension: dec(parametros.porcentajePension),
+      descontarSaludSalario: !!liquidacion?.descontar_salud_salario,
+      descontarPensionSalario: !!liquidacion?.descontar_pension_salario,
       valorHora,
       horasMensualesBase,
       jornadaNormalHoras: tramoCierre.jornadaNormalHoras,
@@ -2087,9 +2093,20 @@ export class NominaCanvasService {
       ajusteVillanuevaPorDia: !!l?.ajuste_salarial_por_dia,
       /// El INTERRUPTOR, no el importe. Se conserva el importe en el OR
       /// para las liquidaciones viejas que nunca pasaron por la columna.
-      aplicaAjusteParex: !!(l as any)?.aplica_ajuste_parex || dec(l?.ajuste_parex) > 0,
-      aplicaAjusteGeopark:
-        !!(l as any)?.aplica_ajuste_geopark || dec(l?.ajuste_geopark) > 0,
+      /**
+       * EL INTERRUPTOR MANDA, a secas.
+       *
+       * Estuvo en `OR` con el importe —`|| ajuste_parex > 0`— como respaldo
+       * para las filas anteriores a la columna, y eso lo dejaba PEGADO EN
+       * VERDADERO: al marcarlo el recálculo guarda el importe, y con importe
+       * el `OR` vuelve a encenderlo, que a su vez hace recalcular el importe.
+       * Desmarcar no servía de nada, ni recargando.
+       *
+       * El respaldo no hace falta: la migración que creó la columna la rellenó
+       * desde el importe, así que toda fila existente ya trae su interruptor.
+       */
+      aplicaAjusteParex: !!(l as any)?.aplica_ajuste_parex,
+      aplicaAjusteGeopark: !!(l as any)?.aplica_ajuste_geopark,
       ajusteRecargosCompletos: !!l?.ajuste_parex_recargos_completos,
       aplicaIncapacidad: !!l?.periodo_start_incapacidad,
       diasAjusteDeducciones:

@@ -472,6 +472,22 @@ export interface HojaNomina {
   aplicaAjusteParex?: boolean;
   aplicaAjusteGeopark?: boolean;
   ajusteRecargosCompletos?: boolean;
+  /**
+   * Lo que la hoja necesita para calcular la BASE PRESTACIONAL sola.
+   *
+   * La base y las dos deducciones dejaron de ser cifras del servidor: son
+   * fórmulas sobre los días de nivelación, los días que van a la base y las
+   * tres casillas de ajuste, que es lo que se teclea. Sin estos parámetros
+   * habría que releer el periodo en cada tecla.
+   *
+   * Ausentes en snapshots viejos, donde las tres celdas se quedan con la cifra
+   * que mandó el servidor.
+   */
+  salarioVillanueva?: number;
+  porcentajeSalud?: number;
+  porcentajePension?: number;
+  descontarSaludSalario?: boolean;
+  descontarPensionSalario?: boolean;
   /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
   correo: string | null;
   cargo: string;

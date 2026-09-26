@@ -1076,9 +1076,20 @@ export const NominaPatchService = {
       ajusteVillanuevaPorDia: l.ajuste_salarial_por_dia,
       /// El INTERRUPTOR, no el importe. Se conserva el importe en el OR
       /// para las liquidaciones viejas que nunca pasaron por la columna.
-      aplicaAjusteParex: (l as any).aplica_ajuste_parex || dec(l.ajuste_parex) > 0,
-      aplicaAjusteGeopark:
-        (l as any).aplica_ajuste_geopark || dec((l as any).ajuste_geopark) > 0,
+      /**
+       * EL INTERRUPTOR MANDA, a secas.
+       *
+       * Estuvo en `OR` con el importe —`|| ajuste_parex > 0`— como respaldo
+       * para las filas anteriores a la columna, y eso lo dejaba PEGADO EN
+       * VERDADERO: al marcarlo el recálculo guarda el importe, y con importe
+       * el `OR` vuelve a encenderlo, que a su vez hace recalcular el importe.
+       * Desmarcar no servía de nada, ni recargando.
+       *
+       * El respaldo no hace falta: la migración que creó la columna la rellenó
+       * desde el importe, así que toda fila existente ya trae su interruptor.
+       */
+      aplicaAjusteParex: !!(l as any).aplica_ajuste_parex,
+      aplicaAjusteGeopark: !!(l as any).aplica_ajuste_geopark,
       ajusteRecargosCompletos: l.ajuste_parex_recargos_completos,
       aplicaIncapacidad: !!l.periodo_start_incapacidad,
       diasAjusteDeducciones: l.dias_ajuste_deducciones,
