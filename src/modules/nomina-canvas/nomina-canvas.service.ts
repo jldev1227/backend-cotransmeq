@@ -408,9 +408,11 @@ export class NominaCanvasService {
           orderBy: { vigencia_desde: 'desc' },
         }),
 
+        /// TODAS, y el resolver elige el año: filtrar duro dejaba sin
+        /// parámetros a los cortes de un año sin filas. Ver `parametrosDesdeConfig`.
         prisma.configuraciones_liquidacion.findMany({
-          where: { activo: true, deleted_at: null, OR: [{ anio }, { anio: null }] },
-          select: { nombre: true, valor: true },
+          where: { activo: true, deleted_at: null },
+          select: { nombre: true, valor: true, anio: true },
         }),
 
         prisma.liquidaciones.findMany({
@@ -678,7 +680,7 @@ export class NominaCanvasService {
       );
     }
 
-    const parametros = this.parametrosDesdeConfig(configsLiq);
+    const parametros = this.parametrosDesdeConfig(configsLiq, anio);
 
     // ── Rejilla de columnas ────────────────────────────────────────────
     //
@@ -808,11 +810,30 @@ export class NominaCanvasService {
    * quedarse en cero silenciosamente.
    */
   private static parametrosDesdeConfig(
-    configs: { nombre: string; valor: unknown }[],
+    configs: { nombre: string; valor: unknown; anio?: number | null }[],
+    anioCorte: number | null,
   ): ParametrosNomina {
+    /**
+     * El año del corte, y si no lo hay EL MÁS CERCANO POR DEBAJO.
+     *
+     * `configuraciones_liquidacion` tiene una fila por concepto y por año, y
+     * filtrar duro por el del corte dejaba sin parámetros a los años sin filas
+     * —la tabla solo tiene 2025 y 2026, y hay 105 liquidaciones de 2024—: todo
+     * se iba a cero, incluidos los porcentajes de salud y pensión. Un corte
+     * viejo se liquida con la configuración vigente entonces, que es la última
+     * anterior a él; y si no hay ninguna anterior, la primera que exista.
+     */
     const buscar = (nombre: string): number => {
-      const c = configs.find((x) => x.nombre.trim().toLowerCase() === nombre.toLowerCase());
-      return c ? dec(c.valor) : 0;
+      const suyas = configs.filter(
+        (x) => x.nombre.trim().toLowerCase() === nombre.toLowerCase(),
+      );
+      if (!suyas.length) return 0;
+      const anteriores = suyas
+        .filter((x) => x.anio == null || anioCorte == null || x.anio <= anioCorte)
+        .sort((a, b) => (b.anio ?? 0) - (a.anio ?? 0));
+      const elegida =
+        anteriores[0] ?? [...suyas].sort((a, b) => (a.anio ?? 0) - (b.anio ?? 0))[0];
+      return dec(elegida?.valor);
     };
     return {
       auxilioTransporteMensual: buscar('Auxilio de transporte'),
@@ -1545,6 +1566,12 @@ export class NominaCanvasService {
         liquidacion?.dias_ajuste_deducciones === undefined
           ? null
           : Number(liquidacion.dias_ajuste_deducciones),
+      /// Los tres interruptores del ajuste de recargos: se marcan en la hoja
+      /// y deciden qué recargos cotizan. Ver `ConceptoDesprendible`.
+      aplicaAjusteParex: !!(liquidacion as any)?.aplica_ajuste_parex || dec(liquidacion?.ajuste_parex) > 0,
+      aplicaAjusteGeopark:
+        !!(liquidacion as any)?.aplica_ajuste_geopark || dec(liquidacion?.ajuste_geopark) > 0,
+      ajusteRecargosCompletos: !!liquidacion?.ajuste_parex_recargos_completos,
       valorHora,
       horasMensualesBase,
       jornadaNormalHoras: tramoCierre.jornadaNormalHoras,
@@ -2058,8 +2085,11 @@ export class NominaCanvasService {
       aplicaAjusteVillanueva:
         dec(l?.ajuste_salarial) > 0 || Number(l?.dias_laborados_villanueva ?? 0) > 0,
       ajusteVillanuevaPorDia: !!l?.ajuste_salarial_por_dia,
-      aplicaAjusteParex: dec(l?.ajuste_parex) > 0,
-      aplicaAjusteGeopark: dec(l?.ajuste_geopark) > 0,
+      /// El INTERRUPTOR, no el importe. Se conserva el importe en el OR
+      /// para las liquidaciones viejas que nunca pasaron por la columna.
+      aplicaAjusteParex: !!(l as any)?.aplica_ajuste_parex || dec(l?.ajuste_parex) > 0,
+      aplicaAjusteGeopark:
+        !!(l as any)?.aplica_ajuste_geopark || dec(l?.ajuste_geopark) > 0,
       ajusteRecargosCompletos: !!l?.ajuste_parex_recargos_completos,
       aplicaIncapacidad: !!l?.periodo_start_incapacidad,
       diasAjusteDeducciones:

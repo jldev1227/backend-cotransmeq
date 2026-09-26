@@ -459,6 +459,19 @@ export interface HojaNomina {
    * Ausente en snapshots anteriores a que la hoja lo dejara teclear.
    */
   diasAjusteDeducciones?: number | null;
+  /**
+   * Los tres interruptores del ajuste de recargos, que se marcan en la hoja.
+   *
+   * `aplicaAjusteParex` y `..Geopark` deciden si el 100 % de los recargos de
+   * ese cliente entra en la base prestacional. `ajusteRecargosCompletos` lo
+   * hace con TODOS los recargos del corte —OTROS, PAREX y GEOPARK— y manda
+   * sobre los otros dos.
+   *
+   * Ausentes en snapshots anteriores a que la hoja los dejara marcar.
+   */
+  aplicaAjusteParex?: boolean;
+  aplicaAjusteGeopark?: boolean;
+  ajusteRecargosCompletos?: boolean;
   /** Correo del conductor: es a donde va el desprendible. `null` si no tiene. */
   correo: string | null;
   cargo: string;

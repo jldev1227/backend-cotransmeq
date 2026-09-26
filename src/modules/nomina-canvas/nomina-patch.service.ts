@@ -60,6 +60,11 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   observaciones: 'flag', // texto libre; se valida aparte
   descontar_salud_salario: 'flag',
   descontar_pension_salario: 'flag',
+  /// Los tres interruptores del ajuste de recargos, que se marcan en la
+  /// hoja. `aplica_*` antes se deducía del importe, que solo se escribe
+  /// cuando el interruptor ya está puesto: un círculo cerrado.
+  aplica_ajuste_parex: 'flag',
+  aplica_ajuste_geopark: 'flag',
   ajuste_parex_recargos_completos: 'flag',
   ajuste_salarial_por_dia: 'flag',
   mostrar_recargos: 'flag',
@@ -203,7 +208,26 @@ function normalizar(campo: string, valor: unknown): number | boolean | string | 
     return t;
   }
 
-  if (tipo === 'flag') return valor === true || valor === 'true' || valor === 1;
+  /**
+   * Los flags llegan también como TEXTO DE CELDA.
+   *
+   * El checkbox de Univer no guarda un booleano: guarda la cadena con la que
+   * se construyó la regla —`SÍ` / `NO`—, y ese es el valor que viaja en el
+   * patch. Se aceptan además las formas que ya toleran los otros canvas
+   * (`SI`, `S`, `X`, `1`, `TRUE`), sin distinguir mayúsculas ni acentos, para
+   * que una celda tecleada a mano valga igual que una marcada con el ratón.
+   *
+   * Todo lo demás —vacío incluido— es `false`: una casilla sin marcar.
+   */
+  if (tipo === 'flag') {
+    if (valor === true || valor === 1) return true;
+    const t = String(valor ?? '')
+      .trim()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '');
+    return t === 'TRUE' || t === 'SI' || t === 'S' || t === 'X' || t === '1';
+  }
 
   if (tipo === 'fecha') {
     /**
@@ -917,19 +941,36 @@ export const NominaPatchService = {
      */
     /// `periodo_end` es un `VarChar` `YYYY-MM-DD`: se recorta, como en el resto
     /// del módulo, en vez de construir un `Date` que además metería zona horaria.
+    /// `periodo_end` es un `VarChar` `YYYY-MM-DD`: se recorta, como en el resto
+    /// del módulo, en vez de construir un `Date` que además metería zona horaria.
     const anioCorte = Number(String(l.periodo_end).slice(0, 4)) || null;
     const configs = await prisma.configuraciones_liquidacion.findMany({
-      where: {
-        activo: true,
-        deleted_at: null,
-        /// Sin año legible no se filtra: es mejor liquidar con la configuración
-        /// que haya que dejar todos los parámetros en cero.
-        ...(anioCorte ? { OR: [{ anio: anioCorte }, { anio: null }] } : {}),
-      },
-      select: { nombre: true, valor: true },
+      where: { activo: true, deleted_at: null },
+      select: { nombre: true, valor: true, anio: true },
     });
-    const buscar = (nombre: string) =>
-      dec(configs.find((c) => c.nombre.trim().toLowerCase() === nombre.toLowerCase())?.valor);
+    /**
+     * El año del corte, y si no lo hay EL MÁS CERCANO POR DEBAJO.
+     *
+     * Filtrar duro por año dejaba sin parámetros a los cortes de un año sin
+     * filas —la tabla solo tiene 2025 y 2026, y hay 105 liquidaciones de
+     * 2024—: `buscar()` devolvía cero para todo y el recálculo guardaba salud
+     * y pensión en CERO. Un corte viejo tiene que liquidarse con la
+     * configuración que estaba vigente entonces, que es la última que existe
+     * antes de él; y si no hay ninguna anterior, la primera que haya, porque
+     * cero no es un parámetro: es la ausencia de uno.
+     */
+    const buscar = (nombre: string) => {
+      const suyas = configs.filter(
+        (c) => c.nombre.trim().toLowerCase() === nombre.toLowerCase(),
+      );
+      if (!suyas.length) return 0;
+      const anteriores = suyas
+        .filter((c) => c.anio == null || anioCorte == null || c.anio <= anioCorte)
+        .sort((a, b) => (b.anio ?? 0) - (a.anio ?? 0));
+      const elegida =
+        anteriores[0] ?? [...suyas].sort((a, b) => (a.anio ?? 0) - (b.anio ?? 0))[0];
+      return dec(elegida?.valor);
+    };
 
     const bonos = l.bonificaciones.map((b) => {
       let values: { quantity: number }[] = [];
@@ -1033,8 +1074,11 @@ export const NominaPatchService = {
       /// o la hoja enseñaría un bono que el recálculo no paga.
       aplicaAjusteVillanueva: dec(l.ajuste_salarial) > 0 || l.dias_laborados_villanueva > 0,
       ajusteVillanuevaPorDia: l.ajuste_salarial_por_dia,
-      aplicaAjusteParex: dec(l.ajuste_parex) > 0,
-      aplicaAjusteGeopark: dec((l as any).ajuste_geopark) > 0,
+      /// El INTERRUPTOR, no el importe. Se conserva el importe en el OR
+      /// para las liquidaciones viejas que nunca pasaron por la columna.
+      aplicaAjusteParex: (l as any).aplica_ajuste_parex || dec(l.ajuste_parex) > 0,
+      aplicaAjusteGeopark:
+        (l as any).aplica_ajuste_geopark || dec((l as any).ajuste_geopark) > 0,
       ajusteRecargosCompletos: l.ajuste_parex_recargos_completos,
       aplicaIncapacidad: !!l.periodo_start_incapacidad,
       diasAjusteDeducciones: l.dias_ajuste_deducciones,
@@ -1096,6 +1140,11 @@ export const NominaPatchService = {
          * `dias_laborados`. Por eso la celda del importe no se teclea.
          */
         ajuste_salarial: t.bonificacionVillanueva,
+        /// También derivados: el 8 % de los recargos de cada cliente. Se
+        /// quedaban con el valor viejo mientras el interruptor los encendía o
+        /// apagaba, así que la columna decía una cosa y el IBC otra.
+        ajuste_parex: t.ajusteParex,
+        ajuste_geopark: t.ajusteGeopark,
         salud: t.salud,
         pension: t.pension,
         sueldo_total: t.sueldoTotal,
