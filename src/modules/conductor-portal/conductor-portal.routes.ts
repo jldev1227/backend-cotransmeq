@@ -11,6 +11,9 @@ import { crearRegistroSchema } from '../dias-laborados/dias-laborados.schema'
 import { getIO } from '../../sockets'
 import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aws'
 import { emitirTokenPortal } from './portal-token.service'
+import type { PortalAccessChannel } from '../../lib/portal-access-link'
+import { NotificacionesService } from '../notificaciones/notificaciones.service'
+import { emitNotificacion } from '../../sockets'
 
 /**
  * Middleware de autenticación para el portal del conductor.
@@ -41,6 +44,48 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
   }
 }
 
+async function notificarFirmaDesprendible(liquidacion: {
+  id: string
+  periodo_start: string
+  periodo_end: string
+  conductores: { nombre: string; apellido: string } | null
+}) {
+  const usuarios = await prisma.usuarios.findMany({
+    where: { activo: true },
+    select: { id: true, role: true, area: true, permisos: true }
+  })
+  const destinatarios = usuarios.filter((usuario: any) => {
+    const areas = Array.isArray(usuario.area) ? usuario.area : []
+    const permisos = usuario.permisos && typeof usuario.permisos === 'object'
+      ? usuario.permisos as Record<string, unknown>
+      : {}
+    return usuario.role === 'admin' ||
+      usuario.role === 'gestor_nomina' ||
+      areas.includes('talento_humano') ||
+      areas.includes('administracion') ||
+      permisos.nomina === true
+  })
+  const nombre = `${liquidacion.conductores?.nombre ?? ''} ${liquidacion.conductores?.apellido ?? ''}`.trim() || 'Un conductor'
+  const periodo = [liquidacion.periodo_start, liquidacion.periodo_end].filter(Boolean).join(' al ')
+  const inicio = new Date(`${String(liquidacion.periodo_start).slice(0, 10)}T12:00:00Z`)
+  const fin = new Date(`${String(liquidacion.periodo_end).slice(0, 10)}T12:00:00Z`)
+  const referenciaTipo = Number.isNaN(inicio.getTime()) || Number.isNaN(fin.getTime())
+    ? 'nomina_desprendible_firmado'
+    : `nomina_desprendible_firmado:${fin.getUTCFullYear()}:${fin.getUTCMonth() + 1}:${inicio.getUTCDate()}`
+
+  for (const usuario of destinatarios) {
+    const notificacion = await NotificacionesService.crear({
+      usuario_id: usuario.id,
+      tipo: 'GENERAL',
+      titulo: 'Desprendible firmado',
+      mensaje: `${nombre} firmó su desprendible${periodo ? ` del ${periodo}` : ''}. Ya puedes consultarlo.`,
+      referencia_id: liquidacion.id,
+      referencia_tipo: referenciaTipo
+    })
+    emitNotificacion(notificacion)
+  }
+}
+
 export async function conductorPortalRoutes(app: FastifyInstance) {
 
   // ═══════════════════════════════════════════
@@ -55,14 +100,16 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         required: ['numero_identificacion'],
+        additionalProperties: false,
         properties: {
-          numero_identificacion: { type: 'string', minLength: 5, maxLength: 12 }
+          numero_identificacion: { type: 'string', minLength: 5, maxLength: 12 },
+          canal: { type: 'string', enum: ['web', 'mobile'], default: 'web' }
         }
       }
     }
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const { numero_identificacion } = request.body as { numero_identificacion: string }
+      const { numero_identificacion, canal = 'web' } = request.body as { numero_identificacion: string; canal?: PortalAccessChannel }
 
       // 1. Buscar conductor
       const conductor = await prisma.conductores.findUnique({
@@ -103,7 +150,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         to: conductor.email,
         conductorNombre: conductor.nombre,
         conductorApellido: conductor.apellido,
-        token: jwtToken
+        token: jwtToken,
+        canal
       })
 
       // Ocultar parcialmente el email para la respuesta
@@ -193,6 +241,47 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
   app.register(async function protectedRoutes(protectedApp) {
     protectedApp.addHook('onRequest', portalAuthMiddleware)
+
+    protectedApp.post('/conductor-portal/dispositivos-push', {
+      schema: {
+        description: 'Registrar esta instalación móvil para notificaciones push',
+        tags: ['conductor-portal']
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      const conductor = (request as any).conductorPortal
+      const body = (request.body ?? {}) as Record<string, unknown>
+      const token = typeof body.expo_push_token === 'string' ? body.expo_push_token.trim() : ''
+      const plataforma = body.plataforma === 'android' ? 'android' : body.plataforma === 'ios' ? 'ios' : ''
+      if (!/^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(token) || !plataforma) {
+        return reply.status(400).send({ success: false, message: 'Dispositivo push inválido' })
+      }
+      await prisma.conductor_push_device.upsert({
+        where: { expo_push_token: token },
+        create: {
+          conductor_id: conductor.id,
+          expo_push_token: token,
+          plataforma,
+          activo: true
+        },
+        update: {
+          conductor_id: conductor.id,
+          plataforma,
+          activo: true,
+          last_seen_at: new Date()
+        }
+      })
+      return reply.send({ success: true })
+    })
+
+    protectedApp.delete('/conductor-portal/dispositivos-push', async (request: FastifyRequest, reply: FastifyReply) => {
+      const conductor = (request as any).conductorPortal
+      const token = String((request.body as any)?.expo_push_token ?? '').trim()
+      await prisma.conductor_push_device.updateMany({
+        where: { conductor_id: conductor.id, expo_push_token: token },
+        data: { activo: false }
+      })
+      return reply.send({ success: true })
+    })
 
     // ─── Listar desprendibles (liquidaciones) del conductor ───
     protectedApp.get('/conductor-portal/desprendibles', {
@@ -332,6 +421,47 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
+    // ─── PDF del desprendible para el visor nativo móvil ───
+    protectedApp.get('/conductor-portal/desprendibles/:id/pdf', {
+      schema: {
+        description: 'Descargar el PDF de un desprendible visible del conductor autenticado',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const liquidacion = await prisma.liquidaciones.findFirst({
+          where: {
+            id: request.params.id,
+            conductor_id: conductor.id,
+            desprendible_visible: true,
+            deleted_at: null
+          },
+          select: { id: true }
+        })
+        if (!liquidacion) {
+          return reply.status(404).send({ success: false, message: 'Desprendible no encontrado' })
+        }
+
+        const { buffer, fileName } = await LiquidacionesService.generatePayslipPdfBuffer(liquidacion.id)
+        reply.header('Content-Type', 'application/pdf')
+        reply.header('Content-Disposition', `inline; filename="${fileName.replace(/"/g, '')}"`)
+        reply.header('Cache-Control', 'private, no-store')
+        return reply.send(buffer)
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error generando PDF de desprendible para conductor')
+        return reply.status(500).send({
+          success: false,
+          message: err.message || 'No fue posible generar el desprendible'
+        })
+      }
+    })
+
     // ─── Ver prima con firma reutilizada del desprendible ───
     protectedApp.get('/conductor-portal/prima/:id', {
       schema: {
@@ -464,8 +594,13 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // Verificar que la liquidación pertenece al conductor
         const liq = await prisma.liquidaciones.findFirst({
-          where: { deleted_at: null, id, conductor_id: conductor.id },
-          select: { id: true }
+          where: { deleted_at: null, id, conductor_id: conductor.id, desprendible_visible: true },
+          select: {
+            id: true,
+            periodo_start: true,
+            periodo_end: true,
+            conductores: { select: { nombre: true, apellido: true } }
+          }
         })
 
         if (!liq) {
@@ -614,8 +749,9 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         body: {
           type: 'object',
           required: ['firma_base64'],
+          additionalProperties: false,
           properties: {
-            firma_base64: { type: 'string', minLength: 100 }
+            firma_base64: { type: 'string', minLength: 100, maxLength: 2500000 }
           }
         }
       }
@@ -627,8 +763,19 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // 1. Verificar que la liquidación pertenece al conductor
         const liq = await prisma.liquidaciones.findFirst({
-          where: { deleted_at: null, id, conductor_id: conductor.id },
-          select: { id: true }
+          where: {
+            deleted_at: null,
+            id,
+            conductor_id: conductor.id,
+            desprendible_visible: true,
+            estado_flujo: 'PAGADA'
+          },
+          select: {
+            id: true,
+            periodo_start: true,
+            periodo_end: true,
+            conductores: { select: { nombre: true, apellido: true } }
+          }
         })
 
         if (!liq) {
@@ -656,11 +803,21 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         }
 
         // 3. Convertir base64 a buffer
-        const base64Data = firma_base64.replace(/^data:image\/\w+;base64,/, '')
+        if (!firma_base64.startsWith('data:image/png;base64,')) {
+          return reply.status(400).send({
+            success: false,
+            message: 'La firma debe enviarse como una imagen PNG válida.'
+          })
+        }
+        const base64Data = firma_base64.replace(/^data:image\/png;base64,/, '')
         const buffer = Buffer.from(base64Data, 'base64')
 
-        // Validar tamaño mínimo (firma real debería ser > 2KB)
-        if (buffer.length < 2000) {
+        // Tamaño razonable y cabecera PNG: evita aceptar contenido arbitrario
+        // bajo una extensión de imagen.
+        const esPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(
+          Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        )
+        if (buffer.length < 2000 || buffer.length > 1800000 || !esPng) {
           return reply.status(400).send({
             success: false,
             message: 'La firma proporcionada no es válida. Debe ser una firma legible.'
@@ -705,6 +862,17 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
               updated_at: now
             }
           })
+        }
+
+        // 6. La firma es el acto principal. Si el inbox administrativo falla,
+        // se conserva la firma y se registra el fallo para reintento operativo.
+        try {
+          await notificarFirmaDesprendible(liq)
+        } catch (notificationError) {
+          request.log.error(
+            { error: notificationError, liquidacionId: id },
+            'Firma guardada, pero no se pudo notificar a los gestores de nómina'
+          )
         }
 
         return reply.send({
@@ -1252,20 +1420,25 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
               type: 'array',
               items: {
                 type: 'object',
+                required: ['vehiculo_placa', 'hora_inicio', 'hora_fin', 'horas_conducidas', 'descripcion_servicio'],
+                additionalProperties: false,
                 properties: {
-                  cliente_id: { type: 'string' },
-                  cliente_nombre: { type: 'string' },
-                  vehiculo_id: { type: 'string' },
-                  vehiculo_placa: { type: 'string' },
-                  hora_inicio: { type: 'string' },
-                  hora_fin: { type: 'string' },
+                  cliente_id: { type: ['string', 'null'], format: 'uuid' },
+                  cliente_nombre: { type: ['string', 'null'] },
+                  vehiculo_id: { type: ['string', 'null'], format: 'uuid' },
+                  vehiculo_placa: { type: 'string', minLength: 1 },
+                  hora_inicio: { type: 'string', pattern: '^\\d{2}:\\d{2}$' },
+                  hora_fin: { type: 'string', pattern: '^\\d{2}:\\d{2}$' },
+                  dias_offset_inicio: { type: 'integer', minimum: 0, maximum: 2, default: 0 },
+                  dias_offset_fin: { type: 'integer', minimum: 0, maximum: 2, default: 0 },
                   inicio_dia_siguiente: { type: 'boolean' },
                   fin_dia_siguiente: { type: 'boolean' },
-                  horas_conducidas: { type: 'number' },
+                  horas_conducidas: { type: 'number', minimum: 0, maximum: 24 },
                   km_inicial: { type: ['integer', 'null'] },
                   km_final: { type: ['integer', 'null'] },
                   pernocte: { type: 'boolean' },
-                  observaciones: { type: 'string' }
+                  observaciones: { type: 'string' },
+                  descripcion_servicio: { type: 'string', minLength: 1, maxLength: 500 }
                 }
               },
               default: []

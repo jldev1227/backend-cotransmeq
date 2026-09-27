@@ -84,6 +84,39 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
   })
 
   // ================================================================
+  // GET /api/desprendible-firma/:token/pdf — PDF canónico (público,
+  // únicamente después de firmar)
+  // ================================================================
+  app.get('/desprendible-firma/:token/pdf', async (
+    request: FastifyRequest<{ Params: { token: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const { token } = request.params
+      const firma = await prisma.firmas_desprendibles.findUnique({ where: { token } })
+      if (!firma) {
+        return reply.status(404).send({ success: false, message: 'Enlace inválido.' })
+      }
+      if (firma.expires_at && new Date(firma.expires_at) < new Date()) {
+        return reply.status(410).send({ success: false, message: 'Este enlace ha expirado.' })
+      }
+      const yaFirmo = firma.firma_url !== '' && firma.firma_url !== 'pending'
+      if (!yaFirmo) {
+        return reply.status(403).send({ success: false, message: 'Debe firmar primero para ver el desprendible.' })
+      }
+
+      const { buffer, fileName } = await LiquidacionesService.generatePayslipPdfBuffer(firma.liquidacion_id)
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="${fileName}"`)
+      reply.header('Cache-Control', 'private, no-store')
+      return reply.send(buffer)
+    } catch (error: any) {
+      request.log.error({ error }, 'Error generando PDF público del desprendible')
+      return reply.status(500).send({ success: false, message: error.message || 'Error al generar el desprendible.' })
+    }
+  })
+
+  // ================================================================
   // POST /api/desprendible-firma/:token/firmar — Registrar firma (público)
   // ================================================================
   app.post('/desprendible-firma/:token/firmar', async (

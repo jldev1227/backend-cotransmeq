@@ -281,6 +281,11 @@ export const NominaEstadoService = {
           estado_flujo: estado,
           // El enum viejo sigue el flujo para no romper a quien lo lee.
           estado: ESTADOS_YA_LIQUIDADOS.includes(estado) ? 'Liquidado' : 'Pendiente',
+          // Pagar y publicar forman una sola operación de negocio: el aviso al
+          // conductor no debe llevarlo a un desprendible todavía oculto.
+          // En otros cambios de estado se conserva el valor existente para no
+          // deshacer una decisión manual de visibilidad.
+          ...(estado === 'PAGADA' ? { desprendible_visible: true } : {}),
           motivo_anulacion: estado === 'ANULADA' ? motivo?.trim() ?? null : null,
           actualizado_por_id: actor.id || null,
           ...(estado === 'LIQUIDADA' ? { liquidado_por_id: actor.id || null } : {}),

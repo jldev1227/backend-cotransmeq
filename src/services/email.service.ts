@@ -4,6 +4,7 @@ import type { Transporter } from 'nodemailer'
 import { env } from '../config/env'
 import { AREA_LABELS } from '../config/permissions'
 import { LOGO_EMAIL_URL_POR_DEFECTO } from '../lib/branding'
+import { buildPortalAccessLink, type PortalAccessChannel } from '../lib/portal-access-link'
 
 // ═══════════════════════════════════════════════════════
 // PROVEEDOR DE EMAIL: Resend (principal) o SMTP (fallback)
@@ -151,6 +152,7 @@ interface SendMagicLinkParams {
   conductorNombre: string
   conductorApellido: string
   token: string
+  canal?: PortalAccessChannel
 }
 
 export const EmailService = {
@@ -304,9 +306,14 @@ export const EmailService = {
     }
   },
 
-  async sendPortalAccessLink({ to, conductorNombre, conductorApellido, token }: SendMagicLinkParams) {
+  async sendPortalAccessLink({ to, conductorNombre, conductorApellido, token, canal = 'web' }: SendMagicLinkParams) {
     const frontendUrl = getEmailFrontendUrl()
-    const portalLink = `${frontendUrl}/public/portal?token=${token}`
+    const portalLink = buildPortalAccessLink({
+      canal,
+      token,
+      webBaseUrl: frontendUrl,
+      mobileBaseUrl: env.MOBILE_PORTAL_URL
+    })
     const nombreCompleto = `${conductorNombre} ${conductorApellido}`
     const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
 

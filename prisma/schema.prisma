@@ -174,6 +174,8 @@ model conductores {
   nomina                                 Boolean                                  @default(false)
   deleted_at                             DateTime?                                @db.Timestamptz(6)
   anticipos                              anticipos[]
+  dispositivos_push                     conductor_push_device[]
+  notificaciones                         conductor_notification[]
   usuarios                               usuarios?                                @relation(fields: [creado_por_id], references: [id])
   firmas_desprendibles                   firmas_desprendibles[]
   firmas_primas                          firmas_primas[]
@@ -212,6 +214,43 @@ model conductor_token {
 
   @@index([token])
   @@index([conductor_id])
+}
+
+/// Instalaciones móviles autorizadas para recibir avisos del conductor.
+model conductor_push_device {
+  id              String      @id @default(uuid()) @db.Uuid
+  conductor_id    String      @db.Uuid
+  expo_push_token String      @unique @db.VarChar(255)
+  plataforma      String      @db.VarChar(20)
+  activo          Boolean     @default(true)
+  last_seen_at    DateTime    @default(now()) @db.Timestamptz(6)
+  created_at      DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime    @updatedAt @db.Timestamptz(6)
+  conductor       conductores @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+
+  @@index([conductor_id, activo])
+}
+
+/// Inbox durable: el aviso existe aunque el teléfono esté apagado o sin token.
+model conductor_notification {
+  id              String      @id @default(uuid()) @db.Uuid
+  conductor_id    String      @db.Uuid
+  liquidacion_id  String?     @db.Uuid
+  tipo            String      @db.VarChar(50)
+  titulo          String      @db.VarChar(160)
+  cuerpo          String
+  datos           Json        @default("{}") @db.JsonB
+  estado_push     String      @default("PENDIENTE") @db.VarChar(30)
+  expo_ticket_id  String?     @db.VarChar(255)
+  error_push      String?
+  leida_at        DateTime?   @db.Timestamptz(6)
+  enviada_at      DateTime?   @db.Timestamptz(6)
+  created_at      DateTime    @default(now()) @db.Timestamptz(6)
+  conductor       conductores @relation(fields: [conductor_id], references: [id], onDelete: Cascade)
+
+  @@index([conductor_id, created_at])
+  @@index([liquidacion_id])
+  @@index([estado_push])
 }
 
 /// Registro diario de actividad del conductor

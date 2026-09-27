@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 /**
  * Documento del desprendible de nómina, en HTML, para renderizar con
  * Puppeteer.
@@ -40,6 +43,7 @@ export interface LineaDesprendible {
   concepto: string;
   cantidad?: number | string | null;
   valor: number;
+  grupo?: 'basico' | 'adicional' | 'novedad';
 }
 
 export interface DatosDesprendible {
@@ -50,6 +54,8 @@ export interface DatosDesprendible {
     cargo: string;
     /** `AGOSTO 2026 (21 JUL — 20 AGO)`. */
     periodo: string;
+    /** Mes contable derivado de la fecha final, por ejemplo `septiembre de 2026`. */
+    mesNomina: string;
     estado?: string;
   };
   devengos: LineaDesprendible[];
@@ -66,6 +72,19 @@ export interface DatosDesprendible {
   firmaUrl?: string | null;
   fechaFirma?: string | null;
 }
+
+const assetDataUrl = (fileName: string, mimeType: string): string => {
+  try {
+    const assetPath = path.join(__dirname, '..', '..', 'assets', fileName);
+    return `data:${mimeType};base64,${fs.readFileSync(assetPath).toString('base64')}`;
+  } catch {
+    return '';
+  }
+};
+
+const LOGO_DATA_URL = assetDataUrl('desprendible/logo.png', 'image/png');
+const MASCOT_DATA_URL = assetDataUrl('desprendible/mascota-trabajando.png', 'image/png');
+const STAMP_DATA_URL = assetDataUrl('sello-firma-terceros.png', 'image/png');
 
 const COP = (v: number): string =>
   new Intl.NumberFormat('es-CO', {
@@ -110,6 +129,18 @@ function filas(lineas: LineaDesprendible[], claseValor = ''): string {
     .join('');
 }
 
+function grupoDeLinea(linea: LineaDesprendible): 'basico' | 'adicional' | 'novedad' {
+  if (linea.grupo) return linea.grupo;
+  const concepto = linea.concepto.toUpperCase();
+  if (concepto === 'SALARIO' || concepto.includes('AUXILIO DE TRANSPORTE') || concepto.includes('NIVELACION')) {
+    return 'basico';
+  }
+  if (concepto.includes('VACACION') || concepto.includes('LICENCIA') || concepto.includes('INCAPACIDAD') || concepto.includes('CESANT')) {
+    return 'novedad';
+  }
+  return 'adicional';
+}
+
 export interface OpcionesRender {
   /**
    * CSS que se inyecta antes de la hoja del documento: los `@font-face` de
@@ -126,6 +157,23 @@ export function renderDesprendibleHtml(
   const totalDevengado = d.devengos.reduce((s, l) => s + (l.valor || 0), 0);
   const totalDeducido = d.deducciones.reduce((s, l) => s + (l.valor || 0), 0);
   const neto = totalDevengado - totalDeducido;
+  const basicos = d.devengos.filter((linea) => grupoDeLinea(linea) === 'basico');
+  const adicionales = d.devengos.filter((linea) => grupoDeLinea(linea) === 'adicional');
+  const novedades = d.devengos.filter((linea) => grupoDeLinea(linea) === 'novedad');
+  const diasLaborados = basicos.find((linea) => linea.concepto.toUpperCase().startsWith('SALARIO'))?.cantidad ?? '';
+
+  const tablaConceptos = (
+    titulo: string,
+    subtitulo: string,
+    lineas: LineaDesprendible[],
+    claseValor = '',
+  ): string => `<section class="card concept-card">
+    <h2 class="card-title">${esc(titulo)}<span class="card-subtitle">${esc(subtitulo)}</span></h2>
+    <table>
+      <thead><tr><th>CONCEPTO</th><th class="c">CANT.</th><th class="d">VALOR</th></tr></thead>
+      <tbody>${filas(lineas, claseValor)}</tbody>
+    </table>
+  </section>`;
 
   const bloques = (d.bloques ?? [])
     .filter((b) => b.lineas.some((l) => Number(l.cantidad) > 0 || l.valor > 0))
@@ -144,125 +192,167 @@ export function renderDesprendibleHtml(
     )
     .join('');
 
+  const logo = LOGO_DATA_URL
+    ? `<img class="brand-logo" src="${LOGO_DATA_URL}" alt="Cotransmeq">`
+    : `<strong class="brand-fallback">COTRANSMEQ</strong>`;
+  const mascot = MASCOT_DATA_URL
+    ? `<img class="mascot" src="${MASCOT_DATA_URL}" alt="">`
+    : '';
+  const stamp = STAMP_DATA_URL
+    ? `<img class="stamp-image" src="${STAMP_DATA_URL}" alt="Sello autorizado de Cotransmeq">`
+    : '';
+
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <style>${opciones.prelude ?? ''}</style>
 <style>
-  @page { size: letter portrait; margin: 12mm 12mm 10mm; }
+  @page { size: letter portrait; margin: 9mm 10mm 9mm; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: 'Inter Tight', system-ui, sans-serif;
-    font-size: var(--tpdf-fs-body, 8pt);
-    color: var(--tpdf-tinta, #0f172a);
+    font-size: var(--tpdf-fs-body, 7.8pt);
+    color: #17201d;
+    background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  h1, h2, h3 { margin: 0; font-family: 'Fraunces', Georgia, serif; }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2, h3 { font-family: 'Inter Tight', system-ui, sans-serif; }
+  main { display: flex; flex-direction: column; gap: 8pt; }
   .cabecera {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    border-bottom: 2pt solid var(--tpdf-verde, #0f4025); padding-bottom: 6pt;
+    position: relative; min-height: 116pt; overflow: hidden;
+    border-radius: 18pt; padding: 14pt 18pt;
+    background: #14532d; color: #fff;
   }
-  .cabecera h1 { font-size: var(--tpdf-fs-titulo, 13pt); color: var(--tpdf-verde, #0f4025); }
-  .cabecera .nit { font-size: var(--tpdf-fs-micro, 6.5pt); color: #475569; }
-  .doc { text-align: right; }
-  .doc h2 { font-size: var(--tpdf-fs-seccion, 10pt); }
+  .cabecera::before, .cabecera::after {
+    content: ''; position: absolute; border-radius: 999pt;
+    background: rgba(255,255,255,.055);
+  }
+  .cabecera::before { width: 160pt; height: 160pt; right: -52pt; top: -78pt; }
+  .cabecera::after { width: 58pt; height: 58pt; left: -20pt; bottom: -28pt; }
+  .brand { position: relative; z-index: 2; display: flex; align-items: center; gap: 8pt; }
+  .brand-logo { width: 96pt; max-height: 30pt; object-fit: contain; object-position: left center; filter: brightness(0) invert(1); }
+  .brand-fallback { color: #fff; font-size: 10pt; letter-spacing: .08em; }
+  .brand-meta { color: #f0fdf4; font-size: 7.8pt; line-height: 1.35; font-weight: 750; letter-spacing: .015em; }
+  .doc { position: relative; z-index: 2; width: 65%; margin-top: 12pt; }
+  .doc .kicker { color: #fdba74; font-size: 6.3pt; font-weight: 800; letter-spacing: .15em; }
+  .doc h1 { margin-top: 3pt; color: #fff; font-size: 18.5pt; line-height: 1.05; letter-spacing: -.025em; }
+  .doc .periodo { margin-top: 5pt; color: #ffedd5; font-size: 8pt; font-weight: 600; }
+  .mascot { position: absolute; z-index: 2; width: 114pt; height: 114pt; object-fit: contain; right: 5pt; bottom: -8pt; }
   .estado {
-    display: inline-block; margin-top: 3pt; padding: 1pt 6pt; border-radius: 9pt;
-    background: var(--tpdf-verde-suave, #edf7f1); color: var(--tpdf-verde, #0f4025);
-    font-size: var(--tpdf-fs-micro, 6.5pt); font-weight: 600; letter-spacing: .04em;
+    display: inline-block; margin-top: 6pt; padding: 3pt 7pt; border-radius: 999pt;
+    background: rgba(255,255,255,.14); color: #fff;
+    font-size: 6pt; font-weight: 800; letter-spacing: .06em;
   }
-  .empleado {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4pt 10pt;
-    margin: 8pt 0; padding: 6pt 8pt;
-    background: var(--tpdf-verde-suave, #edf7f1); border-radius: 3pt;
-  }
-  .empleado dt { font-size: var(--tpdf-fs-micro, 6.5pt); color: #475569; letter-spacing: .04em; }
-  .empleado dd { margin: 0; font-weight: 600; }
+  .identity-strip { display: grid; grid-template-columns: 1.7fr .9fr .7fr 1fr; gap: 8pt; padding: 9pt 10pt; background: #f7faf8; border-bottom: .6pt solid #dee7e3; }
+  .identity-label { display: block; font-size: 5.5pt; color: #66756f; font-weight: 800; letter-spacing: .09em; }
+  .identity-value { display: block; margin-top: 2pt; font-size: 7.3pt; line-height: 1.2; font-weight: 800; }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   thead th {
-    background: var(--tpdf-verde, #0f4025); color: #fff; text-align: left;
-    padding: 3pt 5pt; font-size: var(--tpdf-fs-micro, 6.5pt); letter-spacing: .04em;
+    background: #ffedd5; color: #14532d; text-align: left;
+    padding: 5pt 6pt; font-size: 5.8pt; letter-spacing: .08em;
   }
-  tbody td { padding: 2.5pt 5pt; border-bottom: .5pt solid #e2e8f0; }
-  tfoot td { padding: 3pt 5pt; background: #e2e8f0; font-weight: 700; }
+  tbody td { padding: 4pt 6pt; border-bottom: .5pt solid #edf3f0; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tfoot td { padding: 5pt 6pt; background: #fff7ed; color: #14532d; font-weight: 800; border-top: .7pt solid #fed7aa; }
   .c { text-align: center; }
   .d { text-align: right; font-family: 'JetBrains Mono', monospace; }
-  .rojo { color: #b91c1c; }
+  .rojo { color: #b42318; }
   .vacio { color: #94a3b8; font-style: italic; text-align: center; padding: 6pt; }
-  /* Devengos y deducciones en paralelo, como en la hoja de cálculo: leerlos
-     uno debajo del otro obliga a pasar página para comparar. */
-  .columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; margin-top: 6pt; }
-  .resumen { margin-top: 8pt; margin-left: auto; width: 55%; }
-  .resumen tr td { padding: 3pt 5pt; border-bottom: .5pt solid #e2e8f0; }
+  .columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; }
+  .card { overflow: hidden; background: #fff; border: .6pt solid #dee7e3; border-radius: 13pt; break-inside: avoid; }
+  .card-title { padding: 7pt 8pt 5pt; color: #17201d; font-size: 9pt; font-weight: 850; }
+  .card-subtitle { display: block; margin-top: 1pt; color: #66756f; font-size: 5.8pt; font-weight: 550; }
+  .basic-card .card-title { padding-top: 8pt; }
+  .concept-card { min-height: 72pt; }
+  .closing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; align-items: stretch; }
+  .closing-grid > .card, .closing-grid > .resumen-card { height: 100%; }
+  .resumen-card { padding: 7pt; background: #fff; border: .6pt solid #dee7e3; border-radius: 13pt; break-inside: avoid; display: flex; flex-direction: column; }
+  .resumen-card .card-title { padding: 0 1pt 6pt; }
+  .resumen { width: 100%; }
+  .resumen tr td { padding: 4pt 6pt; border-bottom: .5pt solid #edf3f0; }
   .resumen tr.neto td {
-    background: var(--tpdf-verde, #0f4025); color: #fff;
-    font-size: var(--tpdf-fs-seccion, 10pt); font-weight: 700; border: 0;
+    background: #f97316; color: #fff;
+    font-size: 9pt; font-weight: 850; border: 0;
   }
+  .resumen tr.neto td:first-child { border-radius: 8pt 0 0 8pt; }
+  .resumen tr.neto td:last-child { border-radius: 0 8pt 8pt 0; }
   .bloques { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; margin-top: 10pt; }
-  .bloque header h3 { font-size: var(--tpdf-fs-head, 7.5pt); }
-  .bloque header p { margin: 1pt 0 3pt; font-size: var(--tpdf-fs-micro, 6.5pt); color: #475569; }
-  /* Un bloque no se parte entre páginas: media tabla de recargos arriba y
-     media abajo no se entiende. */
-  .bloque { break-inside: avoid; }
-  .firmas { margin-top: 18pt; display: grid; grid-template-columns: 1fr 1fr; gap: 24pt; }
-  .firma { text-align: center; }
-  .firma .linea { border-top: .75pt solid #0f172a; margin-top: 26pt; padding-top: 3pt; }
-  .firma img { max-height: 26pt; }
-  .firma small { color: #475569; font-size: var(--tpdf-fs-micro, 6.5pt); }
+  .bloque { overflow: hidden; padding: 7pt; background: #fff; border: .6pt solid #dee7e3; border-radius: 13pt; break-inside: avoid; }
+  .bloque header h3 { color: #14532d; font-size: 8pt; }
+  .bloque header p { margin: 1pt 0 4pt; font-size: 5.8pt; color: #66756f; }
+  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 22pt; padding: 10pt 14pt 9pt; background: #fff; border: .6pt solid #dee7e3; border-radius: 13pt; break-inside: avoid; }
+  .firma { min-width: 0; text-align: center; display: flex; flex-direction: column; }
+  .firma-media { height: 47pt; display: flex; align-items: flex-end; justify-content: center; overflow: visible; }
+  .firma .linea { width: 100%; border-top: .75pt solid #94a3b8; margin-top: 1pt; padding-top: 4pt; color: #14532d; font-weight: 800; }
+  .firma-image { display: block; max-height: 45pt; max-width: 190pt; object-fit: contain; }
+  .stamp-image { display: block; width: 180pt; max-height: 61pt; object-fit: contain; mix-blend-mode: multiply; }
+  .firma small { color: #66756f; font-size: 5.8pt; }
+  .document-footer { text-align: center; color: #66756f; font-size: 5.7pt; letter-spacing: .025em; }
 </style></head>
 <body>
-  <div class="cabecera">
-    <div>
-      <h1>${esc(d.empresa.nombre)}</h1>
-      <p class="nit">NIT ${esc(d.empresa.nit)}</p>
+<main>
+  <header class="cabecera">
+    <div class="brand">
+      ${logo}
+      <p class="brand-meta">${esc(d.empresa.nombre)}<br>NIT ${esc(d.empresa.nit)}</p>
     </div>
     <div class="doc">
-      <h2>DESPRENDIBLE DE NÓMINA</h2>
-      <p class="nit">${esc(d.empleado.periodo)}</p>
+      <p class="kicker">COMPROBANTE DIGITAL</p>
+      <h1>Desprendible de nómina<br>del mes de ${esc(d.empleado.mesNomina)}</h1>
+      <p class="periodo">${esc(d.empleado.periodo)}</p>
       ${d.empleado.estado ? `<span class="estado">${esc(d.empleado.estado)}</span>` : ''}
     </div>
-  </div>
+    ${mascot}
+  </header>
 
-  <dl class="empleado">
-    <div><dt>EMPLEADO</dt><dd>${esc(d.empleado.nombre)}</dd></div>
-    <div><dt>CÉDULA</dt><dd>${esc(d.empleado.cedula)}</dd></div>
-    <div><dt>CARGO</dt><dd>${esc(d.empleado.cargo)}</dd></div>
-    <div><dt>PERIODO</dt><dd>${esc(d.empleado.periodo)}</dd></div>
-  </dl>
+  <section class="card basic-card">
+    <div class="identity-strip">
+      <div><span class="identity-label">NOMBRE</span><span class="identity-value">${esc(d.empleado.nombre)}</span></div>
+      <div><span class="identity-label">C.C.</span><span class="identity-value">${esc(d.empleado.cedula)}</span></div>
+      <div><span class="identity-label">DÍAS LABORADOS</span><span class="identity-value">${esc(num(diasLaborados))}</span></div>
+      <div><span class="identity-label">CARGO</span><span class="identity-value">${esc(d.empleado.cargo)}</span></div>
+    </div>
+    <h2 class="card-title">Información básica<span class="card-subtitle">Salario y conceptos ordinarios</span></h2>
+    <table>
+      <thead><tr><th>CONCEPTO</th><th class="c">CANT.</th><th class="d">VALOR</th></tr></thead>
+      <tbody>${filas(basicos)}</tbody>
+    </table>
+  </section>
 
   <div class="columnas">
-    <table>
-      <thead><tr><th>DEVENGOS</th><th class="c">CANT.</th><th class="d">VALOR</th></tr></thead>
-      <tbody>${filas(d.devengos)}</tbody>
-      <tfoot><tr><td colspan="2">TOTAL DEVENGADO</td><td class="d">${COP(totalDevengado)}</td></tr></tfoot>
-    </table>
-    <table>
-      <thead><tr><th>DEDUCCIONES</th><th class="c">CANT.</th><th class="d">VALOR</th></tr></thead>
-      <tbody>${filas(d.deducciones, 'rojo')}</tbody>
-      <tfoot><tr><td colspan="2">TOTAL DEDUCCIONES</td><td class="d rojo">${COP(totalDeducido)}</td></tr></tfoot>
-    </table>
+    ${tablaConceptos(`Adicionales del ${d.empleado.periodo}`, 'Bonos y recargos OTROS, PAREX y GEOPARK', adicionales)}
+    ${tablaConceptos('Novedades y otros conceptos', 'Vacaciones, licencias y conceptos adicionales', novedades)}
   </div>
 
-  <table class="resumen">
-    <tr><td>Base prestacional</td><td class="d">${COP(d.basePrestacional)}</td></tr>
-    <tr><td>Total devengado</td><td class="d">${COP(totalDevengado)}</td></tr>
-    <tr><td>Total deducciones</td><td class="d rojo">${COP(totalDeducido)}</td></tr>
-    <tr class="neto"><td>NETO A PAGAR</td><td class="d">${COP(neto)}</td></tr>
-  </table>
+  <div class="closing-grid">
+    ${tablaConceptos('Deducciones', 'Descuentos aplicados al periodo', d.deducciones, 'rojo')}
+    <section class="resumen-card">
+      <h2 class="card-title">Resumen de pago<span class="card-subtitle">Valor final del periodo</span></h2>
+      <table class="resumen">
+        <tr><td>Total ingresos</td><td class="d">${COP(totalDevengado)}</td></tr>
+        <tr><td>Total deducciones</td><td class="d rojo">${COP(totalDeducido)}</td></tr>
+        <tr class="neto"><td>NETO A PAGAR</td><td class="d">${COP(neto)}</td></tr>
+      </table>
+    </section>
+  </div>
 
   ${bloques ? `<div class="bloques">${bloques}</div>` : ''}
 
   <div class="firmas">
     <div class="firma">
-      ${d.firmaUrl ? `<img src="${esc(d.firmaUrl)}" alt="">` : ''}
+      <div class="firma-media">${d.firmaUrl ? `<img class="firma-image" src="${esc(d.firmaUrl)}" alt="Firma del conductor">` : ''}</div>
       <div class="linea">${esc(d.empleado.nombre)}</div>
       <small>C.C. ${esc(d.empleado.cedula)}${d.fechaFirma ? ` · Firmado el ${esc(d.fechaFirma)}` : ''}</small>
     </div>
     <div class="firma">
+      <div class="firma-media">${stamp}</div>
       <div class="linea">${esc(d.empresa.nombre)}</div>
       <small>Empleador</small>
     </div>
   </div>
+  <p class="document-footer">Documento generado electrónicamente por Cotransmeq · Conserva este comprobante para tu archivo.</p>
+</main>
 </body></html>`;
 }

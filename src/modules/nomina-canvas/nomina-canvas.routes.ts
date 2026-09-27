@@ -3,6 +3,7 @@ import { NominaCanvasController } from './nomina-canvas.controller';
 import { NominaEstadoController, NominaSnapshotsController } from './nomina-estado.controller';
 import { NominaEnviosController } from './nomina-envios.controller';
 import { NominaBorradoresController } from './nomina-borradores.controller';
+import { NominaNotificacionesController } from './nomina-notificaciones.controller';
 import { authMiddleware } from '../../middlewares/auth.middleware';
 import { requirePermission } from '../../middlewares/permissions.middleware';
 
@@ -94,4 +95,6 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
   app.delete('/nomina/envios/job/:jobId', puedeEscribir, NominaEnviosController.cancelar);
   app.get('/nomina/envios/periodo', puedeLeer, NominaEnviosController.estadoPeriodo);
   app.get('/nomina/envios/liquidacion/:id', puedeLeer, NominaEnviosController.historial);
+  /// Canal separado del correo: persiste un inbox y luego entrega por Expo Push.
+  app.post('/nomina/notificaciones', puedeEscribir, NominaNotificacionesController.enviar);
 }

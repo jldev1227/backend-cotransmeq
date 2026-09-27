@@ -25,6 +25,9 @@ const envSchema = z.object({
   // canónica que verán los destinatarios al hacer clic. Si está vacía, se
   // intenta tomar la primera URL válida de FRONTEND_URL (separadas por coma).
   EMAIL_FRONTEND_URL: z.string().optional(),
+  // Deep link confiable para solicitudes originadas en la app móvil.
+  // No se recibe una URL arbitraria del cliente para evitar open redirects.
+  MOBILE_PORTAL_URL: z.string().optional().default('cotransmeq://portal'),
   // SMTP fallback (usado cuando no hay RESEND_API_KEY)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().transform(s => Number(s)).optional(),

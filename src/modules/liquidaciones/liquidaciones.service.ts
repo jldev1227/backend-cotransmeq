@@ -6,6 +6,7 @@ import * as pdfFonts from "pdfmake/build/vfs_fonts";
 import archiver from "archiver";
 import { getIO } from "../../sockets";
 import { pdfFromHtml } from "../../services/pdf.service";
+import { getS3SignedUrl } from "../../config/aws";
 import {
   renderDesprendibleHtml,
   type DatosDesprendible,
@@ -23,20 +24,29 @@ function periodoLegible(inicio: string, fin: string): string {
   const fmt = (iso: string): string | null => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return null;
-    return d
-      .toLocaleDateString("es-CO", {
+    return d.toLocaleDateString("es-CO", {
         day: "numeric",
         month: "short",
         year: "numeric",
         timeZone: "UTC",
       })
-      .toUpperCase()
-      .replace(/\./g, "");
+      .replace(/\./g, "")
+      .replace(/ de ([a-z]{3,}) de /i, " de $1 de ");
   };
   const a = fmt(inicio);
   const b = fmt(fin);
   if (!a || !b) return `${inicio} — ${fin}`;
-  return `${a} — ${b}`;
+  return `${a} - ${b}`;
+}
+
+function mesNomina(fechaFin: string): string {
+  const fecha = new Date(fechaFin);
+  if (Number.isNaN(fecha.getTime())) return "la nómina";
+  return fecha.toLocaleDateString("es-CO", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 /** `Desprendible_DAYRO-RODRIGUEZ_21-JUL-2026.pdf`, sin tildes ni espacios. */
@@ -2315,17 +2325,18 @@ export const LiquidacionesService = {
     };
 
     const devengos: LineaDesprendible[] = [
-      { concepto: "SALARIO", cantidad: l.dias_laborados, valor: n(l.salario_devengado) },
-      { concepto: "AUXILIO DE TRANSPORTE", cantidad: l.dias_laborados, valor: n(l.auxilio_transporte) },
+      { concepto: "SALARIO DEVENGADO", cantidad: l.dias_laborados, valor: n(l.salario_devengado), grupo: "basico" },
+      { concepto: "AUXILIO DE TRANSPORTE", cantidad: l.dias_laborados, valor: n(l.auxilio_transporte), grupo: "basico" },
     ];
     if (n(l.total_vacaciones) > 0) {
-      devengos.push({ concepto: "VACACIONES", cantidad: null, valor: n(l.total_vacaciones) });
+      devengos.push({ concepto: "VACACIONES", cantidad: null, valor: n(l.total_vacaciones), grupo: "novedad" });
     }
     if (n(l.ajuste_salarial) > 0) {
       devengos.push({
         concepto: "BONO NIVELACION DE SALARIO",
         cantidad: l.dias_laborados_villanueva,
         valor: n(l.ajuste_salarial),
+        grupo: "basico",
       });
     }
     for (const b of l.bonificaciones) {
@@ -2339,32 +2350,49 @@ export const LiquidacionesService = {
       }
       const valor = cantidad * n(b.value);
       if (valor > 0) {
-        devengos.push({ concepto: String(b.name ?? "BONO").toUpperCase(), cantidad, valor });
+        devengos.push({ concepto: String(b.name ?? "BONO").toUpperCase(), cantidad, valor, grupo: "adicional" });
       }
     }
     for (const p of l.pernotes) {
       const valor = n(p.cantidad) * n(p.valor);
-      if (valor > 0) devengos.push({ concepto: "PERNOTES", cantidad: n(p.cantidad), valor });
+      if (valor > 0) devengos.push({ concepto: "PERNOTES", cantidad: n(p.cantidad), valor, grupo: "adicional" });
     }
     // Los recargos van agrupados por empresa: es lo que contabilidad necesita
     // para imputar el gasto, y en la lista plana se pierde.
-    const porEmpresa = new Map<string, number>();
+    const recargosPorGrupo = new Map<string, number>();
     for (const r of l.recargos) {
       if (r.incluir === false) continue;
-      const empresa = r.clientes?.nombre ?? "RECARGOS";
-      porEmpresa.set(empresa, (porEmpresa.get(empresa) ?? 0) + n(r.valor));
+      const empresa = String(r.clientes?.nombre ?? "RECARGOS")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toUpperCase();
+      const grupo = empresa.includes("PAREX")
+        ? "PAREX"
+        : empresa.includes("GEOPARK")
+          ? "GEOPARK"
+          : "OTROS";
+      recargosPorGrupo.set(grupo, (recargosPorGrupo.get(grupo) ?? 0) + n(r.valor));
     }
-    for (const [empresa, valor] of porEmpresa) {
-      if (valor > 0) devengos.push({ concepto: `RECARGOS ${empresa}`, cantidad: null, valor });
+    for (const grupo of ["OTROS", "PAREX", "GEOPARK"]) {
+      const valor = recargosPorGrupo.get(grupo) ?? 0;
+      if (valor > 0) devengos.push({ concepto: `RECARGOS ${grupo}`, cantidad: null, valor, grupo: "adicional" });
     }
     if (n(l.disponibilidad) > 0) {
-      devengos.push({ concepto: "DISPONIBILIDAD MES", cantidad: null, valor: n(l.disponibilidad) });
+      devengos.push({ concepto: "DISPONIBILIDAD MES", cantidad: null, valor: n(l.disponibilidad), grupo: "adicional" });
     }
     if (n(l.valor_incapacidad) > 0) {
-      devengos.push({ concepto: "INCAPACIDAD", cantidad: null, valor: n(l.valor_incapacidad) });
+      devengos.push({ concepto: "INCAPACIDAD", cantidad: null, valor: n(l.valor_incapacidad), grupo: "novedad" });
+    }
+    if (n(l.total_licencia) > 0) {
+      devengos.push({
+        concepto: "LICENCIA DE MATERNIDAD O PATERNIDAD",
+        cantidad: null,
+        valor: n(l.total_licencia),
+        grupo: "novedad",
+      });
     }
     if (n(l.interes_cesantias) > 0) {
-      devengos.push({ concepto: "INTERESES DE CESANTIAS", cantidad: null, valor: n(l.interes_cesantias) });
+      devengos.push({ concepto: "INTERESES DE CESANTIAS", cantidad: null, valor: n(l.interes_cesantias), grupo: "novedad" });
     }
     if (Array.isArray(l.conceptos_adicionales)) {
       for (const c of l.conceptos_adicionales as any[]) {
@@ -2374,6 +2402,7 @@ export const LiquidacionesService = {
             concepto: String(c?.nombre ?? "CONCEPTO ADICIONAL").toUpperCase(),
             cantidad: null,
             valor,
+            grupo: "novedad",
           });
         }
       }
@@ -2391,6 +2420,16 @@ export const LiquidacionesService = {
     const firma = l.firmas_desprendibles.find(
       (f) => f.firma_url && f.firma_url !== "pending" && f.estado === "Activa",
     );
+    let firmaUrl: string | null = firma?.firma_url ?? null;
+    if (firma?.firma_s3_key) {
+      try {
+        // La URL persistida puede expirar; el PDF siempre recibe una URL
+        // fresca a partir de la clave estable del objeto.
+        firmaUrl = await getS3SignedUrl(firma.firma_s3_key, 15 * 60);
+      } catch {
+        // Compatibilidad con registros antiguos que guardaron una URL pública.
+      }
+    }
 
     const conductor = l.conductores;
     return {
@@ -2405,12 +2444,13 @@ export const LiquidacionesService = {
         cedula: conductor?.numero_identificacion ?? "—",
         cargo: conductor?.cargo ?? "CONDUCTOR",
         periodo: periodoLegible(l.periodo_start, l.periodo_end),
+        mesNomina: mesNomina(l.periodo_end),
         estado: (l as any).estado_flujo ?? l.estado,
       },
       devengos: devengos.filter((d) => d.valor !== 0),
       deducciones: deducciones.filter((d) => d.valor !== 0),
       basePrestacional: n(l.salario_devengado) + n(l.total_vacaciones),
-      firmaUrl: firma?.firma_url ?? null,
+      firmaUrl,
       fechaFirma: firma?.fecha_firma ? firma.fecha_firma.toISOString().slice(0, 10) : null,
     };
   },
