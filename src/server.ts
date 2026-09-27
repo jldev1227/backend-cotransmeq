@@ -14,7 +14,7 @@ import { startNominaSnapshotJob } from './jobs/snapshot-nomina.job'
 
 async function start() {
   try {
-    logger.info('🚀 Starting Transmeralda Backend...')
+    logger.info('🚀 Starting Cotransmeq Backend...')
     
     // Test database connection first
     await testDatabaseConnection()

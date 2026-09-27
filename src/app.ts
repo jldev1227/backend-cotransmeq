@@ -129,7 +129,7 @@ export function buildApp() {
     app.register(swagger as any, {
         routePrefix: '/docs',
         swagger: {
-            info: { title: 'Transmeralda API', version: '0.1.0' }
+            info: { title: 'Cotransmeq API', version: '0.1.0' }
         },
         exposeRoute: true
     })
