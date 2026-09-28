@@ -79,8 +79,18 @@ interface DiaPlanillaDTO {
 interface PlanillaDTO {
   planilla_id: string;
   numero_planilla: string | null;
-  vehiculo: { placa: string } | null;
-  empresa: { nombre: string } | null;
+  /**
+   * Con el `id`, no solo la placa y el nombre.
+   *
+   * El desprendible decide qué planillas imprime cruzándolas con las filas de
+   * `recargos` de la liquidación por `vehiculo_id|empresa_id|mes`. Sin los ids
+   * ese cruce no encuentra NADA, y la única regla que sobrevivía era la de
+   * «planilla sin recargos»: se imprimían las que no aportan una sola hora y
+   * se caían justo las que sí. A FREDDY SANDOVAL le desaparecían PAREX,
+   * SCHLUMBERGER y SERTECPET, que es todo lo que cobró.
+   */
+  vehiculo: { id: string | null; placa: string } | null;
+  empresa: { id: string | null; nombre: string } | null;
   mes: number;
   año: number;
   total_dias: number;
@@ -185,8 +195,8 @@ export function construirRecargosDataDesdeHoja(
       g = {
         planilla_id: clave,
         numero_planilla: null,
-        vehiculo: { placa: d.placa ?? 'SIN-PLACA' },
-        empresa: { nombre: d.empresa ?? 'SIN EMPRESA' },
+        vehiculo: { id: d.vehiculoId ?? null, placa: d.placa ?? 'SIN-PLACA' },
+        empresa: { id: d.empresaId ?? null, nombre: d.empresa ?? 'SIN EMPRESA' },
         mes,
         año: anio,
         total_dias: 0,
