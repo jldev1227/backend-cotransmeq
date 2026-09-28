@@ -26,6 +26,12 @@ import {
 } from '../../lib/nomina/periodo';
 import { vigenteEn, tramosPorClave } from '../../lib/nomina/vigencias';
 import {
+  conceptosDelPortal,
+  conceptosDeVacaciones,
+  fusionarConceptos,
+  type ConceptoDia,
+} from './nomina-conceptos-dia';
+import {
   liquidarNomina,
   type EntradaLiquidacion,
   type ParametrosNomina,
@@ -762,6 +768,20 @@ export class NominaCanvasService {
       }),
     );
 
+    /**
+     * Los días sin recargo del portal, para TODO el corte de una vez.
+     *
+     * Va después del `Promise.all` y no dentro porque necesita la lista de
+     * conductores que ese mismo bloque trae, y con la ventana del canvas
+     * —`primera`/`ultima`— para que cada concepto caiga en la columna de su
+     * día y no un día antes o después.
+     */
+    const conceptosPortal = await conceptosDelPortal(
+      ordenados.map((c) => c.id),
+      primera.fecha,
+      ultima.fecha,
+    );
+
     const usados = new Set<string>();
     const hojas: HojaNomina[] = ordenados.map((c) =>
       this.construirHoja({
@@ -781,6 +801,7 @@ export class NominaCanvasService {
         columnasPorFecha,
         totalDias: dias.length,
         ventanaCanvas: { desde: primera.fecha, hasta: ultima.fecha },
+        conceptosPortal: conceptosPortal.get(c.id) ?? [],
         tramos,
         tramoPorFecha,
         porcentajesPorTramo,
@@ -882,6 +903,9 @@ export class NominaCanvasService {
     columnasPorFecha: Map<string, DiaPeriodo[]>;
     totalDias: number;
     ventanaCanvas: { desde: string; hasta: string };
+    /// Descanso, disponibilidad y mantenimiento del portal. Las vacaciones NO
+    /// vienen de aquí: se derivan del rango de la liquidación, más abajo.
+    conceptosPortal?: ConceptoDia[];
     tramos: TramoVigencia[];
     tramoPorFecha: Map<string, number>;
     porcentajesPorTramo: Map<CodigoRecargo, number>[];
@@ -1581,6 +1605,17 @@ export class NominaCanvasService {
       /// una hoja que todavía no tiene liquidación imprimirá las tablas en
       /// cuanto la tenga. Caer a `false` enseñaría apagado algo que no lo está.
       mostrarRecargos: (liquidacion as any)?.mostrar_recargos !== false,
+      /// Los días del corte que no generan recargos. Las vacaciones se suman
+      /// aquí y mandan sobre lo que el conductor hubiera marcado en el portal.
+      conceptosDia: fusionarConceptos(
+        args.conceptosPortal ?? [],
+        conceptosDeVacaciones(
+          (liquidacion as any)?.periodo_start_vacaciones,
+          (liquidacion as any)?.periodo_end_vacaciones,
+          args.ventanaCanvas.desde,
+          args.ventanaCanvas.hasta,
+        ),
+      ),
       /// Para que la hoja calcule la base prestacional y las deducciones sin
       /// volver a preguntar. Ver `HojaNomina`.
       salarioVillanueva: dec(parametros.salarioVillanueva),

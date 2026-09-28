@@ -1,3 +1,4 @@
+import type { ConceptoDia } from './nomina-conceptos-dia';
 /**
  * Forma de lo que el canvas de nómina recibe del servidor.
  *
@@ -441,6 +442,8 @@ export interface VacacionesHoja {
   salarioHeredado: boolean;
 }
 
+export type { ConceptoDia, InicialConcepto } from './nomina-conceptos-dia';
+
 export interface HojaNomina {
   conductorId: string;
   /** `liquidaciones.id` del periodo, si ya existe. */
@@ -503,6 +506,22 @@ export interface HojaNomina {
    * se interpreta como `true`, que es lo que hacían.
    */
   mostrarRecargos?: boolean;
+  /**
+   * Los días del corte que NO generan recargos: descanso, disponibilidad,
+   * mantenimiento y vacaciones.
+   *
+   * Un día de estos no produce planilla, así que hasta ahora no existía para
+   * el corte: su columna salía en blanco en el canvas —igual que un día sin
+   * dato— y no figuraba en el desprendible aunque el conductor lo hubiera
+   * registrado en el portal.
+   *
+   * La `inicial` es lo que se pinta en la celda del día, que mide 46 px.
+   * Ver `nomina-conceptos-dia.ts` para de dónde sale cada uno y por qué estos
+   * días no traen horario.
+   *
+   * Ausente en snapshots anteriores; ahí no hay conceptos que pintar.
+   */
+  conceptosDia?: ConceptoDia[];
   /**
    * Lo que la hoja necesita para calcular la BASE PRESTACIONAL sola.
    *

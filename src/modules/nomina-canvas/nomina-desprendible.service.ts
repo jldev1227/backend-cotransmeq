@@ -96,6 +96,32 @@ export interface RecargosDataDesprendible {
   planillas: PlanillaDTO[];
   /** Lo que suman las tablas. Tiene que ser `totales.totalRecargos`. */
   total_recargos: number;
+  /**
+   * Los días del corte que no generan recargos: descanso, disponibilidad,
+   * mantenimiento y vacaciones.
+   *
+   * Van APARTE y no dentro de una planilla porque no pertenecen a ninguna: no
+   * tienen empresa, ni vehículo, ni horas. Meterlos en la tabla de una
+   * obligaría a elegir a cuál colgarlos y dejaría siete columnas de recargo en
+   * guiones. El desprendible los imprime en su propia tabla al final.
+   *
+   * Vacío cuando el conductor no registró ninguno en el portal.
+   */
+  dias_sin_recargo: DiaSinRecargoDTO[];
+}
+
+/** Un día del corte que no produjo recargos. Ver `nomina-conceptos-dia.ts`. */
+export interface DiaSinRecargoDTO {
+  /** `YYYY-MM-DD`. */
+  fecha: string;
+  /** Día del mes, que es lo que se imprime. */
+  dia: number;
+  /** `D`, `DE`, `M` o `V`. */
+  inicial: string;
+  /** `DISPONIBLE`, `DESCANSO`, `MANTENIMIENTO` o `VACACIONES`. */
+  etiqueta: string;
+  /** Observación del conductor, o placa del taller. `null` si no hay. */
+  detalle: string | null;
 }
 
 /** Las horas extra van en su propio bloque del consolidado. */
@@ -227,10 +253,26 @@ export function construirRecargosDataDesdeHoja(
   );
   for (const p of planillas) p.dias.sort((x, y) => x.dia - y.dia);
 
+  /**
+   * Los días sin recargo ya vienen resueltos en la hoja —portal y vacaciones
+   * fusionados— así que aquí solo se recortan a la ventana del corte y se les
+   * saca el número de día. Recalcularlos sería tener la regla en dos sitios.
+   */
+  const diasSinRecargo: DiaSinRecargoDTO[] = (hoja.conceptosDia ?? [])
+    .filter((c) => c.fecha >= periodo.desde && c.fecha <= periodo.hasta)
+    .map((c) => ({
+      fecha: c.fecha,
+      dia: Number(c.fecha.slice(8, 10)),
+      inicial: c.inicial,
+      etiqueta: c.etiqueta,
+      detalle: c.detalle,
+    }));
+
   return {
     conductor_id: hoja.conductorId,
     periodo,
     planillas,
     total_recargos: planillas.reduce((s, p) => s + p.total_valor, 0),
+    dias_sin_recargo: diasSinRecargo,
   };
 }
