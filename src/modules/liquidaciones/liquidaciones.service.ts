@@ -9,9 +9,10 @@ import { pdfFromHtml } from "../../services/pdf.service";
 import { getS3SignedUrl } from "../../config/aws";
 import {
   renderDesprendibleHtml,
+  LAYOUT_DESPRENDIBLE,
   type DatosDesprendible,
   type LineaDesprendible,
-} from "../nomina-canvas/desprendible.template";
+} from "../nomina-canvas/desprendible.render";
 
 /**
  * `21 JUL 2026 — 20 AGO 2026` a partir de las dos fechas de la liquidación.
@@ -21,22 +22,27 @@ import {
  * que es más útil en un documento que un «Invalid Date».
  */
 function periodoLegible(inicio: string, fin: string): string {
+  // La clásica lo imprime en versal y con raya (`21 DE JUL DE 2026 — 20 DE
+  // AGO DE 2026`); la nueva, en minúscula y con guion.
+  const clasico = LAYOUT_DESPRENDIBLE === "clasico";
   const fmt = (iso: string): string | null => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString("es-CO", {
+    const texto = d
+      .toLocaleDateString("es-CO", {
         day: "numeric",
         month: "short",
         year: "numeric",
         timeZone: "UTC",
       })
-      .replace(/\./g, "")
-      .replace(/ de ([a-z]{3,}) de /i, " de $1 de ");
+      .replace(/\./g, "");
+    return clasico ? texto.toUpperCase() : texto;
   };
   const a = fmt(inicio);
   const b = fmt(fin);
-  if (!a || !b) return `${inicio} — ${fin}`;
-  return `${a} - ${b}`;
+  const separador = clasico ? "—" : "-";
+  if (!a || !b) return `${inicio} ${separador} ${fin}`;
+  return `${a} ${separador} ${b}`;
 }
 
 function mesNomina(fechaFin: string): string {
@@ -2325,7 +2331,13 @@ export const LiquidacionesService = {
     };
 
     const devengos: LineaDesprendible[] = [
-      { concepto: "SALARIO DEVENGADO", cantidad: l.dias_laborados, valor: n(l.salario_devengado), grupo: "basico" },
+      {
+        // La clásica lo titula «SALARIO» a secas.
+        concepto: LAYOUT_DESPRENDIBLE === "clasico" ? "SALARIO" : "SALARIO DEVENGADO",
+        cantidad: l.dias_laborados,
+        valor: n(l.salario_devengado),
+        grupo: "basico",
+      },
       { concepto: "AUXILIO DE TRANSPORTE", cantidad: l.dias_laborados, valor: n(l.auxilio_transporte), grupo: "basico" },
     ];
     if (n(l.total_vacaciones) > 0) {
@@ -2366,14 +2378,22 @@ export const LiquidacionesService = {
         .trim()
         .replace(/\s+/g, " ")
         .toUpperCase();
-      const grupo = empresa.includes("PAREX")
-        ? "PAREX"
-        : empresa.includes("GEOPARK")
-          ? "GEOPARK"
-          : "OTROS";
+      // La clásica nombra a cada cliente; la nueva los reduce a tres cubos.
+      const grupo =
+        LAYOUT_DESPRENDIBLE === "clasico"
+          ? empresa
+          : empresa.includes("PAREX")
+            ? "PAREX"
+            : empresa.includes("GEOPARK")
+              ? "GEOPARK"
+              : "OTROS";
       recargosPorGrupo.set(grupo, (recargosPorGrupo.get(grupo) ?? 0) + n(r.valor));
     }
-    for (const grupo of ["OTROS", "PAREX", "GEOPARK"]) {
+    const gruposRecargo =
+      LAYOUT_DESPRENDIBLE === "clasico"
+        ? [...recargosPorGrupo.keys()]
+        : ["OTROS", "PAREX", "GEOPARK"];
+    for (const grupo of gruposRecargo) {
       const valor = recargosPorGrupo.get(grupo) ?? 0;
       if (valor > 0) devengos.push({ concepto: `RECARGOS ${grupo}`, cantidad: null, valor, grupo: "adicional" });
     }

@@ -23,9 +23,32 @@ recargo y con el porcentaje y el valor-hora congelados por fecha.
 | `nomina-patch.service.ts` | Edición celda a celda con compare-and-swap |
 | `nomina-snapshots.service.ts` | Versiones del periodo, diff y restauración |
 | `nomina-envios.service.ts` | Constancia de cada intento de envío |
-| `desprendible.template.ts` | El documento en HTML, para Puppeteer |
+| `desprendible.template.ts` | El documento en HTML, maquetación NUEVA |
+| `desprendible.clasico.template.ts` | El mismo documento, maquetación CLÁSICA |
+| `desprendible.render.ts` | Elige cuál de las dos sale (`DESPRENDIBLE_LAYOUT`) |
 | `../../queue/envio-nomina-queue.service.ts` | Cola de envío con progreso |
 | `../../lib/nomina/` | El cálculo puro (ver su propio README) |
+
+## Dos maquetaciones del desprendible
+
+En septiembre de 2026 se aprobó un desprendible nuevo, pero la nómina de ese
+mes salió todavía con el de siempre. Las dos conviven:
+
+| `DESPRENDIBLE_LAYOUT` | Sale | Archivo |
+|---|---|---|
+| sin poner, o `clasico` | El de siempre | `desprendible.clasico.template.ts` |
+| `nuevo` | El aprobado | `desprendible.template.ts` |
+
+El default es `clasico` a propósito: un entorno al que nadie le haya puesto la
+variable tiene que seguir imprimiendo lo que imprimía ayer. **Para estrenar el
+nuevo basta con poner `DESPRENDIBLE_LAYOUT=nuevo` y reiniciar el backend.**
+
+La elección no es solo de forma: `LiquidacionesService.datosDesprendible()`
+también la consulta, porque la maquetación nueva titula el salario «SALARIO
+DEVENGADO» y agrupa los recargos en OTROS / PAREX / GEOPARK, mientras que la
+clásica dice «SALARIO» y les pone el nombre de cada cliente. Por eso el layout
+se lee de `desprendible.render.ts` en los dos sitios, y no de `env` por
+separado.
 
 ## El periodo no es el mes
 
@@ -109,7 +132,9 @@ De este módulo, en `backend-cotransmeq` está **solo lo que allí tiene sentido
 | Pieza | cotransmeq | Por qué |
 |---|---|---|
 | `lib/nomina/` (cálculo puro) | ✅ idéntico | Sin dependencias |
-| `desprendible.template.ts` | ✅ idéntico | Por eso el `prelude` es parámetro |
+| `desprendible.clasico.template.ts` | ✅ idéntico | Por eso el `prelude` es parámetro |
+| `desprendible.render.ts` | ✅ idéntico | El interruptor no depende de la marca |
+| `desprendible.template.ts` | ⚠️ casi | Mismo layout, colores y nombre de cada empresa |
 | Arreglo del PDF y del ZIP | ✅ aplicado | Es un fallo, y estaba en los dos |
 | El canvas | ❌ no | Ver abajo |
 

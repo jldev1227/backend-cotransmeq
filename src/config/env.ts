@@ -40,6 +40,12 @@ const envSchema = z.object({
   // emails de envío de desprendibles y primas.
   NOTIF_BCC_EMAIL: z.string().optional(),
 
+  // Maquetación del PDF del desprendible de nómina: 'clasico' (la de
+  // siempre) o 'nuevo' (la aprobada en septiembre de 2026). Por defecto
+  // 'clasico', para que un entorno sin la variable siga imprimiendo lo
+  // mismo que ayer. Ver `nomina-canvas/desprendible.render.ts`.
+  DESPRENDIBLE_LAYOUT: z.enum(['clasico', 'nuevo']).optional().default('clasico'),
+
   // AWS S3 — Certificados Tributarios
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
