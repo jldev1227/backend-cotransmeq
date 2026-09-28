@@ -490,6 +490,20 @@ export interface HojaNomina {
   aplicaAjusteGeopark?: boolean;
   ajusteRecargosCompletos?: boolean;
   /**
+   * Si el desprendible de ESTA liquidación imprime las tablas de recargos
+   * —la segunda página, el desglose hora a hora de cada planilla—.
+   *
+   * La columna es `mostrar_recargos`, existe desde junio de 2026 y por
+   * defecto vale `true`: el comportamiento de siempre es imprimirlas. Se
+   * apaga desde el carril del canvas cuando el cliente no quiere el detalle,
+   * y solo afecta al papel: los recargos siguen pagándose y sumando al
+   * devengado de la página 1.
+   *
+   * Ausente en snapshots anteriores a que el carril lo dejara cambiar; ahí
+   * se interpreta como `true`, que es lo que hacían.
+   */
+  mostrarRecargos?: boolean;
+  /**
    * Lo que la hoja necesita para calcular la BASE PRESTACIONAL sola.
    *
    * La base y las dos deducciones dejaron de ser cifras del servidor: son

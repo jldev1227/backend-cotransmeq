@@ -1577,6 +1577,10 @@ export class NominaCanvasService {
       aplicaAjusteParex: !!(liquidacion as any)?.aplica_ajuste_parex,
       aplicaAjusteGeopark: !!(liquidacion as any)?.aplica_ajuste_geopark,
       ajusteRecargosCompletos: !!liquidacion?.ajuste_parex_recargos_completos,
+      /// `!== false` y no `!!`: la columna es NOT NULL con default `true`, y
+      /// una hoja que todavía no tiene liquidación imprimirá las tablas en
+      /// cuanto la tenga. Caer a `false` enseñaría apagado algo que no lo está.
+      mostrarRecargos: (liquidacion as any)?.mostrar_recargos !== false,
       /// Para que la hoja calcule la base prestacional y las deducciones sin
       /// volver a preguntar. Ver `HojaNomina`.
       salarioVillanueva: dec(parametros.salarioVillanueva),
