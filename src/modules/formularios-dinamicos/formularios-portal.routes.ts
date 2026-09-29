@@ -20,6 +20,7 @@ import {
   idParamSchema,
   initAttachmentSchema,
   listarEnviosPortalSchema,
+  listarPapeleraPortalSchema,
 } from './formularios-dinamicos.schema'
 
 /**
@@ -255,6 +256,35 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
    * mismo conductor para reconstruir la cola en vez de obligarlo a diligenciarla
    * otra vez.
    */
+  /**
+   * Papelera del conductor.
+   *
+   * Declarada antes que `/drafts/:clientSubmissionId` por legibilidad; el router
+   * de Fastify prioriza el segmento estático igualmente, y `papelera` tampoco
+   * pasaría el `uuid` del parámetro.
+   */
+  app.get(`${base}/drafts/papelera`, async (request, reply) => {
+    try {
+      const query = parse(listarPapeleraPortalSchema, request.query)
+      const { data, meta } = await portal.listarPapeleraPortal(actorDe(request), query)
+      return reply.send({ success: true, data, meta })
+    } catch (err) {
+      return fail(reply, err, 'listar la papelera del portal')
+    }
+  })
+
+  app.post(`${base}/drafts/:clientSubmissionId/restaurar`, async (request, reply) => {
+    try {
+      const { clientSubmissionId } = parse(clientSubmissionIdParamSchema, request.params)
+      return reply.send({
+        success: true,
+        data: await portal.restaurarBorradorPortal(actorDe(request), clientSubmissionId),
+      })
+    } catch (err) {
+      return fail(reply, err, 'restaurar borrador del portal')
+    }
+  })
+
   app.get(`${base}/drafts/:clientSubmissionId`, async (request, reply) => {
     try {
       const { clientSubmissionId } = parse(clientSubmissionIdParamSchema, request.params)

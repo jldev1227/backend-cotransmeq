@@ -72,6 +72,7 @@ import type {
   CompleteAttachmentInput,
   InitAttachmentInput,
   ListarEnviosPortalQuery,
+  ListarPapeleraPortalQuery,
 } from './formularios-dinamicos.schema'
 
 /**
@@ -711,6 +712,96 @@ export async function descartarBorradorPortal(actor: PortalActor, clientSubmissi
     })
 
     return { id: bloqueada.id, deleted: true, alreadyGone: false }
+  }, TX_OPCIONES)
+}
+
+/**
+ * Papelera propia: los borradores que el conductor descartó y todavía puede
+ * recuperar.
+ *
+ * `descartarBorradorPortal` nunca borró filas —marca `deleted_at`—, así que
+ * deshacer un descarte por error no necesitaba más que una forma de verlos.
+ * Antes de esto, la única salida era SQL contra la base.
+ *
+ * Solo `DRAFT`: un envío entregado no se descarta (lo impide el propio
+ * descarte), de modo que cualquier otra cosa con `deleted_at` aquí sería un
+ * retiro administrativo que al conductor no le toca deshacer.
+ */
+export async function listarPapeleraPortal(actor: PortalActor, query: ListarPapeleraPortalQuery) {
+  const where: Prisma.form_submissionWhereInput = {
+    ...propiedadDe(actor),
+    status: 'DRAFT',
+    deleted_at: { not: null },
+    ...(query.assignmentId ? { assignment_id: query.assignmentId } : {}),
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.form_submission.count({ where }),
+    prisma.form_submission.findMany({
+      where,
+      orderBy: [{ deleted_at: 'desc' }],
+      skip: (query.page - 1) * query.limit,
+      take: query.limit,
+      include: {
+        assignment: { select: { id: true, name: true, frequency: true } },
+        usuario: { select: { id: true, nombre: true, correo: true } },
+        vehiculo: { select: { id: true, placa: true } },
+        version: {
+          select: { id: true, form_id: true, version_number: true, title: true, form: { select: { code: true } } },
+        },
+        _count: { select: { answers: true, attachments: true } },
+      },
+    }),
+  ])
+
+  return {
+    data: rows.map(toSubmissionSummaryDto),
+    meta: { total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) || 1 },
+  }
+}
+
+/**
+ * Devuelve a la vida un borrador descartado.
+ *
+ * Simétrico de `descartarBorradorPortal`, y con el mismo lock por la misma
+ * razón: sin serializar, un backup en vuelo de la app podría reescribir
+ * respuestas sobre la fila mientras se decide si sigue descartada o no.
+ *
+ * No se restaura nada que no sea `DRAFT`. Un `SUBMITTED` con `deleted_at` fue
+ * retirado por administración, y devolverlo desde el portal saltaría ese
+ * criterio sin dejar rastro de quién lo decidió.
+ */
+export async function restaurarBorradorPortal(actor: PortalActor, clientSubmissionId: string) {
+  return prisma.$transaction(async (tx) => {
+    const bloqueada = await lockSubmissionPorClientId(tx, clientSubmissionId)
+    if (!bloqueada) throw new FormError('SUBMISSION_NOT_FOUND', 'Ese borrador ya no existe.')
+    if (!esDelActor(bloqueada, actor)) throw new FormError('FORBIDDEN', 'Ese borrador no es tuyo.')
+    if (bloqueada.status !== 'DRAFT') {
+      throw new FormError('SUBMISSION_IMMUTABLE', 'Un envío entregado no se restaura.', {
+        status: bloqueada.status,
+      })
+    }
+    /// Idempotente: restaurar dos veces no es un error. La app reintenta esta
+    /// llamada desde su outbox y no debe tratar el segundo intento como fallo.
+    if (!bloqueada.deleted_at) return { id: bloqueada.id, restored: false, alreadyLive: true }
+
+    await tx.form_submission.update({
+      where: { id: bloqueada.id },
+      data: { deleted_at: null },
+    })
+
+    await tx.form_submission_event.create({
+      data: {
+        id: randomUUID(),
+        submission_id: bloqueada.id,
+        event_type: 'RESTORED',
+        actor_type: actor.kind,
+        actor_id: actor.id,
+        payload_json: { source: 'portal', clientSubmissionId } as Prisma.InputJsonValue,
+      },
+    })
+
+    return { id: bloqueada.id, restored: true, alreadyLive: false }
   }, TX_OPCIONES)
 }
 
@@ -1851,8 +1942,23 @@ export async function listarEnviosPortal(actor: PortalActor, query: ListarEnvios
   const where: Prisma.form_submissionWhereInput = {
     ...propiedadDe(actor),
     ...VIVO,
-    status: { in: ['SUBMITTED', 'VOIDED'] },
+    /// `status` acota dentro de lo ya entregado; nunca lo amplía. Sin filtro se
+    /// devuelven los dos estados visibles para el conductor, y jamás un DRAFT:
+    /// un borrador no es un envío y tiene su propia lista.
+    status: query.status ? { in: [query.status] } : { in: ['SUBMITTED', 'VOIDED'] },
     ...(query.assignmentId ? { assignment_id: query.assignmentId } : {}),
+    ...(query.vehicleId ? { vehicle_id: query.vehicleId } : {}),
+    ...(query.placa ? { vehiculo: { placa: { contains: query.placa, mode: 'insensitive' } } } : {}),
+  }
+
+  if (query.businessDateFrom || query.businessDateTo) {
+    /// `business_date` es DATE: se construye la medianoche UTC porque es
+    /// exactamente lo que Postgres guarda. Usar `new Date('YYYY-MM-DD')` con
+    /// hora local desplazaría el filtro un día en Bogotá.
+    where.business_date = {
+      ...(query.businessDateFrom ? { gte: new Date(`${query.businessDateFrom}T00:00:00.000Z`) } : {}),
+      ...(query.businessDateTo ? { lte: new Date(`${query.businessDateTo}T00:00:00.000Z`) } : {}),
+    }
   }
 
   const [total, rows] = await Promise.all([
