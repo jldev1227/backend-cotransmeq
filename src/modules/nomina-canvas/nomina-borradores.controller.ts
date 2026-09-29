@@ -12,6 +12,7 @@ import {
   sembrarRecargosDesdePlanillas,
   sembrarBonificacionesDesdeRecorridos,
   vincularVehiculos,
+  repartoDesdeHoja,
 } from '../../queue/borrador-nomina-queue.service';
 import { NominaPatchService } from './nomina-patch.service';
 import { normalizarMarcasDias } from './marcas-dias';
@@ -503,6 +504,8 @@ export class NominaBorradoresController {
         desde,
         hasta,
         Number(hoja.totales?.totalRecargos ?? 0),
+        /// Por cliente y sin los días «no sumar», como los ve el canvas.
+        repartoDesdeHoja(hoja as any),
       );
       const bonos = await sembrarBonificacionesDesdeRecorridos(
         liq.id,
@@ -608,7 +611,7 @@ export class NominaBorradoresController {
             desde,
             hasta,
             Number(hoja.totales?.totalRecargos ?? 0),
-            ahora,
+            repartoDesdeHoja(hoja as any),
           );
           await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
           await vincularVehiculos(liq.id);
@@ -729,18 +732,13 @@ export class NominaBorradoresController {
       const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
       let recargos: { filas: number; total: number; sinAtribuir: number } | null = null;
       if (hoja) {
-        const noSuman = new Set(
-          Object.entries(normalizarMarcasDias(liq.marcas_dias) ?? {})
-            .filter(([, m]) => m.noSumar)
-            .map(([k]) => k),
-        );
         recargos = await sembrarRecargosDesdePlanillas(
           liq.id,
           liq.conductor_id,
           rango.desde,
           rango.hasta,
           Number(hoja.totales?.totalRecargos ?? 0),
-          noSuman,
+          repartoDesdeHoja(hoja as any),
         );
       }
       await NominaPatchService.recalcularYGuardar(liq.id, actor.id);

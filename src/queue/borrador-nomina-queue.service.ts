@@ -487,6 +487,7 @@ class BorradorNominaQueueService {
           ventana.desde,
           ventana.hasta,
           dec(t.totalRecargos),
+          repartoDesdeHoja(hoja),
         )
         await sembrarBonificacionesDesdeRecorridos(
           hoja.liquidacionId,
@@ -529,6 +530,7 @@ class BorradorNominaQueueService {
         ventana.desde,
         ventana.hasta,
         dec(t.totalRecargos),
+        repartoDesdeHoja(hoja),
       )
 
       /// La copia de los días: a partir de aquí el canvas lee de ella y el
@@ -976,6 +978,41 @@ export async function vincularVehiculos(liquidacionId: string): Promise<number> 
  * Los recargos escritos A MANO (`es_automatico: false`) no se tocan: los puso
  * una persona y no salen de ninguna planilla.
  */
+/** Lo que el canvas le pasa al reparto de recargos. Ver `repartoDesdeHoja`. */
+export interface RepartoCanvas {
+  /** Días «no sumar» como `AAAA-MM-DD|empresa_id`. */
+  noSuman: Set<string>
+  /** `empresa_id → valor` de sus días a su propia tarifa, sin los que no suman. */
+  valorPorEmpresa: Map<string, number>
+}
+
+/**
+ * Del día a día de la hoja del canvas, lo que necesita el reparto: los días
+ * que no suman y lo que vale cada cliente. Los de disponibilidad no cuentan:
+ * el canvas tampoco los paga como recargo.
+ */
+export function repartoDesdeHoja(hoja: {
+  dias?: { fecha: string; empresaId: string | null; noSuma?: boolean; disponibilidad?: boolean; valorRecargos?: number }[]
+}): RepartoCanvas {
+  const noSuman = new Set<string>()
+  const valorPorEmpresa = new Map<string, number>()
+  for (const d of hoja.dias ?? []) {
+    if (d.noSuma) {
+      noSuman.add(`${d.fecha}|${d.empresaId ?? ''}`)
+      continue
+    }
+    if (d.disponibilidad || !d.empresaId) continue
+    valorPorEmpresa.set(d.empresaId, (valorPorEmpresa.get(d.empresaId) ?? 0) + (d.valorRecargos ?? 0))
+  }
+  return { noSuman, valorPorEmpresa }
+}
+
+/** PAREX y GEOPARK tienen cubo propio en el desprendible; el resto es OTROS. */
+function cuboDeNombre(nombre: string | null | undefined): boolean {
+  const n = (nombre ?? '').toUpperCase()
+  return n.includes('PAREX') || n.includes('GEOPARK')
+}
+
 export async function sembrarRecargosDesdePlanillas(
   liquidacionId: string,
   conductorId: string,
@@ -983,13 +1020,19 @@ export async function sembrarRecargosDesdePlanillas(
   hasta: string,
   objetivo: number,
   /**
-   * Días marcados «no sumar» en el canvas, como `AAAA-MM-DD|empresa_id` (ver
-   * `marcas-dias.ts`). El objetivo ya viene sin ellos; aquí se saltan también
-   * del PESO, o una planilla seguiría llevándose la parte de un día que no se
-   * paga —y en transmeralda eso mueve el cubo de PAREX/GEOPARK—.
+   * Lo que el CANVAS sabe de esta hoja: qué días no suman y cuánto vale cada
+   * cliente a su propia tarifa. Sale de `repartoDesdeHoja(hoja)`.
+   *
+   * Sin esto el reparto era proporcional al `valor_calculado` guardado —a la
+   * tarifa GENERAL— y los días «no sumar» seguían pesando. El total cuadraba,
+   * pero la parte de cada cliente no: a FREDDY LOPEZ (sep-2026) el canvas le
+   * valoraba 813.820 de PAREX y las filas le daban 628.296, y como con el
+   * ajuste PAREX ese cubo entra entero al IBC, la salud, la pensión y el neto
+   * del desprendible no eran los del canvas.
    */
-  noSuman: Set<string> = new Set(),
+  reparto?: RepartoCanvas,
 ): Promise<{ filas: number; total: number; sinAtribuir: number }> {
+  const noSuman = reparto?.noSuman ?? new Set<string>()
   const [aD, mD] = desde.split('-').map(Number)
   const [aH, mH] = hasta.split('-').map(Number)
   /// Los meses que toca el corte. Un 21→20 cruza dos; uno natural, uno solo.
@@ -1009,6 +1052,7 @@ export async function sembrarRecargosDesdePlanillas(
       numero_planilla: true,
       mes: true,
       a_o: true,
+      clientes: { select: { nombre: true } },
       dias_laborales_planillas: {
         where: { deleted_at: null },
         select: {
@@ -1051,14 +1095,58 @@ export async function sembrarRecargosDesdePlanillas(
    * —lo que en transmeralda movería el ajuste del 8 %— se deja sin sembrar y
    * se devuelve en `sinAtribuir` para que quien llama lo pueda contar.
    */
-  if (!objetivoRedondo || sumaPesos <= 0) {
+  const porCliente = reparto?.valorPorEmpresa
+  const algunClienteCasa =
+    !!porCliente && pesos.some((x) => (porCliente.get(x.planilla.empresa_id ?? '') ?? 0) > 0)
+  if (!objetivoRedondo || (sumaPesos <= 0 && !algunClienteCasa)) {
     await retirarAutomaticosSalvo(liquidacionId, new Set<string>(), ahora)
     return { filas: 0, total: 0, sinAtribuir: objetivoRedondo }
   }
 
+  const valor = new Map<string, number>(pesos.map((x) => [x.planilla.id, 0]))
+  /** Reparte `monto` entre `grupo` en proporción a `peso(x)`, o a partes iguales si no hay peso. */
+  const repartir = (grupo: typeof pesos, monto: number, peso: (x: (typeof pesos)[number]) => number) => {
+    if (!grupo.length || !monto) return
+    const total = grupo.reduce((s, x) => s + peso(x), 0)
+    for (const x of grupo) {
+      const parte = total > 0 ? (monto * peso(x)) / total : monto / grupo.length
+      valor.set(x.planilla.id, (valor.get(x.planilla.id) ?? 0) + parte)
+    }
+  }
+
+  if (porCliente && algunClienteCasa) {
+    /**
+     * POR CLIENTE, con los valores del canvas: cada empresa recibe lo que
+     * suman sus días a SU tarifa, y solo DENTRO de ella se reparte entre sus
+     * planillas por peso. Así PAREX y GEOPARK valen en las filas lo mismo que
+     * en el canvas.
+     */
+    for (const [empresaId, monto] of porCliente) {
+      if (monto <= 0) continue
+      repartir(pesos.filter((x) => (x.planilla.empresa_id ?? '') === empresaId), monto, (x) => x.peso)
+    }
+    /**
+     * Lo que queda —las horas corregidas a mano, que son un agregado sin
+     * cliente, y el redondeo— va a los clientes SIN cubo propio, que es donde
+     * el canvas lo deja (OTROS = reparto − PAREX − GEOPARK). Si no hay
+     * ninguno, a todos.
+     */
+    const asignado = [...valor.values()].reduce((s, v) => s + v, 0)
+    const resto = objetivoRedondo - asignado
+    if (Math.abs(resto) >= 1) {
+      const conValorYa = pesos.filter((x) => (valor.get(x.planilla.id) ?? 0) > 0 || x.peso > 0)
+      const otros = conValorYa.filter((x) => !cuboDeNombre(x.planilla.clientes?.nombre))
+      const destino = otros.length ? otros : conValorYa.length ? conValorYa : pesos
+      repartir(destino, resto, (x) => Math.max(valor.get(x.planilla.id) ?? 0, 0) || x.peso)
+    }
+  } else {
+    /// Sin datos del canvas: proporcional al peso, como siempre.
+    repartir(pesos.filter((x) => x.peso > 0), objetivoRedondo, (x) => x.peso)
+  }
+
   const conValor = pesos
-    .filter((x) => x.peso > 0)
-    .map((x) => ({ ...x, valor: Math.round((objetivoRedondo * x.peso) / sumaPesos) }))
+    .map((x) => ({ ...x, valor: Math.round(valor.get(x.planilla.id) ?? 0) }))
+    .filter((x) => x.valor !== 0)
   /// El redondeo se lleva a la planilla mayor: la suma tiene que dar el mismo
   /// número que `total_recargos` o el desprendible y el canvas volverían a
   /// decir cosas distintas, que es de lo que veníamos.
