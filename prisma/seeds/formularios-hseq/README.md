@@ -18,7 +18,10 @@ ninguna base. Todos producen versiones en `DRAFT` y ninguno crea asignaciones.
 | `index.ts` | Registro de las trece, en el orden de revisión recomendado. |
 | `validate.ts` | Validación e inventario, **sin base de datos**. |
 | `inventario.ts` | Genera `INVENTARIO.txt` para la revisión de HSEQ. |
-| `cargar.ts` | Cargador idempotente. **Simulacro por defecto.** |
+| `escribir.ts` | Escritura del árbol de una semilla en la base. La comparten los dos cargadores. |
+| `cargar.ts` | Cargador idempotente de las trece. Siempre `DRAFT`, nunca asigna. **Simulacro por defecto.** |
+| `preoperacional-etapas.ts` | Versión 2 de FR-08 y FR-09, derivada de las de arriba y repartida en tres etapas. |
+| `cargar-etapas.ts` | Cargador de esas dos: escribe, **publica** y **asigna** a conductores concretos. **Simulacro por defecto.** |
 | `INVENTARIO.txt` | Último informe generado. |
 
 ## Revisar antes de cargar
@@ -90,6 +93,63 @@ leer texto libre para averiguar a cuál de treinta ítems se refería.
 
 **Las erratas del original se conservan o se corrigen, pero siempre se declaran.**
 Cada semilla lista en `warnings` lo que se cambió y por qué.
+
+## Versiones por etapas (FR-08 y FR-09)
+
+`preoperacional-etapas.ts` deriva una **versión 2** de los dos preoperacionales
+con el mismo contenido repartido en tres etapas. No transcribe nada: toma las
+secciones de `hseq-fr-08.ts` y `hseq-fr-09.ts` tal cual y solo las reordena y
+las etiqueta.
+
+| Etapa | Secciones | Firma |
+|---|---|---|
+| 1 · Prealistamiento | desde el principio hasta «Combustible, kilometraje y FUEC», más «Novedades» y «Firma del conductor» al final | sí |
+| 2 · Durante el desplazamiento | «Verificación durante el desplazamiento o en paradas seguras», «Propiedad del cliente / usuarios» | no |
+| 3 · Cierre | «Verificación al finalizar el desplazamiento» | no |
+
+**La etapa vive en `form_sections.settings_json`**, que ya es JSON libre y que el
+mapper ya expone al portal:
+
+```json
+{ "etapa": 1, "etapaTitulo": "Prealistamiento", "etapaFirma": true }
+```
+
+Sin migración de esquema. Un formulario sin esas claves se comporta como hasta
+ahora: el portal lo trata como una sola etapa.
+
+**El reparto se declara por TÍTULO de sección, nunca por `sortOrder`.** Los dos
+formatos tienen las mismas secciones en posiciones distintas (el FR-09 intercala
+«Zona y puestos de pasajeros» e invierte tablero y luces), así que un reparto
+posicional funcionaría en uno y rompería el otro en silencio. El transformador
+aborta si encuentra una sección que no sabe clasificar.
+
+**Es UN SOLO envío que avanza**, no tres. Firmar la etapa 1 guarda el borrador;
+no entrega nada. El `POST /submissions` sale una sola vez, al cerrar la etapa 3,
+y produce un solo PDF con todo.
+
+Estas dos semillas **no están en `SEMILLAS_HSEQ`**: el cargador general escribe
+siempre `version_number: 1` y chocarían contra `uq_form_versions_number` con la
+versión 1 ya cargada. Se cargan con su propio cargador, que además **publica** y
+**asigna a conductores concretos** —las dos cosas que `cargar.ts` garantiza NO
+hacer—:
+
+```bash
+# Simulacro: valida e imprime los ids. NO escribe nada.
+npm run seeds:formularios:etapas
+
+# Carga real
+npm run seeds:formularios:etapas -- --apply --user <uuid> --conductor <uuid>
+
+# Varios destinatarios, o un solo formato
+npm run seeds:formularios:etapas -- --apply --user <uuid> --conductor <uuid1>,<uuid2>
+npm run seeds:formularios:etapas -- --apply --user <uuid> --conductor <uuid> --only HSEQ-FR-08
+```
+
+Los destinatarios se reconcilian de forma exacta: los conductores pedidos quedan
+como targets y cualquier otro target **de esa asignación** se retira. Las
+asignaciones de la versión 1 no se tocan nunca.
+
+La escritura del árbol es la misma en los dos cargadores: `escribir.ts`.
 
 ## Si HSEQ pide cambios
 
