@@ -230,6 +230,139 @@ export async function pdfFromHtml(opts: PdfFromHtmlOptions): Promise<Buffer> {
   }
 }
 
+export interface PdfFromUrlOptions {
+  /** URL absoluta que Chromium va a NAVEGAR (no se le pasa marcado). */
+  url: string;
+  /**
+   * Pares `clave → valor` que se escriben en `localStorage` del origen de
+   * `url` ANTES de que corra ningún script de la página.
+   *
+   * Es la única vía para sembrar la sesión de una SPA que se autentica en el
+   * cliente. Va por aquí y no por la query string a propósito: la query acaba
+   * en el log de acceso del servidor web, en el historial y en el `Referer`
+   * de cada recurso que pida la página; `localStorage` no sale del proceso.
+   */
+  seedLocalStorage?: Record<string, string>;
+  /**
+   * Selector que la página solo pinta cuando ya tiene sus datos.
+   *
+   * Sin esto se imprimiría el esqueleto de carga: `load` dispara cuando el
+   * bundle está en pie, que en una SPA es ANTES de que su primer `fetch`
+   * responda.
+   */
+  waitForSelector?: string;
+  waitForSelectorTimeoutMs?: number;
+  navigationTimeoutMs?: number;
+  landscape?: boolean;
+  marginMm?: number;
+  format?: "Letter" | "A4" | "Legal" | "A3" | "A5" | "Tabloid";
+  preferCSSPageSize?: boolean;
+  /** Ancho del viewport en px. El alto lo decide el formato de impresión. */
+  viewportWidth?: number;
+}
+
+/**
+ * PDF de una página VIVA: Chromium la navega, ejecuta su JavaScript y la
+ * imprime.
+ *
+ * Complementa a `pdfFromHtml`, que recibe el marcado ya renderizado. Se usa
+ * cuando el documento a imprimir ES una pantalla de la aplicación y no se
+ * quiere un segundo renderizador que la reproduzca.
+ *
+ * ── Aislamiento ──
+ * Cada impresión corre en su propio `BrowserContext`, que tiene cookies,
+ * `localStorage` e IndexedDB propios y se destruye al terminar. Así la sesión
+ * que se siembra para imprimir no sobrevive a la petición ni la ve ninguna
+ * otra impresión, aunque el navegador sea el mismo proceso reutilizado.
+ */
+export async function pdfFromUrl(opts: PdfFromUrlOptions): Promise<Buffer> {
+  const {
+    url,
+    seedLocalStorage,
+    waitForSelector,
+    waitForSelectorTimeoutMs = 30000,
+    navigationTimeoutMs = 45000,
+    landscape = false,
+    marginMm = 8,
+    format = "Letter",
+    preferCSSPageSize = false,
+    viewportWidth = 1024,
+  } = opts;
+
+  const browser = await getBrowser();
+  const context = await browser.createBrowserContext();
+  try {
+    const page = await context.newPage();
+    const dims = FORMAT_DIMENSIONS_INCHES[format] || FORMAT_DIMENSIONS_INCHES.Letter;
+    await page.setViewport({
+      width: viewportWidth,
+      height: Math.round((landscape ? dims.w : dims.h) * 96),
+    });
+    page.setDefaultNavigationTimeout(navigationTimeoutMs);
+
+    if (seedLocalStorage && Object.keys(seedLocalStorage).length > 0) {
+      // `evaluateOnNewDocument` se ejecuta al crear CADA documento, antes que
+      // cualquier script de la página. `try/catch` porque en un origen opaco
+      // (about:blank) el acceso a `localStorage` lanza `SecurityError` y eso
+      // abortaría la inyección entera.
+      await page.evaluateOnNewDocument((pares: Record<string, string>) => {
+        try {
+          for (const [clave, valor] of Object.entries(pares)) {
+            window.localStorage.setItem(clave, valor);
+          }
+        } catch {
+          /* origen sin almacenamiento: la navegación real sí lo tendrá */
+        }
+      }, seedLocalStorage);
+    }
+
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeoutMs });
+
+    if (waitForSelector) {
+      await page.waitForSelector(waitForSelector, { timeout: waitForSelectorTimeoutMs });
+    }
+
+    await page
+      .evaluate(async () => {
+        const fonts = (document as any).fonts;
+        if (fonts && typeof fonts.ready === "object") {
+          try { await fonts.ready; } catch { /* noop */ }
+        }
+        const imgs = Array.from(document.images);
+        await Promise.all(
+          imgs.map((img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise<void>((res) => {
+                  img.addEventListener("load", () => res(), { once: true });
+                  img.addEventListener("error", () => res(), { once: true });
+                })
+          )
+        );
+      })
+      .catch(() => {});
+
+    const pdfOptions: any = { landscape, printBackground: true };
+    if (preferCSSPageSize) {
+      pdfOptions.preferCSSPageSize = true;
+    } else {
+      pdfOptions.format = format;
+      pdfOptions.margin = {
+        top: `${marginMm}mm`,
+        right: `${marginMm}mm`,
+        bottom: `${marginMm}mm`,
+        left: `${marginMm}mm`,
+      };
+    }
+
+    const pdf = await page.pdf(pdfOptions);
+    return Buffer.from(pdf);
+  } finally {
+    // Cierra el contexto entero: se lleva por delante la sesión sembrada.
+    await context.close().catch(() => {});
+  }
+}
+
 export async function closePdfBrowser(): Promise<void> {
   if (browserInstance) {
     await browserInstance.close();

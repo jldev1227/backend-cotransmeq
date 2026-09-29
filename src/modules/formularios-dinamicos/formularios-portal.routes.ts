@@ -10,6 +10,7 @@ import {
 	medir,
 	registrarEvento
 } from './formularios-dinamicos.observabilidad'
+import { FormulariosDocumentoPdfService } from './formularios-documento-pdf.service'
 import * as portal from './formularios-portal.service'
 import {
   assignmentIdParamSchema,
@@ -22,6 +23,26 @@ import {
   listarEnviosPortalSchema,
   listarPapeleraPortalSchema,
 } from './formularios-dinamicos.schema'
+
+/** Prefijo de todas las rutas de este módulo. Vive a nivel de archivo porque el
+ *  middleware de autenticación —declarado fuera de la función— necesita
+ *  nombrar una ruta concreta para acotar el token de impresión. */
+const BASE = '/conductor-portal/formularios'
+
+/** Ruta —tal y como la declara Fastify— que el token de impresión puede usar. */
+const RUTA_DETALLE_ENVIO = `${BASE}/submissions/:id`
+
+/**
+ * Vida del token de impresión.
+ *
+ * Solo tiene que sobrevivir a una navegación de Chromium y a la lectura que
+ * hace la página. Tres minutos dan margen a un arranque lento del portal sin
+ * dejar credenciales útiles rondando.
+ */
+const IMPRESION_TTL_SEGUNDOS = 180
+
+/** `tipo` exclusivo del token de impresión: ningún otro módulo lo acepta. */
+const TIPO_TOKEN_IMPRESION = 'conductor_portal_print'
 
 /**
  * Rutas del portal del conductor para formularios dinámicos.
@@ -47,11 +68,52 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
 
   try {
     const payload = jwt.verify(parts[1], env.JWT_SECRET) as any
-    if (payload.tipo !== 'conductor_portal') {
+
+    /**
+     * Token de IMPRESIÓN: alcance mínimo, una sola lectura.
+     *
+     * Lo firma la ruta del PDF del recibo para que Chromium pueda renderizar
+     * la página del portal (ver la cabecera de
+     * `formularios-documento-pdf.service.ts`). Aquí se le pone el cerco: solo
+     * vale para leer EL envío que lleva dentro, y nada más.
+     *
+     * Lleva un `tipo` PROPIO y no `conductor_portal` con una marca dentro.
+     * Ese `tipo` lo comprueban también `conductor-portal.routes`, primas y
+     * liquidaciones, cada una con su copia del middleware; un token con el
+     * tipo del portal serviría allí aunque aquí estuviera acotado, porque
+     * esas copias no saben de esta marca. Con un tipo aparte, todo lo que no
+     * sea este archivo lo rechaza sin tener que enterarse de nada.
+     *
+     * El alcance se compara contra la ruta DECLARADA y no contra
+     * `request.url`: `/submissions/:id/pdf` comparte el mismo parámetro, así
+     * que mirar solo el `:id` dejaría que el impresor se invocara a sí mismo
+     * en cadena con un token que ya no es el del conductor.
+     */
+    const esImpresion = payload.tipo === TIPO_TOKEN_IMPRESION
+    if (payload.tipo !== 'conductor_portal' && !esImpresion) {
       return reply
         .status(401)
         .send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Token no autorizado para el portal.' } })
     }
+
+    if (esImpresion) {
+      const rutaDeclarada: string | undefined =
+        (request as any).routeOptions?.url ?? (request as any).routerPath
+      const idPedido = (request.params as { id?: string } | undefined)?.id
+      const dentroDeAlcance =
+        request.method === 'GET' &&
+        typeof rutaDeclarada === 'string' &&
+        rutaDeclarada.endsWith(RUTA_DETALLE_ENVIO) &&
+        typeof payload.sid === 'string' &&
+        idPedido === payload.sid
+      if (!dentroDeAlcance) {
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Token fuera de su alcance.' },
+        })
+      }
+    }
+
     ;(request as any).portalActor = {
       kind: 'CONDUCTOR',
       id: payload.sub,
@@ -157,7 +219,7 @@ function fail(reply: FastifyReply, err: unknown, contexto: string) {
 export async function formulariosPortalRoutes(app: FastifyInstance) {
   app.addHook('onRequest', portalAuthMiddleware)
 
-  const base = '/conductor-portal/formularios'
+  const base = BASE
 
   /// Nada de este módulo se cachea en disco compartido: son datos personales de
   /// un conductor concreto. El portal los guarda en su propio IndexedDB, que es
@@ -243,6 +305,60 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
       return reply.send({ success: true, data: await portal.obtenerEnvioPortal(actorDe(request), id) })
     } catch (err) {
       return fail(reply, err, 'obtener envío del portal')
+    }
+  })
+
+  /**
+   * PDF del recibo de un envío.
+   *
+   * No compone documento: manda a Chromium a imprimir la MISMA página que el
+   * conductor ve en el portal web. El razonamiento completo —y las cuatro
+   * garantías que sostienen que esto siga siendo seguro pese a que ahora la
+   * página de Puppeteer sí lleva sesión— están en la cabecera de
+   * `formularios-documento-pdf.service.ts`.
+   */
+  app.get(`${base}/submissions/:id/pdf`, async (request, reply) => {
+    try {
+      const { id } = parse(idParamSchema, request.params)
+      const actor = actorDe(request)
+
+      /// Propiedad ANTES de imprimir. Filtra por `conductor_id` y lanza
+      /// `SUBMISSION_NOT_FOUND` si el envío es de otro, así que lo que se
+      /// navega es el id de la fila devuelta y no el del parámetro.
+      const { submission } = await portal.obtenerEnvioPortal(actor, id)
+
+      const expiraEn = new Date(Date.now() + IMPRESION_TTL_SEGUNDOS * 1000)
+      const tokenDeImpresion = jwt.sign(
+        {
+          tipo: TIPO_TOKEN_IMPRESION,
+          sid: submission.id,
+          cedula: actor.kind === 'CONDUCTOR' ? actor.cedula : undefined,
+          nombre: actor.nombre,
+        },
+        env.JWT_SECRET,
+        { subject: actor.id, expiresIn: IMPRESION_TTL_SEGUNDOS },
+      )
+
+      const pdf = await FormulariosDocumentoPdfService.imprimirReciboDeEnvio(submission.id, {
+        token: tokenDeImpresion,
+        conductor: {
+          id: actor.id,
+          nombre: actor.nombre ?? '',
+          apellido: '',
+          numero_identificacion: (actor.kind === 'CONDUCTOR' ? actor.cedula : null) ?? '',
+        },
+        expiresAt: expiraEn.toISOString(),
+      })
+
+      const nombre = `recibo-${submission.id}`.replace(/[^a-z0-9_\-]/gi, '_')
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `inline; filename="${nombre}.pdf"`)
+        .header('Content-Length', String(pdf.length))
+        .header('Cache-Control', 'private, max-age=0, no-store')
+        .send(pdf)
+    } catch (err) {
+      return fail(reply, err, 'imprimir el recibo del envío')
     }
   })
 
