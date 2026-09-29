@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { Prisma } from '@prisma/client';
 import {
   borradorNominaQueueService,
   type BorradorNominaPayload,
@@ -12,6 +13,7 @@ import {
   sembrarBonificacionesDesdeRecorridos,
 } from '../../queue/borrador-nomina-queue.service';
 import { NominaPatchService } from './nomina-patch.service';
+import { normalizarMarcasDias } from './marcas-dias';
 import { construirRecargosDataDesdeHoja } from './nomina-desprendible.service';
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway';
 import { ESTADOS_BLOQUEADOS, permiteRefrescarDias } from './nomina-estado.service';
@@ -495,6 +497,100 @@ export class NominaBorradoresController {
       return reply.send({ ...r, bonos });
     } catch (e: any) {
       return reply.status(400).send({ error: e?.message || 'No se pudieron rehacer los recargos.' });
+    }
+  }
+
+  /**
+   * Guarda las MARCAS POR DÍA del desprendible (ocultar / no sumar).
+   *
+   * Se reemplaza el mapa entero: el modal manda el estado completo de la hoja,
+   * y así desmarcar un día es simplemente no mandarlo.
+   *
+   * Cuando cambia el conjunto de días que NO SUMAN cambia el dinero, y hay que
+   * llevarlo a donde lo lee el comprobante: se rehacen las filas de `recargos`
+   * con el total del canvas —que ya los deja fuera— y se recalcula el neto,
+   * igual que «Rehacer recargos». Si solo cambian los ocultos no se toca nada
+   * más: esconder un día de la tabla no mueve un peso, y rehacer los recargos
+   * sin necesidad volvería a incluir los que alguien quitó en el formulario.
+   */
+  static async guardarMarcasDias(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string };
+    const b = (request.body ?? {}) as Record<string, any>;
+    const p = periodoDe(b);
+    if (!p) return reply.status(400).send({ error: 'Periodo inválido (anio/mes).' });
+
+    const actor = actorDe(request);
+    if (!actor.id) return reply.status(401).send({ error: 'Sesión no válida.' });
+
+    const liq = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, conductor_id: true, estado_flujo: true, marcas_dias: true },
+    });
+    if (!liq) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
+    if (ESTADOS_BLOQUEADOS.includes(liq.estado_flujo)) {
+      return reply.status(409).send({
+        error: `La liquidación está en ${liq.estado_flujo} y esto cambia su desprendible. Devuélvela a LIQUIDADA para cambiarlo.`,
+      });
+    }
+
+    const nuevas = normalizarMarcasDias(b.marcas);
+    const noSuman = (m: Record<string, { noSumar: boolean }> | null) =>
+      new Set(Object.entries(m ?? {}).filter(([, v]) => v.noSumar).map(([k]) => k));
+    const antes = noSuman(normalizarMarcasDias(liq.marcas_dias));
+    const ahora = noSuman(nuevas);
+    const cambiaDinero = antes.size !== ahora.size || [...ahora].some((k) => !antes.has(k));
+
+    try {
+      await prisma.liquidaciones.update({
+        where: { id: liq.id },
+        data: {
+          marcas_dias: nuevas ? (nuevas as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
+          /// Como cualquier patch de la hoja: otro navegador con la versión
+          /// vieja no debe poder pisar esto sin enterarse.
+          version: { increment: 1 },
+          actualizado_por_id: actor.id,
+          updated_at: new Date(),
+        },
+      });
+
+      let recargos: { filas: number; total: number; sinAtribuir: number } | null = null;
+      if (cambiaDinero) {
+        /// La hoja se construye DESPUÉS de guardar: es la que ya sabe qué días
+        /// no suman, y su total es el objetivo del reparto.
+        const dto = await NominaCanvasService.construirPeriodo({
+          anio: p.anio,
+          mes: p.mes,
+          corte: p.corte,
+          conductorIds: [liq.conductor_id!],
+        } as any);
+        const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
+        const dias = dto.periodo.dias;
+        const desde = dias[0]?.fecha ?? '';
+        const hasta = dias[dias.length - 1]?.fecha ?? '';
+        if (hoja && desde && hasta) {
+          recargos = await sembrarRecargosDesdePlanillas(
+            liq.id,
+            liq.conductor_id!,
+            desde,
+            hasta,
+            Number(hoja.totales?.totalRecargos ?? 0),
+            ahora,
+          );
+          await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
+        }
+      }
+
+      emitSheetInvalidate({
+        scope: 'nomina',
+        anio: p.anio,
+        mes: p.mes,
+        accion: 'marcas-dias',
+        by: actor.id,
+      });
+
+      return reply.send({ marcas: nuevas ?? {}, recargos });
+    } catch (e: any) {
+      return reply.status(400).send({ error: e?.message || 'No se pudieron guardar las marcas.' });
     }
   }
 

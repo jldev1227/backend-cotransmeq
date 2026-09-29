@@ -164,6 +164,15 @@ export interface DiaHoja {
    * origen, y que el aviso sepa distinguir «esto es derivado» de «esto es tuyo».
    */
   propio: boolean;
+  /**
+   * Marcas del desprendible (`liquidaciones.marcas_dias`, ver `marcas-dias.ts`).
+   * `oculto`: no sale en las tablas de recargos. `noSuma`: sale, pero no se
+   * paga. Opcionales porque se rellenan después de construir el día.
+   */
+  oculto?: boolean;
+  noSuma?: boolean;
+  /** Lo que valen las horas de recargo de este día, a la tarifa de su cliente. */
+  valorRecargos?: number;
 }
 
 /**
@@ -418,8 +427,13 @@ export interface LicenciaHoja {
   desde: string | null;
   hasta: string | null;
   dias: number;
-  /** El básico del desprendible: la licencia no tiene salario propio. */
+  /**
+   * Salario sobre el que se liquida. Si la liquidación no lo fija, es el
+   * básico del desprendible — igual que en las vacaciones.
+   */
   salarioBase: number;
+  /** `true` cuando `salarioBase` viene del básico y no de la liquidación. */
+  salarioHeredado: boolean;
 }
 
 export interface VacacionesHoja {

@@ -936,6 +936,13 @@ export async function sembrarRecargosDesdePlanillas(
   desde: string,
   hasta: string,
   objetivo: number,
+  /**
+   * Días marcados «no sumar» en el canvas, como `AAAA-MM-DD|empresa_id` (ver
+   * `marcas-dias.ts`). El objetivo ya viene sin ellos; aquí se saltan también
+   * del PESO, o una planilla seguiría llevándose la parte de un día que no se
+   * paga —y en transmeralda eso mueve el cubo de PAREX/GEOPARK—.
+   */
+  noSuman: Set<string> = new Set(),
 ): Promise<{ filas: number; total: number; sinAtribuir: number }> {
   const [aD, mD] = desde.split('-').map(Number)
   const [aH, mH] = hasta.split('-').map(Number)
@@ -982,6 +989,7 @@ export async function sembrarRecargosDesdePlanillas(
       if (d.disponibilidad) continue
       const fecha = `${p.a_o}-${String(p.mes).padStart(2, '0')}-${String(d.dia).padStart(2, '0')}`
       if (fecha < desde || fecha > hasta) continue
+      if (noSuman.has(`${fecha}|${p.empresa_id ?? ''}`)) continue
       for (const det of d.detalles_recargos_dias) peso += dec(det.valor_calculado)
     }
     return { planilla: p, peso }
