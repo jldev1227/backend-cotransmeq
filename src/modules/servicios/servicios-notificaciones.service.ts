@@ -1,24 +1,34 @@
 import { prisma } from '../../config/prisma'
 import { logger } from '../../utils/logger'
+import { enviarPushConductor } from '../conductor-portal/conductor-push.service'
 
 /**
  * Avisos al conductor sobre los servicios que le tocan.
  *
- * Escribe en `conductor_notification`, el inbox durable que ya usaba nómina. La
- * app lo lee en su ronda de sincronización —la misma que ya corre cada minuto,
- * al enfocar y al reconectar— y no por push: `conductor_push_device` estaba sin
- * crear en ninguna base, así que un push aquí no habría llegado a nadie.
+ * Escribe en `conductor_notification`, el inbox durable que ya usaba nómina, y
+ * acto seguido intenta el push. Ese orden importa: un servicio asignado a las
+ * seis de la mañana tiene que avisar con el teléfono guardado, pero el aviso no
+ * puede depender de que Expo, APNs/FCM o el propio teléfono respondan. El inbox
+ * es la garantía; el push, la inmediatez.
  *
- * `estado_push` se marca `NO_APLICA` a propósito. Dejarlo en `PENDIENTE` habría
- * hecho que un futuro worker de push reenviara meses después avisos que el
- * conductor ya leyó en la app.
+ * Si no hay dispositivo registrado el aviso NO se pierde: queda
+ * `SIN_DISPOSITIVO` y la app lo recoge en su siguiente ronda de
+ * sincronización. Mirar `estado_push` y `error_push` es lo primero que hay que
+ * hacer cuando alguien reporta que no le llegó nada.
  *
  * Todas las funciones son «mejor esfuerzo»: un fallo aquí se registra y se
  * traga. Un servicio ya guardado no se deshace porque no se pudiera avisar, que
  * es el mismo criterio de `servicios.events.ts` con Socket.IO.
  */
 
-const ESTADO_PUSH = 'NO_APLICA'
+/**
+ * Canal propio en Android, separado del de nómina.
+ *
+ * Son urgencias distintas: un desprendible puede esperar, una asignación para
+ * dentro de dos horas no. Compartir canal obligaría al conductor a silenciar
+ * las dos cosas o ninguna.
+ */
+const CANAL = 'servicios'
 
 type Tipo =
   | 'SERVICIO_ASIGNADO'
@@ -86,19 +96,27 @@ async function crear(params: {
   datos: Record<string, unknown>
 }): Promise<void> {
   try {
-    await prisma.conductor_notification.create({
+    const datos = {
+      type: params.tipo,
+      servicio_id: params.servicioId,
+      ...params.datos
+    }
+    const inbox = await prisma.conductor_notification.create({
       data: {
         conductor_id: params.conductorId,
         tipo: params.tipo,
         titulo: params.titulo,
         cuerpo: params.cuerpo,
-        estado_push: ESTADO_PUSH,
-        datos: {
-          type: params.tipo,
-          servicio_id: params.servicioId,
-          ...params.datos
-        } as any
+        datos: datos as any
       }
+    })
+    await enviarPushConductor({
+      conductorId: params.conductorId,
+      notificacionId: inbox.id,
+      titulo: params.titulo,
+      cuerpo: params.cuerpo,
+      datos,
+      canal: CANAL
     })
   } catch (error) {
     logger.error(
