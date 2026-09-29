@@ -1679,6 +1679,85 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     })
 
     // ─── Listar servicios del conductor (planificados, en curso, realizados) ───
+    /**
+     * Inbox del conductor: lo que todavía no ha visto.
+     *
+     * Solo las NO leídas y un tope de 20. Esto se consulta en cada ronda de
+     * sincronización de la app —cada minuto—, así que devolver el histórico
+     * completo sería pagar una consulta creciente para mostrar, casi siempre,
+     * cero avisos.
+     */
+    protectedApp.get('/conductor-portal/notificaciones', {
+      schema: {
+        description: 'Avisos pendientes de leer del conductor',
+        tags: ['conductor-portal']
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const filas = await prisma.conductor_notification.findMany({
+          where: { conductor_id: conductor.id, leida_at: null },
+          orderBy: { created_at: 'asc' },
+          take: 20,
+          select: {
+            id: true,
+            tipo: true,
+            titulo: true,
+            cuerpo: true,
+            datos: true,
+            created_at: true
+          }
+        })
+        return reply.send({
+          success: true,
+          data: filas.map((fila) => ({
+            id: fila.id,
+            tipo: fila.tipo,
+            titulo: fila.titulo,
+            cuerpo: fila.cuerpo,
+            datos: fila.datos ?? {},
+            created_at: fila.created_at
+          }))
+        })
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message || 'Error al consultar avisos' })
+      }
+    })
+
+    /**
+     * Marca un aviso como visto.
+     *
+     * Es lo que hace que un servicio eliminado se enseñe UNA vez: la app lo
+     * marca al mostrarlo, así que salir, retroceder o cerrar la app no lo trae
+     * de vuelta.
+     *
+     * Idempotente y acotado al propio conductor: `updateMany` con
+     * `conductor_id` no toca nada si el aviso es de otro, y repetir la llamada
+     * no es un error —la app la reintenta desde su ronda de sincronización.
+     */
+    protectedApp.post('/conductor-portal/notificaciones/:id/leida', {
+      schema: {
+        description: 'Marcar un aviso como leído',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const resultado = await prisma.conductor_notification.updateMany({
+          where: { id: request.params.id, conductor_id: conductor.id, leida_at: null },
+          data: { leida_at: new Date() }
+        })
+        return reply.send({ success: true, data: { marcadas: resultado.count } })
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message || 'Error al marcar el aviso' })
+      }
+    })
+
     protectedApp.get('/conductor-portal/servicios', {
       schema: {
         description: 'Listar servicios del conductor autenticado (planificados, en curso, realizados)',
