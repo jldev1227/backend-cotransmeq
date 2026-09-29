@@ -14,6 +14,7 @@ import {
 } from '../../queue/borrador-nomina-queue.service';
 import { NominaPatchService } from './nomina-patch.service';
 import { normalizarMarcasDias } from './marcas-dias';
+import { rangoValido, diasComerciales } from '../../lib/nomina/periodo';
 import { construirRecargosDataDesdeHoja } from './nomina-desprendible.service';
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway';
 import { ESTADOS_BLOQUEADOS, permiteRefrescarDias } from './nomina-estado.service';
@@ -37,7 +38,19 @@ function periodoDe(b: Record<string, any>) {
     return null;
   }
   const corte = b.corte == null ? null : Number(b.corte);
-  return { anio, mes, corte: Number.isFinite(corte as number) ? corte : null };
+  /// Rango específico (`inicio`/`fin`, AAAA-MM-DD). Si viene a medias o no
+  /// es válido, el periodo entero es inválido: caer al corte en silencio
+  /// liquidaría otras fechas de las que se pidieron.
+  const hayRango = (b.inicio ?? '') !== '' || (b.fin ?? '') !== '';
+  const rango = hayRango ? rangoValido(b.inicio, b.fin) : null;
+  if (hayRango && !rango) return null;
+  return {
+    anio,
+    mes,
+    corte: Number.isFinite(corte as number) ? corte : null,
+    inicio: rango?.desde,
+    fin: rango?.hasta,
+  };
 }
 
 export class NominaBorradoresController {
@@ -58,6 +71,8 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte ?? undefined,
+        inicio: p.inicio,
+        fin: p.fin,
         /**
          * La lista previa enseña a TODO el que no esté inactivo, tenga o no
          * marcado `conductores.nomina`.
@@ -187,6 +202,8 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte,
+        inicio: p.inicio,
+        fin: p.fin,
         conductorIds,
         sobrescribir,
       };
@@ -257,6 +274,8 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte,
+        inicio: p.inicio,
+        fin: p.fin,
         conductorIds: [liq.conductor_id!],
         /// IGNORANDO la copia. Sin esto se leería la copia que se va a
         /// reemplazar y el refresco se copiaría a sí mismo: un no-op que desde
@@ -316,6 +335,8 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte,
+        inicio: p.inicio,
+        fin: p.fin,
         conductorIds: [liq.conductor_id!],
       } as any);
       const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
@@ -391,6 +412,8 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte,
+        inicio: p.inicio,
+        fin: p.fin,
         conductorIds: [liq.conductor_id!],
       } as any);
       const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
@@ -456,6 +479,8 @@ export class NominaBorradoresController {
         anio: p.anio,
         mes: p.mes,
         corte: p.corte,
+        inicio: p.inicio,
+        fin: p.fin,
         conductorIds: [liq.conductor_id!],
       } as any);
       const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
@@ -561,6 +586,8 @@ export class NominaBorradoresController {
           anio: p.anio,
           mes: p.mes,
           corte: p.corte,
+          inicio: p.inicio,
+          fin: p.fin,
           conductorIds: [liq.conductor_id!],
         } as any);
         const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
@@ -591,6 +618,143 @@ export class NominaBorradoresController {
       return reply.send({ marcas: nuevas ?? {}, recargos });
     } catch (e: any) {
       return reply.status(400).send({ error: e?.message || 'No se pudieron guardar las marcas.' });
+    }
+  }
+
+  /**
+   * Cambia el PERIODO DEL DESPRENDIBLE de una liquidación.
+   *
+   * Las fechas que imprime el comprobante son `periodo_start`/`periodo_end`, y
+   * hasta ahora solo las escribía el generador —siempre el corte 21→20—. Un
+   * retiro del 21 al 30 no tenía forma de decirlo.
+   *
+   * Cambiar solo las dos columnas dejaría el dinero con las fechas viejas, así
+   * que además:
+   *   · `dias_laborados` pasa a los días comerciales del rango (si se pide:
+   *     alguien puede haberlos tecleado a propósito);
+   *   · se rehacen las filas de `recargos` con la ventana NUEVA —las del corte
+   *     traían días de fuera—, respetando los días marcados «no sumar»;
+   *   · y se recalculan los totales.
+   *
+   * La copia de días de la liquidación NO se toca: guarda correcciones a mano.
+   * Los días que queden fuera del rango simplemente no se ven; si el rango
+   * crece, «Actualizar días» trae los nuevos.
+   *
+   * Se rechaza si otra liquidación viva del mismo conductor se solapa con las
+   * fechas nuevas: dos comprobantes pagando el mismo día es pagarlo dos veces.
+   */
+  static async cambiarPeriodo(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string };
+    const b = (request.body ?? {}) as Record<string, any>;
+    const rango = rangoValido(b.inicio, b.fin);
+    if (!rango) {
+      return reply
+        .status(400)
+        .send({ error: 'Fechas inválidas: AAAA-MM-DD, la inicial antes que la final, hasta 62 días.' });
+    }
+    const ajustarDias = b.ajustarDias !== false;
+
+    const actor = actorDe(request);
+    if (!actor.id) return reply.status(401).send({ error: 'Sesión no válida.' });
+
+    const liq = await prisma.liquidaciones.findFirst({
+      where: { id, deleted_at: null },
+      select: {
+        id: true,
+        conductor_id: true,
+        estado_flujo: true,
+        periodo_end: true,
+        marcas_dias: true,
+      },
+    });
+    if (!liq || !liq.conductor_id) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
+    if (ESTADOS_BLOQUEADOS.includes(liq.estado_flujo)) {
+      return reply.status(409).send({
+        error: `La liquidación está en ${liq.estado_flujo} y esto cambia su neto. Devuélvela a LIQUIDADA para cambiarla.`,
+      });
+    }
+
+    const choca = await prisma.liquidaciones.findFirst({
+      where: {
+        id: { not: liq.id },
+        conductor_id: liq.conductor_id,
+        deleted_at: null,
+        periodo_start: { lte: `${rango.hasta}T23:59:59` },
+        periodo_end: { gte: rango.desde },
+      },
+      select: { periodo_start: true, periodo_end: true, estado_flujo: true },
+    });
+    if (choca) {
+      return reply.status(409).send({
+        error:
+          `El conductor ya tiene otra liquidación (${choca.estado_flujo}) del ` +
+          `${String(choca.periodo_start).slice(0, 10)} al ${String(choca.periodo_end).slice(0, 10)}, ` +
+          'que se solapa con esas fechas. Ajusta primero esa.',
+      });
+    }
+
+    const diasLaborados = diasComerciales(rango.desde, rango.hasta);
+    try {
+      await prisma.liquidaciones.update({
+        where: { id: liq.id },
+        data: {
+          periodo_start: rango.desde,
+          periodo_end: rango.hasta,
+          ...(ajustarDias ? { dias_laborados: diasLaborados } : {}),
+          version: { increment: 1 },
+          actualizado_por_id: actor.id,
+          updated_at: new Date(),
+        },
+      });
+
+      /// La hoja con la ventana NUEVA: es la que sabe cuánto valen los
+      /// recargos de esas fechas.
+      const anio = Number(rango.hasta.slice(0, 4));
+      const mes = Number(rango.hasta.slice(5, 7));
+      const dto = await NominaCanvasService.construirPeriodo({
+        anio,
+        mes,
+        inicio: rango.desde,
+        fin: rango.hasta,
+        conductorIds: [liq.conductor_id],
+      });
+      const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
+      let recargos: { filas: number; total: number; sinAtribuir: number } | null = null;
+      if (hoja) {
+        const noSuman = new Set(
+          Object.entries(normalizarMarcasDias(liq.marcas_dias) ?? {})
+            .filter(([, m]) => m.noSumar)
+            .map(([k]) => k),
+        );
+        recargos = await sembrarRecargosDesdePlanillas(
+          liq.id,
+          liq.conductor_id,
+          rango.desde,
+          rango.hasta,
+          Number(hoja.totales?.totalRecargos ?? 0),
+          noSuman,
+        );
+      }
+      await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
+
+      /// A las dos salas: la del libro donde estaba y la del que la recibe.
+      const salas = new Set([`${anio}-${mes}`]);
+      const finViejo = String(liq.periodo_end ?? '');
+      if (/^\d{4}-\d{2}/.test(finViejo)) {
+        salas.add(`${Number(finViejo.slice(0, 4))}-${Number(finViejo.slice(5, 7))}`);
+      }
+      for (const sala of salas) {
+        const [a, m] = sala.split('-').map(Number);
+        emitSheetInvalidate({ scope: 'nomina', anio: a, mes: m, accion: 'periodo', by: actor.id });
+      }
+
+      return reply.send({
+        periodo: rango,
+        diasLaborados: ajustarDias ? diasLaborados : null,
+        recargos,
+      });
+    } catch (e: any) {
+      return reply.status(400).send({ error: e?.message || 'No se pudo cambiar el periodo.' });
     }
   }
 

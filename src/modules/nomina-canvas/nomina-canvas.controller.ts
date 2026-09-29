@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { NominaCanvasService } from './nomina-canvas.service';
-import { CORTE_DEFECTO } from '../../lib/nomina/periodo';
+import { CORTE_DEFECTO, rangoValido } from '../../lib/nomina/periodo';
 
 /**
  * Tope de conductores por libro. Cada hoja son ~110 filas × 40 columnas y
@@ -15,7 +15,11 @@ function leerPeriodo(request: FastifyRequest) {
   const anio = Number(q.anio);
   const mes = Number(q.mes);
   const corte = q.desde === undefined ? CORTE_DEFECTO : Number(q.desde);
-  return { anio, mes, corte };
+  /// Rango específico: `inicio` y `fin` (AAAA-MM-DD). `desde` NO sirve para
+  /// esto porque ya es el día de corte. `rangoInvalido` cuando viene y no vale.
+  const hayRango = !!q.inicio || !!q.fin;
+  const rango = hayRango ? rangoValido(q.inicio, q.fin) : null;
+  return { anio, mes, corte, inicio: rango?.desde, fin: rango?.hasta, rangoInvalido: hayRango && !rango };
 }
 
 export class NominaCanvasController {
@@ -26,7 +30,12 @@ export class NominaCanvasController {
    * el periodo va del `desde` del mes anterior al `desde − 1` de este.
    */
   static async periodo(request: FastifyRequest, reply: FastifyReply) {
-    const { anio, mes, corte } = leerPeriodo(request);
+    const { anio, mes, corte, inicio, fin, rangoInvalido } = leerPeriodo(request);
+    if (rangoInvalido) {
+      return reply
+        .status(400)
+        .send({ error: 'Rango inválido: dos fechas AAAA-MM-DD, la primera antes que la segunda, hasta 62 días.' });
+    }
 
     if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
       return reply.status(400).send({ error: 'Año inválido.' });
@@ -61,6 +70,8 @@ export class NominaCanvasController {
         anio,
         mes,
         corte,
+        inicio,
+        fin,
         conductorIds,
         soloConLiquidacion: true,
       });
@@ -87,12 +98,13 @@ export class NominaCanvasController {
    * saber si merece la pena cargar el libro entero.
    */
   static async resumen(request: FastifyRequest, reply: FastifyReply) {
-    const { anio, mes, corte } = leerPeriodo(request);
+    const { anio, mes, corte, inicio, fin, rangoInvalido } = leerPeriodo(request);
+    if (rangoInvalido) return reply.status(400).send({ error: 'Rango inválido.' });
     if (!Number.isInteger(anio) || !Number.isInteger(mes) || mes < 1 || mes > 12) {
       return reply.status(400).send({ error: 'Periodo inválido (anio/mes).' });
     }
     try {
-      const dto = await NominaCanvasService.construirPeriodo({ anio, mes, corte });
+      const dto = await NominaCanvasService.construirPeriodo({ anio, mes, corte, inicio, fin });
       return reply.send({
         anio: dto.anio,
         mes: dto.mes,

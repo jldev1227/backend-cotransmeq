@@ -122,6 +122,110 @@ export function mesesDePlanilla(
   return [mesAnterior(anio, mes), { anio, mes }];
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Rango específico
+// ─────────────────────────────────────────────────────────────────────────
+//
+// No todo se liquida por corte. Un retiro o un ingreso a mitad de corte se
+// liquida desde un día concreto hasta otro —del 21 al 30, del 21 al 31—, y
+// forzarlo al 21→20 obligaba a liquidar días que no se trabajaron o a
+// corregir todo a mano. El rango sustituye al calendario del corte; el resto
+// del canvas no distingue de dónde salieron los días.
+
+/** Tope de días de un rango: más que un periodo largo ya no es una nómina. */
+export const MAX_DIAS_RANGO = 62;
+
+/** `true` si es un `AAAA-MM-DD` que existe en el calendario. */
+export function esFechaISO(v: unknown): v is string {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [a, m, d] = v.split('-').map(Number);
+  const f = utc(a, m, d);
+  return f.getUTCFullYear() === a && f.getUTCMonth() === m - 1 && f.getUTCDate() === d;
+}
+
+/**
+ * El rango, validado: dos fechas reales, en orden y sin pasar de
+ * `MAX_DIAS_RANGO`. `null` si no sirve, para que quien llama caiga al corte.
+ */
+export function rangoValido(
+  desde: unknown,
+  hasta: unknown,
+): { desde: string; hasta: string } | null {
+  if (!esFechaISO(desde) || !esFechaISO(hasta) || desde > hasta) return null;
+  const dias = (Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86400000 + 1;
+  return dias <= MAX_DIAS_RANGO ? { desde, hasta } : null;
+}
+
+/** Los días de un rango, ambos extremos incluidos. Misma forma que `diasDelPeriodo`. */
+export function diasDelRango(desde: string, hasta: string): DiaPeriodo[] {
+  const dias: DiaPeriodo[] = [];
+  const cursor = new Date(`${desde}T00:00:00Z`);
+  const limite = new Date(`${hasta}T00:00:00Z`);
+  let i = 0;
+  while (cursor <= limite) {
+    const dow = cursor.getUTCDay();
+    dias.push({
+      fecha: iso(cursor),
+      dia: cursor.getUTCDate(),
+      mes: cursor.getUTCMonth() + 1,
+      anio: cursor.getUTCFullYear(),
+      nombreMes: MESES[cursor.getUTCMonth()],
+      nombreDia: DIAS_SEMANA[dow],
+      esDomingo: dow === 0,
+      indice: i++,
+      ocurrencia: 0,
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dias;
+}
+
+/** Los (año, mes) de planilla que toca el rango, en orden. */
+export function mesesDelRango(desde: string, hasta: string): { anio: number; mes: number }[] {
+  const out: { anio: number; mes: number }[] = [];
+  let [a, m] = desde.split('-').map(Number);
+  const [aF, mF] = hasta.split('-').map(Number);
+  while (a < aF || (a === aF && m <= mF)) {
+    out.push({ anio: a, mes: m });
+    m++;
+    if (m > 12) {
+      m = 1;
+      a++;
+    }
+  }
+  return out;
+}
+
+/**
+ * Días COMERCIALES del rango (método 30/360), que es lo que se paga.
+ *
+ * Todo mes cuenta 30: el 31 no suma y el último día de febrero vale como 30.
+ * Así del 21 al 30 son 10, del 21 al 31 también 10, y del 21 al 28 de febrero
+ * (o 29) son 10 — los mismos que cualquier otro final de mes. Un 21→20 da 30,
+ * como el corte. Se topa en 30 porque es un sueldo mensual.
+ */
+export function diasComerciales(desde: string, hasta: string): number {
+  const partes = (f: string) => {
+    const [a, m, d] = f.split('-').map(Number);
+    const ultimoFeb = m === 2 && utc(a, 3, 0).getUTCDate() === d;
+    return { a, m, d: ultimoFeb ? 30 : Math.min(d, 30) };
+  };
+  const x = partes(desde);
+  const y = partes(hasta);
+  const n = (y.a - x.a) * 360 + (y.m - x.m) * 30 + (y.d - x.d) + 1;
+  return Math.max(0, Math.min(30, n));
+}
+
+/** Etiqueta del rango: `RANGO 21 SEP — 30 SEP 2026`. */
+export function etiquetaRango(desde: string, hasta: string): string {
+  const [a1, m1, d1] = desde.split('-').map(Number);
+  const [a2, m2, d2] = hasta.split('-').map(Number);
+  const mes = (m: number) => MESES[m - 1].slice(0, 3);
+  return a1 === a2
+    ? `RANGO ${d1} ${mes(m1)} — ${d2} ${mes(m2)} ${a2}`
+    : `RANGO ${d1} ${mes(m1)} ${a1} — ${d2} ${mes(m2)} ${a2}`;
+}
+
 /** Etiqueta de cabecera: `AGOSTO 2026 (21 JUL — 20 AGO)`. */
 export function etiquetaPeriodo(
   anio: number,

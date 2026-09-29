@@ -32,6 +32,7 @@ import { permiteReemplazar } from '../modules/nomina-canvas/nomina-estado.servic
 import { NominaCanvasService } from '../modules/nomina-canvas/nomina-canvas.service'
 import { sheetRoomKey } from '../sockets/sheet-rooms'
 import { env } from '../config/env'
+import { diasComerciales } from '../lib/nomina/periodo'
 
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
@@ -50,6 +51,9 @@ export interface BorradorNominaPayload {
   mes: number
   /** Corte del periodo (día de inicio). Lo mismo que lee el canvas. */
   corte?: number | null
+  /** Rango específico en vez del corte (`AAAA-MM-DD`). Ver `OpcionesPeriodo.inicio`. */
+  inicio?: string
+  fin?: string
   /** Conductores a generar. Vacío = todos los que tengan planilla. */
   conductorIds: string[]
   /**
@@ -282,6 +286,8 @@ class BorradorNominaQueueService {
       anio: p.anio,
       mes: p.mes,
       corte: p.corte ?? undefined,
+      inicio: p.inicio,
+      fin: p.fin,
       // `construirPeriodo` ya sabe restringir: filtrar después obligaría a
       // construir hojas que se iban a descartar.
       conductorIds: p.conductorIds.length ? p.conductorIds : undefined,
@@ -301,6 +307,12 @@ class BorradorNominaQueueService {
     const ventana = {
       desde: dias[0]?.fecha ?? '',
       hasta: dias[dias.length - 1]?.fecha ?? '',
+      /// Con rango, los días comerciales del rango (21→30 son 10); con corte,
+      /// el mes comercial. Es lo mismo con lo que el canvas calculó `totales`.
+      diasLaborados:
+        p.inicio && p.fin && dias.length
+          ? diasComerciales(dias[0].fecha, dias[dias.length - 1].fecha)
+          : DIAS_MES_COMERCIAL,
     }
 
     /**
@@ -337,7 +349,7 @@ class BorradorNominaQueueService {
 
   private async generarUno(
     hoja: any,
-    ventana: { desde: string; hasta: string },
+    ventana: { desde: string; hasta: string; diasLaborados: number },
     sobrescribir: Set<string>,
     userId: string,
     /** Ids marcados a mano. Vacío en un barrido del periodo. */
@@ -421,7 +433,9 @@ class BorradorNominaQueueService {
          * Las novedades de verdad —un ingreso o un retiro a mitad de corte— se
          * bajan a mano: la celda del desprendible es editable.
          */
-        dias_laborados: DIAS_MES_COMERCIAL,
+        /// Con un RANGO específico, sus días comerciales: un retiro del 21 al
+        /// 30 cobra 10, no 30.
+        dias_laborados: ventana.diasLaborados,
         /**
          * El básico SE CONGELA AQUÍ, y esto es lo que hace que
          * `conductores.salario_base` sea una sugerencia y no la fuente.
