@@ -88,7 +88,17 @@ export async function enviarPushConductor(params: {
 
     const tickets = await enviarExpo(
       dispositivos.map((item) => item.expo_push_token),
-      { title: params.titulo, body: params.cuerpo, data: params.datos, channelId: params.canal },
+      {
+        title: params.titulo,
+        body: params.cuerpo,
+        /// El id del inbox viaja en el push para que la app pueda marcar el
+        /// aviso como leído al tocarlo. Sin él, tocar la notificación llevaba
+        /// al servicio Y la siguiente ronda de sincronización volvía a sacar
+        /// el modal del mismo aviso, que es justo lo que el conductor acababa
+        /// de leer.
+        data: { ...params.datos, notificacion_id: params.notificacionId },
+        channelId: params.canal,
+      },
     )
 
     /// Un token que Expo declara muerto se desactiva aquí. Sin esto, cada aviso
