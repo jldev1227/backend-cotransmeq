@@ -73,6 +73,13 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
     puedeEscribir,
     NominaBorradoresController.repararRecargos,
   );
+  /// Marcas por día del desprendible (ocultar / no sumar). Puede cambiar el
+  /// neto —rehace los recargos si cambia lo que no suma—: permiso de escritura.
+  app.put(
+    '/nomina/liquidaciones/:id/marcas-dias',
+    puedeEscribir,
+    NominaBorradoresController.guardarMarcasDias,
+  );
   /// Retirar el borrador de una hoja. Solo BORRADOR, y con el permiso de
   /// escritura: es la acción más destructiva del carril.
   app.delete(

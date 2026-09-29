@@ -269,6 +269,20 @@ describe('licencia de maternidad o paternidad', () => {
     expect(r.totalLicencia).toBeCloseTo((1750905 / 30) * 14, 6);
   });
 
+  /** Como las vacaciones: con salario propio se liquida sobre él. */
+  it('con salario de licencia fijado, prorratea ese y no el básico', () => {
+    const r = liquidarNomina(conLicencia({ salarioLicencia: 2_100_000 }), PARAMS);
+    expect(r.totalLicencia).toBeCloseTo((2_100_000 / 30) * 14, 6);
+  });
+
+  /** `null` y `0` son «sin fijar»: vuelve al básico, igual que las vacaciones. */
+  it('sin salario de licencia vuelve al básico', () => {
+    const nulo = liquidarNomina(conLicencia({ salarioLicencia: null }), PARAMS);
+    const cero = liquidarNomina(conLicencia({ salarioLicencia: 0 }), PARAMS);
+    expect(nulo.totalLicencia).toBeCloseTo((1750905 / 30) * 14, 6);
+    expect(cero.totalLicencia).toBeCloseTo((1750905 / 30) * 14, 6);
+  });
+
   it('un solo día vale un día, no cero', () => {
     const r = liquidarNomina(conLicencia({ licenciaFin: '2026-09-01' }), PARAMS);
     expect(r.totalLicencia).toBeCloseTo(1750905 / 30, 6);

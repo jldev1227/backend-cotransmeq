@@ -60,6 +60,7 @@ import {
   type LicenciaHoja,
   type BaseSalarial,
 } from './nomina-canvas.types';
+import { claveMarcaDia, leerMarcasDias } from './marcas-dias';
 
 /**
  * Un bono marcado en el canvas de RECORRIDOS, ya aplanado.
@@ -931,6 +932,11 @@ export class NominaCanvasService {
     } = args;
     const avisos: string[] = [];
 
+    /// Marcas por día del desprendible (ocultar / no sumar). Ver `marcas-dias.ts`.
+    const marcas = leerMarcasDias(liquidacion?.marcas_dias);
+    const marcaDe = (fecha: string, empresaId: string | null | undefined) =>
+      marcas.get(claveMarcaDia(fecha, empresaId));
+
     // El último tramo es el vigente al cierre: es lo que se expone en los
     // campos sueltos de la hoja, que necesitan un solo número. El DINERO no
     // sale de aquí — sale de `tarifaEn()`, que resuelve por fecha.
@@ -1046,16 +1052,23 @@ export class NominaCanvasService {
         // Las HORAS siguen sumándose solo desde los detalles, así que un
         // bloque sin recargos sale con sus líneas en cero: dice qué días se
         // trabajaron para esa empresa, y que no hubo recargo que cobrar.
+        //
+        // Las MARCAS del día mandan sobre eso: uno OCULTO no entra en el
+        // bloque, y uno que NO SUMA entra con su fecha pero sin horas ni
+        // valor. La columna del día en la matriz se pinta igual en los dos
+        // casos: es el registro de lo trabajado, no el desprendible.
+        const marca = marcaDe(fecha, empresaId);
         const clave = `${empresaId}|${p.mes}|${p.a_o}`;
-        let bloque = porEmpresa.get(clave);
-        if (!bloque) {
+        let bloque = marca?.ocultar ? undefined : porEmpresa.get(clave);
+        if (!bloque && !marca?.ocultar) {
           bloque = {
             empresaId, empresa, mes: p.mes, anio: p.a_o,
             dias: new Set(), horas: new Map(), valores: new Map(), diasPorTipo: new Map(),
           };
           porEmpresa.set(clave, bloque);
         }
-        bloque.dias.add(dl.dia);
+        bloque?.dias.add(dl.dia);
+        const bloqueSuma = marca?.noSumar ? undefined : bloque;
 
         const horas: Partial<Record<CodigoRecargo, number>> = {};
         for (const det of dl.detalles_recargos_dias ?? []) {
@@ -1065,6 +1078,8 @@ export class NominaCanvasService {
           if (h <= 0) continue;
           horas[cod] = horas2((horas[cod] ?? 0) + h);
 
+          if (!bloqueSuma) continue;
+          const bloque = bloqueSuma;
           bloque.horas.set(cod, (bloque.horas.get(cod) ?? 0) + h);
           // La tarifa es la del día que se está recorriendo, no la del cierre.
           /// A la tarifa de SU cliente: el bloque dice lo que ese cliente
@@ -1172,6 +1187,23 @@ export class NominaCanvasService {
           .sort((a, b) => a.indice - b.indice)
       : [...porIndice.values()].sort((a, b) => a.indice - b.indice);
 
+    /**
+     * Las marcas del desprendible, y lo que vale cada día a la tarifa de su
+     * cliente. El valor es para el modal que las gestiona: poder decir «este
+     * día son 84.000» antes de quitarlo es lo que evita marcarlo a ciegas.
+     */
+    for (const d of diasHoja) {
+      const m = marcaDe(d.fecha, d.empresaId);
+      d.oculto = !!m?.ocultar;
+      d.noSuma = !!m?.noSumar;
+      d.valorRecargos = Math.round(
+        Object.entries(d.horas).reduce(
+          (s, [cod, h]) => s + (h ?? 0) * tarifaEmpresaEn(d.fecha, cod as CodigoRecargo, d.empresaId ?? null),
+          0,
+        ),
+      );
+    }
+
     /// Placa → vehículo, que es el sentido contrario al de
     /// `placaPorVehiculoId` (declarado más abajo, de ahí que se recorran las
     /// planillas otra vez y no se invierta aquél). Hace falta porque la matriz
@@ -1206,6 +1238,10 @@ export class NominaCanvasService {
     // siempre y la tabla se ve igual que antes.
     const horasPorTramo = tramos.map(() => new Map<CodigoRecargo, number>());
     for (const d of diasHoja) {
+      /// Un día que no suma tampoco cuenta horas en la tabla de tarifas: de
+      /// ella cuelgan VALOR y el ajuste manual, que es un reemplazo de ESTAS
+      /// horas y se descuadraría contra el reparto si las contara.
+      if (d.noSuma) continue;
       const i = indiceTramo(d.fecha);
       const acum = horasPorTramo[i] ?? horasPorTramo[horasPorTramo.length - 1];
       if (!acum) continue;
@@ -1291,6 +1327,8 @@ export class NominaCanvasService {
       let vDesp = 0;
       let vDisp = 0;
       for (const d of diasHoja) {
+        /// Marcado «no sumar» en el modal del desprendible: se ve, no se paga.
+        if (d.noSuma) continue;
         const h = d.horas[codigo] ?? 0;
         if (!h) continue;
         // Cada columna es una fecha, y por tanto un tramo: la tarifa sale de
@@ -1385,7 +1423,7 @@ export class NominaCanvasService {
         let horas = 0;
         let valor = 0;
         for (const d of diasHoja) {
-          if (d.disponibilidad) continue;
+          if (d.disponibilidad || d.noSuma) continue;
           if (cuboDeEmpresa(d.empresa) !== cubo) continue;
           const h = d.horas[codigo] ?? 0;
           if (!h) continue;
@@ -2143,6 +2181,7 @@ export class NominaCanvasService {
       aplicaLicencia: !!(l as any)?.aplica_licencia,
       licenciaInicio: (l as any)?.periodo_start_licencia ?? null,
       licenciaFin: (l as any)?.periodo_end_licencia ?? null,
+      salarioLicencia: (l as any)?.salario_licencia != null ? dec((l as any).salario_licencia) : null,
       salarioVacaciones: l?.salario_vacaciones != null ? dec(l.salario_vacaciones) : null,
       vacacionesInicio: l?.periodo_start_vacaciones ?? null,
       vacacionesFin: l?.periodo_end_vacaciones ?? null,
@@ -2254,6 +2293,8 @@ export class NominaCanvasService {
      */
     const licDesde = soloFecha((l as any)?.periodo_start_licencia);
     const licHasta = soloFecha((l as any)?.periodo_end_licencia);
+    const salarioLicenciaFijado =
+      (l as any)?.salario_licencia != null ? dec((l as any).salario_licencia) : 0;
     const licencia: LicenciaHoja = {
       aplica: !!(l as any)?.aplica_licencia,
       desde: licDesde,
@@ -2268,9 +2309,10 @@ export class NominaCanvasService {
               ) + 1,
             )
           : 0,
-      /// La misma base con la que se paga el sueldo: la licencia no tiene
-      /// salario propio, al contrario que las vacaciones.
-      salarioBase,
+      /// Su propio salario si se fijó; si no, el básico con el que se paga el
+      /// sueldo. Mismo trato que las vacaciones.
+      salarioBase: salarioLicenciaFijado || salarioBase,
+      salarioHeredado: !salarioLicenciaFijado,
     };
 
     const devengos: ConceptoDesprendible[] = [

@@ -133,6 +133,12 @@ export interface EntradaLiquidacion {
   aplicaLicencia?: boolean;
   licenciaInicio?: string | Date | null;
   licenciaFin?: string | Date | null;
+  /**
+   * Salario sobre el que se liquida la licencia. Mismo trato que
+   * `salarioVacaciones`: cuando falta se usa el básico, que es lo que se hacía
+   * siempre.
+   */
+  salarioLicencia?: number | null;
   vacacionesInicio?: string | Date | null;
   vacacionesFin?: string | Date | null;
   /**
@@ -430,12 +436,13 @@ export function liquidarNomina(
   }
 
   // ── Licencia de maternidad o paternidad ───────────────────────────────
-  // Mismo prorrateo que las vacaciones por fechas y sobre EL MISMO BÁSICO con
-  // el que se paga el sueldo: la licencia no tiene salario propio. Los días
-  // incluyen el de inicio, como en `diasEntre`.
+  // Mismo prorrateo que las vacaciones por fechas y, como ellas, sobre su
+  // propio salario si se fijó; si no, sobre el básico con el que se paga el
+  // sueldo. Los días incluyen el de inicio, como en `diasEntre`.
+  const salarioLicencia = num(entrada.salarioLicencia) || salarioBase;
   const totalLicencia =
     entrada.aplicaLicencia && entrada.licenciaInicio && entrada.licenciaFin
-      ? (salarioBase / 30) * diasEntre(entrada.licenciaInicio, entrada.licenciaFin)
+      ? (salarioLicencia / 30) * diasEntre(entrada.licenciaInicio, entrada.licenciaFin)
       : 0;
 
   // ── Base prestacional (IBC) ───────────────────────────────────────────

@@ -815,6 +815,12 @@ model liquidaciones {
   periodo_start_licencia                        String?                               @db.VarChar(255)
   periodo_end_licencia                          String?                               @db.VarChar(255)
   total_licencia                                Decimal                               @default(0) @db.Decimal(10, 2)
+  /// Salario sobre el que se liquida la licencia. NULL = el básico, como
+  /// `salario_vacaciones`.
+  salario_licencia                              Decimal?                              @db.Decimal(10, 2)
+  /// Marcas por día del desprendible: `AAAA-MM-DD|empresa_id` →
+  /// `{ ocultar, noSumar }`. NULL = ningún día marcado.
+  marcas_dias                                   Json?
   /// Salario básico de ESTA liquidación, el que divide entre 30 el
   /// desprendible. `null` = usar `conductores.salario_base`, que es solo la
   /// sugerencia con la que nace el borrador. No toca el valor hora ni los

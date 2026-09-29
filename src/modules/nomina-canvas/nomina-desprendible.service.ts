@@ -73,6 +73,8 @@ interface DiaPlanillaDTO {
   es_festivo: boolean;
   es_domingo: boolean;
   disponibilidad: boolean;
+  /** Marcado «no sumar» en el canvas: el renderizador lo pinta y no lo suma. */
+  no_suma?: boolean;
   recargos: RecargoDiaDTO[];
 }
 
@@ -185,6 +187,8 @@ export function construirRecargosDataDesdeHoja(
   const grupos = new Map<string, PlanillaDTO>();
 
   for (const d of hoja.dias as DiaHoja[]) {
+    /// Marcado «ocultar» en el canvas: no sale en las tablas del desprendible.
+    if (d.oculto) continue;
     const [anioStr, mesStr, diaStr] = d.fecha.split('-');
     const anio = Number(anioStr);
     const mes = Number(mesStr);
@@ -235,6 +239,8 @@ export function construirRecargosDataDesdeHoja(
       es_festivo: !!d.esFestivo,
       es_domingo: !!d.esDomingo,
       disponibilidad: !!d.disponibilidad,
+      /// Marcado «no sumar»: se pinta en gris y fuera de los totales.
+      ...(d.noSuma ? { no_suma: true } : {}),
       recargos,
     });
 
@@ -248,7 +254,7 @@ export function construirRecargosDataDesdeHoja(
      * No tiene nada que ver con restar el importe de `disponibilidad`, que es
      * cosa de la primera hoja.
      */
-    if (!d.disponibilidad) {
+    if (!d.disponibilidad && !d.noSuma) {
       g.total_valor += recargos.reduce((s, r) => s + r.valor_total, 0);
     }
   }
