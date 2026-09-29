@@ -375,6 +375,8 @@ export const LiquidacionesService = {
             cargo: true,
             salario_base: true,
             sede_trabajo: true,
+            /// Para rotular la licencia del desprendible (maternidad/paternidad).
+            genero: true,
           },
         },
         liquidacion_vehiculo: {
@@ -454,6 +456,7 @@ export const LiquidacionesService = {
             telefono: conductor.telefono,
             cargo: conductor.cargo,
             salario_base: conductor.salario_base,
+            genero: (conductor as any).genero ?? null,
           }
         : null,
       creado_por: creado_por

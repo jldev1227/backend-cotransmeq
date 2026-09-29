@@ -11,6 +11,7 @@ import { rehacerBonificacionesDesdeRecorridos } from '../../queue/borrador-nomin
 import {
   sembrarRecargosDesdePlanillas,
   sembrarBonificacionesDesdeRecorridos,
+  vincularVehiculos,
 } from '../../queue/borrador-nomina-queue.service';
 import { NominaPatchService } from './nomina-patch.service';
 import { normalizarMarcasDias } from './marcas-dias';
@@ -286,6 +287,8 @@ export class NominaBorradoresController {
       if (!hoja) return reply.status(404).send({ error: 'El conductor no está en este periodo.' });
 
       const n = await copiarDiasDesdePlanillas(liq.id, hoja.dias as any);
+      /// La copia nueva puede traer un vehículo que la liquidación no tenía.
+      await vincularVehiculos(liq.id);
       return reply.send({ dias: n });
     } catch (e: any) {
       return reply.status(400).send({ error: e?.message || 'No se pudo actualizar.' });
@@ -364,6 +367,9 @@ export class NominaBorradoresController {
         meses,
         actor.id,
       );
+      /// Un bono de recorridos puede ser de un vehículo que la liquidación no
+      /// tenía vinculado; sin el vínculo, el análisis no le encuentra placa.
+      await vincularVehiculos(liq.id);
 
       /// Cambia la GEOMETRÍA del desprendible (una línea de bono puede nacer o
       /// irse a cero), así que no hay patch de celda que lo describa: la sala
@@ -508,6 +514,7 @@ export class NominaBorradoresController {
 
       /// Los totales, desde las filas que se acaban de escribir.
       await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
+      await vincularVehiculos(liq.id);
 
       /// Cambia la geometría del desprendible (una línea de bono puede nacer),
       /// así que no hay patch de celda que lo describa: la sala entera relee.
@@ -604,6 +611,7 @@ export class NominaBorradoresController {
             ahora,
           );
           await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
+          await vincularVehiculos(liq.id);
         }
       }
 
@@ -736,6 +744,7 @@ export class NominaBorradoresController {
         );
       }
       await NominaPatchService.recalcularYGuardar(liq.id, actor.id);
+      await vincularVehiculos(liq.id);
 
       /// A las dos salas: la del libro donde estaba y la del que la recibe.
       const salas = new Set([`${anio}-${mes}`]);
