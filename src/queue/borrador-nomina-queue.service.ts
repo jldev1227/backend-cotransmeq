@@ -495,6 +495,7 @@ class BorradorNominaQueueService {
           ventana.hasta,
           userId,
         )
+        await vincularVehiculos(hoja.liquidacionId)
         return {
           ...base,
           estado: 'reemplazado',
@@ -533,6 +534,7 @@ class BorradorNominaQueueService {
       /// La copia de los días: a partir de aquí el canvas lee de ella y el
       /// borrador se puede editar sin tocar la planilla.
       await copiarDiasDesdePlanillas(creada.id, hoja.dias as any)
+      await vincularVehiculos(creada.id)
 
       return {
         ...base,
@@ -914,6 +916,36 @@ export async function copiarDiasDesdePlanillas(
     })
   })
   return dias.length
+}
+
+/**
+ * Vincula a la liquidación (`liquidacion_vehiculo`) los vehículos que ya usa.
+ *
+ * POR QUÉ EXISTE: el formulario de la liquidación escribe esta tabla —es su
+ * lista de «vehículos»—, pero el generador del canvas no lo hacía. Todo lo que
+ * cuelga de ella se quedaba sin placa: el ANÁLISIS de nómina casa cada bono,
+ * recargo y pernote con su vehículo a través de aquí, así que un mes generado
+ * desde el canvas salía entero en cero. En sep-2026 eran 15 de 15
+ * liquidaciones en transmeralda y 12 de 12 en cotransmeq.
+ *
+ * Los vehículos salen de lo que la liquidación YA tiene: los días de su copia,
+ * sus bonos, sus recargos y sus pernotes. Solo AÑADE (`ON CONFLICT DO
+ * NOTHING`): no quita ni revive un vínculo que alguien retiró en el
+ * formulario, que para eso la clave primaria incluye también los archivados.
+ */
+export async function vincularVehiculos(liquidacionId: string): Promise<number> {
+  return prisma.$executeRaw`
+    INSERT INTO liquidacion_vehiculo (liquidacion_id, vehiculo_id, created_at, updated_at)
+    SELECT DISTINCT ${liquidacionId}::uuid, x.vehiculo_id, now(), now()
+    FROM (
+      SELECT vehiculo_id FROM liquidaciones_dias WHERE liquidacion_id = ${liquidacionId}::uuid AND deleted_at IS NULL
+      UNION SELECT vehiculo_id FROM bonificaciones WHERE liquidacion_id = ${liquidacionId}::uuid AND deleted_at IS NULL
+      UNION SELECT vehiculo_id FROM recargos WHERE liquidacion_id = ${liquidacionId}::uuid AND deleted_at IS NULL
+      UNION SELECT vehiculo_id FROM pernotes WHERE liquidacion_id = ${liquidacionId}::uuid AND deleted_at IS NULL
+    ) x
+    JOIN vehiculos v ON v.id = x.vehiculo_id
+    WHERE x.vehiculo_id IS NOT NULL
+    ON CONFLICT (liquidacion_id, vehiculo_id) DO NOTHING`
 }
 
 /**
