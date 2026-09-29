@@ -620,6 +620,12 @@ export interface HojaNomina {
    * el carril para ofrecer «Rehacer recargos».
    */
   sinFilasDeRecargos: boolean;
+  /**
+   * Fechas de la LIQUIDACIÓN (`periodo_start`/`periodo_end`), que son las que
+   * imprime el desprendible. Pueden no coincidir con las del libro: un retiro
+   * del 21 al 30 abierto dentro del corte 21→20. `null` sin liquidación.
+   */
+  periodoLiquidacion?: { desde: string; hasta: string } | null;
   /** Avisos por hoja: planilla sin config salarial, conductor sin salario… */
   avisos: string[];
 }
@@ -628,6 +634,9 @@ export interface NominaPeriodoDTO {
   anio: number;
   mes: number;
   corte: number;
+  /// Rango específico con el que se construyó el libro, o `null` si es por
+  /// corte. Ver `OpcionesPeriodo.inicio`.
+  rango?: { desde: string; hasta: string } | null;
   etiqueta: string;
   periodo: { dias: DiaPeriodo[]; semanas: SemanaPeriodo[] };
   /**

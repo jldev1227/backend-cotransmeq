@@ -15,6 +15,11 @@
 import { prisma } from '../../config/prisma';
 import {
   diasDelPeriodo,
+  diasDelRango,
+  mesesDelRango,
+  diasComerciales,
+  etiquetaRango,
+  rangoValido,
   semanasDelPeriodo,
   mesesDePlanilla,
   etiquetaPeriodo,
@@ -205,6 +210,20 @@ export interface OpcionesPeriodo {
    * tiene— ni la lista previa.
    */
   soloConLiquidacion?: boolean;
+  /**
+   * RANGO ESPECÍFICO en vez del corte: `AAAA-MM-DD`, los dos incluidos.
+   *
+   * Es para lo que no se liquida por corte —un retiro del 21 al 30, un ingreso
+   * a mitad de periodo—. Sustituye al calendario del corte, y `anio`/`mes`
+   * quedan solo como la llave del libro (sala del socket, snapshots).
+   *
+   * Cambia también qué liquidación es de la hoja: con corte basta con que SE
+   * SOLAPE; con rango tiene que CABER DENTRO. Si no, la liquidación normal
+   * 21-sep → 20-oct se colaría en un rango 21 → 30-sep y «Generar borradores»
+   * la daría por la del retiro.
+   */
+  inicio?: string;
+  fin?: string;
 }
 
 export class NominaCanvasService {
@@ -214,12 +233,18 @@ export class NominaCanvasService {
   static async construirPeriodo(opts: OpcionesPeriodo): Promise<NominaPeriodoDTO> {
     const { anio, mes } = opts;
     const corte = opts.corte ?? CORTE_DEFECTO;
+    /// Rango específico, si viene y es válido. Uno inválido cae al corte en
+    /// vez de fallar: quien llama ya validó, y esto es la red.
+    const rango = rangoValido(opts.inicio, opts.fin);
     // El calendario a secas: un día, una columna. Se expande más abajo, cuando
     // ya se sabe qué días tienen más de un servicio.
-    const calendario = diasDelPeriodo(anio, mes, corte);
+    const calendario = rango ? diasDelRango(rango.desde, rango.hasta) : diasDelPeriodo(anio, mes, corte);
     const avisos: string[] = [];
 
-    const ventana = mesesDePlanilla(anio, mes, corte);
+    const ventana = rango ? mesesDelRango(rango.desde, rango.hasta) : mesesDePlanilla(anio, mes, corte);
+    /// Los días que se pagan cuando la liquidación aún no los tiene: el mes
+    /// comercial con corte, y los del rango (30/360) con rango.
+    const diasPorDefecto = rango ? diasComerciales(rango.desde, rango.hasta) : DIAS_MES_COMERCIAL;
     const primera = calendario[0];
     const ultima = calendario[calendario.length - 1];
     const fechaInicio = new Date(`${primera.fecha}T00:00:00.000Z`);
@@ -232,6 +257,11 @@ export class NominaCanvasService {
     // se guardó con otro formato y el filtro la dejó pasar.
     const desdeISO = primera.fecha;
     const hastaISO = `${ultima.fecha}T23:59:59`;
+    /// Qué liquidaciones son del libro: con corte, las que SE SOLAPAN; con
+    /// rango, las que CABEN DENTRO. Ver `OpcionesPeriodo.inicio`.
+    const filtroLiquidacion = rango
+      ? { periodo_start: { gte: desdeISO }, periodo_end: { lte: hastaISO } }
+      : { periodo_start: { lte: hastaISO }, periodo_end: { gte: desdeISO } };
 
     const [
       conductores,
@@ -267,8 +297,7 @@ export class NominaCanvasService {
                   liquidaciones: {
                     some: {
                       deleted_at: null,
-                      periodo_start: { lte: hastaISO },
-                      periodo_end: { gte: desdeISO },
+                      ...filtroLiquidacion,
                     },
                   },
                 }
@@ -429,8 +458,7 @@ export class NominaCanvasService {
         prisma.liquidaciones.findMany({
           where: {
             deleted_at: null,
-            periodo_start: { lte: hastaISO },
-            periodo_end: { gte: desdeISO },
+            ...filtroLiquidacion,
             ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
           },
           include: {
@@ -747,10 +775,19 @@ export class NominaCanvasService {
       if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return true; // ilegible: no descartar
       return a <= fechaFin && b >= fechaInicio;
     };
+    const cabe = (inicio: string, fin: string): boolean => {
+      const a = new Date(inicio);
+      const b = new Date(fin);
+      if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return true;
+      return a >= fechaInicio && b <= fechaFin;
+    };
     const liquidacionPorConductor = new Map<string, (typeof liquidaciones)[number]>();
     for (const l of liquidaciones) {
       if (!l.conductor_id) continue;
       if (!solapa(l.periodo_start, l.periodo_end)) continue;
+      /// Con rango, además tiene que caber dentro (la consulta ya lo filtra
+      /// por cadena; esto es la misma comprobación ya parseada).
+      if (rango && !cabe(l.periodo_start, l.periodo_end)) continue;
       const previa = liquidacionPorConductor.get(l.conductor_id);
       // Si hubiera más de una solapando, gana la más reciente: es la que el
       // usuario está trabajando.
@@ -802,6 +839,7 @@ export class NominaCanvasService {
         columnasPorFecha,
         totalDias: dias.length,
         ventanaCanvas: { desde: primera.fecha, hasta: ultima.fecha },
+        diasPorDefecto,
         conceptosPortal: conceptosPortal.get(c.id) ?? [],
         tramos,
         tramoPorFecha,
@@ -815,7 +853,8 @@ export class NominaCanvasService {
       anio,
       mes,
       corte,
-      etiqueta: etiquetaPeriodo(anio, mes, corte),
+      rango,
+      etiqueta: rango ? etiquetaRango(rango.desde, rango.hasta) : etiquetaPeriodo(anio, mes, corte),
       periodo: { dias, semanas },
       disponibilidad: DISPONIBILIDAD_DEFECTO,
       topes: TOPES,
@@ -904,6 +943,9 @@ export class NominaCanvasService {
     columnasPorFecha: Map<string, DiaPeriodo[]>;
     totalDias: number;
     ventanaCanvas: { desde: string; hasta: string };
+    /// Días que se pagan si la liquidación no los tiene: 30 con corte, los
+    /// comerciales del rango con rango.
+    diasPorDefecto?: number;
     /// Descanso, disponibilidad y mantenimiento del portal. Las vacaciones NO
     /// vienen de aquí: se derivan del rango de la liquidación, más abajo.
     conceptosPortal?: ConceptoDia[];
@@ -924,6 +966,7 @@ export class NominaCanvasService {
       mesesCorte,
       columnasPorFecha,
       ventanaCanvas,
+      diasPorDefecto,
       tramos,
       tramoPorFecha,
       porcentajesPorTramo,
@@ -1531,6 +1574,7 @@ export class NominaCanvasService {
       idsCubo,
       parametros,
       diasConPlanilla: diasHoja.length,
+      diasPorDefecto: diasPorDefecto ?? DIAS_MES_COMERCIAL,
       subperiodos: etiquetasDeSubperiodo(ventanaCanvas.desde, ventanaCanvas.hasta),
       bonosRecorrido,
     });
@@ -1555,7 +1599,8 @@ export class NominaCanvasService {
       if (li && lf && (li !== ventanaCanvas.desde || lf !== ventanaCanvas.hasta)) {
         avisos.push(
           `La liquidación guardada cubre del ${li} al ${lf}, no del ${ventanaCanvas.desde} al ${ventanaCanvas.hasta}. ` +
-            'Los recargos de esta hoja son los de la ventana del canvas, así que pueden no cuadrar con lo que se pagó.',
+            'Los recargos de esta hoja son los de la ventana del canvas, así que pueden no cuadrar con lo que se pagó. ' +
+            'Ábrela en modo Rango con sus fechas, o cámbialas en «Periodo del desprendible».',
         );
       }
     }
@@ -1675,6 +1720,14 @@ export class NominaCanvasService {
       totales,
       clientes,
       sinFilasDeRecargos,
+      /// Las fechas que imprime el desprendible: las de la LIQUIDACIÓN, no las
+      /// del libro. Se cambian con «Periodo del desprendible».
+      periodoLiquidacion: liquidacion
+        ? {
+            desde: String(liquidacion.periodo_start ?? '').slice(0, 10),
+            hasta: String(liquidacion.periodo_end ?? '').slice(0, 10),
+          }
+        : null,
       avisos: [...new Set(avisos)],
     };
   }
@@ -1965,6 +2018,8 @@ export class NominaCanvasService {
     idsCubo: Record<'PAREX' | 'GEOPARK', string | null>;
     parametros: ParametrosNomina;
     diasConPlanilla: number;
+    /// Días que se pagan mientras la liquidación no los tenga guardados.
+    diasPorDefecto: number;
   }): {
     devengos: ConceptoDesprendible[];
     deducciones: ConceptoDesprendible[];
@@ -2054,7 +2109,7 @@ export class NominaCanvasService {
      * `?? ` y no `||`: un cero guardado a propósito —un retiro a principio de
      * corte— es un dato y tiene que sobrevivir.
      */
-    const diasLaborados = Number(l?.dias_laborados ?? DIAS_MES_COMERCIAL) || 0;
+    const diasLaborados = Number(l?.dias_laborados ?? args.diasPorDefecto) || 0;
 
     const totalRecargos = repartoDesprendible.reduce((s, r) => s + r.valor, 0);
     /**

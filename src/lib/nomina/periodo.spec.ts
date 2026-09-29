@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  diasDelRango,
+  mesesDelRango,
+  rangoValido,
+  diasComerciales,
+  etiquetaRango,
   diasDelPeriodo,
   mesesDePlanilla,
   textoDias,
@@ -116,5 +121,47 @@ describe('tramosDeMes', () => {
       { nombreMes: 'JULIO', mes: 7, anio: 2026, desde: 0, hasta: 10 },
       { nombreMes: 'AGOSTO', mes: 8, anio: 2026, desde: 11, hasta: 30 },
     ]);
+  });
+});
+
+describe('rango específico', () => {
+  it('diasDelRango incluye los dos extremos', () => {
+    const d = diasDelRango('2026-09-21', '2026-09-30');
+    expect(d).toHaveLength(10);
+    expect(d[0].fecha).toBe('2026-09-21');
+    expect(d[9].fecha).toBe('2026-09-30');
+    expect(d.map((x) => x.indice)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it('mesesDelRango cruza año', () => {
+    expect(mesesDelRango('2026-12-21', '2027-01-20')).toEqual([
+      { anio: 2026, mes: 12 },
+      { anio: 2027, mes: 1 },
+    ]);
+    expect(mesesDelRango('2026-09-21', '2026-09-30')).toEqual([{ anio: 2026, mes: 9 }]);
+  });
+
+  it('rangoValido rechaza fechas inexistentes, al revés o demasiado largas', () => {
+    expect(rangoValido('2026-09-21', '2026-09-30')).toEqual({ desde: '2026-09-21', hasta: '2026-09-30' });
+    expect(rangoValido('2026-02-30', '2026-03-05')).toBeNull();
+    expect(rangoValido('2026-09-30', '2026-09-21')).toBeNull();
+    expect(rangoValido('2026-01-01', '2026-06-30')).toBeNull();
+    expect(rangoValido(undefined, '2026-09-30')).toBeNull();
+  });
+
+  /** Método 30/360: todo final de mes vale 30. */
+  it('diasComerciales', () => {
+    expect(diasComerciales('2026-09-21', '2026-09-30')).toBe(10);
+    expect(diasComerciales('2026-10-21', '2026-10-31')).toBe(10);
+    expect(diasComerciales('2026-02-21', '2026-02-28')).toBe(10);
+    expect(diasComerciales('2028-02-21', '2028-02-29')).toBe(10);
+    expect(diasComerciales('2026-07-21', '2026-08-20')).toBe(30);
+    expect(diasComerciales('2026-09-01', '2026-09-01')).toBe(1);
+    expect(diasComerciales('2026-06-01', '2026-08-31')).toBe(30);
+  });
+
+  it('etiquetaRango', () => {
+    expect(etiquetaRango('2026-09-21', '2026-09-30')).toBe('RANGO 21 SEP — 30 SEP 2026');
+    expect(etiquetaRango('2026-12-21', '2027-01-05')).toBe('RANGO 21 DIC 2026 — 5 ENE 2027');
   });
 });

@@ -80,6 +80,13 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
     puedeEscribir,
     NominaBorradoresController.guardarMarcasDias,
   );
+  /// Periodo del desprendible de una liquidación: cambia sus fechas, rehace
+  /// los recargos y recalcula el neto.
+  app.put(
+    '/nomina/liquidaciones/:id/periodo',
+    puedeEscribir,
+    NominaBorradoresController.cambiarPeriodo,
+  );
   /// Retirar el borrador de una hoja. Solo BORRADOR, y con el permiso de
   /// escritura: es la acción más destructiva del carril.
   app.delete(
