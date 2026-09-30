@@ -147,6 +147,112 @@ function exigirVivo(fila: { deleted_at: Date | null }, clientSubmissionId?: stri
 
 const PREFIJO_S3 = 'formularios-dinamicos'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Versión contra la que se guarda y valida un envío.
+ *
+ * Normalmente la vigente de la asignación. La excepción es un envío que YA
+ * existe en el servidor contra una versión anterior que sigue publicada: cuando
+ * HSEQ mueve la asignación a una versión nueva, el borrador que el conductor
+ * tenía a medias está atado a la suya (sus respuestas apuntan a esos campos) y
+ * tiene que poder respaldarse y entregarse. Un envío NUEVO siempre va contra la
+ * vigente.
+ */
+async function versionDelEnvio(
+  actor: FormActor,
+  assignment: { id: string; version_id: string },
+  clientSubmissionId: string,
+  versionIdPedida: string,
+  mensaje: string,
+): Promise<string> {
+  if (versionIdPedida === assignment.version_id) return versionIdPedida
+  const propia = await prisma.form_submission.findUnique({
+    where: { client_submission_id: clientSubmissionId },
+    select: { conductor_id: true, usuario_id: true, assignment_id: true, version_id: true },
+  })
+  const atada =
+    propia &&
+    esDelActor(propia, actor) &&
+    propia.assignment_id === assignment.id &&
+    propia.version_id === versionIdPedida
+  const publicada = atada
+    ? await prisma.form_version.findFirst({ where: { id: versionIdPedida, status: 'PUBLISHED' }, select: { id: true } })
+    : null
+  if (!publicada) {
+    throw new FormError('VERSION_NOT_PUBLISHED', mensaje, { currentVersionId: assignment.version_id })
+  }
+  return versionIdPedida
+}
+
+/**
+ * Servicio al que queda ligado el envío (`service_id`).
+ *
+ * - Si el contexto trae `serviceId`, el servicio tiene que existir, no estar
+ *   retirado, ser del conductor, y el `vehicleId` del contexto tiene que ser el
+ *   del servicio. Antes no se validaba y un UUID desconocido reventaba en la FK.
+ * - Si el contexto NO lo trae, se conserva el que ya tenía el envío: el
+ *   servidor lo liga al iniciar el servicio desde la app, y un backup o envío
+ *   encolado antes de eso —con el contexto viejo— no puede desligarlo.
+ * - Un envío ya ligado no cambia de servicio, ni de vehículo respecto al de su
+ *   servicio.
+ *
+ * `servicioActual` se lee con la fila del envío ya bloqueada.
+ */
+async function servicioDelEnvio(
+  db: Prisma.TransactionClient,
+  actor: FormActor,
+  contexto: Record<string, unknown>,
+  servicioActual: string | null,
+): Promise<string | null> {
+  const pedido = typeof contexto.serviceId === 'string' && contexto.serviceId ? contexto.serviceId : null
+  const vehicleId = typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null
+
+  if (pedido && servicioActual && pedido !== servicioActual) {
+    throw new FormError('PREOPERACIONAL_EN_OTRO_SERVICIO', 'Este formulario ya está ligado a otro servicio.', {
+      serviceId: servicioActual,
+    })
+  }
+
+  if (pedido) {
+    const servicio = UUID_RE.test(pedido)
+      ? await db.servicio.findFirst({
+          where: {
+            id: pedido,
+            deleted_at: null,
+            ...(actor.kind === 'CONDUCTOR' ? { conductor_id: actor.id } : {}),
+          },
+          select: { vehiculo_id: true },
+        })
+      : null
+    if (!servicio) {
+      throw new FormError('SERVICE_CONTEXT_INVALID', 'El servicio del formulario no existe o no es tuyo.', {
+        serviceId: pedido,
+      })
+    }
+    if ((servicio.vehiculo_id ?? null) !== vehicleId) {
+      throw new FormError('VEHICULO_DISTINTO_DEL_SERVICIO', 'El vehículo del formulario no es el del servicio.', {
+        serviceId: pedido,
+        vehicleId: servicio.vehiculo_id,
+      })
+    }
+    return pedido
+  }
+
+  if (servicioActual) {
+    /// Sin filtro de conductor ni de borrado: el vínculo ya existe y no es este
+    /// guardado quien lo juzga. Solo se impide cambiarle el vehículo.
+    const servicio = await db.servicio.findUnique({ where: { id: servicioActual }, select: { vehiculo_id: true } })
+    if (servicio?.vehiculo_id && servicio.vehiculo_id !== vehicleId) {
+      throw new FormError('VEHICULO_DISTINTO_DEL_SERVICIO', 'El vehículo del formulario no es el del servicio.', {
+        serviceId: servicioActual,
+        vehicleId: servicio.vehiculo_id,
+      })
+    }
+  }
+  return servicioActual
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Acceso: qué asignaciones alcanza este conductor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -482,11 +588,13 @@ export async function guardarBorradorPortal(
     select: { id: true, version_id: true, frequency: true, timezone: true },
   })
   if (!assignment) throw new FormError('ASSIGNMENT_TARGET_DENIED', 'Este formulario no está asignado a ti.')
-  if (assignment.version_id !== input.versionId) {
-    throw new FormError('VERSION_NOT_PUBLISHED', 'La versión del borrador ya no es la vigente de esta asignación.', {
-      currentVersionId: assignment.version_id,
-    })
-  }
+  await versionDelEnvio(
+    actor,
+    assignment,
+    clientSubmissionId,
+    input.versionId,
+    'La versión del borrador ya no es la vigente de esta asignación.',
+  )
 
   /// `findUnique` por la clave única y NO filtrando `deleted_at`: la fila
   /// descartada sigue ocupando ese `client_submission_id`, así que esconderla
@@ -535,6 +643,7 @@ export async function guardarBorradorPortal(
   const contextoFinal = conFechaDeFormulario(contexto, startedAt, assignment.timezone)
 
   await prisma.$transaction(async (tx) => {
+    let servicioActual: string | null = null
     /// Paso 3 del orden global. La comprobación de arriba es optimista: entre
     /// ella y esta escritura cabe un `enviarSubmission`, y sin el lock el backup
     /// borraría las respuestas de un envío ya entregado (`deleteMany` más abajo).
@@ -550,7 +659,11 @@ export async function guardarBorradorPortal(
         /// outbox venía retrasada y el envío final ya escribió lo definitivo.
         return
       }
+      servicioActual =
+        (await tx.form_submission.findUnique({ where: { id: existente.id }, select: { service_id: true } }))
+          ?.service_id ?? null
     }
+    const servicioId = await servicioDelEnvio(tx, actor, contexto, servicioActual)
 
     if (!existente) {
       await tx.form_submission.create({
@@ -561,7 +674,7 @@ export async function guardarBorradorPortal(
           version_id: assignment.version_id,
           ...autorDe(actor),
           vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
-          service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
+          service_id: servicioId,
           status: 'DRAFT',
           started_at: startedAt,
           business_date: new Date(`${businessDate}T00:00:00.000Z`),
@@ -585,7 +698,7 @@ export async function guardarBorradorPortal(
         where: { id: submissionId },
         data: {
           vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
-          service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
+          service_id: servicioId,
           started_at: startedAt,
           context_json: contextoFinal as Prisma.InputJsonValue,
           device_json: { ...(input.device ?? {}), progress: input.progress ?? 0 } as Prisma.InputJsonValue,
@@ -1349,11 +1462,13 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
   if (!dentroDeVigencia(assignment, new Date())) {
     throw new FormError('ASSIGNMENT_NOT_AVAILABLE', 'La asignación no está vigente.')
   }
-  if (assignment.version_id !== input.versionId) {
-    throw new FormError('VERSION_NOT_PUBLISHED', 'Esta asignación ya usa otra versión del formulario.', {
-      currentVersionId: assignment.version_id,
-    })
-  }
+  const versionId = await versionDelEnvio(
+    actor,
+    assignment,
+    input.clientSubmissionId,
+    input.versionId,
+    'Esta asignación ya usa otra versión del formulario.',
+  )
 
   const fingerprint = huella(input)
 
@@ -1390,7 +1505,7 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
   }
 
   // 3. Validación contra la definición versionada.
-  const version = await findVersionAggregate(prisma, assignment.version_id)
+  const version = await findVersionAggregate(prisma, versionId)
   if (!version) throw new FormError('VERSION_NOT_FOUND', 'La versión no existe.')
 
   const contexto = (input.context ?? {}) as Record<string, unknown>
@@ -1538,9 +1653,17 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
     /// manda, y un dato tecleado no manda sobre el reloj.
     const contextoFinal = conFechaDeFormulario(contexto, startedAt, assignment.timezone)
 
+    /// Releído con la fila bloqueada (paso 3): iniciar el servicio desde la app
+    /// pudo ligarlo después de la primera lectura.
+    const servicioActual = actualizado
+      ? ((await tx.form_submission.findUnique({ where: { id: actualizado.id }, select: { service_id: true } }))
+          ?.service_id ?? null)
+      : null
+    const servicioId = await servicioDelEnvio(tx, actor, contexto, servicioActual)
+
     const datosComunes = {
       vehicle_id: typeof contexto.vehicleId === 'string' ? contexto.vehicleId : null,
-      service_id: typeof contexto.serviceId === 'string' ? contexto.serviceId : null,
+      service_id: servicioId,
       status: 'SUBMITTED' as const,
       business_date: new Date(`${businessDate}T00:00:00.000Z`),
       period_key: periodKey,

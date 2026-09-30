@@ -41,6 +41,11 @@ export const FORM_ERROR_CODES = [
   'SUBMISSION_DISCARDED',
   'IDEMPOTENCY_PAYLOAD_MISMATCH',
 
+  // Contexto de servicio (`context.serviceId`)
+  'SERVICE_CONTEXT_INVALID',
+  'VEHICULO_DISTINTO_DEL_SERVICIO',
+  'PREOPERACIONAL_EN_OTRO_SERVICIO',
+
   // Adjuntos
   'ATTACHMENT_MISSING',
   'ATTACHMENT_HASH_MISMATCH',
@@ -95,6 +100,16 @@ const STATUS_BY_CODE: Record<FormErrorCode, number> = {
   /// fantasma que este borrado viene a quitar.
   SUBMISSION_DISCARDED: 409,
   IDEMPOTENCY_PAYLOAD_MISMATCH: 409,
+
+  /// 422: el servicio del contexto no existe, está retirado o no es del
+  /// conductor. Corregible por el cliente; no se reintenta a ciegas.
+  SERVICE_CONTEXT_INVALID: 422,
+  /// 422: el vehículo del contexto no es el del servicio al que el envío está
+  /// (o quedaría) ligado.
+  VEHICULO_DISTINTO_DEL_SERVICIO: 422,
+  /// 409: el envío ya está ligado a otro servicio —p. ej. se inició ese
+  /// servicio con este preoperacional—. Reescribir el contexto no lo mueve.
+  PREOPERACIONAL_EN_OTRO_SERVICIO: 409,
 
   ATTACHMENT_MISSING: 422,
   ATTACHMENT_HASH_MISMATCH: 422,

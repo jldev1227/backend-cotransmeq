@@ -4,6 +4,7 @@ import {
   type UpdateRecargoDTO,
 } from "./recargos.schema";
 import { randomUUID } from "crypto";
+import { gobernadoPorConductor } from "../servicios/servicios.estados";
 import PDFDocument from "pdfkit";
 import {
   calcularRecargosDia,
@@ -1338,6 +1339,13 @@ export const RecargosService = {
       };
 
       if (recargoExistente.servicio_id) {
+        /// El estado deducido de los días no pisa el de un servicio que inició
+        /// el conductor desde la app: ese lo cierra él al liberarlo.
+        const ejecucion = await tx.servicio_ejecucion.findUnique({
+          where: { servicio_id: recargoExistente.servicio_id },
+          select: { iniciado_at: true },
+        });
+        if (gobernadoPorConductor(ejecucion)) delete servicioData.estado;
         await tx.servicio.update({ where: { id: recargoExistente.servicio_id }, data: servicioData });
       } else {
         const nuevoServicio = await tx.servicio.create({

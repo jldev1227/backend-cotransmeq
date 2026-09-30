@@ -13,6 +13,12 @@ import {
   obtenerEvaluacion,
   responderEvaluacion
 } from './capacitaciones.service'
+import {
+  EjecucionServicioError,
+  iniciarServicio,
+  liberarServicio,
+  obtenerEjecucion
+} from './ejecucion-servicio.service'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
@@ -2257,6 +2263,72 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         return reply.status(201).send({ success: true, data })
       } catch (err: any) {
         return errorCapacitaciones(request, reply, err, 'No fue posible registrar la evaluación')
+      }
+    })
+
+    // ─── Ejecución del servicio: el conductor lo inicia y lo libera desde la app ───
+    const errorEjecucion = (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      err: any,
+      mensaje: string
+    ) => {
+      if (err instanceof EjecucionServicioError) {
+        return reply.status(err.status).send({
+          success: false,
+          message: err.message,
+          ...(err.code ? { code: err.code } : {})
+        })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+
+    protectedApp.get('/conductor-portal/servicios/:id/ejecucion', {
+      schema: {
+        description: 'Estado de inicio/liberación del servicio, formatos de preoperacional y preoperacionales del día',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await obtenerEjecucion(request.params.id, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible consultar la ejecución del servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/iniciar', {
+      schema: {
+        description: 'Iniciar el servicio con un preoperacional por etapas del vehículo',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await iniciarServicio(request.params.id, conductor.id, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible iniciar el servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/liberar', {
+      schema: {
+        description: 'Liberar el servicio con la hora declarada y el reporte del recorrido',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await liberarServicio(request.params.id, conductor.id, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible liberar el servicio')
       }
     })
   })

@@ -189,6 +189,7 @@ model conductores {
   registro_dia_laboral                   registro_dia_laboral[]
   form_assignment_targets                form_assignment_target[]                 @relation("form_assignment_target_conductor")
   form_submissions                       form_submission[]                        @relation("form_submission_conductor")
+  servicios_ejecutados                   servicio_ejecucion[]                     @relation("servicio_ejecucion_conductor")
   excesos_velocidad                      excesos_velocidad[]
   preoperacionales                       preoperacionales[]
   salidas_no_conformes                   salidas_no_conformes[]
@@ -1127,6 +1128,9 @@ model servicio {
   vehiculos                                  vehiculos?                       @relation(fields: [vehiculo_id], references: [id])
   servicios_cancelados                       servicios_cancelados[]
   form_submissions                           form_submission[]                @relation("form_submission_servicio")
+  /// Inicio y liberación por el conductor desde la app. 1:1 y opcional: solo
+  /// existe para los servicios que el conductor inició él mismo.
+  ejecucion                                  servicio_ejecucion?
 
   // ── PESV ─ cobertura contractual del desplazamiento.
   /// Nullable y sin backfill: la mayoría de servicios históricos no tienen
@@ -1139,6 +1143,65 @@ model servicio {
   pesv_eventos_velocidad_servicio pesv_speed_event[]  @relation("pesv_velocidad_servicio")
 
   @@map("servicios")
+}
+
+/// Lo que hizo el CONDUCTOR con el servicio desde la app: cuándo lo inició, con
+/// qué preoperacional, cuándo lo liberó y su reporte del recorrido.
+///
+/// Tabla aparte y 1:1 —no columnas en `servicios` ni en `recargos_planillas`—
+/// porque es la versión del conductor, que convive con la del despacho: la
+/// fecha PLANEADA (`servicios.fecha_realizacion`) nunca se toca, y la liberación
+/// declarada se copia a `servicios.fecha_finalizacion`.
+///
+/// Dos relojes por evento: `*_at` es el servidor al recibirlo (o, en la
+/// liberación, la hora DECLARADA) y `*_dispositivo_at` el teléfono al pulsar.
+/// `*_diferido` marca lo que llegó desde la cola offline.
+///
+/// Mientras `iniciado_at` no sea nulo el servicio lo gobierna el conductor: el
+/// cron de cierre por planilla y el recálculo de recargos no le cambian el
+/// estado.
+model servicio_ejecucion {
+  servicio_id                   String    @id @db.Uuid
+  conductor_id                  String    @db.Uuid
+  preoperacional_submission_id  String?   @db.Uuid
+  /// `true` si no había formato recomendado para la clase del vehículo y el
+  /// conductor eligió cuál diligenciar.
+  formato_elegido_por_conductor Boolean   @default(false)
+  iniciado_at                   DateTime? @db.Timestamptz(6)
+  iniciado_dispositivo_at       DateTime? @db.Timestamptz(6)
+  iniciado_diferido             Boolean   @default(false)
+  /// Hora de liberación DECLARADA por el conductor (= `servicios.fecha_finalizacion`).
+  liberado_at                   DateTime? @db.Timestamptz(6)
+  liberado_registrado_at        DateTime? @db.Timestamptz(6)
+  liberado_dispositivo_at       DateTime? @db.Timestamptz(6)
+  liberado_diferido             Boolean   @default(false)
+
+  // ── Reporte del recorrido ──
+  km_final                Int?
+  via_trocha              Boolean?
+  via_afirmado            Boolean?
+  via_mixto               Boolean?
+  via_pavimentada         Boolean?
+  riesgo_desniveles       Boolean?
+  riesgo_deslizamientos   Boolean?
+  riesgo_sin_senalizacion Boolean?
+  riesgo_animales         Boolean?
+  riesgo_peatones         Boolean?
+  riesgo_trafico_alto     Boolean?
+  /// `optimo` | `fatigado` | `regular` | `malo`.
+  estado_conductor        String?  @db.VarChar(20)
+  novedades               String?
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  servicio       servicio         @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
+  conductor      conductores      @relation("servicio_ejecucion_conductor", fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  preoperacional form_submission? @relation("servicio_ejecucion_preoperacional", fields: [preoperacional_submission_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([conductor_id], map: "idx_servicio_ejecucion_conductor")
+  @@index([preoperacional_submission_id], map: "idx_servicio_ejecucion_preoperacional")
+  @@map("servicio_ejecucion")
 }
 
 model servicios_cancelados {
@@ -2786,8 +2849,11 @@ model form_submission {
   answers     form_answer[]
   attachments form_attachment[]
   events      form_submission_event[]
+  /// Servicios que este envío habilitó como preoperacional (normalmente uno).
+  ejecuciones servicio_ejecucion[]     @relation("servicio_ejecucion_preoperacional")
 
   @@index([conductor_id, business_date(sort: Desc), status], map: "idx_form_submissions_portal")
+  @@index([service_id], map: "idx_form_submissions_service")
   @@index([usuario_id, business_date(sort: Desc), status], map: "idx_form_submissions_usuario")
   @@index([version_id, submitted_at(sort: Desc)], map: "idx_form_submissions_version")
   @@map("form_submissions")
