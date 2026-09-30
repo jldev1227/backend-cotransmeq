@@ -309,13 +309,17 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
   })
 
   /**
-   * PDF del recibo de un envío.
+   * PDF del documento de un envío.
    *
-   * No compone documento: manda a Chromium a imprimir la MISMA página que el
-   * conductor ve en el portal web. El razonamiento completo —y las cuatro
-   * garantías que sostienen que esto siga siendo seguro pese a que ahora la
-   * página de Puppeteer sí lleva sesión— están en la cabecera de
-   * `formularios-documento-pdf.service.ts`.
+   * No compone documento: manda a Chromium a imprimir la MISMA página del
+   * portal web que el conductor puede abrir —`…/envios/<id>/documento`, el
+   * mismo `PreviewEnvioPDF` que el dashboard exporta—. El razonamiento
+   * completo —y las cuatro garantías que sostienen que esto siga siendo seguro
+   * pese a que ahora la página de Puppeteer sí lleva sesión— están en la
+   * cabecera de `formularios-documento-pdf.service.ts`.
+   *
+   * El token de impresión NO cambia de alcance: esa página se alimenta del
+   * mismo `GET /submissions/:id` que ya era su única lectura permitida.
    */
   app.get(`${base}/submissions/:id/pdf`, async (request, reply) => {
     try {
@@ -339,7 +343,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
         { subject: actor.id, expiresIn: IMPRESION_TTL_SEGUNDOS },
       )
 
-      const pdf = await FormulariosDocumentoPdfService.imprimirReciboDeEnvio(submission.id, {
+      const pdf = await FormulariosDocumentoPdfService.imprimirDocumentoDeEnvio(submission.id, {
         token: tokenDeImpresion,
         conductor: {
           id: actor.id,
@@ -350,7 +354,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
         expiresAt: expiraEn.toISOString(),
       })
 
-      const nombre = `recibo-${submission.id}`.replace(/[^a-z0-9_\-]/gi, '_')
+      const nombre = `documento-${submission.id}`.replace(/[^a-z0-9_\-]/gi, '_')
       return reply
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', `inline; filename="${nombre}.pdf"`)
@@ -358,7 +362,7 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
         .header('Cache-Control', 'private, max-age=0, no-store')
         .send(pdf)
     } catch (err) {
-      return fail(reply, err, 'imprimir el recibo del envío')
+      return fail(reply, err, 'imprimir el documento del envío')
     }
   })
 

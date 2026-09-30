@@ -2051,6 +2051,11 @@ export async function obtenerEnvioPortal(actor: PortalActor, submissionId: strin
     where: { id: submissionId, ...propiedadDe(actor), ...VIVO },
     include: {
       assignment: { select: { id: true, name: true, frequency: true } },
+      /// Quién diligenció. Es SU propia fila —la consulta ya filtró por
+      /// `propiedadDe(actor)`—, así que no expone a nadie más, y sin esto el
+      /// documento imprimible del portal sale con la casilla «Conductor» en
+      /// blanco mientras el mismo documento del dashboard la trae llena.
+      conductor: { select: { id: true, nombre: true, apellido: true, numero_identificacion: true } },
       usuario: { select: { id: true, nombre: true, correo: true } },
       vehiculo: { select: { id: true, placa: true } },
       version: {

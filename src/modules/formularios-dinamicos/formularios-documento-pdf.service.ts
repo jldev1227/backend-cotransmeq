@@ -35,14 +35,22 @@ import { pdfFromHtml, pdfFromUrl } from '../../services/pdf.service'
  *
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * RECIBO DEL PORTAL — `imprimirReciboDeEnvio`
+ * DOCUMENTO DEL PORTAL — `imprimirDocumentoDeEnvio`
  *
  * La app móvil también necesita el PDF de un envío, y ahí el cliente NO puede
  * mandar el cuerpo: React Native no tiene DOM, así que no existe el documento
  * que la web sí trae ya pintado. Por el mismo razonamiento de arriba tampoco
- * se rehace en el servidor. Lo que se hace es imprimir la página que el
- * conductor ya ve en la web —`/public/portal/formularios/envios/<id>`—
- * navegándola con Chromium. Un solo documento y un solo sitio que mantener.
+ * se rehace en el servidor. Lo que se hace es imprimir con Chromium una página
+ * del portal web. Un solo documento y un solo sitio que mantener.
+ *
+ * ── Y por eso se navega el DOCUMENTO y no el recibo ──
+ * Esto apuntaba a `/public/portal/formularios/envios/<id>`, que es el recibo:
+ * confirma la entrega y repite las respuestas con el renderer del formulario,
+ * que lista la evidencia como texto. El PDF salía sin firmas y sin fotos.
+ * Ahora navega `…/<id>/documento`, que monta el MISMO `PreviewEnvioPDF` que el
+ * dashboard exporta a los administradores —cabecera del formato HSEQ, firmas
+ * dibujadas, fotos embebidas—. El conductor recibe el mismo papel que ellos, y
+ * no una versión de segunda.
  *
  * ── Por qué esto obliga a que haya sesión ──
  * Esa página se autentica en el cliente: lee `portalSession` de
@@ -114,7 +122,7 @@ const TIPOGRAFIA = `
  * canónico es el primero. Nunca se toma una URL del cliente: esto abre un
  * navegador con sesión, y aceptar destino sería un SSRF autenticado.
  */
-function origenDelPortal(): string {
+export function origenDelPortal(): string {
   const lista = (env.FRONTEND_URL || '')
     .split(',')
     .map((o) => o.trim())
@@ -193,25 +201,32 @@ export const FormulariosDocumentoPdfService = {
   },
 
   /**
-   * PDF del recibo de un envío, imprimiendo la página del portal web.
+   * PDF del documento de un envío, imprimiendo la página del portal web.
    *
    * `submissionId` tiene que venir de una fila ya recuperada con el filtro de
    * propiedad del portal, NO del parámetro crudo de la petición: es la primera
    * de las cuatro garantías de la cabecera de este archivo.
    *
    * `data-listo="si"` lo pone la propia página cuando terminó de cargar sus
-   * datos. Sin esa espera se imprimiría el «Cargando recibo…», porque en una
-   * SPA el evento `load` llega antes que la respuesta de su primer `fetch`.
+   * datos. Sin esa espera se imprimiría el «Cargando documento…», porque en una
+   * SPA el evento `load` llega antes que la respuesta de su primer `fetch`. Y
+   * es `"si"` y no cualquier valor a propósito: una carga fallida marca
+   * `"error"`, así que esta llamada agota su espera y falla en vez de devolver
+   * una hoja de «no se pudo cargar» con pinta de registro.
+   *
+   * `preferCSSPageSize` para que mande el `@page` de `documento-envio.css.ts`
+   * —tamaño carta y márgenes de 6/11 mm— que es exactamente la hoja con la que
+   * el dashboard exporta este mismo documento. Con márgenes del servidor se
+   * sumarían a los del CSS y el checklist dejaría de caber donde cabe.
    */
-  async imprimirReciboDeEnvio(submissionId: string, sesion: SesionDeImpresion): Promise<Buffer> {
+  async imprimirDocumentoDeEnvio(submissionId: string, sesion: SesionDeImpresion): Promise<Buffer> {
     return pdfFromUrl({
-      url: `${origenDelPortal()}/public/portal/formularios/envios/${encodeURIComponent(submissionId)}`,
+      url: `${origenDelPortal()}/public/portal/formularios/envios/${encodeURIComponent(submissionId)}/documento`,
       seedLocalStorage: { [env.PORTAL_SESSION_STORAGE_KEY]: JSON.stringify(sesion) },
       waitForSelector: '[data-listo="si"]',
       format: 'Letter',
       landscape: false,
-      marginMm: 8,
-      viewportWidth: 820,
+      preferCSSPageSize: true,
     })
   },
 }
