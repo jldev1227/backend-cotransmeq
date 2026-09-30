@@ -208,10 +208,11 @@ async function formularioPorToken(token: string) {
   return formulario
 }
 
-async function firmaDelConductor(formularioId: string, conductor: Conductor) {
+/** Con `conImagen` trae también la firma (data URI PNG, decenas de KB). */
+async function firmaDelConductor(formularioId: string, conductor: Conductor, conImagen = false) {
   return prisma.respuestas_asistencia.findFirst({
     where: { formulario_id: formularioId, ...delConductor(conductor) },
-    select: { created_at: true },
+    select: { created_at: true, firma: conImagen },
     orderBy: { created_at: 'desc' }
   })
 }
@@ -219,10 +220,12 @@ async function firmaDelConductor(formularioId: string, conductor: Conductor) {
 export async function obtenerAsistencia(token: string, conductorId: string) {
   const conductor = await cargarConductor(conductorId)
   const formulario = await formularioPorToken(token)
-  const firma = await firmaDelConductor(formulario.id, conductor)
+  const firma = await firmaDelConductor(formulario.id, conductor, true)
   return {
     asistencia: { ...resumenAsistencia(formulario), activo: formulario.activo },
     firmada_en: firma ? firma.created_at.toISOString() : null,
+    /// La firma que dejó el conductor, para que la vea en la asistencia firmada.
+    firma: firma?.firma ?? null,
     conductor: datosConductor(conductor)
   }
 }
