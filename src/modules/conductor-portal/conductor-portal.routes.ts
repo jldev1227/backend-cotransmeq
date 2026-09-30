@@ -7,6 +7,13 @@ import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
+import { obtenerLiquidacionConFirmas } from '../liquidaciones/liquidaciones.controller'
+import {
+  periodoCrudoDeLiquidacion,
+  recargosDelDesprendible
+} from '../nomina-canvas/nomina-borradores.controller'
+import { resultadoDePagina } from '../../services/pdf.service'
+import { origenDelPortal } from '../formularios-dinamicos/formularios-documento-pdf.service'
 import { DiasLaboradosService } from '../dias-laborados/dias-laborados.service'
 import { crearRegistroSchema } from '../dias-laborados/dias-laborados.schema'
 import { getIO } from '../../sockets'
@@ -15,6 +22,19 @@ import { emitirTokenPortal } from './portal-token.service'
 import type { PortalAccessChannel } from '../../lib/portal-access-link'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { emitNotificacion } from '../../sockets'
+
+/**
+ * `tipo` exclusivo del token con el que Puppeteer abre la página que genera el
+ * desprendible. Propio y no `conductor_portal` con una marca: los demás
+ * módulos del portal tienen su copia del middleware y no sabrían de la marca,
+ * mientras que un `tipo` que no conocen lo rechazan sin enterarse de nada.
+ *
+ * Distinto también del de formularios (`conductor_portal_print`): cada uno
+ * abre una sola ruta de su propio módulo.
+ */
+const TIPO_TOKEN_IMPRESION_DESPRENDIBLE = 'conductor_portal_print_desprendible'
+const RUTA_DATOS_DESPRENDIBLE = '/conductor-portal/desprendibles/:id/datos'
+const IMPRESION_TTL_SEGUNDOS = 180
 
 /**
  * Middleware de autenticación para el portal del conductor.
@@ -31,8 +51,29 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
 
   try {
     const payload = jwt.verify(parts[1], env.JWT_SECRET) as any
-    if (payload.tipo !== 'conductor_portal') {
+    const esImpresion = payload.tipo === TIPO_TOKEN_IMPRESION_DESPRENDIBLE
+    if (payload.tipo !== 'conductor_portal' && !esImpresion) {
       return reply.status(401).send({ success: false, message: 'Token no autorizado para este recurso' })
+    }
+
+    /// El token de impresión solo abre UNA lectura: los datos de SU
+    /// desprendible. Se compara contra la ruta DECLARADA y no contra
+    /// `request.url`, porque `/desprendibles/:id/pdf` comparte el parámetro y
+    /// el impresor podría invocarse a sí mismo en cadena.
+    if (esImpresion) {
+      const rutaDeclarada: string | undefined =
+        (request as any).routeOptions?.url ?? (request as any).routerPath
+      const idPedido = (request.params as { id?: string } | undefined)?.id
+      const dentroDeAlcance =
+        request.method === 'GET' &&
+        typeof rutaDeclarada === 'string' &&
+        /// `endsWith` porque la ruta declarada incluye el prefijo `/api`.
+        rutaDeclarada.endsWith(RUTA_DATOS_DESPRENDIBLE) &&
+        typeof payload.lid === 'string' &&
+        idPedido === payload.lid
+      if (!dentroDeAlcance) {
+        return reply.status(403).send({ success: false, message: 'Token fuera de su alcance' })
+      }
     }
 
     ;(request as any).conductorPortal = {
@@ -498,6 +539,67 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
+    /**
+     * Los TRES datos con los que el canvas de nómina arma el desprendible.
+     *
+     * Mismas funciones que usa el canvas, no consultas propias del portal:
+     *   · liquidación → la de `GET /liquidaciones/:id` (con firmas en base64 y
+     *     el respaldo de la firma de prima),
+     *   · recargos    → la HOJA DEL CANVAS, no las planillas. Leer las
+     *     planillas es lo que hacía que el comprobante contradijera a lo
+     *     pagado,
+     *   · firmas      → las de la propia liquidación.
+     *
+     * Lo consumen el portal web y la página que imprime el PDF del móvil, así
+     * que los tres documentos salen de los mismos datos.
+     */
+    protectedApp.get(RUTA_DATOS_DESPRENDIBLE, {
+      schema: {
+        description: 'Datos del desprendible con las mismas fuentes que el canvas de nómina',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const propia = await prisma.liquidaciones.findFirst({
+          where: { id: request.params.id, conductor_id: conductor.id, desprendible_visible: true, deleted_at: null },
+          select: { id: true }
+        })
+        if (!propia) {
+          return reply.status(404).send({ success: false, message: 'Desprendible no encontrado' })
+        }
+
+        /// Serializada como la recibe el canvas por JSON: el periodo se calcula
+        /// sobre las fechas en texto, igual que en el web.
+        const liquidacion = JSON.parse(JSON.stringify(await obtenerLiquidacionConFirmas(propia.id)))
+
+        /// Las tablas de recargo son OPCIONALES, como en el canvas: sin ellas
+        /// el desprendible sale sin las páginas de detalle, pero sale.
+        const periodo = periodoCrudoDeLiquidacion(liquidacion)
+        let recargosData: any = null
+        if (Number.isInteger(periodo.anio) && Number.isInteger(periodo.mes)) {
+          recargosData = await recargosDelDesprendible(propia.id, periodo).catch(() => null)
+        }
+
+        const firmas = (liquidacion.firmas_desprendibles ?? []).filter(
+          (f: any) => f?.presignedUrl && f.firma_url !== 'pending' && f.firma_url !== ''
+        )
+
+        return reply.send({
+          success: true,
+          data: {
+            liquidacion,
+            firmas,
+            recargosData: { ...(recargosData ?? {}), planillas: recargosData?.planillas ?? [] }
+          }
+        })
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error armando los datos del desprendible del conductor')
+        return reply.status(500).send({ success: false, message: err.message || 'No fue posible cargar el desprendible' })
+      }
+    })
+
     // ─── PDF del desprendible para el visor nativo móvil ───
     protectedApp.get('/conductor-portal/desprendibles/:id/pdf', {
       schema: {
@@ -512,6 +614,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
+        /// Propiedad ANTES de imprimir: lo que se navega es el id de la fila
+        /// devuelta, no el del parámetro.
         const liquidacion = await prisma.liquidaciones.findFirst({
           where: {
             id: request.params.id,
@@ -519,15 +623,55 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             desprendible_visible: true,
             deleted_at: null
           },
-          select: { id: true }
+          select: { id: true, periodo_end: true }
         })
         if (!liquidacion) {
           return reply.status(404).send({ success: false, message: 'Desprendible no encontrado' })
         }
 
-        const { buffer, fileName } = await LiquidacionesService.generatePayslipPdfBuffer(liquidacion.id)
+        /**
+         * EL MISMO DESPRENDIBLE QUE EL CANVAS DE NÓMINA.
+         *
+         * Antes este endpoint generaba el suyo con una plantilla HTML propia
+         * (`generatePayslipPdfBuffer`), distinta de la de pdfmake que usan el
+         * canvas, el dashboard y el portal web. El mismo mes salía con dos
+         * documentos según por dónde se descargara.
+         *
+         * Ahora Puppeteer abre una página del web que ejecuta el constructor
+         * de siempre (`pdfDesprendible.ts`) con los datos del canvas y publica
+         * el PDF. No hay segunda maqueta que mantener de acuerdo.
+         *
+         * La sesión que se siembra es un token propio de 180 s que solo abre
+         * `/desprendibles/<este id>/datos`; nunca viaja en la URL.
+         */
+        const expiraEn = new Date(Date.now() + IMPRESION_TTL_SEGUNDOS * 1000)
+        const token = jwt.sign(
+          {
+            tipo: TIPO_TOKEN_IMPRESION_DESPRENDIBLE,
+            lid: liquidacion.id,
+            cedula: conductor.cedula,
+            nombre: conductor.nombre
+          },
+          env.JWT_SECRET,
+          { subject: conductor.id, expiresIn: IMPRESION_TTL_SEGUNDOS }
+        )
+        const sesion = {
+          token,
+          conductor: { id: conductor.id, nombre: conductor.nombre ?? '', apellido: '', numero_identificacion: conductor.cedula ?? '' },
+          expiresAt: expiraEn.toISOString()
+        }
+        const resultado = await resultadoDePagina<{ ok: boolean; base64?: string; error?: string }>({
+          url: `${origenDelPortal()}/public/portal/desprendibles/imprimir/${encodeURIComponent(liquidacion.id)}`,
+          seedLocalStorage: { [env.PORTAL_SESSION_STORAGE_KEY]: JSON.stringify(sesion) },
+          global: '__desprendible'
+        })
+        if (!resultado?.ok || !resultado.base64) {
+          throw new Error(resultado?.error || 'La página no generó el desprendible.')
+        }
+        const buffer = Buffer.from(resultado.base64, 'base64')
+        const periodo = String(liquidacion.periodo_end ?? '').slice(0, 7) || liquidacion.id
         reply.header('Content-Type', 'application/pdf')
-        reply.header('Content-Disposition', `inline; filename="${fileName.replace(/"/g, '')}"`)
+        reply.header('Content-Disposition', `inline; filename="desprendible-${periodo}.pdf"`)
         reply.header('Cache-Control', 'private, no-store')
         return reply.send(buffer)
       } catch (err: any) {
@@ -1971,6 +2115,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         })
       }
     })
+
   })
 }
 

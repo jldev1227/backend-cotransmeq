@@ -5,6 +5,116 @@ import { getS3ObjectAsBase64 } from "../../config/aws";
 import { getIO } from '../../sockets'
 import { prisma } from '../../config/prisma'
 
+/**
+ * La liquidación tal como la necesita el desprendible: con sus firmas ya
+ * convertidas a base64 y, si no tiene firma propia, la de una prima del mismo
+ * periodo como respaldo.
+ *
+ * Es exactamente lo que `GET /liquidaciones/:id` le entrega al canvas de
+ * nómina. Se extrae a una función para que el portal del conductor use la
+ * MISMA liquidación que el canvas en vez de una consulta propia: el
+ * desprendible tiene que salir igual se imprima por donde se imprima.
+ */
+export async function obtenerLiquidacionConFirmas(id: string) {
+  const liquidacion = await LiquidacionesService.obtenerPorId(id);
+
+  // Enriquecer firmas con base64 desde S3 (solo para admin, evita CORS en el frontend)
+  if (liquidacion.firmas_desprendibles?.length) {
+    const firmasConBase64 = await Promise.all(
+      liquidacion.firmas_desprendibles.map(async (firma: any) => {
+        if (firma.firma_s3_key) {
+          try {
+            const firmaBase64 = await getS3ObjectAsBase64(
+              firma.firma_s3_key,
+            );
+            return { ...firma, presignedUrl: firmaBase64 };
+          } catch (error) {
+            console.error(
+              "Error descargando firma de S3:",
+              firma.id,
+              error,
+            );
+            return firma;
+          }
+        }
+        return firma;
+      }),
+    );
+    liquidacion.firmas_desprendibles = firmasConBase64;
+  }
+
+  // Fallback: si no hay firma de desprendible, intentar firma de prima
+  // del mismo conductor del mismo mes/año (±1 mes del periodo_fin)
+  const tieneFirmaValida =
+    liquidacion.firmas_desprendibles?.some(
+      (f: any) => f.presignedUrl && f.firma_url !== 'pending' && f.firma_url !== '',
+    ) ?? false
+  if (!tieneFirmaValida && liquidacion.conductor_id && liquidacion.periodo_fin) {
+    try {
+      const fechaFin = new Date(
+        liquidacion.periodo_fin +
+          (liquidacion.periodo_fin.length === 10 ? 'T00:00:00' : ''),
+      )
+      if (!isNaN(fechaFin.getTime())) {
+        const candidatos: Array<{ anio: number; mes: number }> = []
+        for (let offset = -1; offset <= 1; offset++) {
+          const d = new Date(fechaFin.getFullYear(), fechaFin.getMonth() + offset, 1)
+          candidatos.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 })
+        }
+        const firmasPrimas = await prisma.firmas_primas.findMany({
+          where: {
+            conductor_id: liquidacion.conductor_id,
+            firma_url: { not: '' },
+            NOT: { firma_url: 'pending' },
+          },
+          orderBy: { fecha_firma: 'desc' },
+        })
+        // Traer primas por separado (evita dependencia de la relación en el cliente Prisma)
+        const primaIds = Array.from(new Set(firmasPrimas.map((f) => f.prima_id)))
+        const primasRelacionadas = primaIds.length
+          ? await prisma.primas.findMany({
+              where: { id: { in: primaIds } },
+              select: { id: true, anio: true, mes: true },
+            })
+          : []
+        const primaMap = new Map(primasRelacionadas.map((p) => [p.id, p]))
+        for (const fp of firmasPrimas) {
+          const primaRel = primaMap.get(fp.prima_id)
+          if (!primaRel) continue
+          const match = candidatos.some(
+            (c) => c.anio === primaRel.anio && c.mes === primaRel.mes,
+          )
+          if (!match) continue
+          try {
+            const firmaBase64 = await getS3ObjectAsBase64(fp.firma_s3_key)
+            liquidacion.firmas_desprendibles = [
+              {
+                id: fp.id,
+                liquidacion_id: id,
+                conductor_id: fp.conductor_id,
+                firma_url: fp.firma_url,
+                firma_s3_key: fp.firma_s3_key,
+                fecha_firma: fp.fecha_firma,
+                estado: fp.estado,
+                presignedUrl: firmaBase64,
+                // Marca virtual para que el frontend distinga el origen
+                origen_fallback: 'prima',
+                prima_origen_id: fp.prima_id,
+              } as any,
+            ]
+            break
+          } catch (e) {
+            console.error('Error descargando firma de prima (fallback):', fp.id, e)
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error en fallback firma de prima:', e)
+    }
+  }
+  return liquidacion;
+}
+
 interface ObtenerTodasQuery {
   page?: string;
   limit?: string;
@@ -74,102 +184,7 @@ export const LiquidacionesController = {
   ) {
     try {
       const { id } = request.params;
-      const liquidacion = await LiquidacionesService.obtenerPorId(id);
-
-      // Enriquecer firmas con base64 desde S3 (solo para admin, evita CORS en el frontend)
-      if (liquidacion.firmas_desprendibles?.length) {
-        const firmasConBase64 = await Promise.all(
-          liquidacion.firmas_desprendibles.map(async (firma: any) => {
-            if (firma.firma_s3_key) {
-              try {
-                const firmaBase64 = await getS3ObjectAsBase64(
-                  firma.firma_s3_key,
-                );
-                return { ...firma, presignedUrl: firmaBase64 };
-              } catch (error) {
-                console.error(
-                  "Error descargando firma de S3:",
-                  firma.id,
-                  error,
-                );
-                return firma;
-              }
-            }
-            return firma;
-          }),
-        );
-        liquidacion.firmas_desprendibles = firmasConBase64;
-      }
-
-      // Fallback: si no hay firma de desprendible, intentar firma de prima
-      // del mismo conductor del mismo mes/año (±1 mes del periodo_fin)
-      const tieneFirmaValida =
-        liquidacion.firmas_desprendibles?.some(
-          (f: any) => f.presignedUrl && f.firma_url !== 'pending' && f.firma_url !== '',
-        ) ?? false
-      if (!tieneFirmaValida && liquidacion.conductor_id && liquidacion.periodo_fin) {
-        try {
-          const fechaFin = new Date(
-            liquidacion.periodo_fin +
-              (liquidacion.periodo_fin.length === 10 ? 'T00:00:00' : ''),
-          )
-          if (!isNaN(fechaFin.getTime())) {
-            const candidatos: Array<{ anio: number; mes: number }> = []
-            for (let offset = -1; offset <= 1; offset++) {
-              const d = new Date(fechaFin.getFullYear(), fechaFin.getMonth() + offset, 1)
-              candidatos.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 })
-            }
-            const firmasPrimas = await prisma.firmas_primas.findMany({
-              where: {
-                conductor_id: liquidacion.conductor_id,
-                firma_url: { not: '' },
-                NOT: { firma_url: 'pending' },
-              },
-              orderBy: { fecha_firma: 'desc' },
-            })
-            // Traer primas por separado (evita dependencia de la relación en el cliente Prisma)
-            const primaIds = Array.from(new Set(firmasPrimas.map((f) => f.prima_id)))
-            const primasRelacionadas = primaIds.length
-              ? await prisma.primas.findMany({
-                  where: { id: { in: primaIds } },
-                  select: { id: true, anio: true, mes: true },
-                })
-              : []
-            const primaMap = new Map(primasRelacionadas.map((p) => [p.id, p]))
-            for (const fp of firmasPrimas) {
-              const primaRel = primaMap.get(fp.prima_id)
-              if (!primaRel) continue
-              const match = candidatos.some(
-                (c) => c.anio === primaRel.anio && c.mes === primaRel.mes,
-              )
-              if (!match) continue
-              try {
-                const firmaBase64 = await getS3ObjectAsBase64(fp.firma_s3_key)
-                liquidacion.firmas_desprendibles = [
-                  {
-                    id: fp.id,
-                    liquidacion_id: id,
-                    conductor_id: fp.conductor_id,
-                    firma_url: fp.firma_url,
-                    firma_s3_key: fp.firma_s3_key,
-                    fecha_firma: fp.fecha_firma,
-                    estado: fp.estado,
-                    presignedUrl: firmaBase64,
-                    // Marca virtual para que el frontend distinga el origen
-                    origen_fallback: 'prima',
-                    prima_origen_id: fp.prima_id,
-                  } as any,
-                ]
-                break
-              } catch (e) {
-                console.error('Error descargando firma de prima (fallback):', fp.id, e)
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Error en fallback firma de prima:', e)
-        }
-      }
+      const liquidacion = await obtenerLiquidacionConFirmas(id);
 
       return reply.status(200).send({
         success: true,

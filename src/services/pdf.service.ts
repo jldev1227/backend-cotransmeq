@@ -363,6 +363,54 @@ export async function pdfFromUrl(opts: PdfFromUrlOptions): Promise<Buffer> {
   }
 }
 
+export interface ResultadoDePaginaOptions {
+  url: string;
+  /** Claves a sembrar en `localStorage` antes de que corra ningún script. */
+  seedLocalStorage?: Record<string, string>;
+  /** Global de `window` que la página rellena cuando termina. */
+  global: string;
+  timeoutMs?: number;
+  navigationTimeoutMs?: number;
+}
+
+/**
+ * Navega a una página que PRODUCE su propio resultado y lo recoge.
+ *
+ * Existe para los documentos que la página genera ella misma. El desprendible
+ * lo arma pdfmake en el navegador y lo entrega como base64: imprimir la página
+ * con `page.pdf()` sacaría una captura de pantalla, no el documento. Aquí se
+ * espera a que la página publique el resultado en `window[global]` y se
+ * devuelve tal cual, así el PDF es byte a byte el que genera el web.
+ *
+ * Mismo aislamiento que `pdfFromUrl`: contexto efímero, destruido al terminar
+ * con la sesión sembrada dentro.
+ */
+export async function resultadoDePagina<T>(opts: ResultadoDePaginaOptions): Promise<T> {
+  const { url, seedLocalStorage, global, timeoutMs = 45000, navigationTimeoutMs = 45000 } = opts;
+  const browser = await getBrowser();
+  const context = await browser.createBrowserContext();
+  try {
+    const page = await context.newPage();
+    page.setDefaultNavigationTimeout(navigationTimeoutMs);
+    if (seedLocalStorage && Object.keys(seedLocalStorage).length > 0) {
+      await page.evaluateOnNewDocument((pares: Record<string, string>) => {
+        try {
+          for (const [clave, valor] of Object.entries(pares)) {
+            window.localStorage.setItem(clave, valor);
+          }
+        } catch {
+          /* origen sin almacenamiento: la navegación real sí lo tendrá */
+        }
+      }, seedLocalStorage);
+    }
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeoutMs });
+    await page.waitForFunction((g: string) => (window as any)[g] !== undefined, { timeout: timeoutMs }, global);
+    return (await page.evaluate((g: string) => (window as any)[g], global)) as T;
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
 export async function closePdfBrowser(): Promise<void> {
   if (browserInstance) {
     await browserInstance.close();
