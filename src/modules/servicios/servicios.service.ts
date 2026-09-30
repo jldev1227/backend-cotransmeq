@@ -523,6 +523,10 @@ export const ServiciosService = {
             codigo_municipio: true
           }
         },
+        // Indicador en el listado: iniciado/liberado por el conductor desde la app.
+        ejecucion: {
+          select: { iniciado_at: true, liberado_at: true, iniciado_diferido: true, liberado_diferido: true }
+        },
         recargos_planillas: {
           select: {
             id: true,
