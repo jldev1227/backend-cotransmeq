@@ -4,6 +4,7 @@ import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
+import { condicionesViaDelServicio, CondicionesViaError } from './condiciones-via.service'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
@@ -2112,6 +2113,34 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         return reply.status(500).send({
           success: false,
           message: err.message || 'Error al obtener servicio'
+        })
+      }
+    })
+
+    // ─── Condiciones de la vía del servicio (tráfico, incidentes, peajes, paradas, Distracom, riesgos) ───
+    protectedApp.get('/conductor-portal/servicios/:id/via', {
+      schema: {
+        description: 'Ruta, tráfico, incidentes y puntos de interés de un servicio del conductor',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await condicionesViaDelServicio(request.params.id, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        if (err instanceof CondicionesViaError) {
+          return reply.status(err.status).send({ success: false, message: err.message })
+        }
+        request.log.error({ error: err }, 'Error obteniendo condiciones de la vía')
+        return reply.status(500).send({
+          success: false,
+          message: 'No fue posible consultar las condiciones de la vía'
         })
       }
     })
