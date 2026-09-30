@@ -34,12 +34,19 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { cargarSemilla } from './escribir'
 import { seedIds, uuidv5 } from './ids'
-import { SEMILLAS_ETAPAS } from './preoperacional-etapas'
+import { REVISION_ASIGNACION, REVISION_ETAPAS, SEMILLAS_ETAPAS } from './preoperacional-etapas'
 import type { SeedDefinition } from './types'
 import { revisarConjunto } from './validate'
 
-/** Número de versión del motor dinámico para las semillas por etapas. */
-const VERSION_NUMBER = 2
+/**
+ * Número de versión del motor dinámico para las semillas por etapas.
+ *
+ * La versión 1 es la original; cada revisión por etapas es la siguiente: la
+ * revisión 1 fue la versión 2, la revisión 2 es la 3. La versión anterior se
+ * queda PUBLICADA —no se archiva— para que los borradores empezados contra ella
+ * se puedan terminar.
+ */
+const VERSION_NUMBER = 1 + REVISION_ETAPAS
 
 interface Opciones {
 	apply: boolean
@@ -70,7 +77,11 @@ function parseArgs(argv: string[]): Opciones {
  * asignación nueva cada vez —que en el portal se vería como formularios
  * duplicados—.
  */
-function idsAsignacion(code: string, revision: string) {
+function idsAsignacion(code: string) {
+	/// De la revisión de la PRIMERA versión por etapas, no de la actual: al subir
+	/// `REVISION_ETAPAS` las asignaciones piloto son las mismas y se MUEVEN.
+	const revision = REVISION_ASIGNACION[code]
+	if (!revision) throw new Error(`${code}: no tiene revisión de asignación en \`REVISION_ASIGNACION\`.`)
 	const raiz = `${code}@${revision}`
 	return {
 		assignment: uuidv5(`assignment:${raiz}`),
@@ -117,7 +128,7 @@ async function asignar(
 	conductores: string[],
 	userId: string
 ): Promise<{ assignmentId: string; targets: number; retirados: number }> {
-	const ids = idsAsignacion(semilla.code, semilla.source.sourceRevision)
+	const ids = idsAsignacion(semilla.code)
 
 	return prisma.$transaction(async (tx) => {
 		await tx.form_assignment.upsert({
@@ -217,7 +228,7 @@ async function main() {
 		)
 		for (const semilla of seleccionadas) {
 			const ids = seedIds(semilla.code, semilla.source.sourceRevision)
-			const idsA = idsAsignacion(semilla.code, semilla.source.sourceRevision)
+			const idsA = idsAsignacion(semilla.code)
 			console.log(`\n  ${semilla.code}`)
 			console.log(`    form_definitions.id  : ${ids.form} (el MISMO de la versión 1)`)
 			console.log(`    form_versions.id     : ${ids.version} (version_number ${VERSION_NUMBER}, quedará PUBLISHED)`)

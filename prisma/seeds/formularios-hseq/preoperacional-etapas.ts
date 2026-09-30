@@ -40,9 +40,9 @@
 
 import { hseqFr08 } from './hseq-fr-08'
 import { hseqFr09 } from './hseq-fr-09'
-import { ordenarSecciones } from './factories'
+import { foto, ordenarSecciones } from './factories'
 import type { SeedDefinition } from './types'
-import type { FormSectionDraft } from '../../../src/modules/formularios-dinamicos/domain'
+import type { FormFieldDraft, FormSectionDraft } from '../../../src/modules/formularios-dinamicos/domain'
 
 /** Las tres etapas, en orden de diligenciamiento. */
 export interface EtapaPreoperacional {
@@ -164,6 +164,58 @@ function trasladarCampos(secciones: FormSectionDraft[], code: string): FormSecti
 	return resultado
 }
 
+/**
+ * Revisión de la versión por etapas.
+ *
+ *   1 → versión 2 del motor: la primera por etapas (`sourceRevision` `…-etapas`).
+ *   2 → versión 3: añade «Evidencia de pausas activas» en la etapa 2.
+ *
+ * Subirla cambia TODOS los ids de la versión —se derivan de `sourceRevision`—,
+ * así que el cargador escribe una versión NUEVA en vez de tocar la publicada,
+ * que puede tener borradores colgando. Las asignaciones piloto NO cambian de id:
+ * cuelgan de `REVISION_ASIGNACION`, y el cargador las mueve a la versión nueva.
+ */
+export const REVISION_ETAPAS = 2
+
+const SUFIJO_ETAPAS = '-etapas'
+
+function sufijoDeRevision(revision: number): string {
+	return revision <= 1 ? SUFIJO_ETAPAS : `${SUFIJO_ETAPAS}-r${revision}`
+}
+
+/**
+ * Campos que las revisiones posteriores AÑADEN a la versión por etapas.
+ *
+ * Mismo criterio estricto que los traslados: si la sección no existe o la clave
+ * ya está, aborta en vez de colarlo en otro sitio o duplicarlo.
+ */
+const CAMPOS_NUEVOS: { desdeRevision: number; seccion: string; campo: FormFieldDraft }[] = [
+	{
+		desdeRevision: 2,
+		seccion: 'Verificación durante el desplazamiento o en paradas seguras',
+		campo: {
+			...foto('pausas_activas_evidencia', 'Evidencia de pausas activas', 6, {
+				helpText: 'Fotos de las pausas activas durante el recorrido (opcional).'
+			}),
+			sortOrder: 0
+		}
+	}
+]
+
+function anadirCampos(secciones: FormSectionDraft[], code: string, revision: number): FormSectionDraft[] {
+	let resultado = secciones
+	for (const { desdeRevision, seccion, campo } of CAMPOS_NUEVOS) {
+		if (revision < desdeRevision) continue
+		const destino = resultado.find((s) => s.title === seccion)
+		if (!destino) throw new Error(`${code}: no existe la sección «${seccion}» para añadir «${campo.label}».`)
+		if (resultado.some((s) => s.fields.some((f) => f.key === campo.key))) {
+			throw new Error(`${code}: ya existe un campo con la clave «${campo.key}».`)
+		}
+		resultado = resultado.map((s) => (s === destino ? { ...s, fields: renumerar([...s.fields, campo]) } : s))
+	}
+	return resultado
+}
+
 function etapaDe(numero: number): EtapaPreoperacional {
 	const etapa = ETAPAS_PREOPERACIONAL.find((e) => e.numero === numero)
 	if (!etapa) throw new Error(`No existe la etapa ${numero}.`)
@@ -252,7 +304,7 @@ export function repartirEnEtapas(base: SeedDefinition): FormSectionDraft[] {
 		)
 	}
 
-	return ordenarSecciones(trasladarCampos(secciones, base.code))
+	return ordenarSecciones(anadirCampos(trasladarCampos(secciones, base.code), base.code, REVISION_ETAPAS))
 }
 
 /**
@@ -270,7 +322,7 @@ function derivarPorEtapas(base: SeedDefinition): SeedDefinition {
 		/// El código y el slug NO cambian: es el mismo formulario HSEQ.
 		source: {
 			...base.source,
-			sourceRevision: `${base.source.sourceRevision}-etapas`
+			sourceRevision: `${base.source.sourceRevision}${sufijoDeRevision(REVISION_ETAPAS)}`
 		},
 		warnings: [
 			...base.warnings,
@@ -278,7 +330,10 @@ function derivarPorEtapas(base: SeedDefinition): SeedDefinition {
 			'«Novedades» y «Firma del conductor» se movieron al final de la ETAPA 1: la certificación de que el vehículo es seguro ocurre antes de salir, no al terminar el recorrido.',
 			'La etapa vive en `form_sections.settings_json` (`etapa`, `etapaTitulo`, `etapaFirma`). No hay migración de esquema. Un formulario sin esas claves se comporta como hasta ahora.',
 			'ES UN SOLO ENVÍO que avanza por etapas, no tres envíos. Firmar la etapa 1 guarda el borrador; no entrega nada. El envío sale cuando se cierra la etapa 3.',
-			'El campo «Kilometraje final» sigue en la sección de combustible (ETAPA 1) aunque se diligencie al terminar: moverlo habría cambiado el contenido, y la V2 replica la V1. El conductor puede volver a la etapa 1 a completarlo antes de enviar.'
+			'El campo «Kilometraje final» sigue en la sección de combustible (ETAPA 1) aunque se diligencie al terminar: moverlo habría cambiado el contenido, y la V2 replica la V1. El conductor puede volver a la etapa 1 a completarlo antes de enviar.',
+			...(REVISION_ETAPAS >= 2
+				? ['Revisión 2 (versión 3 del motor): añade en la ETAPA 2 el campo opcional «Evidencia de pausas activas» (foto, hasta 6).']
+				: [])
 		],
 		version: {
 			...base.version,
@@ -310,3 +365,15 @@ export const hseqFr09Etapas: SeedDefinition = derivarPorEtapas(hseqFr09)
  * trece formatos, no quince. Se cargan con `cargar-etapas.ts`.
  */
 export const SEMILLAS_ETAPAS: SeedDefinition[] = [hseqFr08Etapas, hseqFr09Etapas]
+
+/**
+ * Revisión de la que derivan los ids de las asignaciones piloto, por código.
+ *
+ * Es la de la PRIMERA versión por etapas y no cambia al subir `REVISION_ETAPAS`:
+ * así reejecutar el cargador mueve las mismas asignaciones a la versión nueva en
+ * vez de crear otras —que el conductor vería como formularios duplicados—.
+ */
+export const REVISION_ASIGNACION: Record<string, string> = {
+	[hseqFr08.code]: `${hseqFr08.source.sourceRevision}${SUFIJO_ETAPAS}`,
+	[hseqFr09.code]: `${hseqFr09.source.sourceRevision}${SUFIJO_ETAPAS}`
+}
