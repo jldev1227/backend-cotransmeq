@@ -31,6 +31,13 @@ import { resultadoDePagina } from '../../services/pdf.service'
 import { origenDelPortal } from '../formularios-dinamicos/formularios-documento-pdf.service'
 import { DiasLaboradosService } from '../dias-laborados/dias-laborados.service'
 import { crearRegistroSchema } from '../dias-laborados/dias-laborados.schema'
+import {
+  DiasAdjuntosError,
+  completarAdjuntoDia,
+  conAdjuntos,
+  eliminarAdjuntoDia,
+  iniciarAdjuntoDia
+} from '../dias-laborados/dias-adjuntos.service'
 import { getIO } from '../../sockets'
 import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aws'
 import { emitirTokenPortal } from './portal-token.service'
@@ -1622,7 +1629,11 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           if (!segMap.has(s.registro_dia_id)) segMap.set(s.registro_dia_id, [])
           segMap.get(s.registro_dia_id)!.push(s)
         }
-        const data = registros.map(r => ({ ...r, segmentos: segMap.get(r.id) || [] }))
+        /// `adjuntos`: soportes (facturas) de los días MANTENIMIENTO, con URL
+        /// firmada. Siempre presente (`[]` en los demás días).
+        const data = await conAdjuntos(
+          registros.map(r => ({ ...r, segmentos: segMap.get(r.id) || [] }))
+        )
 
         return reply.send({ success: true, data, count: data.length })
       } catch (err: any) {
@@ -1711,7 +1722,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // Delegar al servicio oficial (maneja correctamente la tabla pivote de segmentos
         // y aplica la transacción replaceAll)
-        const registro = await DiasLaboradosService.upsertRegistro(conductor.id, data)
+        const guardado = await DiasLaboradosService.upsertRegistro(conductor.id, data)
+        const registro = guardado ? (await conAdjuntos([guardado]))[0] : guardado
 
         // Emitir evento en tiempo real para que el dashboard se actualice
         try {
@@ -1804,6 +1816,88 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           success: false,
           message: err.message || 'Error al eliminar registro'
         })
+      }
+    })
+
+    // ─── Soportes (facturas) de los días de MANTENIMIENTO ───
+    // Presign → PUT directo a S3 → complete (verifica contra S3), como los
+    // adjuntos de formularios. La lógica vive en `dias-adjuntos.service.ts`.
+    const errorAdjuntosDia = (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      err: any,
+      mensaje: string
+    ) => {
+      if (err instanceof DiasAdjuntosError) {
+        return reply.status(err.status).send({ success: false, message: err.message, code: err.code })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+    const paramsFecha = {
+      type: 'object',
+      required: ['fecha'],
+      properties: { fecha: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }
+    }
+    const paramsFechaId = {
+      type: 'object',
+      required: ['fecha', 'id'],
+      properties: {
+        fecha: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+        id: { type: 'string' }
+      }
+    }
+
+    protectedApp.post('/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init', {
+      schema: {
+        description: 'Iniciar la subida de un soporte (factura) de un día de mantenimiento',
+        tags: ['conductor-portal'],
+        params: paramsFecha
+      }
+    }, async (request: FastifyRequest<{ Params: { fecha: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await iniciarAdjuntoDia(conductor.id, request.params.fecha, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorAdjuntosDia(request, reply, err, 'No fue posible iniciar la subida del soporte')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id/complete', {
+      schema: {
+        description: 'Confirmar la subida de un soporte verificándolo contra el almacenamiento',
+        tags: ['conductor-portal'],
+        params: paramsFechaId
+      }
+    }, async (request: FastifyRequest<{ Params: { fecha: string; id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await completarAdjuntoDia(
+          conductor.id,
+          request.params.fecha,
+          request.params.id,
+          request.body
+        )
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorAdjuntosDia(request, reply, err, 'No fue posible confirmar el soporte')
+      }
+    })
+
+    protectedApp.delete('/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id', {
+      schema: {
+        description: 'Eliminar un soporte de un día de mantenimiento',
+        tags: ['conductor-portal'],
+        params: paramsFechaId
+      }
+    }, async (request: FastifyRequest<{ Params: { fecha: string; id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await eliminarAdjuntoDia(conductor.id, request.params.fecha, request.params.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorAdjuntosDia(request, reply, err, 'No fue posible eliminar el soporte')
       }
     })
 

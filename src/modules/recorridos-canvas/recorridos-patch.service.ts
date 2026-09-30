@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { prisma } from '../../config/prisma'
 import { checkAccess, type Area } from '../../config/permissions'
 import { obtenerPermisosRutas } from '../../services/permisos-rutas.service'
-import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
+import { retirarAdjuntosDelDia, retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import {
   CAMPOS_SEGMENTO,
   exigirOffsetEnRango,
@@ -314,6 +314,10 @@ export class RecorridosPatchService {
     if (gano.count === 0) {
       throw new ConflictoVersionRecorrido(registroDiaId, await this.filaDia(registroDiaId))
     }
+    // Los soportes (facturas) solo aplican a MANTENIMIENTO.
+    if (columna === 'tipo' && normalizado !== 'MANTENIMIENTO') {
+      await retirarAdjuntosDelDia(prisma, registroDiaId)
+    }
 
     const fresco = await this.filaDia(registroDiaId)
     return { version: Number(fresco?.version ?? 0), derivados }
@@ -514,6 +518,7 @@ export class RecorridosPatchService {
             where: { id: existente.id },
             data: { tipo: 'LABORADO', mantenimiento_vehiculo_id: null, mantenimiento_vehiculo_placa: null, version: { increment: 1 }, updated_at: ahora } as never,
           })
+          await retirarAdjuntosDelDia(tx, existente.id)
           recargar = true
         }
       } else if (existente) {

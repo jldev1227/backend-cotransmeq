@@ -175,6 +175,7 @@ model conductores {
   deleted_at                             DateTime?                                @db.Timestamptz(6)
   anticipos                              anticipos[]
   dispositivos_push                     conductor_push_device[]
+  adjuntos_dias_laborados registro_dia_laboral_adjunto[] @relation("registro_dia_laboral_adjunto_conductor")
   notificaciones                         conductor_notification[]
   usuarios                               usuarios?                                @relation(fields: [creado_por_id], references: [id])
   firmas_desprendibles                   firmas_desprendibles[]
@@ -300,12 +301,40 @@ model registro_dia_laboral {
   version    Int                         @default(1)
   deleted_at DateTime?                   @db.Timestamptz(6)
   bonos      registro_dia_laboral_bono[]
+  adjuntos                     registro_dia_laboral_adjunto[]
 
   @@unique([conductor_id, fecha])
   @@index([conductor_id])
   @@index([fecha])
   @@index([mantenimiento_vehiculo_id])
   @@index([deleted_at])
+}
+
+/// Soportes (facturas) de un día MANTENIMIENTO, subidos por el conductor desde
+/// la app. Los bytes viven en S3 (`object_key`); la fila pasa de PENDING a
+/// UPLOADED cuando el backend verifica el objeto (tamaño + checksum SHA-256).
+/// `client_attachment_id` lo genera el teléfono: idempotencia de la cola offline.
+/// Se marcan con `deleted_at` cuando el día se retira o deja de ser
+/// MANTENIMIENTO. Índice parcial `(registro_dia_id) WHERE deleted_at IS NULL`
+/// en la migración (Prisma no expresa índices con WHERE).
+model registro_dia_laboral_adjunto {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registro_dia_id      String               @db.Uuid
+  conductor_id         String               @db.Uuid
+  client_attachment_id String               @unique @db.VarChar(64)
+  object_key           String
+  mime_type            String               @db.VarChar(100)
+  byte_size            Int
+  sha256               String               @db.VarChar(64)
+  original_name        String?              @db.VarChar(255)
+  status               String               @default("PENDING") @db.VarChar(20)
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  uploaded_at          DateTime?            @db.Timestamptz(6)
+  deleted_at           DateTime?            @db.Timestamptz(6)
+  registro_dia         registro_dia_laboral @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
+  conductor            conductores          @relation("registro_dia_laboral_adjunto_conductor", fields: [conductor_id], references: [id], onDelete: Cascade)
+
+  @@index([conductor_id], map: "idx_registro_dia_laboral_adjunto_conductor")
 }
 
 /// Tramo/segmento de un día laborado (cambio de cliente/vehículo dentro del mismo día)
