@@ -209,6 +209,50 @@ function construirItemsYTotales(data: CrearLiquidacionInput) {
     total,
   };
 }
+/// Condición `OR` de la búsqueda libre del listado.
+///
+/// Antes solo miraba consecutivo, nombre del cliente y placa, así que escribir
+/// el número de una factura no encontraba nada aunque la factura cuelgue de la
+/// liquidación. Ahora el término se contrasta con todo lo que el usuario ve o
+/// conoce de la liquidación: consecutivo, factura viva, cliente (nombre y
+/// NIT), OSI, operadora, observaciones, quién la liquidó o creó, y de sus
+/// ítems la placa y el número de planilla.
+///
+/// Se recorta y se le quita un `#` inicial, porque el número de factura se
+/// muestra como `#FE-123` y la gente lo copia tal cual.
+function condicionBusqueda(termino: string, opciones: { conItems: boolean }) {
+  const q = termino.trim().replace(/^#+/, "").trim();
+  if (!q) return null;
+  const contiene = { contains: q, mode: "insensitive" as const };
+  const or: any[] = [
+    { consecutivo: contiene },
+    { cliente: { nombre: contiene } },
+    { cliente: { nit: contiene } },
+    { osi: contiene },
+    { operadora: contiene },
+    { operadora_rel: { nombre: contiene } },
+    { observaciones: contiene },
+    { liquidado_por: { nombre: contiene } },
+    { creado_por: { nombre: contiene } },
+    /// Solo la factura viva: es la que se pinta en la columna N° FACTURA y la
+    /// que usa el filtro de columna, así lo que se encuentra se ve.
+    {
+      factura_items: {
+        some: {
+          deleted_at: null,
+          factura: { numero_factura: contiene, estado: "ACTIVA", deleted_at: null },
+        },
+      },
+    },
+  ];
+  if (opciones.conItems) {
+    or.push(
+      { items: { some: { placa: contiene, deleted_at: null } } },
+      { items: { some: { numero_planilla: contiene, deleted_at: null } } },
+    );
+  }
+  return or;
+}
 
 /**
  * Qué liquidaciones son visibles.
@@ -1276,15 +1320,8 @@ export const LiquidacionesServiciosService = {
     if (filtros.mes) where.mes = parseMes(filtros.mes);
     if (filtros.anio) where.anio = Number(filtros.anio);
     if (filtros.busqueda) {
-      where.OR = [
-        { consecutivo: { contains: filtros.busqueda, mode: "insensitive" } },
-        {
-          cliente: {
-            nombre: { contains: filtros.busqueda, mode: "insensitive" },
-          },
-        },
-        { items: { some: { placa: { contains: filtros.busqueda, mode: "insensitive" }, deleted_at: null } } },
-      ];
+      const or = condicionBusqueda(filtros.busqueda, { conItems: true });
+      if (or) where.OR = or;
     }
     if (filtros.placa) {
       // ── Filtro de placa tolerante a formato ──
@@ -1779,14 +1816,8 @@ export const LiquidacionesServiciosService = {
       ...filtroVisibilidad(filtros),
     };
     if (filtros.busqueda) {
-      where.OR = [
-        { consecutivo: { contains: filtros.busqueda, mode: "insensitive" } },
-        {
-          cliente: {
-            nombre: { contains: filtros.busqueda, mode: "insensitive" },
-          },
-        },
-      ];
+      const or = condicionBusqueda(filtros.busqueda, { conItems: false });
+      if (or) where.OR = or;
     }
 
     const [liquidaciones, total] = await Promise.all([
