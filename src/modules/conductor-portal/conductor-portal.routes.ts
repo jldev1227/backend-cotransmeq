@@ -5,6 +5,14 @@ import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
 import { condicionesViaDelServicio, CondicionesViaError } from './condiciones-via.service'
+import {
+  CapacitacionesError,
+  firmarAsistencia,
+  listarCapacitaciones,
+  obtenerAsistencia,
+  obtenerEvaluacion,
+  responderEvaluacion
+} from './capacitaciones.service'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
@@ -2145,6 +2153,112 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
+    // ─── Capacitaciones: asistencias y evaluaciones del conductor ───
+    const errorCapacitaciones = (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      err: any,
+      mensaje: string
+    ) => {
+      if (err instanceof CapacitacionesError) {
+        return reply.status(err.status).send({ success: false, message: err.message })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+    const metaPeticion = (request: FastifyRequest) => ({
+      ip: request.ip || 'unknown',
+      userAgent: request.headers['user-agent'] || 'unknown'
+    })
+
+    protectedApp.get('/conductor-portal/capacitaciones', {
+      schema: {
+        description: 'Asistencias por firmar, evaluaciones por responder e historial del conductor',
+        tags: ['conductor-portal']
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await listarCapacitaciones(conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible consultar las capacitaciones')
+      }
+    })
+
+    protectedApp.get('/conductor-portal/asistencias/:token', {
+      schema: {
+        description: 'Detalle de una asistencia para firmarla desde la app',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await obtenerAsistencia(request.params.token, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible consultar la asistencia')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/asistencias/:token', {
+      schema: {
+        description: 'Firmar una asistencia con los datos del conductor',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await firmarAsistencia(
+          request.params.token,
+          conductor.id,
+          request.body,
+          metaPeticion(request)
+        )
+        return reply.status(201).send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible registrar la asistencia')
+      }
+    })
+
+    protectedApp.get('/conductor-portal/evaluaciones/:id', {
+      schema: {
+        description: 'Evaluación para responder desde la app (sin respuestas correctas)',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await obtenerEvaluacion(request.params.id, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible consultar la evaluación')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/evaluaciones/:id', {
+      schema: {
+        description: 'Responder una evaluación con los datos del conductor',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await responderEvaluacion(
+          request.params.id,
+          conductor.id,
+          request.body,
+          metaPeticion(request)
+        )
+        return reply.status(201).send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible registrar la evaluación')
+      }
+    })
   })
 }
 
