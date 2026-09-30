@@ -89,7 +89,7 @@ function getFromForResend(): string {
  *
  * Prioridad: EMAIL_FRONTEND_URL -> primer origen de FRONTEND_URL -> localhost.
  */
-function getEmailFrontendUrl(): string {
+export function getEmailFrontendUrl(): string {
   if (env.EMAIL_FRONTEND_URL && env.EMAIL_FRONTEND_URL.trim()) {
     return env.EMAIL_FRONTEND_URL.trim().replace(/\/+$/, '')
   }
@@ -589,13 +589,24 @@ export const EmailService = {
     conductorNombre,
     periodo,
     monto,
-    portalLink
+    portalLink,
+    asunto,
+    mensaje,
+    cc = [],
+    conCopiaOculta = true
   }: {
     to: string
     conductorNombre: string
     periodo: string
     monto: string
     portalLink: string
+    /** Asunto propio (el del modal de envío del canvas). Sin él, el de siempre. */
+    asunto?: string
+    /** Nota libre que se pinta bajo el saludo. */
+    mensaje?: string | null
+    cc?: string[]
+    /** Copia oculta a talento humano (`NOTIF_BCC_EMAIL`). Los envíos de prueba la apagan. */
+    conCopiaOculta?: boolean
   }) {
     const frontendUrl = getEmailFrontendUrl()
     const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
@@ -645,6 +656,16 @@ export const EmailService = {
               <p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">
                 Tu desprendible de nómina correspondiente al <strong>${periodo}</strong> ya está disponible para consulta.
               </p>
+              ${
+                mensaje?.trim()
+                  ? `<p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">${mensaje
+                      .trim()
+                      .replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/\n/g, '<br/>')}</p>`
+                  : ''
+              }
 
               <!-- Botón CTA -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -693,11 +714,11 @@ export const EmailService = {
 </html>`
 
     try {
-      const bcc = env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
+      const bcc = conCopiaOculta && env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
       const data = await sendEmail({
         from: 'Cotransmeq <noreply@cotransmeq.com>',
-        to: [to],
-        subject: `📄 Tu Desprendible de Nómina — ${periodo}`,
+        to: [to, ...cc.filter(Boolean)],
+        subject: asunto?.trim() || `📄 Tu Desprendible de Nómina — ${periodo}`,
         html,
         bcc
       })

@@ -39,3 +39,13 @@ export async function emitirTokenPortal(conductor: PortalTokenConductor): Promis
 
   return token
 }
+
+/** El token vigente más largo del conductor, o uno nuevo si no tiene. Así cada correo no siembra otro. */
+export async function tokenPortalVigente(conductor: PortalTokenConductor): Promise<string> {
+  const vigente = await prisma.conductor_token.findFirst({
+    where: { conductor_id: conductor.id, expires_at: { gt: new Date() } },
+    orderBy: { expires_at: 'desc' },
+    select: { token: true }
+  })
+  return vigente?.token ?? emitirTokenPortal(conductor)
+}
