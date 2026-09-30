@@ -28,6 +28,11 @@ const envSchema = z.object({
   // Deep link confiable para solicitudes originadas en la app móvil.
   // No se recibe una URL arbitraria del cliente para evitar open redirects.
   MOBILE_PORTAL_URL: z.string().optional().default('cotransmeq://portal'),
+  // Clave de `localStorage` con la que el portal web del conductor guarda su
+  // sesión. La lee el impresor de recibos: Chromium navega la página del
+  // portal y tiene que sembrar la sesión con la MISMA clave que usa
+  // `portalStore` del frontend, o la página se pintaría como no autenticada.
+  PORTAL_SESSION_STORAGE_KEY: z.string().optional().default('cotransmeq_portal_token'),
   // SMTP fallback (usado cuando no hay RESEND_API_KEY)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().transform(s => Number(s)).optional(),

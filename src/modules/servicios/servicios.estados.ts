@@ -306,6 +306,22 @@ export async function aplicarEfectosColaterales(
   )
 }
 
+/**
+ * ¿El estado de este servicio lo gobierna el conductor?
+ *
+ * Lo es desde que lo inició en la app (`servicio_ejecucion.iniciado_at`). Los
+ * procesos que DEDUCEN el estado —el cierre por planilla, el recálculo de
+ * recargos— no deben pisarlo: el conductor lo pasa a `realizado` al liberarlo,
+ * con la hora que declaró, y un recálculo no puede ni adelantar ese cierre ni
+ * «bajar» un servicio ya liberado. Los cambios manuales del dashboard siguen
+ * pasando por `cambiarEstado`, que no consulta esto.
+ */
+export function gobernadoPorConductor(
+  ejecucion: { iniciado_at: Date | null } | null | undefined
+): boolean {
+  return Boolean(ejecucion?.iniciado_at)
+}
+
 export function _internals() {
   return { esEstadoValido, recursoTieneOtrosServiciosActivos }
 }

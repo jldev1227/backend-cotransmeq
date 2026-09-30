@@ -175,6 +175,7 @@ model conductores {
   deleted_at                             DateTime?                                @db.Timestamptz(6)
   anticipos                              anticipos[]
   dispositivos_push                     conductor_push_device[]
+  adjuntos_dias_laborados registro_dia_laboral_adjunto[] @relation("registro_dia_laboral_adjunto_conductor")
   notificaciones                         conductor_notification[]
   usuarios                               usuarios?                                @relation(fields: [creado_por_id], references: [id])
   firmas_desprendibles                   firmas_desprendibles[]
@@ -189,6 +190,7 @@ model conductores {
   registro_dia_laboral                   registro_dia_laboral[]
   form_assignment_targets                form_assignment_target[]                 @relation("form_assignment_target_conductor")
   form_submissions                       form_submission[]                        @relation("form_submission_conductor")
+  servicios_ejecutados                   servicio_ejecucion[]                     @relation("servicio_ejecucion_conductor")
   excesos_velocidad                      excesos_velocidad[]
   preoperacionales                       preoperacionales[]
   salidas_no_conformes                   salidas_no_conformes[]
@@ -299,12 +301,40 @@ model registro_dia_laboral {
   version    Int                         @default(1)
   deleted_at DateTime?                   @db.Timestamptz(6)
   bonos      registro_dia_laboral_bono[]
+  adjuntos                     registro_dia_laboral_adjunto[]
 
   @@unique([conductor_id, fecha])
   @@index([conductor_id])
   @@index([fecha])
   @@index([mantenimiento_vehiculo_id])
   @@index([deleted_at])
+}
+
+/// Soportes (facturas) de un día MANTENIMIENTO, subidos por el conductor desde
+/// la app. Los bytes viven en S3 (`object_key`); la fila pasa de PENDING a
+/// UPLOADED cuando el backend verifica el objeto (tamaño + checksum SHA-256).
+/// `client_attachment_id` lo genera el teléfono: idempotencia de la cola offline.
+/// Se marcan con `deleted_at` cuando el día se retira o deja de ser
+/// MANTENIMIENTO. Índice parcial `(registro_dia_id) WHERE deleted_at IS NULL`
+/// en la migración (Prisma no expresa índices con WHERE).
+model registro_dia_laboral_adjunto {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registro_dia_id      String               @db.Uuid
+  conductor_id         String               @db.Uuid
+  client_attachment_id String               @unique @db.VarChar(64)
+  object_key           String
+  mime_type            String               @db.VarChar(100)
+  byte_size            Int
+  sha256               String               @db.VarChar(64)
+  original_name        String?              @db.VarChar(255)
+  status               String               @default("PENDING") @db.VarChar(20)
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  uploaded_at          DateTime?            @db.Timestamptz(6)
+  deleted_at           DateTime?            @db.Timestamptz(6)
+  registro_dia         registro_dia_laboral @relation(fields: [registro_dia_id], references: [id], onDelete: Cascade)
+  conductor            conductores          @relation("registro_dia_laboral_adjunto_conductor", fields: [conductor_id], references: [id], onDelete: Cascade)
+
+  @@index([conductor_id], map: "idx_registro_dia_laboral_adjunto_conductor")
 }
 
 /// Tramo/segmento de un día laborado (cambio de cliente/vehículo dentro del mismo día)
@@ -1127,6 +1157,9 @@ model servicio {
   vehiculos                                  vehiculos?                       @relation(fields: [vehiculo_id], references: [id])
   servicios_cancelados                       servicios_cancelados[]
   form_submissions                           form_submission[]                @relation("form_submission_servicio")
+  /// Inicio y liberación por el conductor desde la app. 1:1 y opcional: solo
+  /// existe para los servicios que el conductor inició él mismo.
+  ejecucion                                  servicio_ejecucion?
 
   // ── PESV ─ cobertura contractual del desplazamiento.
   /// Nullable y sin backfill: la mayoría de servicios históricos no tienen
@@ -1139,6 +1172,65 @@ model servicio {
   pesv_eventos_velocidad_servicio pesv_speed_event[]  @relation("pesv_velocidad_servicio")
 
   @@map("servicios")
+}
+
+/// Lo que hizo el CONDUCTOR con el servicio desde la app: cuándo lo inició, con
+/// qué preoperacional, cuándo lo liberó y su reporte del recorrido.
+///
+/// Tabla aparte y 1:1 —no columnas en `servicios` ni en `recargos_planillas`—
+/// porque es la versión del conductor, que convive con la del despacho: la
+/// fecha PLANEADA (`servicios.fecha_realizacion`) nunca se toca, y la liberación
+/// declarada se copia a `servicios.fecha_finalizacion`.
+///
+/// Dos relojes por evento: `*_at` es el servidor al recibirlo (o, en la
+/// liberación, la hora DECLARADA) y `*_dispositivo_at` el teléfono al pulsar.
+/// `*_diferido` marca lo que llegó desde la cola offline.
+///
+/// Mientras `iniciado_at` no sea nulo el servicio lo gobierna el conductor: el
+/// cron de cierre por planilla y el recálculo de recargos no le cambian el
+/// estado.
+model servicio_ejecucion {
+  servicio_id                   String    @id @db.Uuid
+  conductor_id                  String    @db.Uuid
+  preoperacional_submission_id  String?   @db.Uuid
+  /// `true` si no había formato recomendado para la clase del vehículo y el
+  /// conductor eligió cuál diligenciar.
+  formato_elegido_por_conductor Boolean   @default(false)
+  iniciado_at                   DateTime? @db.Timestamptz(6)
+  iniciado_dispositivo_at       DateTime? @db.Timestamptz(6)
+  iniciado_diferido             Boolean   @default(false)
+  /// Hora de liberación DECLARADA por el conductor (= `servicios.fecha_finalizacion`).
+  liberado_at                   DateTime? @db.Timestamptz(6)
+  liberado_registrado_at        DateTime? @db.Timestamptz(6)
+  liberado_dispositivo_at       DateTime? @db.Timestamptz(6)
+  liberado_diferido             Boolean   @default(false)
+
+  // ── Reporte del recorrido ──
+  km_final                Int?
+  via_trocha              Boolean?
+  via_afirmado            Boolean?
+  via_mixto               Boolean?
+  via_pavimentada         Boolean?
+  riesgo_desniveles       Boolean?
+  riesgo_deslizamientos   Boolean?
+  riesgo_sin_senalizacion Boolean?
+  riesgo_animales         Boolean?
+  riesgo_peatones         Boolean?
+  riesgo_trafico_alto     Boolean?
+  /// `optimo` | `fatigado` | `regular` | `malo`.
+  estado_conductor        String?  @db.VarChar(20)
+  novedades               String?
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  servicio       servicio         @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
+  conductor      conductores      @relation("servicio_ejecucion_conductor", fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  preoperacional form_submission? @relation("servicio_ejecucion_preoperacional", fields: [preoperacional_submission_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([conductor_id], map: "idx_servicio_ejecucion_conductor")
+  @@index([preoperacional_submission_id], map: "idx_servicio_ejecucion_preoperacional")
+  @@map("servicio_ejecucion")
 }
 
 model servicios_cancelados {
@@ -2786,8 +2878,11 @@ model form_submission {
   answers     form_answer[]
   attachments form_attachment[]
   events      form_submission_event[]
+  /// Servicios que este envío habilitó como preoperacional (normalmente uno).
+  ejecuciones servicio_ejecucion[]     @relation("servicio_ejecucion_preoperacional")
 
   @@index([conductor_id, business_date(sort: Desc), status], map: "idx_form_submissions_portal")
+  @@index([service_id], map: "idx_form_submissions_service")
   @@index([usuario_id, business_date(sort: Desc), status], map: "idx_form_submissions_usuario")
   @@index([version_id, submitted_at(sort: Desc)], map: "idx_form_submissions_version")
   @@map("form_submissions")

@@ -4,6 +4,7 @@ import { getS3SignedUrl } from '../../config/aws'
 import { RecargosService } from '../recargos/recargos.service'
 import { randomUUID } from 'crypto'
 import { aplicarEfectosColaterales, ServicioEstado } from './servicios.estados'
+import { ServiciosNotificacionesService } from './servicios-notificaciones.service'
 
 /**
  * Obtener fotos de conductores en batch (1 sola query para todos).
@@ -338,7 +339,13 @@ export const ServiciosService = {
         // No lanzar error para no interrumpir la creación del servicio
       }
     }
-    
+
+    /// Post-commit: el servicio ya existe. Si nace con conductor, para él es el
+    /// mismo hecho que una asignación posterior y recibe el mismo aviso.
+    if (servicio.conductor_id) {
+      await ServiciosNotificacionesService.asignado(servicio.id, servicio.conductor_id)
+    }
+
     return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
@@ -515,6 +522,10 @@ export const ServiciosService = {
             nombre_departamento: true,
             codigo_municipio: true
           }
+        },
+        // Indicador en el listado: iniciado/liberado por el conductor desde la app.
+        ejecucion: {
+          select: { iniciado_at: true, liberado_at: true, iniciado_diferido: true, liberado_diferido: true }
         },
         recargos_planillas: {
           select: {
@@ -782,6 +793,11 @@ export const ServiciosService = {
       updateData.proposito_servicio = normalizarProposito(data.proposito_servicio)
     }
 
+    /// Se saca del alcance de la transacción para poder comparar después del
+    /// commit. Es el único dato que permite avisar al conductor SALIENTE: una
+    /// vez actualizada la fila, ya no hay rastro de quién la tenía antes.
+    let conductorAnterior: string | null = null
+
     const servicio = await prisma.$transaction(async (tx) => {
       // Obtener estado anterior con sus recursos asignados
       const anterior = await tx.servicio.findFirst({
@@ -796,6 +812,8 @@ export const ServiciosService = {
       if (!anterior) {
         throw new Error('Servicio no encontrado')
       }
+
+      conductorAnterior = anterior.conductor_id
 
       const estadoAnterior = anterior.estado as ServicioEstado
       const estadoNuevo: ServicioEstado = (data.estado as ServicioEstado) || estadoAnterior
@@ -971,11 +989,36 @@ export const ServiciosService = {
         // No lanzar error para no interrumpir la actualización del servicio
       }
     }
-    
+
+    /// Post-commit. Un cambio de conductor son DOS hechos distintos y cada uno
+    /// tiene su destinatario: al que entra hay que decirle que es suyo, y al
+    /// que sale, que ya no. Avisar solo al nuevo dejaba al anterior contando
+    /// con un servicio que ya no le corresponde.
+    const conductorNuevo: string | null = servicio.conductor_id ?? null
+    if (conductorNuevo !== conductorAnterior) {
+      if (conductorAnterior) {
+        await ServiciosNotificacionesService.desasignado(servicio.id, conductorAnterior)
+      }
+      if (conductorNuevo) {
+        await ServiciosNotificacionesService.asignado(servicio.id, conductorNuevo)
+      }
+    }
+
     return (await transformarServiciosBatch([servicio]))[0] || null
   },
 
   async delete(id: string) {
+    /// Antes de marcar nada: una vez con `deleted_at`, la instantánea del aviso
+    /// ya no podría decir de qué servicio se trataba, y el conductor recibiría
+    /// un «se eliminó un servicio» sin poder saber cuál.
+    const antesDeBorrar = await prisma.servicio.findFirst({
+      where: { id, deleted_at: null },
+      select: { conductor_id: true }
+    })
+    if (antesDeBorrar?.conductor_id) {
+      await ServiciosNotificacionesService.eliminado(id, antesDeBorrar.conductor_id)
+    }
+
     // Primero, soft delete de los recargos asociados
     await prisma.recargos_planillas.updateMany({
       where: { 
@@ -1125,7 +1168,18 @@ export const ServiciosService = {
 
       return updated
     })
-    
+
+    /// Post-commit. El motivo es el texto que llegó a esta llamada, no una
+    /// lectura posterior de `observaciones`: ese campo el portal no lo expone,
+    /// y aquí solo viaja lo que se escribió como razón de la cancelación.
+    if (servicio.conductor_id) {
+      await ServiciosNotificacionesService.cancelado(
+        servicio.id,
+        servicio.conductor_id,
+        observaciones?.trim() || null
+      )
+    }
+
     return (await transformarServiciosBatch([servicio]))[0] || null
   },
 

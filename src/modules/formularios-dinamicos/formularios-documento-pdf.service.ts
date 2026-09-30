@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
-import { pdfFromHtml } from '../../services/pdf.service'
+import { env } from '../../config/env'
+import { pdfFromHtml, pdfFromUrl } from '../../services/pdf.service'
 
 /**
  * PDF del documento de un envío de formulario dinámico.
@@ -24,10 +25,67 @@ import { pdfFromHtml } from '../../services/pdf.service'
  * descarga solo. El logo del membrete sí llega como data-URL: es una ruta
  * relativa del cliente y `setContent` no tiene URL base contra la que resolverla.
  *
- * ── Seguridad ──
- * El HTML se renderiza en una página aislada de Puppeteer, sin sesión ni
- * cookies. No hay nada que un cliente autenticado pueda alcanzar mandando
- * marcado propio que no alcanzara ya con su propio navegador.
+ * ── Seguridad: /api/formularios/documento/pdf ──
+ * El HTML que manda el cliente se renderiza en una página aislada de
+ * Puppeteer, sin sesión ni cookies. No hay nada que un cliente autenticado
+ * pueda alcanzar mandando marcado propio que no alcanzara ya con su propio
+ * navegador. Sigue siendo cierto después del recibo del portal: aquella
+ * impresión corre en un contexto de navegador APARTE, con su propio
+ * almacenamiento, que se destruye al terminar —esta página nunca lo ve.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * DOCUMENTO DEL PORTAL — `imprimirDocumentoDeEnvio`
+ *
+ * La app móvil también necesita el PDF de un envío, y ahí el cliente NO puede
+ * mandar el cuerpo: React Native no tiene DOM, así que no existe el documento
+ * que la web sí trae ya pintado. Por el mismo razonamiento de arriba tampoco
+ * se rehace en el servidor. Lo que se hace es imprimir con Chromium una página
+ * del portal web. Un solo documento y un solo sitio que mantener.
+ *
+ * ── Y por eso se navega el DOCUMENTO y no el recibo ──
+ * Esto apuntaba a `/public/portal/formularios/envios/<id>`, que es el recibo:
+ * confirma la entrega y repite las respuestas con el renderer del formulario,
+ * que lista la evidencia como texto. El PDF salía sin firmas y sin fotos.
+ * Ahora navega `…/<id>/documento`, que monta el MISMO `PreviewEnvioPDF` que el
+ * dashboard exporta a los administradores —cabecera del formato HSEQ, firmas
+ * dibujadas, fotos embebidas—. El conductor recibe el mismo papel que ellos, y
+ * no una versión de segunda.
+ *
+ * ── Por qué esto obliga a que haya sesión ──
+ * Esa página se autentica en el cliente: lee `portalSession` de
+ * `localStorage` y pide el envío con `Authorization: Bearer`. Sin sembrarla,
+ * Chromium vería el login. Así que aquí, y SOLO aquí, la página de Puppeteer
+ * sí lleva sesión. Deja de ser cierto que «no hay nada que alcanzar», y lo que
+ * sostiene la propiedad de seguridad pasa a ser el alcance de esa sesión:
+ *
+ *   1. La propiedad se comprueba ANTES de imprimir, contra la base y no contra
+ *      el parámetro: la ruta llama a `obtenerEnvioPortal`, que filtra por
+ *      `conductor_id` del token y devuelve 404 si el envío es de otro. El id
+ *      que se navega es el de la fila ya recuperada.
+ *   2. El token que se siembra NO es el del conductor. Es uno nuevo, firmado
+ *      en el momento, con un `tipo` propio (`conductor_portal_print`), el
+ *      `sid` del envío dentro y minutos de vida. `portalAuthMiddleware` solo
+ *      lo acepta en `GET /conductor-portal/formularios/submissions/:id` y solo
+ *      cuando el `:id` coincide con su `sid`: es exactamente la lectura que la
+ *      página necesita y ninguna más. No sirve para listar envíos, ni para
+ *      enviar, ni para volver a pedir este mismo PDF. Y como el `tipo` es
+ *      suyo, los otros módulos del portal —desprendibles, primas, servicios,
+ *      cada uno con su propia copia del middleware— lo rechazan sin tener que
+ *      saber que existe.
+ *   3. El token nunca entra en una URL. Viaja como `localStorage` sembrado con
+ *      `evaluateOnNewDocument`, porque la query string acaba en el log de
+ *      acceso del servidor web, en el historial del navegador y en el
+ *      `Referer` de cada recurso que pida la página.
+ *   4. El contexto de navegador es propio de esta impresión y se destruye al
+ *      terminar, así que la sesión sembrada no sobrevive a la petición ni la
+ *      ve ninguna otra.
+ *
+ * El peor caso de una fuga del token sembrado es, por tanto, releer un envío
+ * que su propio dueño acababa de pedir imprimir, durante los pocos minutos que
+ * vive. La URL que se navega se construye con `FRONTEND_URL` del entorno y el
+ * id ya validado; no se acepta ninguna URL del cliente, para que esto no se
+ * convierta en un SSRF con sesión.
  */
 
 /** Tope del cuerpo. Un preoperacional de 131 ítems ronda los 200 KB. */
@@ -55,6 +113,35 @@ const TIPOGRAFIA = `
     print-color-adjust: exact;
   }
 `
+
+
+/**
+ * Origen del portal web que se va a navegar.
+ *
+ * `FRONTEND_URL` puede traer varios orígenes separados por coma (CORS); el
+ * canónico es el primero. Nunca se toma una URL del cliente: esto abre un
+ * navegador con sesión, y aceptar destino sería un SSRF autenticado.
+ */
+export function origenDelPortal(): string {
+  const lista = (env.FRONTEND_URL || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+  const elegido = lista[0] || (env.EMAIL_FRONTEND_URL || '').trim()
+  return (elegido || 'http://localhost:5173').replace(/\/+$/, '')
+}
+
+/** Sesión del portal tal y como la guarda `portalStore` del frontend. */
+export interface SesionDeImpresion {
+  token: string
+  conductor: {
+    id: string
+    nombre: string
+    apellido: string
+    numero_identificacion: string
+  }
+  expiresAt: string
+}
 
 export const FormulariosDocumentoPdfService = {
   /** POST /api/formularios/documento/pdf */
@@ -111,5 +198,35 @@ export const FormulariosDocumentoPdfService = {
       request.log.error({ err: error }, 'Error generando PDF de documento de formulario')
       return reply.status(500).send({ error: error?.message || 'Error generando el PDF' })
     }
+  },
+
+  /**
+   * PDF del documento de un envío, imprimiendo la página del portal web.
+   *
+   * `submissionId` tiene que venir de una fila ya recuperada con el filtro de
+   * propiedad del portal, NO del parámetro crudo de la petición: es la primera
+   * de las cuatro garantías de la cabecera de este archivo.
+   *
+   * `data-listo="si"` lo pone la propia página cuando terminó de cargar sus
+   * datos. Sin esa espera se imprimiría el «Cargando documento…», porque en una
+   * SPA el evento `load` llega antes que la respuesta de su primer `fetch`. Y
+   * es `"si"` y no cualquier valor a propósito: una carga fallida marca
+   * `"error"`, así que esta llamada agota su espera y falla en vez de devolver
+   * una hoja de «no se pudo cargar» con pinta de registro.
+   *
+   * `preferCSSPageSize` para que mande el `@page` de `documento-envio.css.ts`
+   * —tamaño carta y márgenes de 6/11 mm— que es exactamente la hoja con la que
+   * el dashboard exporta este mismo documento. Con márgenes del servidor se
+   * sumarían a los del CSS y el checklist dejaría de caber donde cabe.
+   */
+  async imprimirDocumentoDeEnvio(submissionId: string, sesion: SesionDeImpresion): Promise<Buffer> {
+    return pdfFromUrl({
+      url: `${origenDelPortal()}/public/portal/formularios/envios/${encodeURIComponent(submissionId)}/documento`,
+      seedLocalStorage: { [env.PORTAL_SESSION_STORAGE_KEY]: JSON.stringify(sesion) },
+      waitForSelector: '[data-listo="si"]',
+      format: 'Letter',
+      landscape: false,
+      preferCSSPageSize: true,
+    })
   },
 }
