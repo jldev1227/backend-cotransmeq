@@ -305,11 +305,52 @@ async function evaluacionVigente(id: string) {
   return evaluacion
 }
 
+const respuestaSelect = {
+  preguntaId: true,
+  valor_texto: true,
+  valor_numero: true,
+  opcionesIds: true,
+  relacion: true,
+  puntaje: true
+} as const
+
 async function resultadoDelConductor(evaluacionId: string, conductor: Conductor) {
   return prisma.resultado.findFirst({
     where: { evaluacionId, ...delConductor(conductor) },
-    select: { puntaje_total: true, created_at: true },
+    select: { puntaje_total: true, created_at: true, respuestas: { select: respuestaSelect } },
     orderBy: { created_at: 'desc' }
+  })
+}
+
+type RespuestaGuardada = {
+  preguntaId: string
+  valor_texto: string | null
+  valor_numero: number | null
+  opcionesIds: string[]
+  relacion: unknown
+  puntaje: number
+}
+
+/**
+ * Lo que respondió el conductor en cada pregunta y si acertó. Solo SU respuesta:
+ * nunca la correcta, para que un error no le entregue la clave.
+ */
+function detalleDeRespuestas(
+  preguntas: { id: string; puntaje: number }[],
+  respuestas: RespuestaGuardada[]
+) {
+  return preguntas.flatMap((pregunta) => {
+    const r = respuestas.find((respuesta) => respuesta.preguntaId === pregunta.id)
+    if (!r) return []
+    return [{
+      pregunta_id: pregunta.id,
+      valor_texto: r.valor_texto,
+      valor_numero: r.valor_numero,
+      opciones_ids: r.opcionesIds,
+      relacion: Array.isArray(r.relacion) ? (r.relacion as { izq: string; der: string }[]) : [],
+      puntaje: r.puntaje,
+      estado: r.puntaje >= pregunta.puntaje ? 'correcta' : r.puntaje > 0 ? 'parcial' : 'incorrecta'
+    }]
   })
 }
 
@@ -341,7 +382,8 @@ export async function obtenerEvaluacion(id: string, conductorId: string) {
       ? {
           puntaje_total: resultado.puntaje_total,
           puntaje_maximo: maximo,
-          respondida_en: resultado.created_at.toISOString()
+          respondida_en: resultado.created_at.toISOString(),
+          respuestas: detalleDeRespuestas(evaluacion.preguntas, resultado.respuestas)
         }
       : null,
     conductor: datosConductor(conductor)
@@ -388,6 +430,7 @@ export async function responderEvaluacion(
   return {
     puntaje_total: resultado.puntaje_total,
     puntaje_maximo: puntajeMaximo(evaluacion.preguntas),
-    respondida_en: resultado.created_at.toISOString()
+    respondida_en: resultado.created_at.toISOString(),
+    respuestas: detalleDeRespuestas(evaluacion.preguntas, resultado.respuestas)
   }
 }
