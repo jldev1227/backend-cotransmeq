@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { ServiciosService } from './servicios.service'
 import { RutogramaService } from './rutograma.service'
+import { obtenerEjecucionServicio } from './servicios-ejecucion.service'
 import {
   emitServicioCreado,
   emitServicioActualizado,
@@ -501,5 +502,14 @@ export const ServiciosController = {
       }
       throw error
     }
+  },
+
+  /** Inicio/liberación del conductor desde la app, preoperacional y reporte. */
+  async obtenerEjecucion(request: FastifyRequest<{ Params: ServicioParams }>, reply: FastifyReply) {
+    const data = await obtenerEjecucionServicio(request.params.id)
+    if (!data) {
+      return reply.status(404).send({ success: false, message: 'Servicio no encontrado' })
+    }
+    reply.send({ success: true, data })
   }
 }

@@ -2,12 +2,13 @@ import { randomUUID } from 'crypto'
 import jwt from 'jsonwebtoken'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
-import { retirarDiaLaboral, retirarSegmentos } from '../../lib/soft-delete/dia-laboral'
+import { retirarAdjuntosDelDia, retirarDiaLaboral, retirarSegmentos } from '../../lib/soft-delete/dia-laboral'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { CrearRegistroInput } from './dias-laborados.schema'
 import { EditarSegmentoInput, EditarRegistroInput, GuardarRegistrosMasivosInput } from './dias-laborados-admin.schema'
 import { getIO } from '../../sockets'
+import { adjuntosDeDias, conAdjuntos } from './dias-adjuntos.service'
 
 const TOKEN_VALIDITY_DAYS = 30
 
@@ -290,6 +291,13 @@ export const DiasLaboradosService = {
         await retirarSegmentos(tx, reg.id)
       }
 
+      // 3) Los soportes (facturas) solo aplican a MANTENIMIENTO. El upsert
+      //    conserva el id del día, así que re-guardarlo como MANTENIMIENTO no
+      //    toca sus adjuntos; cambiarlo a otro tipo los retira.
+      if (data.tipo !== 'MANTENIMIENTO') {
+        await retirarAdjuntosDelDia(tx, reg.id)
+      }
+
       return reg
     })
 
@@ -339,7 +347,8 @@ export const DiasLaboradosService = {
 
     // Incluir segmentos en una sola consulta
     const ids = registros.filter(r => r.tipo === 'LABORADO').map(r => r.id)
-    if (ids.length === 0) return registros
+    /// `adjuntos`: soportes (facturas) de los días MANTENIMIENTO, con URL firmada.
+    if (ids.length === 0) return conAdjuntos(registros)
 
     const segmentos = await prisma.registro_dia_laboral_segmento.findMany({
       where: { registro_dia_id: { in: ids }, deleted_at: null },
@@ -351,7 +360,7 @@ export const DiasLaboradosService = {
       if (!map.has(s.registro_dia_id)) map.set(s.registro_dia_id, [])
       map.get(s.registro_dia_id)!.push(s)
     }
-    return registros.map(r => ({ ...r, segmentos: map.get(r.id) || [] }))
+    return conAdjuntos(registros.map(r => ({ ...r, segmentos: map.get(r.id) || [] })))
   },
 
   // ─────────────────────────────────────────────
@@ -394,6 +403,9 @@ export const DiasLaboradosService = {
       segMap.get(s.registro_dia_id)!.push(s)
     }
 
+    /// Soportes (facturas) de los días de mantenimiento, con URL firmada (1 h).
+    const adjuntosMap = await adjuntosDeDias(registros)
+
     const data = registros.map(r => ({
       id: r.id,
       fecha: r.fecha,
@@ -407,6 +419,7 @@ export const DiasLaboradosService = {
       updated_at: r.updated_at,
       segmentos_count: segMap.get(r.id)?.length || 0,
       segmentos: segMap.get(r.id) || [],
+      adjuntos: adjuntosMap.get(r.id) || [],
       conductor: r.conductor
     }))
 
@@ -617,6 +630,10 @@ export const DiasLaboradosService = {
               ...datosDia
             }
           })
+
+          if (tipoPatron !== 'MANTENIMIENTO') {
+            await retirarAdjuntosDelDia(tx, registro.id)
+          }
 
           // Solo LABORADO y DISPONIBLE llevan segmento.
           // DESCANSO y MANTENIMIENTO solo tienen el registro padre.
@@ -917,6 +934,11 @@ export const DiasLaboradosService = {
         }
       })
 
+      // Soportes de mantenimiento: se retiran si el día deja de serlo.
+      if (tipoFinal !== 'MANTENIMIENTO') {
+        await retirarAdjuntosDelDia(tx, registroId)
+      }
+
       // 2) Gestionar segmentos según el tipo final
       if (requiereSegmento && input.segmento) {
         const seg = input.segmento
@@ -1084,6 +1106,8 @@ export const DiasLaboradosService = {
           data: { deleted_at: now }
         })
       }
+      // 3) Soportes (facturas) de mantenimiento
+      await retirarAdjuntosDelDia(tx, registroId)
     })
 
     // Emitir evento socket

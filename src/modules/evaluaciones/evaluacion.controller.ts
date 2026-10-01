@@ -3,8 +3,8 @@ import { prisma } from "../../config/prisma";
 import { evaluacionSchema } from "./evaluacion.schema";
 import { z } from "zod";
 import { preguntaSchema } from "./evaluacion.schema";
-import { aiGradingService } from "../../services/ai-grading.service";
-import { getIo } from "../../sockets";
+import { registrarResultado, respuestaPreguntaSchema } from "./registrar-resultado";
+import { evaluacionSinClave } from "./evaluacion-publica";
 import { EvaluacionPDFGeneratorService } from "./pdf-generator.service";
 import archiver from "archiver";
 
@@ -17,18 +17,11 @@ const respuestaRegistroSchema = z.object({
   telefono: z.string().min(1),
   firma: z.string().optional(),
   device_fingerprint: z.string().optional(),
-  respuestas: z.array(
-    z.object({
-      preguntaId: z.string(),
-      valor_texto: z.string().optional(),
-      valor_numero: z.number().optional(),
-      opcionesIds: z.array(z.string()).optional(),
-      relacion: z
-        .array(z.object({ izq: z.string(), der: z.string() }))
-        .optional(),
-    }),
-  ),
+  respuestas: z.array(respuestaPreguntaSchema),
 });
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const EvaluacionesController = {
   async list(req: FastifyRequest<{ Querystring: {
@@ -100,6 +93,29 @@ export const EvaluacionesController = {
     if (!evaluacion)
       return res.status(404).send({ success: false, message: "No encontrada" });
     return res.send({ success: true, data: evaluacion });
+  },
+
+  /**
+   * Evaluación para la página pública de respuesta, sin la clave de
+   * respuestas. La ruta de arriba la devuelve completa y es solo para el
+   * dashboard; quien responde ve las correctas en el resultado de
+   * `responder` / `verificar`, después de enviar.
+   */
+  async findPublic(
+    req: FastifyRequest<{ Params: { id: string } }>,
+    res: FastifyReply,
+  ) {
+    const { id } = req.params;
+    // La columna es uuid: un id malformado haría fallar la consulta con 500
+    const evaluacion = UUID_RE.test(id)
+      ? await prisma.evaluacion.findFirst({
+          where: { id, deleted_at: null },
+          include: { preguntas: { include: { opciones: true } } },
+        })
+      : null;
+    if (!evaluacion)
+      return res.status(404).send({ success: false, message: "No encontrada" });
+    return res.send({ success: true, data: evaluacionSinClave(evaluacion) });
   },
 
   async create(req: FastifyRequest, res: FastifyReply) {
@@ -293,171 +309,22 @@ export const EvaluacionesController = {
       return res
         .status(404)
         .send({ success: false, message: "Evaluación no encontrada" });
-    // Calcular puntaje
-    let puntaje_total = 0;
-    const respuestasDB = [];
-    for (const r of data.respuestas) {
-      const pregunta = evaluacion.preguntas.find(
-        (p: any) => p.id === r.preguntaId,
-      );
-      if (!pregunta) continue;
-      let puntaje = 0;
-      if (
-        pregunta.tipo === "OPCION_UNICA" ||
-        pregunta.tipo === "OPCION_MULTIPLE"
-      ) {
-        const correctas = pregunta.opciones
-          .filter((o: any) => o.esCorrecta)
-          .map((o: any) => o.id);
-        const seleccionadas = r.opcionesIds || [];
-        if (pregunta.tipo === "OPCION_UNICA") {
-          if (
-            correctas.length === 1 &&
-            seleccionadas.length === 1 &&
-            correctas[0] === seleccionadas[0]
-          ) {
-            puntaje = pregunta.puntaje;
-          }
-        } else {
-          // Opción múltiple: puntaje proporcional
-          const aciertos = seleccionadas.filter((id: string) =>
-            correctas.includes(id),
-          ).length;
-          puntaje = Math.round(
-            (aciertos / correctas.length) * pregunta.puntaje,
-          );
-        }
-      } else if (pregunta.tipo === "NUMERICA") {
-        // Comparar con respuestaCorrecta
-        if (
-          typeof r.valor_numero === "number" &&
-          pregunta.respuestaCorrecta !== null &&
-          pregunta.respuestaCorrecta !== undefined
-        ) {
-          if (pregunta.respuestaCorrecta === r.valor_numero) {
-            puntaje = pregunta.puntaje;
-          }
-        }
-      } else if (pregunta.tipo === "TEXTO") {
-        // Calificar con IA usando Ministral-3B si hay respuesta de texto
-        if (r.valor_texto && r.valor_texto.trim().length > 0) {
-          try {
-            const resultado = await aiGradingService.gradeTextResponse(
-              pregunta.texto,
-              r.valor_texto,
-              pregunta.puntaje,
-            );
-
-            puntaje = resultado.score;
-
-            // Log para auditoría
-            console.log(`📝 Pregunta TEXTO calificada con IA (Ministral-3B):`, {
-              pregunta: pregunta.texto.substring(0, 50) + "...",
-              respuesta: r.valor_texto.substring(0, 50) + "...",
-              puntaje: resultado.score,
-              puntajeMaximo: pregunta.puntaje,
-              razonamiento: resultado.reasoning,
-            });
-          } catch (error) {
-            console.error("❌ Error al calificar con IA:", error);
-            puntaje = 0; // En caso de error, requiere calificación manual
-          }
-        } else {
-          puntaje = 0; // Sin respuesta
-        }
-      } else if (pregunta.tipo === "RELACION") {
-        // Cada unión correcta suma 1 punto
-        const relaciones = r.relacion || [];
-        let aciertos = 0;
-        for (const par of relaciones) {
-          if (
-            pregunta.relacionIzq.includes(par.izq) &&
-            pregunta.relacionDer.includes(par.der) &&
-            pregunta.relacionIzq.indexOf(par.izq) ===
-              pregunta.relacionDer.indexOf(par.der)
-          ) {
-            aciertos++;
-          }
-        }
-        puntaje = aciertos;
-        if (puntaje > pregunta.puntaje) puntaje = pregunta.puntaje;
-      } else if (pregunta.tipo === "VERDADERO_FALSO") {
-        // Comparar valor_numero (1=Verdadero, 0=Falso) con respuestaCorrecta
-        if (
-          typeof r.valor_numero === "number" &&
-          pregunta.respuestaCorrecta !== null &&
-          pregunta.respuestaCorrecta !== undefined
-        ) {
-          if (pregunta.respuestaCorrecta === r.valor_numero) {
-            puntaje = pregunta.puntaje;
-          }
-        }
-      }
-      puntaje_total += puntaje;
-      respuestasDB.push({
-        preguntaId: pregunta.id,
-        valor_texto: r.valor_texto,
-        valor_numero: r.valor_numero,
-        opcionesIds: r.opcionesIds || [],
-        relacion: r.relacion || [],
-        puntaje,
-      });
-    }
-    // Guardar resultado y respuestas
     // Capturar IP y User Agent del request
     const ip_address =
       (req.headers["x-forwarded-for"] as string) || req.ip || "unknown";
     const user_agent = req.headers["user-agent"] || "unknown";
 
-    const resultado = await prisma.resultado.create({
-      data: {
-        evaluacionId: id,
-        nombre_completo: data.nombre_completo,
-        numero_documento: data.numero_documento,
-        cargo: data.cargo,
-        correo: data.correo,
-        telefono: data.telefono,
-        firma: data.firma,
-        device_fingerprint: data.device_fingerprint,
-        ip_address,
-        user_agent,
-        puntaje_total,
-        respuestas: {
-          create: respuestasDB,
-        },
-      },
-      include: {
-        respuestas: {
-          include: {
-            pregunta: {
-              include: {
-                opciones: true,
-              },
-            },
-          },
-        },
-        evaluacion: {
-          include: {
-            preguntas: {
-              include: {
-                opciones: true,
-              },
-            },
-          },
-        },
-      },
+    const resultado = await registrarResultado(evaluacion, data.respuestas, {
+      nombre_completo: data.nombre_completo,
+      numero_documento: data.numero_documento,
+      cargo: data.cargo,
+      correo: data.correo,
+      telefono: data.telefono,
+      firma: data.firma,
+      device_fingerprint: data.device_fingerprint,
+      ip_address,
+      user_agent,
     });
-
-    // Emitir evento socket para actualización en tiempo real
-    try {
-      const io = getIo();
-      if (io) {
-        io.to(`evaluacion-${id}`).emit("nueva-respuesta", resultado);
-        console.log(`✅ Socket emitido: nueva-respuesta para evaluación ${id}`);
-      }
-    } catch (error) {
-      console.error("❌ Error emitiendo evento socket:", error);
-    }
 
     return res.send({ success: true, data: resultado });
   },

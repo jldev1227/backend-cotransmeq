@@ -18,6 +18,7 @@
 import { CronJob } from 'cron'
 import { prisma } from '../config/prisma'
 import { logger } from '../utils/logger'
+import { gobernadoPorConductor } from '../modules/servicios/servicios.estados'
 
 const ESTADOS_TERMINALES_POST_REALIZADO = [
   'realizado',
@@ -70,7 +71,7 @@ const defaultLogger = {
     msg ? logger.error(obj, msg) : logger.error(obj)
 }
 
-interface RecargoCandidato {
+export interface RecargoCandidato {
   id: string
   numero_planilla: string
   mes: number
@@ -79,9 +80,11 @@ interface RecargoCandidato {
   dias_laborales_planillas: { dia: number; hora_fin: any; deleted_at: Date | null }[]
 }
 
-interface ServicioCandidato {
+export interface ServicioCandidato {
   servicioId: string
   estadoActual: string
+  /** Lo inició el conductor desde la app: su estado no se deduce de la planilla. */
+  gobernadoPorConductor?: boolean
   recargos: RecargoCandidato[]
 }
 
@@ -195,22 +198,30 @@ async function obtenerServiciosCandidatos(): Promise<ServicioCandidato[]> {
 
   const servicios = await prisma.servicio.findMany({
     where: { id: { in: Array.from(porServicio.keys()) }, deleted_at: null },
-    select: { id: true, estado: true }
+    select: { id: true, estado: true, ejecucion: { select: { iniciado_at: true } } }
   })
   const estadosMap = new Map(servicios.map((s) => [s.id, s.estado]))
+  const delConductor = new Set(servicios.filter((s) => gobernadoPorConductor(s.ejecucion)).map((s) => s.id))
   for (const [sid, entry] of porServicio) {
     entry.estadoActual = estadosMap.get(sid) ?? 'NO_ENCONTRADO'
+    entry.gobernadoPorConductor = delConductor.has(sid)
   }
 
   return Array.from(porServicio.values())
 }
 
-function debeProcesarse(
+export function debeProcesarse(
   entry: ServicioCandidato,
   force: boolean
 ): { procesar: boolean; motivo?: string } {
   if (entry.estadoActual === 'cancelado') {
     return { procesar: false, motivo: 'servicio en estado cancelado (se omite)' }
+  }
+  /// Ni con `force`: el destino de este cron es `realizado`, y un servicio que
+  /// inició el conductor lo cierra él al liberarlo, con la hora que declaró.
+  /// Reescribirlo adelantaría ese cierre o «bajaría» uno ya liberado y avanzado.
+  if (entry.gobernadoPorConductor) {
+    return { procesar: false, motivo: 'servicio iniciado por el conductor desde la app (lo cierra él)' }
   }
   if (entry.estadoActual === 'NO_ENCONTRADO') {
     return { procesar: false, motivo: 'servicio no encontrado en la base de datos' }

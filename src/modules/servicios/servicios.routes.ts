@@ -279,6 +279,21 @@ export async function serviciosRoutes(app: FastifyInstance) {
     }
   }, ServiciosController.generarRutograma)
 
+  // Ejecución del conductor (inicio/liberación desde la app). Lectura: basta la sesión.
+  app.get('/servicios/:id/ejecucion', {
+    schema: {
+      description: 'Inicio y liberación del servicio por el conductor, preoperacional asociado y reporte',
+      tags: ['servicios'],
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' }
+        },
+        required: ['id']
+      }
+    }
+  }, ServiciosController.obtenerEjecucion)
+
   app.get('/servicios/:id', {
     schema: {
       description: 'Obtener servicio por ID',

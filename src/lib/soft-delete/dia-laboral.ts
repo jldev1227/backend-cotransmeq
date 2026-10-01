@@ -49,7 +49,25 @@ export async function retirarSegmentos(
 }
 
 /**
- * Retira un día laborado entero: el registro, sus segmentos y sus bonos.
+ * Retira los soportes (facturas) vivos de un día.
+ *
+ * Son soportes de MANTENIMIENTO: si el día se retira o pasa a otro tipo dejan de
+ * tener sentido y se marcan. El objeto de S3 se conserva. Volver a marcar el día
+ * como MANTENIMIENTO no los revive: el conductor los adjunta de nuevo.
+ */
+export async function retirarAdjuntosDelDia(
+  tx: Prisma.TransactionClient,
+  registroDiaId: string
+): Promise<void> {
+  await tx.registro_dia_laboral_adjunto.updateMany({
+    where: { registro_dia_id: registroDiaId, deleted_at: null },
+    data: { deleted_at: new Date() }
+  })
+}
+
+/**
+ * Retira un día laborado entero: el registro, sus segmentos, sus bonos y sus
+ * soportes de mantenimiento.
  *
  * El registro se MARCA, no se borra. La unicidad `(conductor_id, fecha)` sigue
  * siendo global a propósito, así que la fila marcada conserva su día y el
@@ -68,6 +86,8 @@ export async function retirarDiaLaboral(registroId: string): Promise<void> {
       where: { registro_dia_id: registroId, deleted_at: null },
       data: { deleted_at: ahora }
     })
+
+    await retirarAdjuntosDelDia(tx, registroId)
 
     await tx.registro_dia_laboral.updateMany({
       where: { id: registroId, deleted_at: null },

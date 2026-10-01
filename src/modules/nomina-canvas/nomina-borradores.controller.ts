@@ -55,6 +55,67 @@ function periodoDe(b: Record<string, any>) {
   };
 }
 
+/** Error con código HTTP de `recargosDelDesprendible`. */
+export class ErrorDesprendible extends Error {
+  constructor(mensaje: string, readonly status: number) {
+    super(mensaje);
+  }
+}
+
+/**
+ * El periodo de una liquidación, con el MISMO cálculo que hace el canvas en el
+ * web (`cargarDatosDesprendible` en `desprendible-nomina.ts`).
+ *
+ * Un corte 21→20 se nombra por el mes en que TERMINA —el 21-ago/20-sep es
+ * «septiembre»— y el día de corte es el del inicio. Se pide además el rango
+ * exacto, que es lo que hace funcionar una liquidación de retiro del 21 al 30.
+ *
+ * Recibe la liquidación SERIALIZADA (fechas como texto), igual que la recibe el
+ * web por JSON: si llegara con `Date`, `String()` daría otra cosa.
+ */
+export function periodoCrudoDeLiquidacion(liq: Record<string, any>): Record<string, any> {
+  const fin = String(liq.periodo_fin ?? liq.periodo_end ?? '');
+  const ini = String(liq.periodo_inicio ?? liq.periodo_start ?? '');
+  const iso = /^\d{4}-\d{2}-\d{2}/;
+  const rango = iso.test(ini) && iso.test(fin) ? { inicio: ini.slice(0, 10), fin: fin.slice(0, 10) } : {};
+  const corte = Number(ini.slice(8, 10));
+  return { anio: Number(fin.slice(0, 4)), mes: Number(fin.slice(5, 7)), corte: corte || null, ...rango };
+}
+
+/**
+ * Las tablas de recargo del desprendible, sacadas del CANVAS.
+ *
+ * Extraído de `desprendibleData` para que el portal del conductor lea la misma
+ * fuente que el canvas. Leer las planillas en su lugar es justo lo que hacía
+ * que el comprobante contradijera a lo pagado.
+ */
+export async function recargosDelDesprendible(liquidacionId: string, periodoCrudo: Record<string, any>) {
+  const p = periodoDe(periodoCrudo);
+  if (!p) throw new ErrorDesprendible('Periodo inválido (anio/mes).', 400);
+
+  const liq = await prisma.liquidaciones.findFirst({
+    where: { id: liquidacionId, deleted_at: null },
+    select: { id: true, conductor_id: true },
+  });
+  if (!liq) throw new ErrorDesprendible('Liquidación no encontrada.', 404);
+
+  const dto = await NominaCanvasService.construirPeriodo({
+    anio: p.anio,
+    mes: p.mes,
+    corte: p.corte,
+    inicio: p.inicio,
+    fin: p.fin,
+    conductorIds: [liq.conductor_id!],
+  } as any);
+  const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
+  if (!hoja) throw new ErrorDesprendible('El conductor no está en este periodo.', 404);
+
+  const dias = dto.periodo.dias;
+  const desde = dias[0]?.fecha ?? '';
+  const hasta = dias[dias.length - 1]?.fecha ?? '';
+  return construirRecargosDataDesdeHoja(hoja, { desde, hasta });
+}
+
 export class NominaBorradoresController {
   /**
    * Lo que hay que ver ANTES de lanzar.
@@ -405,34 +466,14 @@ export class NominaBorradoresController {
    */
   static async desprendibleData(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string };
-    const p = periodoDe((request.query ?? {}) as Record<string, any>);
-    if (!p) return reply.status(400).send({ error: 'Periodo inválido (anio/mes).' });
-
-    const liq = await prisma.liquidaciones.findFirst({
-      where: { id, deleted_at: null },
-      select: { id: true, conductor_id: true },
-    });
-    if (!liq) return reply.status(404).send({ error: 'Liquidación no encontrada.' });
-
     try {
-      const dto = await NominaCanvasService.construirPeriodo({
-        anio: p.anio,
-        mes: p.mes,
-        corte: p.corte,
-        inicio: p.inicio,
-        fin: p.fin,
-        conductorIds: [liq.conductor_id!],
-      } as any);
-      const hoja = dto.hojas.find((h) => h.conductorId === liq.conductor_id);
-      if (!hoja) return reply.status(404).send({ error: 'El conductor no está en este periodo.' });
-
-      const dias = dto.periodo.dias;
-      const desde = dias[0]?.fecha ?? '';
-      const hasta = dias[dias.length - 1]?.fecha ?? '';
-      return reply.send(construirRecargosDataDesdeHoja(hoja, { desde, hasta }));
+      return reply.send(
+        await recargosDelDesprendible(id, (request.query ?? {}) as Record<string, any>),
+      );
     } catch (e: any) {
+      const status = e instanceof ErrorDesprendible ? e.status : 400;
       return reply
-        .status(400)
+        .status(status)
         .send({ error: e?.message || 'No se pudieron construir las tablas de recargo.' });
     }
   }

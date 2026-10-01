@@ -4,17 +4,59 @@ import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
+import { condicionesViaDelServicio, CondicionesViaError } from './condiciones-via.service'
+import {
+  CapacitacionesError,
+  firmarAsistencia,
+  listarCapacitaciones,
+  obtenerAsistencia,
+  obtenerEvaluacion,
+  responderEvaluacion
+} from './capacitaciones.service'
+import {
+  EjecucionServicioError,
+  iniciarServicio,
+  liberarServicio,
+  obtenerEjecucion
+} from './ejecucion-servicio.service'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
+import { obtenerLiquidacionConFirmas } from '../liquidaciones/liquidaciones.controller'
+import {
+  periodoCrudoDeLiquidacion,
+  recargosDelDesprendible
+} from '../nomina-canvas/nomina-borradores.controller'
+import { resultadoDePagina } from '../../services/pdf.service'
+import { origenDelPortal } from '../formularios-dinamicos/formularios-documento-pdf.service'
 import { DiasLaboradosService } from '../dias-laborados/dias-laborados.service'
 import { crearRegistroSchema } from '../dias-laborados/dias-laborados.schema'
+import {
+  DiasAdjuntosError,
+  completarAdjuntoDia,
+  conAdjuntos,
+  eliminarAdjuntoDia,
+  iniciarAdjuntoDia
+} from '../dias-laborados/dias-adjuntos.service'
 import { getIO } from '../../sockets'
 import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aws'
 import { emitirTokenPortal } from './portal-token.service'
 import type { PortalAccessChannel } from '../../lib/portal-access-link'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { emitNotificacion } from '../../sockets'
+
+/**
+ * `tipo` exclusivo del token con el que Puppeteer abre la página que genera el
+ * desprendible. Propio y no `conductor_portal` con una marca: los demás
+ * módulos del portal tienen su copia del middleware y no sabrían de la marca,
+ * mientras que un `tipo` que no conocen lo rechazan sin enterarse de nada.
+ *
+ * Distinto también del de formularios (`conductor_portal_print`): cada uno
+ * abre una sola ruta de su propio módulo.
+ */
+const TIPO_TOKEN_IMPRESION_DESPRENDIBLE = 'conductor_portal_print_desprendible'
+const RUTA_DATOS_DESPRENDIBLE = '/conductor-portal/desprendibles/:id/datos'
+const IMPRESION_TTL_SEGUNDOS = 180
 
 /**
  * Middleware de autenticación para el portal del conductor.
@@ -31,8 +73,29 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
 
   try {
     const payload = jwt.verify(parts[1], env.JWT_SECRET) as any
-    if (payload.tipo !== 'conductor_portal') {
+    const esImpresion = payload.tipo === TIPO_TOKEN_IMPRESION_DESPRENDIBLE
+    if (payload.tipo !== 'conductor_portal' && !esImpresion) {
       return reply.status(401).send({ success: false, message: 'Token no autorizado para este recurso' })
+    }
+
+    /// El token de impresión solo abre UNA lectura: los datos de SU
+    /// desprendible. Se compara contra la ruta DECLARADA y no contra
+    /// `request.url`, porque `/desprendibles/:id/pdf` comparte el parámetro y
+    /// el impresor podría invocarse a sí mismo en cadena.
+    if (esImpresion) {
+      const rutaDeclarada: string | undefined =
+        (request as any).routeOptions?.url ?? (request as any).routerPath
+      const idPedido = (request.params as { id?: string } | undefined)?.id
+      const dentroDeAlcance =
+        request.method === 'GET' &&
+        typeof rutaDeclarada === 'string' &&
+        /// `endsWith` porque la ruta declarada incluye el prefijo `/api`.
+        rutaDeclarada.endsWith(RUTA_DATOS_DESPRENDIBLE) &&
+        typeof payload.lid === 'string' &&
+        idPedido === payload.lid
+      if (!dentroDeAlcance) {
+        return reply.status(403).send({ success: false, message: 'Token fuera de su alcance' })
+      }
     }
 
     ;(request as any).conductorPortal = {
@@ -498,6 +561,67 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
+    /**
+     * Los TRES datos con los que el canvas de nómina arma el desprendible.
+     *
+     * Mismas funciones que usa el canvas, no consultas propias del portal:
+     *   · liquidación → la de `GET /liquidaciones/:id` (con firmas en base64 y
+     *     el respaldo de la firma de prima),
+     *   · recargos    → la HOJA DEL CANVAS, no las planillas. Leer las
+     *     planillas es lo que hacía que el comprobante contradijera a lo
+     *     pagado,
+     *   · firmas      → las de la propia liquidación.
+     *
+     * Lo consumen el portal web y la página que imprime el PDF del móvil, así
+     * que los tres documentos salen de los mismos datos.
+     */
+    protectedApp.get(RUTA_DATOS_DESPRENDIBLE, {
+      schema: {
+        description: 'Datos del desprendible con las mismas fuentes que el canvas de nómina',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const propia = await prisma.liquidaciones.findFirst({
+          where: { id: request.params.id, conductor_id: conductor.id, desprendible_visible: true, deleted_at: null },
+          select: { id: true }
+        })
+        if (!propia) {
+          return reply.status(404).send({ success: false, message: 'Desprendible no encontrado' })
+        }
+
+        /// Serializada como la recibe el canvas por JSON: el periodo se calcula
+        /// sobre las fechas en texto, igual que en el web.
+        const liquidacion = JSON.parse(JSON.stringify(await obtenerLiquidacionConFirmas(propia.id)))
+
+        /// Las tablas de recargo son OPCIONALES, como en el canvas: sin ellas
+        /// el desprendible sale sin las páginas de detalle, pero sale.
+        const periodo = periodoCrudoDeLiquidacion(liquidacion)
+        let recargosData: any = null
+        if (Number.isInteger(periodo.anio) && Number.isInteger(periodo.mes)) {
+          recargosData = await recargosDelDesprendible(propia.id, periodo).catch(() => null)
+        }
+
+        const firmas = (liquidacion.firmas_desprendibles ?? []).filter(
+          (f: any) => f?.presignedUrl && f.firma_url !== 'pending' && f.firma_url !== ''
+        )
+
+        return reply.send({
+          success: true,
+          data: {
+            liquidacion,
+            firmas,
+            recargosData: { ...(recargosData ?? {}), planillas: recargosData?.planillas ?? [] }
+          }
+        })
+      } catch (err: any) {
+        request.log.error({ error: err }, 'Error armando los datos del desprendible del conductor')
+        return reply.status(500).send({ success: false, message: err.message || 'No fue posible cargar el desprendible' })
+      }
+    })
+
     // ─── PDF del desprendible para el visor nativo móvil ───
     protectedApp.get('/conductor-portal/desprendibles/:id/pdf', {
       schema: {
@@ -512,6 +636,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
+        /// Propiedad ANTES de imprimir: lo que se navega es el id de la fila
+        /// devuelta, no el del parámetro.
         const liquidacion = await prisma.liquidaciones.findFirst({
           where: {
             id: request.params.id,
@@ -519,15 +645,55 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             desprendible_visible: true,
             deleted_at: null
           },
-          select: { id: true }
+          select: { id: true, periodo_end: true }
         })
         if (!liquidacion) {
           return reply.status(404).send({ success: false, message: 'Desprendible no encontrado' })
         }
 
-        const { buffer, fileName } = await LiquidacionesService.generatePayslipPdfBuffer(liquidacion.id)
+        /**
+         * EL MISMO DESPRENDIBLE QUE EL CANVAS DE NÓMINA.
+         *
+         * Antes este endpoint generaba el suyo con una plantilla HTML propia
+         * (`generatePayslipPdfBuffer`), distinta de la de pdfmake que usan el
+         * canvas, el dashboard y el portal web. El mismo mes salía con dos
+         * documentos según por dónde se descargara.
+         *
+         * Ahora Puppeteer abre una página del web que ejecuta el constructor
+         * de siempre (`pdfDesprendible.ts`) con los datos del canvas y publica
+         * el PDF. No hay segunda maqueta que mantener de acuerdo.
+         *
+         * La sesión que se siembra es un token propio de 180 s que solo abre
+         * `/desprendibles/<este id>/datos`; nunca viaja en la URL.
+         */
+        const expiraEn = new Date(Date.now() + IMPRESION_TTL_SEGUNDOS * 1000)
+        const token = jwt.sign(
+          {
+            tipo: TIPO_TOKEN_IMPRESION_DESPRENDIBLE,
+            lid: liquidacion.id,
+            cedula: conductor.cedula,
+            nombre: conductor.nombre
+          },
+          env.JWT_SECRET,
+          { subject: conductor.id, expiresIn: IMPRESION_TTL_SEGUNDOS }
+        )
+        const sesion = {
+          token,
+          conductor: { id: conductor.id, nombre: conductor.nombre ?? '', apellido: '', numero_identificacion: conductor.cedula ?? '' },
+          expiresAt: expiraEn.toISOString()
+        }
+        const resultado = await resultadoDePagina<{ ok: boolean; base64?: string; error?: string }>({
+          url: `${origenDelPortal()}/public/portal/desprendibles/imprimir/${encodeURIComponent(liquidacion.id)}`,
+          seedLocalStorage: { [env.PORTAL_SESSION_STORAGE_KEY]: JSON.stringify(sesion) },
+          global: '__desprendible'
+        })
+        if (!resultado?.ok || !resultado.base64) {
+          throw new Error(resultado?.error || 'La página no generó el desprendible.')
+        }
+        const buffer = Buffer.from(resultado.base64, 'base64')
+        const periodo = String(liquidacion.periodo_end ?? '').slice(0, 7) || liquidacion.id
         reply.header('Content-Type', 'application/pdf')
-        reply.header('Content-Disposition', `inline; filename="${fileName.replace(/"/g, '')}"`)
+        reply.header('Content-Disposition', `inline; filename="desprendible-${periodo}.pdf"`)
         reply.header('Cache-Control', 'private, no-store')
         return reply.send(buffer)
       } catch (err: any) {
@@ -1463,7 +1629,11 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           if (!segMap.has(s.registro_dia_id)) segMap.set(s.registro_dia_id, [])
           segMap.get(s.registro_dia_id)!.push(s)
         }
-        const data = registros.map(r => ({ ...r, segmentos: segMap.get(r.id) || [] }))
+        /// `adjuntos`: soportes (facturas) de los días MANTENIMIENTO, con URL
+        /// firmada. Siempre presente (`[]` en los demás días).
+        const data = await conAdjuntos(
+          registros.map(r => ({ ...r, segmentos: segMap.get(r.id) || [] }))
+        )
 
         return reply.send({ success: true, data, count: data.length })
       } catch (err: any) {
@@ -1552,7 +1722,8 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // Delegar al servicio oficial (maneja correctamente la tabla pivote de segmentos
         // y aplica la transacción replaceAll)
-        const registro = await DiasLaboradosService.upsertRegistro(conductor.id, data)
+        const guardado = await DiasLaboradosService.upsertRegistro(conductor.id, data)
+        const registro = guardado ? (await conAdjuntos([guardado]))[0] : guardado
 
         // Emitir evento en tiempo real para que el dashboard se actualice
         try {
@@ -1648,6 +1819,88 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
+    // ─── Soportes (facturas) de los días de MANTENIMIENTO ───
+    // Presign → PUT directo a S3 → complete (verifica contra S3), como los
+    // adjuntos de formularios. La lógica vive en `dias-adjuntos.service.ts`.
+    const errorAdjuntosDia = (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      err: any,
+      mensaje: string
+    ) => {
+      if (err instanceof DiasAdjuntosError) {
+        return reply.status(err.status).send({ success: false, message: err.message, code: err.code })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+    const paramsFecha = {
+      type: 'object',
+      required: ['fecha'],
+      properties: { fecha: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }
+    }
+    const paramsFechaId = {
+      type: 'object',
+      required: ['fecha', 'id'],
+      properties: {
+        fecha: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+        id: { type: 'string' }
+      }
+    }
+
+    protectedApp.post('/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init', {
+      schema: {
+        description: 'Iniciar la subida de un soporte (factura) de un día de mantenimiento',
+        tags: ['conductor-portal'],
+        params: paramsFecha
+      }
+    }, async (request: FastifyRequest<{ Params: { fecha: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await iniciarAdjuntoDia(conductor.id, request.params.fecha, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorAdjuntosDia(request, reply, err, 'No fue posible iniciar la subida del soporte')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id/complete', {
+      schema: {
+        description: 'Confirmar la subida de un soporte verificándolo contra el almacenamiento',
+        tags: ['conductor-portal'],
+        params: paramsFechaId
+      }
+    }, async (request: FastifyRequest<{ Params: { fecha: string; id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await completarAdjuntoDia(
+          conductor.id,
+          request.params.fecha,
+          request.params.id,
+          request.body
+        )
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorAdjuntosDia(request, reply, err, 'No fue posible confirmar el soporte')
+      }
+    })
+
+    protectedApp.delete('/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id', {
+      schema: {
+        description: 'Eliminar un soporte de un día de mantenimiento',
+        tags: ['conductor-portal'],
+        params: paramsFechaId
+      }
+    }, async (request: FastifyRequest<{ Params: { fecha: string; id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await eliminarAdjuntoDia(conductor.id, request.params.fecha, request.params.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorAdjuntosDia(request, reply, err, 'No fue posible eliminar el soporte')
+      }
+    })
+
     // ─── Listar clientes (para select en formulario dias laborados) ───
     protectedApp.get('/conductor-portal/dias-laborados/clientes', {
       schema: {
@@ -1679,6 +1932,85 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     })
 
     // ─── Listar servicios del conductor (planificados, en curso, realizados) ───
+    /**
+     * Inbox del conductor: lo que todavía no ha visto.
+     *
+     * Solo las NO leídas y un tope de 20. Esto se consulta en cada ronda de
+     * sincronización de la app —cada minuto—, así que devolver el histórico
+     * completo sería pagar una consulta creciente para mostrar, casi siempre,
+     * cero avisos.
+     */
+    protectedApp.get('/conductor-portal/notificaciones', {
+      schema: {
+        description: 'Avisos pendientes de leer del conductor',
+        tags: ['conductor-portal']
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const filas = await prisma.conductor_notification.findMany({
+          where: { conductor_id: conductor.id, leida_at: null },
+          orderBy: { created_at: 'asc' },
+          take: 20,
+          select: {
+            id: true,
+            tipo: true,
+            titulo: true,
+            cuerpo: true,
+            datos: true,
+            created_at: true
+          }
+        })
+        return reply.send({
+          success: true,
+          data: filas.map((fila) => ({
+            id: fila.id,
+            tipo: fila.tipo,
+            titulo: fila.titulo,
+            cuerpo: fila.cuerpo,
+            datos: fila.datos ?? {},
+            created_at: fila.created_at
+          }))
+        })
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message || 'Error al consultar avisos' })
+      }
+    })
+
+    /**
+     * Marca un aviso como visto.
+     *
+     * Es lo que hace que un servicio eliminado se enseñe UNA vez: la app lo
+     * marca al mostrarlo, así que salir, retroceder o cerrar la app no lo trae
+     * de vuelta.
+     *
+     * Idempotente y acotado al propio conductor: `updateMany` con
+     * `conductor_id` no toca nada si el aviso es de otro, y repetir la llamada
+     * no es un error —la app la reintenta desde su ronda de sincronización.
+     */
+    protectedApp.post('/conductor-portal/notificaciones/:id/leida', {
+      schema: {
+        description: 'Marcar un aviso como leído',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const resultado = await prisma.conductor_notification.updateMany({
+          where: { id: request.params.id, conductor_id: conductor.id, leida_at: null },
+          data: { leida_at: new Date() }
+        })
+        return reply.send({ success: true, data: { marcadas: resultado.count } })
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message || 'Error al marcar el aviso' })
+      }
+    })
+
     protectedApp.get('/conductor-portal/servicios', {
       schema: {
         description: 'Listar servicios del conductor autenticado (planificados, en curso, realizados)',
@@ -1890,6 +2222,207 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           success: false,
           message: err.message || 'Error al obtener servicio'
         })
+      }
+    })
+
+    // ─── Condiciones de la vía del servicio (tráfico, incidentes, peajes, paradas, Distracom, riesgos) ───
+    protectedApp.get('/conductor-portal/servicios/:id/via', {
+      schema: {
+        description: 'Ruta, tráfico, incidentes y puntos de interés de un servicio del conductor',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await condicionesViaDelServicio(request.params.id, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        if (err instanceof CondicionesViaError) {
+          return reply.status(err.status).send({ success: false, message: err.message })
+        }
+        request.log.error({ error: err }, 'Error obteniendo condiciones de la vía')
+        return reply.status(500).send({
+          success: false,
+          message: 'No fue posible consultar las condiciones de la vía'
+        })
+      }
+    })
+
+    // ─── Capacitaciones: asistencias y evaluaciones del conductor ───
+    const errorCapacitaciones = (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      err: any,
+      mensaje: string
+    ) => {
+      if (err instanceof CapacitacionesError) {
+        return reply.status(err.status).send({ success: false, message: err.message })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+    const metaPeticion = (request: FastifyRequest) => ({
+      ip: request.ip || 'unknown',
+      userAgent: request.headers['user-agent'] || 'unknown'
+    })
+
+    protectedApp.get('/conductor-portal/capacitaciones', {
+      schema: {
+        description: 'Asistencias por firmar, evaluaciones por responder e historial del conductor',
+        tags: ['conductor-portal']
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await listarCapacitaciones(conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible consultar las capacitaciones')
+      }
+    })
+
+    protectedApp.get('/conductor-portal/asistencias/:token', {
+      schema: {
+        description: 'Detalle de una asistencia para firmarla desde la app',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await obtenerAsistencia(request.params.token, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible consultar la asistencia')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/asistencias/:token', {
+      schema: {
+        description: 'Firmar una asistencia con los datos del conductor',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await firmarAsistencia(
+          request.params.token,
+          conductor.id,
+          request.body,
+          metaPeticion(request)
+        )
+        return reply.status(201).send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible registrar la asistencia')
+      }
+    })
+
+    protectedApp.get('/conductor-portal/evaluaciones/:id', {
+      schema: {
+        description: 'Evaluación para responder desde la app (sin respuestas correctas)',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await obtenerEvaluacion(request.params.id, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible consultar la evaluación')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/evaluaciones/:id', {
+      schema: {
+        description: 'Responder una evaluación con los datos del conductor',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await responderEvaluacion(
+          request.params.id,
+          conductor.id,
+          request.body,
+          metaPeticion(request)
+        )
+        return reply.status(201).send({ success: true, data })
+      } catch (err: any) {
+        return errorCapacitaciones(request, reply, err, 'No fue posible registrar la evaluación')
+      }
+    })
+
+    // ─── Ejecución del servicio: el conductor lo inicia y lo libera desde la app ───
+    const errorEjecucion = (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      err: any,
+      mensaje: string
+    ) => {
+      if (err instanceof EjecucionServicioError) {
+        return reply.status(err.status).send({
+          success: false,
+          message: err.message,
+          ...(err.code ? { code: err.code } : {})
+        })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+
+    protectedApp.get('/conductor-portal/servicios/:id/ejecucion', {
+      schema: {
+        description: 'Estado de inicio/liberación del servicio, formatos de preoperacional y preoperacionales del día',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await obtenerEjecucion(request.params.id, conductor.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible consultar la ejecución del servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/iniciar', {
+      schema: {
+        description: 'Iniciar el servicio con un preoperacional por etapas del vehículo',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await iniciarServicio(request.params.id, conductor.id, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible iniciar el servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/liberar', {
+      schema: {
+        description: 'Liberar el servicio con la hora declarada y el reporte del recorrido',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await liberarServicio(request.params.id, conductor.id, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible liberar el servicio')
       }
     })
   })

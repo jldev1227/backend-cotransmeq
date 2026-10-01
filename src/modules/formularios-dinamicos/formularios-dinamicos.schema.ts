@@ -452,6 +452,24 @@ export const listarEnviosPortalSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   assignmentId: uuid.optional(),
+  /// Rango por fecha de diligenciamiento, no por `submitted_at`: al conductor
+  /// le importa el día al que corresponde la inspección, que es lo que ve
+  /// impreso en el formato. Un preoperacional de la noche del 27 enviado a las
+  /// 00:10 del 28 sigue siendo del 27.
+  businessDateFrom: fechaSimple.optional(),
+  businessDateTo: fechaSimple.optional(),
+  /// Filtro por placa en texto. El selector de la app conoce el `vehicleId`,
+  /// pero la lista de envíos se lee por placa, que es como el conductor la
+  /// nombra. Se acepta parcial e insensible a mayúsculas.
+  placa: z.string().trim().min(1).max(20).optional(),
+  vehicleId: uuid.optional(),
+  status: z.enum(['SUBMITTED', 'VOIDED']).optional(),
+})
+
+export const listarPapeleraPortalSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  assignmentId: uuid.optional(),
 })
 
 // ─── Tipos inferidos ─────────────────────────────────────────────────────────
@@ -473,3 +491,4 @@ export type BackupDraftInput = z.infer<typeof backupDraftSchema>
 export type InitAttachmentInput = z.infer<typeof initAttachmentSchema>
 export type CompleteAttachmentInput = z.infer<typeof completeAttachmentSchema>
 export type ListarEnviosPortalQuery = z.infer<typeof listarEnviosPortalSchema>
+export type ListarPapeleraPortalQuery = z.infer<typeof listarPapeleraPortalSchema>
