@@ -44,6 +44,7 @@ import { emitirTokenPortal } from './portal-token.service'
 import type { PortalAccessChannel } from '../../lib/portal-access-link'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { emitNotificacion } from '../../sockets'
+import { emitSheetInvalidate } from '../../sockets/sheet.gateway'
 
 /**
  * `tipo` exclusivo del token con el que Puppeteer abre la página que genera el
@@ -130,19 +131,30 @@ async function notificarFirmaDesprendible(liquidacion: {
       permisos.nomina === true
   })
   const nombre = `${liquidacion.conductores?.nombre ?? ''} ${liquidacion.conductores?.apellido ?? ''}`.trim() || 'Un conductor'
-  const periodo = [liquidacion.periodo_start, liquidacion.periodo_end].filter(Boolean).join(' al ')
   const inicio = new Date(`${String(liquidacion.periodo_start).slice(0, 10)}T12:00:00Z`)
   const fin = new Date(`${String(liquidacion.periodo_end).slice(0, 10)}T12:00:00Z`)
-  const referenciaTipo = Number.isNaN(inicio.getTime()) || Number.isNaN(fin.getTime())
-    ? 'nomina_desprendible_firmado'
-    : `nomina_desprendible_firmado:${fin.getUTCFullYear()}:${fin.getUTCMonth() + 1}:${inicio.getUTCDate()}`
+  const fechasValidas = !Number.isNaN(inicio.getTime()) && !Number.isNaN(fin.getTime())
+  const referenciaTipo = fechasValidas
+    ? `nomina_desprendible_firmado:${fin.getUTCFullYear()}:${fin.getUTCMonth() + 1}:${inicio.getUTCDate()}`
+    : 'nomina_desprendible_firmado'
+
+  /// El mensaje dice el MES del desprendible y, entre paréntesis, el corte:
+  /// «de septiembre 2026 (21 ago – 20 sep)». Antes decía solo las dos fechas
+  /// en ISO, y había que calcular mentalmente de qué nómina era.
+  const mesLargo = (d: Date) => d.toLocaleDateString('es-CO', { month: 'long', timeZone: 'UTC' })
+  const diaMes = (d: Date) => `${d.getUTCDate()} ${d.toLocaleDateString('es-CO', { month: 'short', timeZone: 'UTC' }).replace('.', '')}`
+  const periodo = fechasValidas
+    ? ` de ${mesLargo(fin)} ${fin.getUTCFullYear()} (${diaMes(inicio)} – ${diaMes(fin)})`
+    : liquidacion.periodo_start && liquidacion.periodo_end
+      ? ` del ${liquidacion.periodo_start} al ${liquidacion.periodo_end}`
+      : ''
 
   for (const usuario of destinatarios) {
     const notificacion = await NotificacionesService.crear({
       usuario_id: usuario.id,
       tipo: 'GENERAL',
       titulo: 'Desprendible firmado',
-      mensaje: `${nombre} firmó su desprendible${periodo ? ` del ${periodo}` : ''}. Ya puedes consultarlo.`,
+      mensaje: `${nombre} firmó su desprendible${periodo}. Toca para abrirlo en el canvas de nómina.`,
       referencia_id: liquidacion.id,
       referencia_tipo: referenciaTipo
     })
@@ -1011,10 +1023,13 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             id,
             conductor_id: conductor.id,
             desprendible_visible: true,
-            estado_flujo: 'PAGADA'
+            /// Se firma lo PAGADO. FIRMADA entra solo para que una firma
+            /// repetida responda «ya fue firmado» (409) y no «no encontrada».
+            estado_flujo: { in: ['PAGADA', 'FIRMADA'] }
           },
           select: {
             id: true,
+            estado_flujo: true,
             periodo_start: true,
             periodo_end: true,
             conductores: { select: { nombre: true, apellido: true } }
@@ -1107,7 +1122,41 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           })
         }
 
-        // 6. La firma es el acto principal. Si el inbox administrativo falla,
+        // 6. La firma cambia el ESTADO de la liquidación: PAGADA → FIRMADA. Así
+        // el canvas, el selector de hojas y el análisis distinguen lo firmado
+        // de lo solo pagado sin ir a buscar la firma. Queda en el historial
+        // como cambio automático (sin usuario): lo hizo el conductor.
+        if (liq.estado_flujo === 'PAGADA') {
+          await prisma.$transaction([
+            prisma.liquidaciones.update({
+              where: { id },
+              data: { estado_flujo: 'FIRMADA', version: { increment: 1 }, updated_at: now }
+            }),
+            prisma.historial_estado_liquidacion_nomina.create({
+              data: {
+                liquidacion_id: id,
+                estado_anterior: 'PAGADA',
+                estado_nuevo: 'FIRMADA',
+                usuario_id: null,
+                motivo: `Firma del conductor desde el portal (${conductor.nombre ?? conductor.cedula ?? conductor.id})`
+              }
+            })
+          ])
+          // El canvas del periodo se entera por la misma sala que los demás
+          // cambios de la hoja: el periodo de nómina es el mes en que TERMINA.
+          const fin = new Date(`${String(liq.periodo_end).slice(0, 10)}T12:00:00Z`)
+          if (!Number.isNaN(fin.getTime())) {
+            emitSheetInvalidate({
+              scope: 'nomina',
+              anio: fin.getUTCFullYear(),
+              mes: fin.getUTCMonth() + 1,
+              accion: 'estado',
+              by: null
+            })
+          }
+        }
+
+        // 7. La firma es el acto principal. Si el inbox administrativo falla,
         // se conserva la firma y se registra el fallo para reintento operativo.
         try {
           await notificarFirmaDesprendible(liq)

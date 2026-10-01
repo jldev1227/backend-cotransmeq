@@ -5,6 +5,7 @@ import { prisma } from "../../config/prisma";
 import { env } from "../../config/env";
 import { EmailService } from "../../services/email.service";
 import jwt from "jsonwebtoken";
+import { getS3SignedUrl } from "../../config/aws";
 
 const TOKEN_VALIDITY_DAYS = 30;
 
@@ -23,6 +24,37 @@ export async function liquidacionesRoutes(app: FastifyInstance) {
 
   // GET /api/liquidaciones/:id - Obtener una liquidación por ID
   app.get("/liquidaciones/:id", LiquidacionesController.obtenerPorId);
+
+  // GET /api/firmas/liquidacion/:id - Firmas del desprendible, con URL firmada
+  // de S3 para incrustar la imagen en el PDF. El frontend la pedía desde
+  // siempre y la ruta no existía: respondía 404 y el desprendible «firmado»
+  // salía sin la firma.
+  app.get(
+    "/firmas/liquidacion/:id",
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+      const firmas = await prisma.firmas_desprendibles.findMany({
+        where: {
+          liquidacion_id: id,
+          estado: "Activa",
+          NOT: { firma_s3_key: { in: ["", "pending"] } },
+        },
+        orderBy: { fecha_firma: "desc" },
+      });
+      const data = await Promise.all(
+        firmas.map(async (f) => {
+          let presignedUrl: string | null = null;
+          try {
+            presignedUrl = await getS3SignedUrl(f.firma_s3_key, 900);
+          } catch (e) {
+            request.log.warn({ err: e, firma: f.id }, "No se pudo firmar la URL de la firma");
+          }
+          return { ...f, presignedUrl };
+        }),
+      );
+      return reply.send({ success: true, data });
+    },
+  );
 
   // GET /api/liquidaciones/:id/pdf-desprendible - Descargar un desprendible individual en PDF
   app.get(

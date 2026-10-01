@@ -10,6 +10,7 @@
  *                            suelto, IP, user agent ni notas internas.
  */
 import { EmailService } from '../../services/email.service'
+import { bloqueParrafo, renderCorreo } from '../../services/email-plantilla'
 import {
   avisoSandboxHtml,
   copiaDeclaranteHabilitada,
@@ -21,10 +22,6 @@ import {
 } from './declaracion-transporte-documentos.service'
 
 const EMPRESA = 'COTRANSMEQ S.A.S.'
-/** Naranja Cotransmeq — los mismos tokens del PDF y del correo interno.
- *  No usar el verde de la otra marca. */
-const COLOR_PRIMARIO = '#f97316'
-const COLOR_TITULO = '#9a3412'
 
 export interface CopiaDeclaranteArgs {
   documentoGeneradoId: string
@@ -169,77 +166,45 @@ export const DeclaracionTransporteEmailService = {
           timeStyle: 'short'
         })
       : null
+    const fecha = new Date().toLocaleString('es-CO', {
+      timeZone: 'America/Bogota',
+      dateStyle: 'long',
+      timeStyle: 'short'
+    })
 
-    return `<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8" /></head>
-<body style="margin:0;padding:0;background:#FCFCFB;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;color:#0F172A;line-height:1.5;">
-  <div style="max-width:640px;margin:0 auto;padding:24px;">
-    <div style="background:#ffffff;border-radius:16px;padding:24px;box-shadow:0 4px 24px rgba(0,0,0,0.05);border:1px solid #E4E4E0;">
-      ${avisoSandboxHtml(destino)}
-      <span style="display:inline-block;background:${COLOR_PRIMARIO};color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;letter-spacing:.05em;">
-        ${esc(args.codigoFormulario)} · v${esc(args.versionFormato)}
-      </span>
-      <h1 style="font-size:18px;margin:12px 0 4px;color:${COLOR_TITULO};">Recibimos tu declaración</h1>
-      <p style="color:#6b7280;font-size:13px;margin:0;">
-        Adjuntamos la copia del documento que diligenciaste y firmaste.
-      </p>
-
-      <table style="width:100%;border-collapse:collapse;margin-top:16px;">
-        <tr>
-          <td style="padding:8px 0;font-size:13px;color:#6b7280;width:190px;">Radicado</td>
-          <td style="padding:8px 0;font-size:13px;color:#111827;font-weight:600;">${esc(args.radicado)}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:13px;color:#6b7280;">Empresa declarante</td>
-          <td style="padding:8px 0;font-size:13px;color:#111827;font-weight:600;">${esc(args.razonSocial ?? '—')}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:13px;color:#6b7280;">Estado</td>
-          <td style="padding:8px 0;font-size:13px;color:#111827;font-weight:600;">Recibido</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:13px;color:#6b7280;">Fecha</td>
-          <td style="padding:8px 0;font-size:13px;color:#111827;font-weight:600;">
-            ${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'long', timeStyle: 'short' })}
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:13px;color:#6b7280;vertical-align:top;">Huella SHA-256 del PDF</td>
-          <td style="padding:8px 0;font-size:11px;color:#111827;font-family:ui-monospace,Menlo,monospace;word-break:break-all;">${esc(args.pdfSha256)}</td>
-        </tr>
-      </table>
-
-      ${
-        args.descarga
-          ? `<p style="margin-top:16px;font-size:13px;">
-               <a href="${esc(args.descarga.url)}" style="display:inline-block;padding:10px 20px;background:${COLOR_PRIMARIO};color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
-                 Descargar copia
-               </a>
-             </p>
-             <p style="font-size:12px;color:#9ca3af;margin-top:4px;">
-               El enlace vence el ${esc(vence)}. Después de esa fecha conserva el PDF adjunto.
-             </p>`
-          : ''
-      }
-
-      <p style="margin-top:24px;font-size:13px;color:#6b7280;">
-        Conserva el número de radicado: es el dato con el que puedes consultar el
-        estado de tu declaración. La huella SHA-256 te permite verificar que el PDF
-        que recibiste es exactamente el que quedó archivado.
-      </p>
-      <p style="margin-top:8px;font-size:12px;color:#9ca3af;">
-        Esta declaración queda en revisión del Oficial de Cumplimiento. Si se requiere
-        alguna aclaración te contactaremos por este mismo correo.
-      </p>
-
-      <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;">
-        ${EMPRESA} — Sistema de cumplimiento SARLAFT + PTEE<br />
-        Resolución 2328 de 2025 · Resolución 14673 de 2025 · Ley 1581 de 2012
-      </div>
-    </div>
-  </div>
-</body>
-</html>`
+    return renderCorreo({
+      preheader: `Copia de tu declaración · Radicado ${args.radicado}`,
+      eyebrow: `${esc(args.codigoFormulario)} · v${esc(args.versionFormato)}`,
+      titulo: 'Recibimos tu declaración',
+      subtitulo: 'Adjuntamos la copia del documento que diligenciaste y firmaste.',
+      mascota: 'todo-bien',
+      encabezadoHtml: avisoSandboxHtml(destino),
+      datos: {
+        filas: [
+          { etiqueta: 'Radicado', valor: esc(args.radicado) },
+          { etiqueta: 'Empresa declarante', valor: esc(args.razonSocial ?? '—') },
+          { etiqueta: 'Estado', valor: 'Recibido' },
+          { etiqueta: 'Fecha', valor: esc(fecha) },
+          { etiqueta: 'Huella SHA-256 del PDF', valor: esc(args.pdfSha256), mono: true }
+        ]
+      },
+      boton: args.descarga ? { texto: 'Descargar copia', url: args.descarga.url } : undefined,
+      notas: args.descarga
+        ? [{ tono: 'neutro', html: `El enlace vence el ${esc(vence)}${vence?.endsWith('.') ? '' : '.'} Después de esa fecha conserva el PDF adjunto.` }]
+        : [],
+      html:
+        bloqueParrafo(
+          'Conserva el número de radicado: es el dato con el que puedes consultar el estado de tu declaración. La huella SHA-256 te permite verificar que el PDF que recibiste es exactamente el que quedó archivado.',
+          { muted: true }
+        ) +
+        bloqueParrafo(
+          'Esta declaración queda en revisión del Oficial de Cumplimiento. Si se requiere alguna aclaración te contactaremos por este mismo correo.',
+          { muted: true }
+        ),
+      pie: [
+        `${EMPRESA} — Sistema de cumplimiento SARLAFT + PTEE`,
+        'Resolución 2328 de 2025 · Resolución 14673 de 2025 · Ley 1581 de 2012'
+      ]
+    })
   }
 }

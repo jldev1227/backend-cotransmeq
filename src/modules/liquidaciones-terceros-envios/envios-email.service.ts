@@ -27,7 +27,7 @@ import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
 import { Resend } from 'resend'
 import { env } from '../../config/env'
-import { LOGO_EMAIL_URL_POR_DEFECTO } from '../../lib/branding'
+import { MARCA, bloqueCita, bloqueLista, bloqueParrafo, renderCorreo, textoAHtml } from '../../services/email-plantilla'
 
 export type ProveedorEnvio = 'smtp-contabilidad' | 'resend' | 'smtp'
 
@@ -115,8 +115,8 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Cuerpo HTML del correo, con la identidad visual de los demás correos del
- * sistema (cabecera con degradado verde, logo, tarjeta blanca).
+ * Cuerpo HTML del correo, con la plantilla común del sistema (hero verde con
+ * la mascota trabajando, tarjeta blanca, bloque de datos clave).
  *
  * El mensaje personalizado va escapado y con los saltos de línea convertidos:
  * lo escribe un usuario interno, pero tratarlo como HTML crudo permitiría
@@ -132,124 +132,40 @@ export function htmlEnvioLiquidacion(p: {
   etiqueta?: string
   resumen?: Array<{ etiqueta: string; valor: string }>
 }): string {
-  const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
-  const mensajeHtml = escapeHtml(p.mensaje || '').replace(/\n/g, '<br/>')
+  const mensaje = (p.mensaje || '').trim()
   // Líneas extra del resumen (la cifra de cierre de la hoja). Van DESPUÉS de
-  // Periodo y con el valor resaltado: es el dato que el destinatario busca
-  // antes de abrir el PDF.
-  const resumenHtml = (p.resumen ?? [])
+  // Periodo y destacadas: es el dato que el destinatario busca antes de abrir
+  // el PDF.
+  const resumen = (p.resumen ?? [])
     .filter((r) => r && r.etiqueta && r.valor)
-    .map(
-      (r) => `
-                      <tr>
-                        <td style="color:#065f46;font-size:13px;padding-bottom:6px;">${escapeHtml(r.etiqueta)}</td>
-                        <td align="right" style="color:#065f46;font-size:15px;font-weight:700;padding-bottom:6px;">${escapeHtml(r.valor)}</td>
-                      </tr>`
-    )
-    .join('')
-  const adjuntosHtml = p.adjuntos
-    .map(
-      (a) => `
-      <tr>
-        <td width="24" style="font-size:14px;">📎</td>
-        <td style="color:#065f46;font-size:13px;line-height:1.6;">${escapeHtml(a)}</td>
-      </tr>`
-    )
-    .join('')
+    .map((r) => ({ etiqueta: escapeHtml(r.etiqueta), valor: escapeHtml(r.valor), destacado: true }))
 
-  return `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f1f5f9;">
-    <tr>
-      <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" style="max-width:560px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-
-          <!-- Header -->
-          <tr>
-            <td style="background:linear-gradient(135deg,#059669 0%,#047857 100%);padding:32px 32px 24px 32px;text-align:center;">
-              <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;margin:0 auto 16px;max-width:160px;height:auto;" />
-              <h1 style="margin:0;color:#ffffff;font-size:21px;font-weight:700;line-height:1.3;">
-                ${escapeHtml(p.titulo || `Liquidación de su vehículo ${p.placa}`)}
-              </h1>
-              <p style="margin:6px 0 0 0;color:#d1fae5;font-size:14px;">${escapeHtml(p.periodo)}</p>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-              ${
-                p.terceroNombre
-                  ? `<p style="margin:0 0 8px 0;color:#475569;font-size:15px;line-height:1.5;">Señor(a),</p>
-              <p style="margin:0 0 20px 0;color:#0f172a;font-size:18px;font-weight:700;line-height:1.3;">
-                ${escapeHtml(p.terceroNombre)}
-              </p>`
-                  : ''
-              }
-
-              ${
-                mensajeHtml
-                  ? `<div style="margin:0 0 24px 0;padding:14px 18px;background:#f8fafc;border-left:3px solid #059669;border-radius:8px;color:#334155;font-size:14px;line-height:1.7;">${mensajeHtml}</div>`
-                  : ''
-              }
-
-              <!-- Resumen -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px 0;">
-                <tr>
-                  <td style="background-color:#f0fdf4;border-radius:10px;padding:18px 20px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td style="color:#065f46;font-size:13px;padding-bottom:6px;">${escapeHtml(p.etiqueta || 'Vehículo')}</td>
-                        <td align="right" style="color:#065f46;font-size:14px;font-weight:700;padding-bottom:6px;">${escapeHtml(p.placa)}</td>
-                      </tr>
-                      <tr>
-                        <td style="color:#065f46;font-size:13px;padding-bottom:6px;">Periodo</td>
-                        <td align="right" style="color:#065f46;font-size:14px;font-weight:700;padding-bottom:6px;">${escapeHtml(p.periodo)}</td>
-                      </tr>${resumenHtml}
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Adjuntos -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="background-color:#f8fafc;border-radius:10px;padding:14px 18px;">
-                    <p style="margin:0 0 8px 0;color:#334155;font-size:13px;font-weight:700;">Documentos adjuntos</p>
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">${adjuntosHtml}</table>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin:24px 0 0 0;color:#64748b;font-size:13px;line-height:1.6;">
-                Si tiene alguna inquietud sobre esta liquidación, puede <strong>responder
-                directamente a este correo</strong> y el área de contabilidad le atenderá.
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
-              <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
-                Transporte Especializado La Esmeralda S.A.S. — Área de Contabilidad<br/>
-                Este correo contiene información confidencial dirigida únicamente a su destinatario.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+  return renderCorreo({
+    preheader: `${p.titulo || `Liquidación de su vehículo ${p.placa}`} · ${p.periodo}`,
+    eyebrow: 'Liquidación',
+    titulo: escapeHtml(p.titulo || `Liquidación de su vehículo ${p.placa}`),
+    subtitulo: escapeHtml(p.periodo),
+    mascota: 'trabajando',
+    saludo: p.terceroNombre ? `Señor(a) <strong>${escapeHtml(p.terceroNombre)}</strong>,` : undefined,
+    htmlTrasParrafos: mensaje ? bloqueCita(textoAHtml(mensaje)) : '',
+    datos: {
+      filas: [
+        { etiqueta: escapeHtml(p.etiqueta || 'Vehículo'), valor: escapeHtml(p.placa) },
+        { etiqueta: 'Periodo', valor: escapeHtml(p.periodo) },
+        ...resumen
+      ]
+    },
+    html:
+      bloqueLista('Documentos adjuntos', p.adjuntos.map((a) => escapeHtml(a))) +
+      bloqueParrafo(
+        'Si tiene alguna inquietud sobre esta liquidación, puede <strong>responder directamente a este correo</strong> y el área de contabilidad le atenderá.',
+        { muted: true }
+      ),
+    pie: [
+      `${MARCA.razonSocial} — Área de Contabilidad`,
+      'Este correo contiene información confidencial dirigida únicamente a su destinatario.'
+    ]
+  })
 }
 
 export const EnviosEmailService = {

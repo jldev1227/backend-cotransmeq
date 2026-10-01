@@ -25,13 +25,20 @@
  */
 import { prisma } from '../../config/prisma';
 
-export type EstadoNomina = 'BORRADOR' | 'LIQUIDADA' | 'APROBADA' | 'PAGADA' | 'ANULADA';
+export type EstadoNomina =
+  | 'BORRADOR'
+  | 'LIQUIDADA'
+  | 'APROBADA'
+  | 'PAGADA'
+  | 'FIRMADA'
+  | 'ANULADA';
 
 export const ESTADOS_VALIDOS: EstadoNomina[] = [
   'BORRADOR',
   'LIQUIDADA',
   'APROBADA',
   'PAGADA',
+  'FIRMADA',
   'ANULADA',
 ];
 
@@ -39,7 +46,11 @@ export const TRANSICIONES: Record<string, EstadoNomina[]> = {
   BORRADOR: ['LIQUIDADA', 'ANULADA'],
   LIQUIDADA: ['APROBADA', 'BORRADOR', 'ANULADA'],
   APROBADA: ['PAGADA', 'LIQUIDADA', 'ANULADA'],
+  /// A FIRMADA no se llega desde aquí: la pone la firma del conductor en el
+  /// portal (`conductor-portal.routes.ts`), que es el único acto que la
+  /// justifica. Desde FIRMADA solo cabe anular.
   PAGADA: ['ANULADA'],
+  FIRMADA: ['ANULADA'],
   ANULADA: [],
 };
 
@@ -66,6 +77,9 @@ export const TRANSICIONES: Record<string, EstadoNomina[]> = {
  */
 export const TRANSICIONES_ADMIN: Record<string, EstadoNomina[]> = {
   PAGADA: ['APROBADA'],
+  /// Devolver a PAGADA deja la firma registrada pero el estado vuelve a
+  /// «pendiente de firma»: es para una firma que se invalida.
+  FIRMADA: ['PAGADA'],
 };
 
 /**
@@ -85,10 +99,10 @@ export function destinosPosibles(estadoActual: string, admin: boolean): EstadoNo
  * Estados a los que solo puede llevar Administración: son los que congelan
  * el desprendible de cara a contabilidad y al conductor.
  */
-export const ESTADOS_QUE_EXIGEN_ADMIN: EstadoNomina[] = ['APROBADA', 'PAGADA'];
+export const ESTADOS_QUE_EXIGEN_ADMIN: EstadoNomina[] = ['APROBADA', 'PAGADA', 'FIRMADA'];
 
 /** Estados en los que el canvas deja la hoja en solo lectura. */
-export const ESTADOS_BLOQUEADOS: string[] = ['APROBADA', 'PAGADA', 'ANULADA'];
+export const ESTADOS_BLOQUEADOS: string[] = ['APROBADA', 'PAGADA', 'FIRMADA', 'ANULADA'];
 
 /**
  * Estados en los que se pueden volver a traer los días desde las planillas.
@@ -141,7 +155,7 @@ export function permiteReemplazar(estado: string): boolean {
 export const ESTADOS_QUE_EXIGEN_MOTIVO: EstadoNomina[] = ['ANULADA'];
 
 /** A partir de aquí el enum viejo pasa a `Liquidado`. */
-const ESTADOS_YA_LIQUIDADOS: string[] = ['LIQUIDADA', 'APROBADA', 'PAGADA'];
+const ESTADOS_YA_LIQUIDADOS: string[] = ['LIQUIDADA', 'APROBADA', 'PAGADA', 'FIRMADA'];
 
 export interface Actor {
   id: string | null;
@@ -285,7 +299,7 @@ export const NominaEstadoService = {
           // conductor no debe llevarlo a un desprendible todavía oculto.
           // En otros cambios de estado se conserva el valor existente para no
           // deshacer una decisión manual de visibilidad.
-          ...(estado === 'PAGADA' ? { desprendible_visible: true } : {}),
+          ...(estado === 'PAGADA' || estado === 'FIRMADA' ? { desprendible_visible: true } : {}),
           motivo_anulacion: estado === 'ANULADA' ? motivo?.trim() ?? null : null,
           actualizado_por_id: actor.id || null,
           ...(estado === 'LIQUIDADA' ? { liquidado_por_id: actor.id || null } : {}),

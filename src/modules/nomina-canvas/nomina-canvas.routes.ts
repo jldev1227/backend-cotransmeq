@@ -4,6 +4,7 @@ import { NominaEstadoController, NominaSnapshotsController } from './nomina-esta
 import { NominaEnviosController } from './nomina-envios.controller';
 import { NominaBorradoresController } from './nomina-borradores.controller';
 import { NominaNotificacionesController } from './nomina-notificaciones.controller';
+import { NominaAnalisisController } from './nomina-analisis.controller';
 import { authMiddleware } from '../../middlewares/auth.middleware';
 import { requirePermission } from '../../middlewares/permissions.middleware';
 
@@ -23,6 +24,9 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
   // El libro del periodo.
   app.get('/nomina/canvas', puedeLeer, NominaCanvasController.periodo);
   app.get('/nomina/canvas/resumen', puedeLeer, NominaCanvasController.resumen);
+  // Análisis: todas las liquidaciones con totales y detalle por vehículo,
+  // filtrables por años, meses, placas, conductores y estados.
+  app.get('/nomina/analisis', puedeLeer, NominaAnalisisController.consultar);
 
   // Estado. El vocabulario es de lectura porque la barra lo necesita para
   // decidir qué botones pinta, incluso para quien no puede pulsarlos.

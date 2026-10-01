@@ -3,8 +3,8 @@ import path from 'path'
 import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
 import { EmailService, type EmailAttachment } from '../../services/email.service'
+import { bloqueNota, bloqueParrafo, bloqueSubtitulo, renderCorreo } from '../../services/email-plantilla'
 import { emitirTokenPortal } from '../conductor-portal/portal-token.service'
-import { LOGO_EMAIL_URL_POR_DEFECTO } from '../../lib/branding'
 
 const GUIA_DIR = path.resolve(process.cwd(), 'src/assets/email/formularios')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -153,38 +153,46 @@ export async function listarAudiencia(periodo?: string): Promise<{ periodo: Peri
 
 export function renderizarGuia(params: { nombre: string; portalLink: string }): string {
   const nombre = escapar(params.nombre.trim() || 'Conductor')
-  const portalLink = escapar(params.portalLink)
-  const logoUrl = escapar(env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO)
-  const pasos = PASOS.map((paso) => `
-    <tr><td style="padding:0 24px 24px">
-      <p style="margin:0 0 8px;color:#0f172a;font-size:17px;font-weight:700">${paso.titulo}</p>
-      <p style="margin:0 0 12px;color:#475569;font-size:14px;line-height:1.55">${paso.texto}</p>
-      <img src="cid:${paso.cid}" alt="${paso.titulo}" width="520" style="display:block;width:100%;max-width:520px;height:auto;border:1px solid #dbe4ea;border-radius:12px" />
-    </td></tr>`).join('')
+  // Las capturas de cada paso siguen viajando como adjuntos `cid:`: son
+  // imágenes propias de esta guía, no recursos públicos de la web.
+  const pasos = PASOS.map((paso) =>
+    bloqueSubtitulo(paso.titulo) +
+    bloqueParrafo(paso.texto, { muted: true }) +
+    `<img src="cid:${paso.cid}" alt="${paso.titulo}" width="542" style="display:block;width:100%;max-width:542px;height:auto;border:1px solid #e2e8f0;border-radius:14px;margin:0 0 24px 0;" />`
+  ).join('')
 
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-  <body style="margin:0;background:#eef3f1;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef3f1"><tr><td align="center" style="padding:24px 10px">
-  <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;background:#fff;border-radius:18px;overflow:hidden">
-    <tr><td align="center" style="padding:26px 24px;background:#ea580c"><img src="${logoUrl}" alt="Cotransmeq" width="168" style="max-width:168px;height:auto"><h1 style="margin:18px 0 4px;color:#fff;font-size:24px">Guía del Portal del Conductor</h1><p style="margin:0;color:#ffedd5;font-size:14px">Formularios, nómina, servicios y días laborados</p></td></tr>
-    <tr><td style="padding:26px 24px 18px"><p style="margin:0 0 12px;font-size:17px">Señor(a) <strong>${nombre}</strong>:</p><p style="margin:0;color:#475569;font-size:15px;line-height:1.6">Cotransmeq pone a su disposición el Portal del Conductor para consultar formularios, comprobantes, servicios asignados y registrar su actividad diaria. Esta guía presenta cada apartado disponible en el portal.</p></td></tr>
-    <tr><td style="padding:0 24px 24px">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px">
-        <tr>
-          <td width="42" valign="top" style="padding:16px 0 16px 16px;color:#a16207;font-size:20px;line-height:1">ℹ</td>
-          <td style="padding:14px 16px 14px 8px">
-            <p style="margin:0 0 5px;color:#854d0e;font-size:14px;font-weight:700;line-height:1.4">Cambio de aplicación desde hoy, 21 de agosto</p>
-            <p style="margin:0;color:#713f12;font-size:13px;line-height:1.55">A partir de hoy, 21 de agosto, la aplicación que se venía utilizando, <strong>Kobo Collect</strong>, quedará inhabilitada. Desde hoy deberá utilizar esta alternativa propia de Cotransmeq para diligenciar sus formularios y consultar la información disponible en el Portal del Conductor.</p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-    <tr><td align="center" style="padding:4px 24px 28px"><a href="${portalLink}" target="_blank" style="display:inline-block;background:#ea580c;color:#fff;text-decoration:none;font-size:17px;font-weight:700;padding:15px 28px;border-radius:10px">Abrir mi Portal del Conductor</a><p style="margin:12px 0 0;color:#64748b;font-size:12px;line-height:1.45">Este botón es personal. No comparta ni reenvíe este correo.</p></td></tr>
-    ${pasos}
-    <tr><td style="padding:0 24px 24px"><div style="background:#ecfdf5;border-radius:12px;padding:16px;color:#065f46;font-size:13px;line-height:1.55"><strong>Si pierde la señal:</strong> continúe diligenciando. El portal guarda el borrador en el teléfono y lo sincroniza cuando regresa la conexión. No borre los datos del navegador ni use modo incógnito mientras tenga un formulario pendiente.</div></td></tr>
-    <tr><td style="padding:0 24px 28px"><p style="margin:0 0 8px;color:#334155;font-size:13px;line-height:1.5"><strong>Importante:</strong> si marca un elemento como Malo, describa la novedad y siga el procedimiento de Reporte de Falla. Envíe el formulario solo cuando la revisión esté completa.</p><p style="margin:0;color:#64748b;font-size:12px;line-height:1.5">El enlace tiene vigencia de 30 días. Si vence, solicite uno nuevo desde la pantalla de acceso al portal.</p></td></tr>
-    <tr><td style="padding:20px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;color:#64748b;font-size:12px">Mensaje institucional de Cotransmeq · Seguridad, trazabilidad y cuidado del vehículo</td></tr>
-  </table></td></tr></table></body></html>`
+  return renderCorreo({
+    preheader: 'Cómo usar el Portal del Conductor: formularios, nómina, servicios y días laborados.',
+    eyebrow: 'Guía del portal',
+    titulo: 'Guía del Portal del Conductor',
+    subtitulo: 'Formularios, nómina, servicios y días laborados',
+    mascota: 'pensando',
+    saludo: `Señor(a) <strong>${nombre}</strong>:`,
+    parrafos: [
+      'Cotransmeq pone a su disposición el Portal del Conductor para consultar formularios, comprobantes, servicios asignados y registrar su actividad diaria. Esta guía presenta cada apartado disponible en el portal.'
+    ],
+    htmlTrasParrafos: bloqueNota({
+      tono: 'aviso',
+      html:
+        '<strong>Cambio de aplicación desde hoy, 21 de agosto.</strong> A partir de hoy, 21 de agosto, la aplicación que se venía utilizando, <strong>Kobo Collect</strong>, quedará inhabilitada. Desde hoy deberá utilizar esta alternativa propia de Cotransmeq para diligenciar sus formularios y consultar la información disponible en el Portal del Conductor.'
+    }),
+    boton: { texto: 'Abrir mi Portal del Conductor', url: params.portalLink },
+    notas: [{ tono: 'neutro', html: 'Este botón es personal. No comparta ni reenvíe este correo.' }],
+    html:
+      pasos +
+      bloqueNota({
+        html:
+          '<strong>Si pierde la señal:</strong> continúe diligenciando. El portal guarda el borrador en el teléfono y lo sincroniza cuando regresa la conexión. No borre los datos del navegador ni use modo incógnito mientras tenga un formulario pendiente.'
+      }) +
+      bloqueParrafo(
+        '<strong>Importante:</strong> si marca un elemento como Malo, describa la novedad y siga el procedimiento de Reporte de Falla. Envíe el formulario solo cuando la revisión esté completa.'
+      ) +
+      bloqueParrafo(
+        'El enlace tiene vigencia de 30 días. Si vence, solicite uno nuevo desde la pantalla de acceso al portal.',
+        { muted: true }
+      ),
+    pie: ['Mensaje institucional de Cotransmeq · Seguridad, trazabilidad y cuidado del vehículo']
+  })
 }
 
 async function adjuntosGuia(): Promise<EmailAttachment[]> {
