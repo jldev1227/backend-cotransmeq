@@ -23,6 +23,7 @@ import {
   getS3ObjectStream,
 } from "../../config/aws";
 import { getConfigPorTipo, type TipoFormularioSarlaft } from "./sarlaft-config";
+import { htmlNotificacionInternaSarlaft } from "./sarlaft-notificacion-interna-html";
 import { PDFGeneratorSarlaftService } from "./pdf-generator-sarlaft-html.service";
 import { SarlaftEvidenciaService } from "./evidencia-sarlaft.service";
 import { DeclaracionTransportePdfService } from "./declaracion-transporte-pdf.service";
@@ -40,7 +41,6 @@ import {
   validarDeclaracionTransporte,
 } from "./declaracion-transporte.validacion";
 import {
-  avisoSandboxHtml,
   copiaDeclaranteHabilitada,
   resolverDestino,
   ttlDescargaPublica,
@@ -881,109 +881,23 @@ export const FormulariosSarlaftService = {
     const frontendUrl = getFrontendUrl();
     const dashboardLink = `${frontendUrl}/dashboard/sarlaft/${registro.id}`;
 
-    // HTML del correo
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    /* Paleta naranja de COTRANSMEQ — los mismos tokens que usa el template
-       del PDF de evidencia (pdf-generator-sarlaft-html.service.ts), para que
-       el correo y el documento que viaja adjunto se lean como una sola pieza.
-       No usar verde aquí: la identidad de la marca es el naranja. */
-    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #0F172A; line-height: 1.5; background: #FCFCFB; }
-    .container { max-width: 640px; margin: 0 auto; padding: 24px; background: #FCFCFB; }
-    .card { background: #ffffff; border-radius: 16px; padding: 24px; box-shadow: 0 4px 24px rgba(0,0,0,0.05); border: 1px solid #E4E4E0; }
-    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #E4E4E0; }
-    .badge { display: inline-block; background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
-    h1 { font-size: 18px; margin: 12px 0 4px; color: #9a3412; }
-    .subtitle { color: #64748B; font-size: 13px; margin: 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    td { padding: 8px 0; font-size: 13px; vertical-align: top; }
-    td.label { color: #64748B; width: 200px; }
-    td.value { color: #0F172A; font-weight: 600; }
-    .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #E4E4E0; font-size: 12px; color: #94A3B8; }
-    .cta { display: inline-block; margin-top: 16px; padding: 10px 20px; background: #f97316; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="card">
-      ${avisoSandboxHtml(destino)}
-      <div class="header">
-        <span class="badge">${registro.codigo_formulario}</span>
-      </div>
-      <h1>Nuevo formulario SARLAFT + PTEE recibido</h1>
-      <p class="subtitle">Tipo: ${tipoLabel[registro.tipo_formulario] ?? registro.tipo_formulario} · Área responsable: ${cfg.area_responsable}</p>
-
-      <table>
-        <tr>
-          <td class="label">Radicado</td>
-          <td class="value">${registro.radicado}</td>
-        </tr>
-        <tr>
-          <td class="label">Fecha de envío</td>
-          <td class="value">${new Date(registro.fecha_envio).toLocaleString("es-CO", { timeZone: "America/Bogota" })}</td>
-        </tr>
-        <tr>
-          <td class="label">Titular</td>
-          <td class="value">${registro.nombre_completo ?? "—"}</td>
-        </tr>
-        <tr>
-          <td class="label">Documento</td>
-          <td class="value">${registro.tipo_documento ? registro.tipo_documento + " " : ""}${registro.numero_documento ?? "—"}</td>
-        </tr>
-        <tr>
-          <td class="label">Correo de contacto</td>
-          <td class="value">${registro.correo ?? "—"}</td>
-        </tr>
-        <tr>
-          <td class="label">Teléfono</td>
-          <td class="value">${registro.telefono ?? "—"}</td>
-        </tr>
-        <tr>
-          <td class="label">IP de origen</td>
-          <td class="value">${registro.ip_origen ?? "—"}</td>
-        </tr>
-        <tr>
-          <td class="label">Adjuntos</td>
-          <td class="value">${documentos.length} archivo${documentos.length === 1 ? "" : "s"}</td>
-        </tr>
-        ${
-          documentoGenerado
-            ? `<tr>
-          <td class="label">Documento generado</td>
-          <td class="value">${documentoGenerado.codigo_template} v${documentoGenerado.version_template} · versión documental ${documentoGenerado.version_documento} (${documentoGenerado.estado_documental})</td>
-        </tr>
-        <tr>
-          <td class="label">SHA-256 del PDF</td>
-          <td class="value" style="font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;">${documentoGenerado.pdf_sha256}</td>
-        </tr>`
-            : ""
-        }
-      </table>
-
-      <a href="${dashboardLink}" class="cta">
-        Ver en el dashboard →
-      </a>
-
-      <p style="margin-top:24px; font-size:13px; color:#64748B;">
-        Se adjuntan el PDF con las respuestas diligenciadas y los archivos originales
-        proporcionados por el titular. Asimismo, la información suministrada en el
-        formulario ha sido almacenada de forma segura y se encuentra disponible en el
-        sistema interno de cumplimiento para su consulta, revisión y seguimiento cuando
-        sea necesario.
-      </p>
-
-      <div class="footer">
-        COTRANSMEQ S.A.S. — Sistema de cumplimiento SARLAFT + PTEE<br />
-        Resolución 2328 de 2025 · Resolución 14673 de 2025 · Ley 1581 de 2012
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
+    const html = htmlNotificacionInternaSarlaft({
+      destino,
+      serie,
+      codigoFormulario: registro.codigo_formulario,
+      tipoLabel: tipoLabel[registro.tipo_formulario] ?? registro.tipo_formulario,
+      areaResponsable: cfg.area_responsable,
+      radicado: registro.radicado,
+      fechaEnvio: new Date(registro.fecha_envio).toLocaleString("es-CO", { timeZone: "America/Bogota" }),
+      titular: registro.nombre_completo ?? "—",
+      documento: `${registro.tipo_documento ? registro.tipo_documento + " " : ""}${registro.numero_documento ?? "—"}`,
+      correo: registro.correo ?? "—",
+      telefono: registro.telefono ?? "—",
+      ipOrigen: registro.ip_origen ?? "—",
+      adjuntos: documentos.length,
+      documentoGenerado,
+      dashboardLink,
+    });
 
     // Descargar adjuntos desde S3 y armar attachments de nodemailer
     type Attachment = {

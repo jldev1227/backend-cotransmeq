@@ -3,8 +3,8 @@ import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
 import { env } from '../config/env'
 import { AREA_LABELS } from '../config/permissions'
-import { LOGO_EMAIL_URL_POR_DEFECTO } from '../lib/branding'
 import { buildPortalAccessLink, type PortalAccessChannel } from '../lib/portal-access-link'
+import { MARCA, bloqueCita, bloqueLista, bloqueNota, escaparHtml, renderCorreo, textoAHtml } from './email-plantilla'
 
 // ═══════════════════════════════════════════════════════
 // PROVEEDOR DE EMAIL: Resend (principal) o SMTP (fallback)
@@ -155,6 +155,158 @@ interface SendMagicLinkParams {
   canal?: PortalAccessChannel
 }
 
+const PIE_SISTEMA = `Este correo fue enviado automáticamente por el sistema de ${MARCA.nombre}.`
+const PIE_IGNORAR = 'Si no solicitaste este acceso, puedes ignorar este mensaje.'
+const PIE_DUDAS = 'Si tienes dudas, contacta al administrador.'
+
+/**
+ * Constructores del HTML de cada correo. Son funciones puras (reciben datos
+ * ya resueltos y devuelven el documento) para poder previsualizarlas y
+ * probarlas sin enviar nada. Los métodos de `EmailService` solo resuelven
+ * enlaces y destinatarios y delegan aquí.
+ */
+export const EmailPlantillas = {
+  accesoReporteDiario(p: { nombreCompleto: string; magicLink: string }): string {
+    return renderCorreo({
+      preheader: 'Tu enlace personal para ingresar al Reporte Diario de Actividad.',
+      eyebrow: 'Reporte diario',
+      titulo: 'Acceso al Reporte Diario',
+      subtitulo: 'Registra tu actividad del día desde cualquier dispositivo.',
+      mascota: 'saludando',
+      saludo: `Hola, <strong>${escaparHtml(p.nombreCompleto)}</strong>`,
+      parrafos: [
+        'Has solicitado acceso al sistema de <strong>Reporte Diario de Actividad</strong>. Pulsa el botón para ingresar de forma segura.'
+      ],
+      boton: { texto: 'Ingresar al sistema', url: p.magicLink },
+      notas: [
+        { html: 'Este enlace es válido por <strong>30 días</strong>. Después de ese período deberás solicitar un nuevo acceso.' }
+      ],
+      enlaceRespaldo: p.magicLink,
+      pie: [PIE_SISTEMA, PIE_IGNORAR]
+    })
+  },
+
+  accesoPortal(p: { nombreCompleto: string; portalLink: string }): string {
+    return renderCorreo({
+      preheader: 'Tu enlace personal para ingresar al Portal del Conductor.',
+      eyebrow: 'Acceso personal',
+      titulo: 'Portal del Conductor',
+      subtitulo: 'Tus desprendibles y tu actividad diaria, en un solo lugar.',
+      mascota: 'saludando',
+      saludo: `Hola, <strong>${escaparHtml(p.nombreCompleto)}</strong>`,
+      parrafos: [
+        'Has solicitado acceso al <strong>Portal del Conductor</strong>. Desde aquí podrás consultar tus <strong>desprendibles de nómina</strong> y registrar tu <strong>actividad diaria</strong>.'
+      ],
+      boton: { texto: 'Ingresar al portal', url: p.portalLink },
+      html:
+        bloqueLista('Desde tu portal puedes', [
+          'Ver y descargar tus desprendibles de nómina',
+          'Registrar tu actividad diaria (días laborados)'
+        ]) +
+        bloqueNota({
+          html: 'Este enlace es válido por <strong>30 días</strong>. Después deberás solicitar un nuevo acceso.'
+        }),
+      enlaceRespaldo: p.portalLink,
+      pie: [PIE_SISTEMA, PIE_IGNORAR]
+    })
+  },
+
+  invitacion(p: { invitadoPorNombre: string; areasText: string; inviteLink: string }): string {
+    return renderCorreo({
+      preheader: `${p.invitadoPorNombre} te invita al Sistema de Gestión de ${MARCA.nombre}.`,
+      eyebrow: 'Invitación',
+      titulo: 'Te han invitado al sistema',
+      subtitulo: 'Completa tu registro para empezar a usar el Sistema de Gestión.',
+      mascota: 'saludando',
+      parrafos: [
+        `<strong>${escaparHtml(p.invitadoPorNombre)}</strong> te ha invitado a unirte al <strong>Sistema de Gestión de ${MARCA.nombre}</strong>.`,
+        'Pulsa el botón para completar tu registro y acceder al sistema. El enlace es válido por <strong>72 horas</strong>.'
+      ],
+      datos: { filas: [{ etiqueta: 'Área asignada', valor: escaparHtml(p.areasText || 'Por definir') }] },
+      boton: { texto: 'Aceptar invitación', url: p.inviteLink },
+      notas: [
+        { tono: 'aviso', html: 'Si no conoces a quien te envió esta invitación o no la solicitaste, ignora este correo.' }
+      ],
+      enlaceRespaldo: p.inviteLink,
+      pie: [PIE_SISTEMA]
+    })
+  },
+
+  desprendible(p: { conductorNombre: string; periodo: string; portalLink: string; mensaje?: string | null }): string {
+    const periodo = escaparHtml(p.periodo)
+    return renderCorreo({
+      preheader: `Tu desprendible de nómina del ${p.periodo} ya está disponible.`,
+      eyebrow: 'Nómina',
+      titulo: 'Tu desprendible está listo',
+      subtitulo: 'Ya puedes consultarlo, descargarlo y firmarlo desde tu portal.',
+      mascota: 'celebrando',
+      saludo: `Hola, <strong>${escaparHtml(p.conductorNombre)}</strong>`,
+      parrafos: [
+        `Tu desprendible de nómina correspondiente al <strong>${periodo}</strong> ya está disponible para consulta.`
+      ],
+      htmlTrasParrafos: p.mensaje?.trim() ? bloqueCita(textoAHtml(p.mensaje)) : '',
+      datos: { filas: [{ etiqueta: 'Periodo', valor: periodo }] },
+      boton: { texto: 'Ver desprendible', url: p.portalLink },
+      notas: [
+        { html: 'Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu desprendible de nómina.' }
+      ],
+      pie: [PIE_SISTEMA, PIE_DUDAS]
+    })
+  },
+
+  prima(p: { conductorNombre: string; periodo: string; portalLink: string }): string {
+    const periodo = escaparHtml(p.periodo)
+    return renderCorreo({
+      preheader: `Tu liquidación de prima de servicio del ${p.periodo} ya está disponible.`,
+      eyebrow: 'Prima de servicio',
+      titulo: 'Tu liquidación de prima está lista',
+      subtitulo: 'Ya puedes consultarla, descargarla y firmarla desde tu portal.',
+      mascota: 'celebrando',
+      saludo: `Hola, <strong>${escaparHtml(p.conductorNombre)}</strong>`,
+      parrafos: [
+        `Tu liquidación de <strong>Prima de Servicio</strong> correspondiente al <strong>${periodo}</strong> ya está disponible para consulta.`
+      ],
+      datos: { filas: [{ etiqueta: 'Periodo', valor: periodo }] },
+      boton: { texto: 'Ver liquidación de prima', url: p.portalLink },
+      notas: [
+        { html: 'Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu liquidación de prima de servicio.' }
+      ],
+      pie: [PIE_SISTEMA, PIE_DUDAS]
+    })
+  },
+
+  certificados(p: {
+    terceroNombre: string
+    certificados: { tipo: string; anio: number; url: string }[]
+    accessLink: string
+    mensajePersonalizado?: string
+  }): string {
+    const lista = p.certificados.map(
+      (c) =>
+        `<strong>${escaparHtml(c.tipo)}</strong> · Año ${escaparHtml(c.anio)} &nbsp;—&nbsp; <a href="${escaparHtml(c.url)}" style="color:${MARCA.primario};font-weight:700;text-decoration:none;">Descargar</a>`
+    )
+    return renderCorreo({
+      preheader: 'Tus certificados tributarios ya están disponibles para descarga.',
+      eyebrow: 'Certificados tributarios',
+      titulo: 'Tus certificados están disponibles',
+      subtitulo: 'Consúltalos y descárgalos cuando los necesites.',
+      mascota: 'todo-bien',
+      saludo: `Hola, <strong>${escaparHtml(p.terceroNombre)}</strong>`,
+      parrafos: ['Tus certificados tributarios están disponibles. Pulsa el botón para acceder:'],
+      htmlTrasParrafos: p.mensajePersonalizado?.trim() ? bloqueCita(textoAHtml(p.mensajePersonalizado)) : '',
+      boton: { texto: 'Ver certificados', url: p.accessLink },
+      html:
+        bloqueLista('Certificados disponibles', lista) +
+        bloqueNota({
+          tono: 'aviso',
+          html: 'Este enlace es válido por <strong>90 días</strong>. Después deberás solicitar un nuevo acceso.'
+        }),
+      enlaceRespaldo: p.accessLink,
+      pie: [PIE_SISTEMA, PIE_DUDAS]
+    })
+  }
+}
+
 export const EmailService = {
 
   /**
@@ -170,125 +322,10 @@ export const EmailService = {
   async sendMagicLink({ to, conductorNombre, conductorApellido, token }: SendMagicLinkParams) {
     const frontendUrl = getEmailFrontendUrl()
     const magicLink = `${frontendUrl}/public/dias-laborados?token=${token}`
-    const nombreCompleto = `${conductorNombre} ${conductorApellido}`
-    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
-
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!--[if mso]>
-  <noscript>
-    <xml>
-      <o:OfficeDocumentSettings>
-        <o:PixelsPerInch>96</o:PixelsPerInch>
-      </o:OfficeDocumentSettings>
-    </xml>
-  </noscript>
-  <![endif]-->
-</head>
-<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
-    <tr>
-      <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
-
-          <!-- Header con gradiente -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding:32px 32px 24px 32px; text-align:center;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding-bottom:16px;">
-                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center">
-                    <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;line-height:1.3;">
-                      Acceso al Reporte Diario
-                    </h1>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-              <p style="margin:0 0 8px 0;color:#475569;font-size:15px;line-height:1.5;">
-                Hola,
-              </p>
-              <p style="margin:0 0 24px 0;color:#0f172a;font-size:18px;font-weight:700;line-height:1.3;">
-                ${nombreCompleto}
-              </p>
-              <p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">
-                Has solicitado acceso al sistema de <strong>Reporte Diario de Actividad</strong>. Haz clic en el botón para ingresar de forma segura.
-              </p>
-
-              <!-- Botón CTA -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center">
-                    <!--[if mso]>
-                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${magicLink}" style="height:52px;v-text-anchor:middle;width:280px;" arcsize="12%" strokecolor="#ea580c" fillcolor="#f97316">
-                      <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:16px;font-weight:bold;">Ingresar al sistema →</center>
-                    </v:roundrect>
-                    <![endif]-->
-                    <!--[if !mso]><!-->
-                    <a href="${magicLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);mso-hide:all;">
-                      Ingresar al sistema →
-                    </a>
-                    <!--<![endif]-->
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Info de expiración -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
-                <tr>
-                  <td style="background:linear-gradient(135deg,rgba(22,101,52,0.04),rgba(22,101,52,0.08));border:1px solid rgba(22,101,52,0.15);border-radius:12px;padding:16px 20px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td width="28" valign="top" style="font-size:18px;">🔒</td>
-                        <td style="color:#166534;font-size:13px;line-height:1.5;">
-                          Este enlace es válido por <strong>30 días</strong>. Después de ese período deberás solicitar un nuevo acceso.
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Enlace fallback -->
-              <p style="margin:24px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.5;">
-                Si el botón no funciona, copia y pega este enlace en tu navegador:
-              </p>
-              <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${magicLink}" style="color:#f97316;font-size:12px;text-decoration:underline;">${magicLink}</a>
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
-              <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
-                Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
-                Si no solicitaste este acceso, puedes ignorar este mensaje.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    const html = EmailPlantillas.accesoReporteDiario({
+      nombreCompleto: `${conductorNombre} ${conductorApellido}`,
+      magicLink
+    })
 
     try {
       // Sin bcc intencionalmente: es un access link con token personal
@@ -314,119 +351,10 @@ export const EmailService = {
       webBaseUrl: frontendUrl,
       mobileBaseUrl: env.MOBILE_PORTAL_URL
     })
-    const nombreCompleto = `${conductorNombre} ${conductorApellido}`
-    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
-
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
-    <tr>
-      <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
-
-          <!-- Header con gradiente -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding:32px 32px 24px 32px; text-align:center;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding-bottom:16px;">
-                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center">
-                    <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;line-height:1.3;">
-                      Portal del Conductor
-                    </h1>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-              <p style="margin:0 0 8px 0;color:#475569;font-size:15px;line-height:1.5;">
-                Hola,
-              </p>
-              <p style="margin:0 0 24px 0;color:#0f172a;font-size:18px;font-weight:700;line-height:1.3;">
-                ${nombreCompleto}
-              </p>
-              <p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">
-                Has solicitado acceso al <strong>Portal del Conductor</strong>. Desde aquí podrás consultar tus <strong>desprendibles de nómina</strong> y registrar tu <strong>actividad diaria</strong>.
-              </p>
-
-              <!-- Botón CTA -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center">
-                    <a href="${portalLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);">
-                      Ingresar al Portal →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Qué puedes hacer -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
-                <tr>
-                  <td style="background:linear-gradient(135deg,rgba(249,115,22,0.04),rgba(249,115,22,0.08));border:1px solid rgba(249,115,22,0.15);border-radius:12px;padding:16px 20px;">
-                    <p style="margin:0 0 8px 0;color:#ea580c;font-size:14px;font-weight:700;">📋 Desde tu portal puedes:</p>
-                    <p style="margin:0 0 4px 0;color:#0f172a;font-size:13px;">📄 Ver y descargar tus desprendibles de nómina</p>
-                    <p style="margin:0;color:#0f172a;font-size:13px;">📅 Registrar tu actividad diaria (días laborados)</p>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Info de expiración -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:16px;">
-                <tr>
-                  <td style="background:linear-gradient(135deg,rgba(22,101,52,0.04),rgba(22,101,52,0.08));border:1px solid rgba(22,101,52,0.15);border-radius:12px;padding:12px 20px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td width="28" valign="top" style="font-size:18px;">🔒</td>
-                        <td style="color:#166534;font-size:13px;line-height:1.5;">
-                          Este enlace es válido por <strong>30 días</strong>. Después deberás solicitar un nuevo acceso.
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Enlace fallback -->
-              <p style="margin:24px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.5;">
-                Si el botón no funciona, copia y pega este enlace:
-              </p>
-              <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${portalLink}" style="color:#f97316;font-size:12px;text-decoration:underline;">${portalLink}</a>
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
-              <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
-                Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
-                Si no solicitaste este acceso, puedes ignorar este mensaje.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    const html = EmailPlantillas.accesoPortal({
+      nombreCompleto: `${conductorNombre} ${conductorApellido}`,
+      portalLink
+    })
 
     try {
       // Sin bcc intencionalmente: es un access link con token personal
@@ -457,117 +385,10 @@ export const EmailService = {
   }) {
     const frontendUrl = getEmailFrontendUrl()
     const inviteLink = `${frontendUrl}/invite/${token}`
-    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
     // Mapa de `config/permissions.ts` en vez de una copia local: la copia se
     // quedaba sin las áreas nuevas (`mantenimiento`) y las pintaba en crudo.
     const areasText = area.map(a => (AREA_LABELS as Record<string, string>)[a] || a).join(', ')
-
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
-    <tr>
-      <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
-
-          <!-- Header -->
-          <tr>
-            <td style="background:linear-gradient(135deg,#f97316 0%,#ea580c 100%);padding:32px 32px 24px 32px;text-align:center;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding-bottom:16px;">
-                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center">
-                    <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;line-height:1.3;">
-                      Has sido invitado al sistema
-                    </h1>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-              <p style="margin:0 0 16px 0;color:#475569;font-size:15px;line-height:1.6;">
-                <strong style="color:#0f172a">${invitadoPorNombre}</strong> te ha invitado a unirte al <strong>Sistema de Gestión de Cotransmeq</strong>.
-              </p>
-
-              <!-- Info área -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom:28px;">
-                <tr>
-                  <td style="background:linear-gradient(135deg,rgba(22,101,52,0.04),rgba(22,101,52,0.08));border:1px solid rgba(22,101,52,0.15);border-radius:12px;padding:16px 20px;">
-                    <p style="margin:0 0 6px 0;color:#166534;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">Área asignada</p>
-                    <p style="margin:0;color:#166534;font-size:15px;font-weight:600;">${areasText || 'Por definir'}</p>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin:0 0 28px 0;color:#475569;font-size:14px;line-height:1.6;">
-                Haz clic en el botón para completar tu registro y acceder al sistema. El enlace es válido por <strong>72 horas</strong>.
-              </p>
-
-              <!-- CTA -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center">
-                    <a href="${inviteLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);">
-                      Aceptar invitación →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Aviso seguridad -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
-                <tr>
-                  <td style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.20);border-radius:12px;padding:14px 18px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td width="28" valign="top" style="font-size:16px;">⚠️</td>
-                        <td style="color:#92400E;font-size:12px;line-height:1.5;">
-                          Si no conoces a quien te envió esta invitación o no la solicitaste, ignora este correo.
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Enlace fallback -->
-              <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.5;">
-                Si el botón no funciona, copia este enlace en tu navegador:
-              </p>
-              <p style="margin:4px 0 0 0;word-break:break-all;">
-                <a href="${inviteLink}" style="color:#f97316;font-size:12px;text-decoration:underline;">${inviteLink}</a>
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
-              <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
-                Este correo fue enviado automáticamente por el sistema de Cotransmeq.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    const html = EmailPlantillas.invitacion({ invitadoPorNombre, areasText, inviteLink })
 
     try {
       // Sin bcc intencionalmente: invitación con token de registro personal
@@ -608,110 +429,7 @@ export const EmailService = {
     /** Copia oculta a talento humano (`NOTIF_BCC_EMAIL`). Los envíos de prueba la apagan. */
     conCopiaOculta?: boolean
   }) {
-    const frontendUrl = getEmailFrontendUrl()
-    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
-
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fcfcfb;">
-    <tr>
-      <td align="center" style="padding:40px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.04);">
-
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding:32px 32px 24px 32px; text-align:center;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding-bottom:16px;">
-                    <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display:block;max-width:160px;height:auto;" />
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center">
-                    <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;line-height:1.3;">
-                      📄 Tu Desprendible está Listo
-                    </h1>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-              <p style="margin:0 0 8px 0;color:#475569;font-size:15px;line-height:1.5;">
-                Hola,
-              </p>
-              <p style="margin:0 0 24px 0;color:#0f172a;font-size:18px;font-weight:700;line-height:1.3;">
-                ${conductorNombre}
-              </p>
-              <p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">
-                Tu desprendible de nómina correspondiente al <strong>${periodo}</strong> ya está disponible para consulta.
-              </p>
-              ${
-                mensaje?.trim()
-                  ? `<p style="margin:0 0 28px 0;color:#475569;font-size:15px;line-height:1.6;">${mensaje
-                      .trim()
-                      .replace(/&/g, '&amp;')
-                      .replace(/</g, '&lt;')
-                      .replace(/>/g, '&gt;')
-                      .replace(/\n/g, '<br/>')}</p>`
-                  : ''
-              }
-
-              <!-- Botón CTA -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td align="center">
-                    <a href="${portalLink}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 40px;border-radius:12px;line-height:1.4;box-shadow:0 4px 16px rgba(249,115,22,0.30);">
-                      📄 Ver Desprendible →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Info -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:28px;">
-                <tr>
-                  <td style="background:linear-gradient(135deg,rgba(249,115,22,0.04),rgba(249,115,22,0.08));border:1px solid rgba(249,115,22,0.15);border-radius:12px;padding:16px 20px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td width="28" valign="top" style="font-size:18px;">📋</td>
-                        <td style="color:#0f172a;font-size:13px;line-height:1.5;">
-                          Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu desprendible de nómina.
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f6f6f3;padding:20px 32px;border-top:1px solid rgba(15,23,42,0.08);">
-              <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
-                Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
-                Si tienes dudas, contacta al administrador.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    const html = EmailPlantillas.desprendible({ conductorNombre, periodo, portalLink, mensaje })
 
     try {
       const bcc = conCopiaOculta && env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
@@ -743,73 +461,7 @@ export const EmailService = {
     monto: string
     portalLink: string
   }) {
-    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
-    const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tu Liquidación de Prima</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #fcfcfb;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #fcfcfb; padding: 32px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.04);">
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px; text-align: center;">
-              <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display: block; margin: 0 auto 16px; max-width: 160px; height: auto;">
-              <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0;">💰 Tu Liquidación de Prima</h1>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding: 32px;">
-              <p style="color: #0f172a; font-size: 16px; line-height: 1.6; margin: 0 0 16px;">
-                Hola, <strong>${conductorNombre}</strong>
-              </p>
-              <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 28px;">
-                Tu liquidación de <strong>Prima de Servicio</strong> correspondiente al <strong>${periodo}</strong> ya está disponible para consulta.
-              </p>
-
-              <!-- CTA -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="${portalLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.30);">
-                      💰 Ver Liquidación de Prima →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Info box -->
-              <div style="margin-top: 28px; padding: 16px; background: linear-gradient(135deg, rgba(249, 115, 22, 0.04), rgba(249, 115, 22, 0.08)); border-left: 4px solid #f97316; border-radius: 12px;">
-                <p style="color: #0f172a; font-size: 13px; line-height: 1.5; margin: 0;">
-                  Desde tu portal podrás <strong>ver, descargar y firmar</strong> tu liquidación de prima de servicio.
-                </p>
-              </div>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color: #f6f6f3; padding: 20px 32px; text-align: center; border-top: 1px solid rgba(15, 23, 42, 0.08);">
-              <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0;">
-                Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br>
-                Si tienes dudas, contacta al administrador.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    const html = EmailPlantillas.prima({ conductorNombre, periodo, portalLink })
 
     try {
       const bcc = env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
@@ -843,118 +495,12 @@ export const EmailService = {
   }) {
     const frontendUrl = getEmailFrontendUrl()
     const accessLink = `${frontendUrl}/public/certificados?token=${token}`
-    const logoUrl = env.EMAIL_LOGO_URL || LOGO_EMAIL_URL_POR_DEFECTO
-
-    const certificadosHtml = certificados.length > 0
-      ? certificados.map(c => `
-    <tr>
-      <td style="padding: 8px 12px; border-bottom: 1px solid rgba(15, 23, 42, 0.08);">
-        <span style="font-weight: 600; color: #166534;">${c.tipo}</span>
-        <span style="color: #64748b; margin-left: 8px;">Año ${c.anio}</span>
-      </td>
-      <td style="padding: 8px 12px; border-bottom: 1px solid rgba(15, 23, 42, 0.08); text-align: right;">
-        <a href="${c.url}" style="color: #f97316; text-decoration: none; font-size: 13px; font-weight: 600;">Descargar →</a>
-      </td>
-    </tr>
-  `).join('')
-      : `<tr><td style="padding: 12px; text-align: center; color: #64748b;">Accede a tu portal para ver todos tus certificados</td></tr>`
-
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#fcfcfb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #fcfcfb; padding: 32px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.04);">
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px 32px 24px 32px; text-align: center;">
-              <img src="${logoUrl}" alt="Cotransmeq" width="160" style="display: block; margin: 0 auto 16px; max-width: 160px; height: auto;">
-              <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0;">Tus Certificados Tributarios</h1>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding: 32px;">
-              <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 8px;">Hola,</p>
-              <p style="color: #0f172a; font-size: 18px; font-weight: 700; line-height: 1.3; margin: 0 0 24px;">${terceroNombre}</p>
-
-              ${mensaje_personalizado ? `<p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 24px; padding: 12px; background: linear-gradient(135deg, rgba(249, 115, 22, 0.04), rgba(249, 115, 22, 0.08)); border-radius: 12px; border-left: 3px solid #f97316;">${mensaje_personalizado}</p>` : ''}
-
-              <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">Tus certificados tributarios están disponibles. Haz clic en el botón para acceder:</p>
-
-              <!-- CTA -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="${accessLink}" style="display: inline-block; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 12px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 16px rgba(249, 115, 22, 0.30);">
-                      Ver Certificados →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              ${certificados.length > 0 ? `
-              <!-- Certificados list -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 28px;">
-                <tr>
-                  <td style="background: linear-gradient(135deg, rgba(249, 115, 22, 0.04), rgba(249, 115, 22, 0.08)); border: 1px solid rgba(249, 115, 22, 0.15); border-radius: 12px; padding: 16px 20px;">
-                    <p style="margin: 0 0 12px 0; color: #ea580c; font-size: 14px; font-weight: 700;">Certificados disponibles:</p>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      ${certificadosHtml}
-                    </table>
-                  </td>
-                </tr>
-              </table>
-              ` : ''}
-
-              <!-- Expiración -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
-                <tr>
-                  <td style="background: linear-gradient(135deg, rgba(22, 101, 52, 0.04), rgba(22, 101, 52, 0.08)); border: 1px solid rgba(22, 101, 52, 0.15); border-radius: 12px; padding: 12px 20px;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="28" valign="top" style="font-size: 18px;">🔒</td>
-                        <td style="color: #166534; font-size: 13px; line-height: 1.5;">
-                          Este enlace es válido por <strong>90 días</strong>. Después deberás solicitar un nuevo acceso.
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Fallback link -->
-              <p style="margin: 24px 0 0 0; color: #94a3b8; font-size: 12px; line-height: 1.5;">
-                Si el botón no funciona, copia y pega este enlace:
-              </p>
-              <p style="margin: 4px 0 0 0; word-break: break-all;">
-                <a href="${accessLink}" style="color: #f97316; font-size: 12px; text-decoration: underline;">${accessLink}</a>
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color: #f6f6f3; padding: 20px 32px; border-top: 1px solid rgba(15, 23, 42, 0.08);">
-              <p style="margin: 0; color: #94a3b8; font-size: 12px; line-height: 1.5; text-align: center;">
-                Este correo fue enviado automáticamente por el sistema de Cotransmeq.<br/>
-                Si tienes dudas, contacta al administrador.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    const html = EmailPlantillas.certificados({
+      terceroNombre,
+      certificados,
+      accessLink,
+      mensajePersonalizado: mensaje_personalizado
+    })
 
     try {
       const bcc = env.NOTIF_BCC_EMAIL ? [env.NOTIF_BCC_EMAIL] : undefined
