@@ -15,6 +15,7 @@ import { emitirTokenPortal } from './portal-token.service'
 import type { PortalAccessChannel } from '../../lib/portal-access-link'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { emitNotificacion } from '../../sockets'
+import { emitSheetInvalidate } from '../../sockets/sheet.gateway'
 
 /**
  * Middleware de autenticación para el portal del conductor.
@@ -856,10 +857,13 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             id,
             conductor_id: conductor.id,
             desprendible_visible: true,
-            estado_flujo: 'PAGADA'
+            /// Se firma lo PAGADO. FIRMADA entra solo para que una firma
+            /// repetida responda «ya fue firmado» (409) y no «no encontrada».
+            estado_flujo: { in: ['PAGADA', 'FIRMADA'] }
           },
           select: {
             id: true,
+            estado_flujo: true,
             periodo_start: true,
             periodo_end: true,
             conductores: { select: { nombre: true, apellido: true } }
@@ -952,7 +956,41 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           })
         }
 
-        // 6. La firma es el acto principal. Si el inbox administrativo falla,
+        // 6. La firma cambia el ESTADO de la liquidación: PAGADA → FIRMADA. Así
+        // el canvas, el selector de hojas y el análisis distinguen lo firmado
+        // de lo solo pagado sin ir a buscar la firma. Queda en el historial
+        // como cambio automático (sin usuario): lo hizo el conductor.
+        if (liq.estado_flujo === 'PAGADA') {
+          await prisma.$transaction([
+            prisma.liquidaciones.update({
+              where: { id },
+              data: { estado_flujo: 'FIRMADA', version: { increment: 1 }, updated_at: now }
+            }),
+            prisma.historial_estado_liquidacion_nomina.create({
+              data: {
+                liquidacion_id: id,
+                estado_anterior: 'PAGADA',
+                estado_nuevo: 'FIRMADA',
+                usuario_id: null,
+                motivo: `Firma del conductor desde el portal (${conductor.nombre ?? conductor.cedula ?? conductor.id})`
+              }
+            })
+          ])
+          // El canvas del periodo se entera por la misma sala que los demás
+          // cambios de la hoja: el periodo de nómina es el mes en que TERMINA.
+          const fin = new Date(`${String(liq.periodo_end).slice(0, 10)}T12:00:00Z`)
+          if (!Number.isNaN(fin.getTime())) {
+            emitSheetInvalidate({
+              scope: 'nomina',
+              anio: fin.getUTCFullYear(),
+              mes: fin.getUTCMonth() + 1,
+              accion: 'estado',
+              by: null
+            })
+          }
+        }
+
+        // 7. La firma es el acto principal. Si el inbox administrativo falla,
         // se conserva la firma y se registra el fallo para reintento operativo.
         try {
           await notificarFirmaDesprendible(liq)

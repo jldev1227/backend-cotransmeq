@@ -91,7 +91,7 @@ export const NominaNotificacionesService = {
         });
         continue;
       }
-      if (liquidacion.estado_flujo !== 'PAGADA') {
+      if (liquidacion.estado_flujo !== 'PAGADA' && liquidacion.estado_flujo !== 'FIRMADA') {
         resultados.push({
           liquidacion_id: id,
           conductor: `${conductor.nombre} ${conductor.apellido}`.trim(),
