@@ -67,19 +67,30 @@ async function notificarFirmaDesprendible(liquidacion: {
       permisos.nomina === true
   })
   const nombre = `${liquidacion.conductores?.nombre ?? ''} ${liquidacion.conductores?.apellido ?? ''}`.trim() || 'Un conductor'
-  const periodo = [liquidacion.periodo_start, liquidacion.periodo_end].filter(Boolean).join(' al ')
   const inicio = new Date(`${String(liquidacion.periodo_start).slice(0, 10)}T12:00:00Z`)
   const fin = new Date(`${String(liquidacion.periodo_end).slice(0, 10)}T12:00:00Z`)
-  const referenciaTipo = Number.isNaN(inicio.getTime()) || Number.isNaN(fin.getTime())
-    ? 'nomina_desprendible_firmado'
-    : `nomina_desprendible_firmado:${fin.getUTCFullYear()}:${fin.getUTCMonth() + 1}:${inicio.getUTCDate()}`
+  const fechasValidas = !Number.isNaN(inicio.getTime()) && !Number.isNaN(fin.getTime())
+  const referenciaTipo = fechasValidas
+    ? `nomina_desprendible_firmado:${fin.getUTCFullYear()}:${fin.getUTCMonth() + 1}:${inicio.getUTCDate()}`
+    : 'nomina_desprendible_firmado'
+
+  /// El mensaje dice el MES del desprendible y, entre paréntesis, el corte:
+  /// «de septiembre 2026 (21 ago – 20 sep)». Antes decía solo las dos fechas
+  /// en ISO, y había que calcular mentalmente de qué nómina era.
+  const mesLargo = (d: Date) => d.toLocaleDateString('es-CO', { month: 'long', timeZone: 'UTC' })
+  const diaMes = (d: Date) => `${d.getUTCDate()} ${d.toLocaleDateString('es-CO', { month: 'short', timeZone: 'UTC' }).replace('.', '')}`
+  const periodo = fechasValidas
+    ? ` de ${mesLargo(fin)} ${fin.getUTCFullYear()} (${diaMes(inicio)} – ${diaMes(fin)})`
+    : liquidacion.periodo_start && liquidacion.periodo_end
+      ? ` del ${liquidacion.periodo_start} al ${liquidacion.periodo_end}`
+      : ''
 
   for (const usuario of destinatarios) {
     const notificacion = await NotificacionesService.crear({
       usuario_id: usuario.id,
       tipo: 'GENERAL',
       titulo: 'Desprendible firmado',
-      mensaje: `${nombre} firmó su desprendible${periodo ? ` del ${periodo}` : ''}. Ya puedes consultarlo.`,
+      mensaje: `${nombre} firmó su desprendible${periodo}. Toca para abrirlo en el canvas de nómina.`,
       referencia_id: liquidacion.id,
       referencia_tipo: referenciaTipo
     })
