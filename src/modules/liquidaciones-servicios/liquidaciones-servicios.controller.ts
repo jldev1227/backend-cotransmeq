@@ -5,8 +5,10 @@ import {
   emitNotificacion,
   eventoMeta,
   emitLiquidacionServicioBorrador,
+  emitFacturacionLiquidacion,
 } from "../../sockets";
 import { NotificacionesService } from "../notificaciones/notificaciones.service";
+import { FacturacionLiquidacionesService } from "../facturacion-liquidaciones/facturacion-liquidaciones.service";
 
 /**
  * Traduce un choque de UNIQUE en un 409 legible, o devuelve `null` si el error
@@ -390,16 +392,24 @@ export class LiquidacionesServiciosController {
       // esto, un PUT sobrescribía una aprobada sin preguntar — y el editor
       // llegaba a mandarlo solo, restaurando un borrador local viejo encima
       // de lo que ya estaba aprobado.
+      //
+      // Administración edita en CUALQUIER estado (también anulada): corregir
+      // un valor no debería obligar a desandar aprobación y factura. Lo que
+      // no se edita es una eliminada; esa hay que restaurarla primero.
       const userAreas: string[] = ((request as any).user?.area || []).map(
         (a: string) => a.toUpperCase(),
       );
       const esAdministracion = userAreas.includes("ADMINISTRACION");
       const previa = await LiquidacionesServiciosService.obtenerPorId(id);
 
-      if (previa.deleted_at || previa.estado === "ANULADA") {
+      if (previa.deleted_at) {
         return reply.status(403).send({
-          error:
-            "La liquidación está anulada o eliminada. Restáurala antes de editarla.",
+          error: "La liquidación está eliminada. Restáurala antes de editarla.",
+        });
+      }
+      if (previa.estado === "ANULADA" && !esAdministracion) {
+        return reply.status(403).send({
+          error: "La liquidación está anulada. Solo Administración puede modificarla.",
         });
       }
       if (
@@ -424,6 +434,31 @@ export class LiquidacionesServiciosController {
 
       if (eraBorradorSinConfirmar) {
         await LiquidacionesServiciosService.confirmar(id);
+      }
+
+      /// Editar una FACTURADA mueve el total que la factura tenía guardado.
+      /// Se recalcula aquí y se devuelve para que la pantalla avise del
+      /// cambio: el valor facturado ya no es el que se envió al cliente.
+      let facturaRecalculada: Awaited<
+        ReturnType<typeof FacturacionLiquidacionesService.sincronizarTotalLiquidacion>
+      > = null;
+      if (previa.estado === "FACTURADA") {
+        facturaRecalculada =
+          await FacturacionLiquidacionesService.sincronizarTotalLiquidacion(id);
+        if (facturaRecalculada) {
+          emitFacturacionLiquidacion(
+            "facturacion-updated",
+            await FacturacionLiquidacionesService.obtenerPorId(
+              facturaRecalculada.factura_id,
+            ),
+            eventoMeta({
+              tipo: "updated",
+              scope: "facturas",
+              actor: { id: userId ?? null, nombre: userName },
+              etiqueta: facturaRecalculada.numero_factura,
+            }),
+          );
+        }
       }
 
       /// «created» y no «updated» cuando se confirma: para todos los demás la
@@ -469,7 +504,7 @@ export class LiquidacionesServiciosController {
         );
       }
 
-      return reply.send(liquidacion);
+      return reply.send({ ...liquidacion, factura_recalculada: facturaRecalculada });
     } catch (error: any) {
       if (error.message.includes("no encontrada")) {
         return reply.status(404).send({ error: error.message });
@@ -497,10 +532,34 @@ export class LiquidacionesServiciosController {
       const estadoActual: string = liqActual.estado;
 
       const esAdministracion = userAreas.includes("ADMINISTRACION");
-      if (estadoActual === "APROBADA" && !esAdministracion) {
+      if (
+        (estadoActual === "APROBADA" || estadoActual === "FACTURADA") &&
+        !esAdministracion
+      ) {
         return reply.status(403).send({
-          error: `La liquidación está aprobada. Solo Administración puede modificar su estado.`,
+          error: `La liquidación está ${estadoActual === "APROBADA" ? "aprobada" : "facturada"}. Solo Administración puede modificar su estado.`,
         });
+      }
+
+      /**
+       * Una FACTURADA con factura activa no cambia de estado por esta ruta.
+       *
+       * Moverla aquí dejaría la factura sumando una liquidación que ya no
+       * está facturada. Se responde 409 con la factura para que la pantalla
+       * ofrezca anularla o quitar la liquidación de ella
+       * (`/facturacion-liquidaciones/:id/anular` y `.../items/:liquidacionId`,
+       * que aceptan dejarla en APROBADA).
+       */
+      if (estadoActual === "FACTURADA" && estado !== "FACTURADA") {
+        const factura =
+          await FacturacionLiquidacionesService.obtenerFacturaDeLiquidacion(id);
+        if (factura) {
+          return reply.status(409).send({
+            code: "FACTURA_ACTIVA",
+            error: `La liquidación está en la factura ${factura.numero_factura}. Anula la factura o quita la liquidación de ella antes de cambiar su estado.`,
+            factura,
+          });
+        }
       }
 
       /**

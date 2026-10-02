@@ -3,6 +3,11 @@ import { FacturacionLiquidacionesService } from './facturacion-liquidaciones.ser
 import { emitFacturacionLiquidacion, emitNotificacion, eventoMeta } from '../../sockets'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 
+function esAdministracion(request: FastifyRequest): boolean {
+  const areas: string[] = ((request as any).user?.area || []).map((a: string) => a.toUpperCase())
+  return areas.includes('ADMINISTRACION')
+}
+
 export class FacturacionLiquidacionesController {
 
   static async crear(request: FastifyRequest, reply: FastifyReply) {
@@ -108,10 +113,19 @@ export class FacturacionLiquidacionesController {
   static async anular(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any
-      const { motivo } = request.body as any
+      const { motivo, mantener_aprobada } = request.body as any
       const userId = (request as any).user?.id
       const userName = (request as any).user?.nombre || 'Usuario'
-      const factura = await FacturacionLiquidacionesService.anular(id, userId, motivo)
+      /// Dejar una liquidación en APROBADA es tocar su aprobación, y eso es
+      /// de Administración (mismo criterio que `cambiarEstado`).
+      if (mantener_aprobada && !esAdministracion(request)) {
+        return reply.status(403).send({
+          error: 'Solo Administración puede devolver una liquidación a aprobada.'
+        })
+      }
+      const factura = await FacturacionLiquidacionesService.anular(id, userId, motivo, {
+        mantenerAprobada: mantener_aprobada
+      })
 
       // Emit socket
       const actorAnula = { id: userId ?? null, nombre: userName }
@@ -128,11 +142,12 @@ export class FacturacionLiquidacionesController {
       // Emit updates for each liquidación that reverted
       for (const item of factura.items) {
         if (item.liquidacion) {
+          const estadoNuevo = factura.estados_resultantes[item.liquidacion.id] ?? 'LIQUIDADA'
           emitFacturacionLiquidacion(
             'liquidacion-servicio-facturada',
             {
               id: item.liquidacion.id,
-              estado: 'LIQUIDADA',
+              estado: estadoNuevo,
               factura_id: null,
               numero_factura: null
             },
@@ -142,7 +157,7 @@ export class FacturacionLiquidacionesController {
               actor: actorAnula,
               etiqueta: item.liquidacion.consecutivo ?? factura.numero_factura,
               estado_anterior: 'FACTURADA',
-              estado_nuevo: 'LIQUIDADA'
+              estado_nuevo: estadoNuevo
             })
           )
         }
@@ -249,11 +264,20 @@ export class FacturacionLiquidacionesController {
       const { id, liquidacionId } = request.params as any
       const userId = (request as any).user?.id
       const userName = (request as any).user?.nombre || 'Usuario'
+      /// `DELETE` con cuerpo opcional: sin él, la liquidación vuelve a
+      /// LIQUIDADA como siempre; `destino: 'APROBADA'` la deja autorizada.
+      const destino = (request.body as any)?.destino === 'APROBADA' ? 'APROBADA' : 'LIQUIDADA'
+      if (destino === 'APROBADA' && !esAdministracion(request)) {
+        return reply.status(403).send({
+          error: 'Solo Administración puede devolver una liquidación a aprobada.'
+        })
+      }
 
       const result = await FacturacionLiquidacionesService.quitarLiquidacion(
         id,
         liquidacionId,
-        userId
+        userId,
+        destino
       )
 
       const actor = { id: userId ?? null, nombre: userName }
@@ -272,7 +296,7 @@ export class FacturacionLiquidacionesController {
           'liquidacion-servicio-facturada',
           {
             id: liq.id,
-            estado: 'LIQUIDADA',
+            estado: liq.estado,
             factura_id: null,
             numero_factura: null
           },
@@ -282,7 +306,7 @@ export class FacturacionLiquidacionesController {
             actor,
             etiqueta: liq.consecutivo || result.factura.numero_factura,
             estado_anterior: 'FACTURADA',
-            estado_nuevo: 'LIQUIDADA'
+            estado_nuevo: liq.estado
           })
         )
       }

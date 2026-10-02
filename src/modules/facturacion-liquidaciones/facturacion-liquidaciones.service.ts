@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 
 // ═══════════════════════════════════════════════════════════════
@@ -340,7 +341,12 @@ export const FacturacionLiquidacionesService = {
   /**
    * Anular una factura — revertir liquidaciones a estado LIQUIDADA
    */
-  async anular(id: string, userId: string, motivo: string) {
+  async anular(
+    id: string,
+    userId: string,
+    motivo: string,
+    opciones: { mantenerAprobada?: string } = {},
+  ) {
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id },
       include: {
@@ -355,6 +361,14 @@ export const FacturacionLiquidacionesService = {
       throw new Error("La factura ya está anulada");
 
     const liquidacionIds = factura.items.map((i) => i.liquidacion_id);
+    /// La liquidación que se está devolviendo a APROBADA desde su ficha: el
+    /// resto de la factura vuelve a LIQUIDADA como siempre, pero ella no,
+    /// porque lo que el usuario pidió fue «quitarle la factura», no
+    /// desaprobarla.
+    const aprobadaId = liquidacionIds.includes(opciones.mantenerAprobada ?? "")
+      ? opciones.mantenerAprobada!
+      : null;
+    const aLiquidada = liquidacionIds.filter((lid) => lid !== aprobadaId);
 
     const result = await prisma.$transaction(async (tx) => {
       // Anular factura
@@ -387,13 +401,13 @@ export const FacturacionLiquidacionesService = {
 
       // Revertir liquidaciones a LIQUIDADA
       await tx.liquidacion_servicio.updateMany({
-        where: { id: { in: liquidacionIds }, estado: "FACTURADA" },
+        where: { id: { in: aLiquidada }, estado: "FACTURADA" },
         data: { estado: "LIQUIDADA", fecha_facturacion: null },
       });
 
       // Registrar historial para cada liquidación revertida
       await tx.historial_estado_liquidacion.createMany({
-        data: liquidacionIds.map((lid) => ({
+        data: aLiquidada.map((lid) => ({
           liquidacion_id: lid,
           estado_anterior: "FACTURADA",
           estado_nuevo: "LIQUIDADA",
@@ -402,12 +416,29 @@ export const FacturacionLiquidacionesService = {
         })),
       });
 
+      if (aprobadaId) {
+        await devolverAAprobada(
+          tx,
+          aprobadaId,
+          userId,
+          `Factura ${factura.numero_factura} anulada${motivo ? `: ${motivo}` : ""}`,
+        );
+      }
+
       return updated;
     });
 
     return {
       ...result,
       valor_total: Number(result.valor_total),
+      /// Estado en que quedó cada liquidación, para que los sockets no tengan
+      /// que suponer que todas volvieron a LIQUIDADA.
+      estados_resultantes: Object.fromEntries(
+        liquidacionIds.map((lid) => [
+          lid,
+          lid === aprobadaId ? ("APROBADA" as const) : ("LIQUIDADA" as const),
+        ]),
+      ),
       items: result.items.map((i) => ({
         ...i,
         valor_liquidacion: Number(i.valor_liquidacion),
@@ -648,6 +679,7 @@ export const FacturacionLiquidacionesService = {
     facturaId: string,
     liquidacionId: string,
     userId: string,
+    destino: "LIQUIDADA" | "APROBADA" = "LIQUIDADA",
   ) {
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id: facturaId },
@@ -691,22 +723,31 @@ export const FacturacionLiquidacionesService = {
         data: { deleted_at: new Date() },
       });
 
-      // Solo se revierte si sigue FACTURADA: si alguien la anuló por otra
-      // vía en paralelo, no se pisa ese estado.
-      await tx.liquidacion_servicio.updateMany({
-        where: { id: liquidacionId, estado: "FACTURADA" },
-        data: { estado: "LIQUIDADA", fecha_facturacion: null },
-      });
+      if (destino === "APROBADA") {
+        await devolverAAprobada(
+          tx,
+          liquidacionId,
+          userId,
+          `Quitada de la factura ${factura.numero_factura}`,
+        );
+      } else {
+        // Solo se revierte si sigue FACTURADA: si alguien la anuló por otra
+        // vía en paralelo, no se pisa ese estado.
+        await tx.liquidacion_servicio.updateMany({
+          where: { id: liquidacionId, estado: "FACTURADA" },
+          data: { estado: "LIQUIDADA", fecha_facturacion: null },
+        });
 
-      await tx.historial_estado_liquidacion.create({
-        data: {
-          liquidacion_id: liquidacionId,
-          estado_anterior: "FACTURADA",
-          estado_nuevo: "LIQUIDADA",
-          usuario_id: userId,
-          motivo: `Quitada de la factura ${factura.numero_factura}`,
-        },
-      });
+        await tx.historial_estado_liquidacion.create({
+          data: {
+            liquidacion_id: liquidacionId,
+            estado_anterior: "FACTURADA",
+            estado_nuevo: "LIQUIDADA",
+            usuario_id: userId,
+            motivo: `Quitada de la factura ${factura.numero_factura}`,
+          },
+        });
+      }
 
       const agg = await tx.factura_liquidacion_item.aggregate({
         /// Solo los pivotes activos: al marcar en vez de borrar, incluir los
@@ -731,12 +772,61 @@ export const FacturacionLiquidacionesService = {
         {
           id: liquidacionId,
           consecutivo: item.liquidacion?.consecutivo ?? "",
-          estado: "LIQUIDADA" as const,
+          estado: destino,
           factura_id: null,
           numero_factura: null,
         },
       ],
     };
+  },
+
+  /**
+   * Alinea la factura activa de una liquidación con su total actual.
+   *
+   * Administración puede editar una liquidación ya FACTURADA; el pivote guarda
+   * el valor con que se facturó, así que sin esto la factura seguiría sumando
+   * el valor viejo. Devuelve `null` si no hay factura activa o si el total no
+   * cambió, para que quien llama solo avise cuando de verdad se movió.
+   */
+  async sincronizarTotalLiquidacion(liquidacionId: string) {
+    return prisma.$transaction(async (tx) => {
+      const item = await tx.factura_liquidacion_item.findFirst({
+        where: {
+          liquidacion_id: liquidacionId,
+          deleted_at: null,
+          factura: { estado: "ACTIVA", deleted_at: null },
+        },
+        include: {
+          liquidacion: { select: { total: true } },
+          factura: { select: { id: true, numero_factura: true, valor_total: true } },
+        },
+      });
+      if (!item?.liquidacion) return null;
+
+      const valorNuevo = Number(item.liquidacion.total);
+      if (Number(item.valor_liquidacion) === valorNuevo) return null;
+
+      await tx.factura_liquidacion_item.update({
+        where: { id: item.id },
+        data: { valor_liquidacion: valorNuevo },
+      });
+      const agg = await tx.factura_liquidacion_item.aggregate({
+        where: { factura_id: item.factura_id, deleted_at: null },
+        _sum: { valor_liquidacion: true },
+      });
+      const totalFactura = Number(agg._sum.valor_liquidacion ?? 0);
+      await tx.factura_liquidacion_servicio.update({
+        where: { id: item.factura_id },
+        data: { valor_total: totalFactura },
+      });
+
+      return {
+        factura_id: item.factura.id,
+        numero_factura: item.factura.numero_factura,
+        valor_anterior: Number(item.factura.valor_total),
+        valor_nuevo: totalFactura,
+      };
+    });
   },
 
   /**
@@ -760,7 +850,13 @@ export const FacturacionLiquidacionesService = {
         },
       },
     });
-    return item?.factura || null;
+    if (!item?.factura) return null;
+    /// Cuántas liquidaciones caerían con ella si se anula: es lo que hay que
+    /// decirle al usuario antes de que elija entre anular o solo quitar esta.
+    const liquidaciones_en_factura = await prisma.factura_liquidacion_item.count({
+      where: { factura_id: item.factura.id, deleted_at: null },
+    });
+    return { ...item.factura, liquidaciones_en_factura };
   },
 
   /**
@@ -850,6 +946,48 @@ function mapFactura(f: any) {
  * Se resuelve con `aggregate` + `groupBy` sobre el MISMO `where` que la
  * consulta paginada — si divergieran, la tarjeta contradiría a la tabla.
  */
+/**
+ * Saca una liquidación FACTURADA de su factura y la deja en APROBADA.
+ *
+ * Conserva quién la aprobó y cuándo: volver a «autorizada» es deshacer la
+ * facturación, no aprobarla de nuevo. Solo si nunca tuvo aprobación (se
+ * facturó directo desde LIQUIDADA) queda firmada por quien hace el cambio.
+ */
+async function devolverAAprobada(
+  tx: Prisma.TransactionClient,
+  liquidacionId: string,
+  userId: string,
+  motivo: string,
+) {
+  const liq = await tx.liquidacion_servicio.findUnique({
+    where: { id: liquidacionId },
+    select: { estado: true, aprobado_por_id: true },
+  });
+  /// Solo si sigue FACTURADA: si alguien la cambió en paralelo, no se pisa.
+  if (liq?.estado !== "FACTURADA") return;
+
+  await tx.liquidacion_servicio.update({
+    where: { id: liquidacionId },
+    data: {
+      estado: "APROBADA",
+      fecha_facturacion: null,
+      actualizado_por_id: userId,
+      ...(liq.aprobado_por_id
+        ? {}
+        : { aprobado_por_id: userId, fecha_aprobacion: new Date() }),
+    },
+  });
+  await tx.historial_estado_liquidacion.create({
+    data: {
+      liquidacion_id: liquidacionId,
+      estado_anterior: "FACTURADA",
+      estado_nuevo: "APROBADA",
+      usuario_id: userId,
+      motivo,
+    },
+  });
+}
+
 async function metadataFacturas(where: any) {
   const [agg, porEstado, itemsCount] = await Promise.all([
     prisma.factura_liquidacion_servicio.aggregate({
