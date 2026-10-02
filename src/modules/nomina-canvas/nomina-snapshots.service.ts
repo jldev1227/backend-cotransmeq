@@ -36,6 +36,67 @@ export interface ResumenSnapshot {
   /** Para la lista del panel, sin bajarse el payload entero. */
   hojas: number;
   conductores_con_planilla: number;
+  /**
+   * Cambios respecto a la versión anterior (los mismos que cuenta `diff`).
+   * Con 0 la versión solo difiere en detalle que el diff no muestra, y el
+   * panel la oculta: abrirla decía «Sin diferencias».
+   */
+  cambios: number;
+}
+
+type CambioSnapshot = {
+  conductorId: string;
+  nombre: string;
+  campo: string;
+  antes: unknown;
+  despues: unknown;
+};
+
+/**
+ * Diferencias entre dos payloads, por conductor: solo totales y estado. El
+ * diff es para decidir si restaurar, no para auditar celda a celda; con 30
+ * conductores × 25 conceptos uno exhaustivo no se lee.
+ */
+function compararPayloads(previo: any, actual: any): CambioSnapshot[] {
+  const hojasDe = (p: any): Map<string, any> => {
+    const lista: any[] = Array.isArray(p?.hojas) ? p.hojas : [];
+    return new Map(lista.map((h) => [h.conductorId, h]));
+  };
+  const aHojas = hojasDe(previo);
+  const bHojas = hojasDe(actual);
+  const cambios: CambioSnapshot[] = [];
+
+  const CAMPOS: { clave: string; leer: (h: any) => unknown }[] = [
+    { clave: 'estado', leer: (h) => h?.estado },
+    { clave: 'días laborados', leer: (h) => h?.devengos?.find((d: any) => d.clave === 'salario')?.cantidad },
+    { clave: 'total horas', leer: (h) => h?.totalHorasMes },
+    { clave: 'total recargos', leer: (h) => h?.totales?.totalRecargos },
+    { clave: 'total devengado', leer: (h) => h?.totales?.sueldoBruto },
+    { clave: 'deducciones', leer: (h) => h?.totales?.totalDeducciones },
+    { clave: 'neto a pagar', leer: (h) => h?.totales?.sueldoTotal },
+  ];
+  const redondear = (v: unknown) => (typeof v === 'number' ? Math.round(v) : v);
+
+  for (const [conductorId, b] of bHojas) {
+    const a = aHojas.get(conductorId);
+    if (!a) {
+      cambios.push({ conductorId, nombre: b.nombre, campo: 'hoja', antes: null, despues: 'nueva' });
+      continue;
+    }
+    for (const c of CAMPOS) {
+      const antes = redondear(c.leer(a));
+      const despues = redondear(c.leer(b));
+      if (antes !== despues) {
+        cambios.push({ conductorId, nombre: b.nombre, campo: c.clave, antes, despues });
+      }
+    }
+  }
+  for (const [conductorId, a] of aHojas) {
+    if (!bHojas.has(conductorId)) {
+      cambios.push({ conductorId, nombre: a.nombre, campo: 'hoja', antes: 'existía', despues: null });
+    }
+  }
+  return cambios;
 }
 
 export const NominaSnapshotsService = {
@@ -183,14 +244,18 @@ export const NominaSnapshotsService = {
 
   /** Las versiones de un periodo, de la más reciente a la más antigua. */
   async listar(anio: number, mes: number): Promise<ResumenSnapshot[]> {
-    const filas = await prisma.nomina_periodo_snapshot.findMany({
+    // 101 y no 100: la más antigua de la lista también necesita la suya
+    // anterior para contar sus cambios.
+    const conAnterior = await prisma.nomina_periodo_snapshot.findMany({
       where: { anio, mes },
       orderBy: { version: 'desc' },
-      take: 100,
+      take: 101,
       include: { usuario: { select: { id: true, nombre: true } } },
     });
+    const filas = conAnterior.slice(0, 100);
 
-    return filas.map((f) => {
+    return filas.map((f, i) => {
+      const anterior = conAnterior[i + 1];
       const p = (f.payload ?? {}) as any;
       const hojas: any[] = Array.isArray(p.hojas) ? p.hojas : [];
       return {
@@ -203,6 +268,7 @@ export const NominaSnapshotsService = {
         revertido_de_id: f.revertido_de_id,
         hojas: hojas.length,
         conductores_con_planilla: hojas.filter((h) => (h?.dias?.length ?? 0) > 0).length,
+        cambios: compararPayloads(anterior?.payload ?? null, f.payload).length,
       };
     });
   },
@@ -230,56 +296,7 @@ export const NominaSnapshotsService = {
           orderBy: { version: 'desc' },
         });
 
-    const hojasDe = (s: any): Map<string, any> => {
-      const p = (s?.payload ?? {}) as any;
-      const lista: any[] = Array.isArray(p.hojas) ? p.hojas : [];
-      return new Map(lista.map((h) => [h.conductorId, h]));
-    };
-
-    const aHojas = hojasDe(previo);
-    const bHojas = hojasDe(actual);
-    const cambios: {
-      conductorId: string;
-      nombre: string;
-      campo: string;
-      antes: unknown;
-      despues: unknown;
-    }[] = [];
-
-    // Solo se comparan los totales y el estado: el diff es para decidir si
-    // restaurar, no para auditar celda a celda. Con 30 conductores × 25
-    // conceptos, un diff exhaustivo no se lee.
-    const CAMPOS: { clave: string; leer: (h: any) => unknown }[] = [
-      { clave: 'estado', leer: (h) => h?.estado },
-      { clave: 'días laborados', leer: (h) => h?.devengos?.find((d: any) => d.clave === 'salario')?.cantidad },
-      { clave: 'total horas', leer: (h) => h?.totalHorasMes },
-      { clave: 'total recargos', leer: (h) => h?.totales?.totalRecargos },
-      { clave: 'total devengado', leer: (h) => h?.totales?.sueldoBruto },
-      { clave: 'deducciones', leer: (h) => h?.totales?.totalDeducciones },
-      { clave: 'neto a pagar', leer: (h) => h?.totales?.sueldoTotal },
-    ];
-
-    const redondear = (v: unknown) => (typeof v === 'number' ? Math.round(v) : v);
-
-    for (const [conductorId, b] of bHojas) {
-      const a = aHojas.get(conductorId);
-      if (!a) {
-        cambios.push({ conductorId, nombre: b.nombre, campo: 'hoja', antes: null, despues: 'nueva' });
-        continue;
-      }
-      for (const c of CAMPOS) {
-        const antes = redondear(c.leer(a));
-        const despues = redondear(c.leer(b));
-        if (antes !== despues) {
-          cambios.push({ conductorId, nombre: b.nombre, campo: c.clave, antes, despues });
-        }
-      }
-    }
-    for (const [conductorId, a] of aHojas) {
-      if (!bHojas.has(conductorId)) {
-        cambios.push({ conductorId, nombre: a.nombre, campo: 'hoja', antes: 'existía', despues: null });
-      }
-    }
+    const cambios = compararPayloads(previo?.payload ?? null, actual.payload);
 
     return {
       actual: { id: actual.id, version: actual.version, created_at: actual.created_at },
