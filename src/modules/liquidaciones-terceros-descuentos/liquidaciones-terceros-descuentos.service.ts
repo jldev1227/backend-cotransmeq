@@ -3077,7 +3077,36 @@ export const LiquidacionesTercerosDescuentosService = {
     /// «para auditoría», pero la operación era `deleteMany`: las ACTIVAS se
     /// borraban físicamente en cada guardado. Es el mismo fallo que dejó una
     /// liquidación de servicios sin ítems al restaurarla. Ahora se marcan.
+    ///
+    /// …salvo los que VUELVEN: el único `(cierre, item)` cuenta también las
+    /// filas marcadas, y marcar e insertar la misma clave reventaba con P2002
+    /// al segundo guardado. Esos se borran de verdad antes de reinsertarse.
+    /// Los TRASLADADOS no se tocan nunca: su fila marcada lleva `trasladado_a`,
+    /// que es lo único que permite devolverlos al cierre. Reemplazar trayendo
+    /// uno de vuelta lo dejaría pagado aquí y en su destino.
+    const trasladados = await prisma.liquidacion_tercero_final_item.findMany({
+      where: {
+        liquidacion_tercero_final_id: liquidacionTerceroFinalId,
+        liquidacion_tercero_id: { in: liquidacionTerceroIds },
+        trasladado_a: { not: null },
+      },
+      select: { liquidacion_tercero_id: true, trasladado_a: true },
+    });
+    if (trasladados.length > 0) {
+      const detalle = trasladados
+        .map((t) => `${t.liquidacion_tercero_id} (${t.trasladado_a})`)
+        .join(', ');
+      throw new Error(
+        `Hay items trasladados fuera del cierre: ${detalle}. Devuélvelos al cierre antes de incluirlos.`,
+      );
+    }
     await prisma.$transaction([
+      prisma.liquidacion_tercero_final_item.deleteMany({
+        where: {
+          liquidacion_tercero_final_id: liquidacionTerceroFinalId,
+          liquidacion_tercero_id: { in: itemsValidos.map((it) => it.id) },
+        },
+      }),
       prisma.liquidacion_tercero_final_item.updateMany({
         where: { liquidacion_tercero_final_id: liquidacionTerceroFinalId, deleted_at: null },
         data: { deleted_at: new Date() },

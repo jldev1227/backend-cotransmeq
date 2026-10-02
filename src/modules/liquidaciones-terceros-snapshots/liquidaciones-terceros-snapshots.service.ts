@@ -352,8 +352,40 @@ export const LiquidacionesSnapshotsService = {
       throw new Error('No se puede revertir una liquidación APROBADA o FACTURADA. Anúlala primero.');
     }
 
+    // Items del snapshot que hoy están TRASLADADOS fuera del cierre: no se
+    // restauran. Su fila marcada lleva `trasladado_a`, que es lo que permite
+    // devolverlos, y reinsertarlos los pagaría aquí y en su destino.
+    const trasladados = new Set(
+      (
+        await prisma.liquidacion_tercero_final_item.findMany({
+          where: { liquidacion_tercero_final_id: liquidacionId, trasladado_a: { not: null } },
+          select: { liquidacion_tercero_id: true },
+        })
+      ).map((t) => t.liquidacion_tercero_id),
+    );
+    const itemsARestaurar = (payload.items_pivote ?? []).filter(
+      (item: any) => !trasladados.has(item.liquidacion_tercero_id),
+    );
+    const omitidos = (payload.items_pivote ?? []).length - itemsARestaurar.length;
+    if (omitidos > 0) {
+      console.warn(
+        `[snapshots] revert ${liquidacionId}: ${omitidos} item(s) del snapshot omitidos por estar trasladados`,
+      );
+    }
+
     // Restaurar el cierre al estado del snapshot
     await prisma.$transaction([
+      // 0. Borrar de verdad las filas de los items que vuelven, vivas o
+      //    marcadas: el único `(cierre, item)` cuenta también las marcadas, y
+      //    marcar + reinsertar la misma clave revienta con P2002.
+      prisma.liquidacion_tercero_final_item.deleteMany({
+        where: {
+          liquidacion_tercero_final_id: liquidacionId,
+          liquidacion_tercero_id: {
+            in: itemsARestaurar.map((item: any) => item.liquidacion_tercero_id),
+          },
+        },
+      }),
       // 1. Limpiar items pivote actuales
       prisma.liquidacion_tercero_final_item.updateMany({
         where: { liquidacion_tercero_final_id: liquidacionId, deleted_at: null },
@@ -386,7 +418,7 @@ export const LiquidacionesSnapshotsService = {
       }),
       // 4. Restaurar items pivote
       prisma.liquidacion_tercero_final_item.createMany({
-        data: payload.items_pivote.map((item: any, idx: number) => ({
+        data: itemsARestaurar.map((item: any, idx: number) => ({
           liquidacion_tercero_final_id: liquidacionId,
           liquidacion_tercero_id: item.liquidacion_tercero_id,
           orden: item.orden ?? idx,

@@ -949,7 +949,7 @@ export const LiquidacionesTercerosIngresosService = {
     // guardadas. Con un `upsert` por fila la transacción llevaba 70+ sentencias
     // y, contra una base remota, el guardado se pasaba de los 30 s de timeout
     // del cliente: la edición se veía en pantalla y no llegaba nunca a la base.
-    // Así son SIEMPRE cuatro sentencias, independientemente del tamaño del mes.
+    // Así son SIEMPRE seis sentencias, independientemente del tamaño del mes.
     //
     // Los conceptos se MARCAN, igual que las filas.
     //
@@ -961,13 +961,44 @@ export const LiquidacionesTercerosIngresosService = {
     //
     // El resultado antes era incoherente: de un guardado anterior se podían
     // reconstruir las filas pero no los conceptos que las explicaban.
+    //
+    // Las filas que VUELVEN se borran de verdad antes de reinsertarse, estén
+    // vivas o ya tachadas. Los dos índices únicos —`(cabecera, item)` y
+    // `(cabecera, adicional)`— cuentan también las tachadas, así que tachar y
+    // reinsertar la misma clave reventaba con P2002 en cuanto el mes tenía un
+    // guardado previo. Se tacha solo lo que de verdad sale de la hoja; de lo
+    // que se reemplaza por sí mismo no hay nada que conservar.
     const ahora = new Date();
+    const idsItemQueVuelven = filasSanitizadas
+      .map((f) => f.liquidacion_tercero_id)
+      .filter((id): id is string => !!id);
+    const idsAdicionalQueVuelven = filasSanitizadas
+      .map((f) => f.adicional_id)
+      .filter((id): id is string => !!id);
     const operaciones: any[] = [
+      prisma.liquidacion_ingreso_transmeralda_fila.deleteMany({
+        where: {
+          liquidacion_ingreso_id: cabecera.id,
+          OR: [
+            { liquidacion_tercero_id: { in: idsItemQueVuelven } },
+            { adicional_id: { in: idsAdicionalQueVuelven } },
+          ],
+        },
+      }),
       prisma.liquidacion_ingreso_transmeralda_fila.updateMany({
         /// `deleted_at: null` en el WHERE: sin él se re-sella la fecha de las
         /// ya marcadas y se pierde CUÁNDO se retiraron de verdad.
         where: { liquidacion_ingreso_id: cabecera.id, deleted_at: null },
         data: { deleted_at: ahora },
+      }),
+      // Lo mismo con los conceptos, por su clave primaria: el canvas los
+      // devuelve con el `id` con que los cargó, y reinsertar ese `id` junto a
+      // su versión tachada choca igual.
+      prisma.liquidacion_ingreso_transmeralda_concepto.deleteMany({
+        where: {
+          liquidacion_ingreso_id: cabecera.id,
+          id: { in: conceptosSanitizados.map((c) => c.id) },
+        },
       }),
       prisma.liquidacion_ingreso_transmeralda_concepto.updateMany({
         where: { liquidacion_ingreso_id: cabecera.id, deleted_at: null },

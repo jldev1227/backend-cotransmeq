@@ -407,9 +407,48 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
         );
       }
 
-      if (itemsValidos.length > 0) {
+      // Los que hoy están VIVOS en un cierre final no vuelven: se devolvieron
+      // al cierre después del snapshot, y restaurarlos aquí los pagaría dos
+      // veces. Es la misma regla con la que el ocasional deja fuera lo que ya
+      // se llevó un cierre.
+      const enCierre = new Set(
+        (
+          await tx.liquidacion_tercero_final_item.findMany({
+            where: {
+              liquidacion_tercero_id: {
+                in: itemsValidos.map((i) => i.liquidacion_tercero_id as string),
+              },
+              deleted_at: null,
+              liquidacion_tercero_final: { deleted_at: null },
+            },
+            select: { liquidacion_tercero_id: true },
+          })
+        ).map((r) => r.liquidacion_tercero_id),
+      );
+      const itemsARestaurar = itemsValidos.filter(
+        (i) => !enCierre.has(i.liquidacion_tercero_id as string),
+      );
+      if (itemsARestaurar.length < itemsValidos.length) {
+        console.warn(
+          `[ocasional-snapshots] revert ${cabeceraId}: ` +
+            `${itemsValidos.length - itemsARestaurar.length} item(s) omitidos por estar en un cierre final`,
+        );
+      }
+
+      if (itemsARestaurar.length > 0) {
+        // El único `uniq_ocasional_item_pivote` cuenta también las filas
+        // marcadas: las de los items que vuelven —incluidas las que se acaban
+        // de marcar arriba— se borran de verdad antes de reinsertarlas.
+        await tx.liquidacion_tercero_ocasional_item.deleteMany({
+          where: {
+            liquidacion_ocasional_id: cabeceraId,
+            liquidacion_tercero_id: {
+              in: itemsARestaurar.map((i) => i.liquidacion_tercero_id as string),
+            },
+          },
+        });
         await tx.liquidacion_tercero_ocasional_item.createMany({
-          data: itemsValidos.map((i) => ({
+          data: itemsARestaurar.map((i) => ({
             id: i.id || randomUUID(),
             liquidacion_ocasional_id: cabeceraId,
             liquidacion_tercero_id: i.liquidacion_tercero_id,
@@ -438,6 +477,27 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
             orden: i.orden ?? 0,
           })),
           skipDuplicates: true,
+        });
+      }
+
+      // Adicionales y conceptos vuelven con su `id` del snapshot, y esa fila
+      // existe todavía —marcada justo arriba—: `skipDuplicates` se la saltaba
+      // EN SILENCIO y la reversión dejaba la cabecera con los totales del
+      // snapshot pero sin las filas que los explican. Se borran antes.
+      const idsAdicionales = (payload.adicionales || [])
+        .map((a) => a.id)
+        .filter((id): id is string => !!id);
+      if (idsAdicionales.length > 0) {
+        await tx.liquidacion_tercero_ocasional_adicional.deleteMany({
+          where: { liquidacion_ocasional_id: cabeceraId, id: { in: idsAdicionales } },
+        });
+      }
+      const idsConceptos = (payload.conceptos || [])
+        .map((c) => c.id)
+        .filter((id): id is string => !!id);
+      if (idsConceptos.length > 0) {
+        await tx.liquidacion_tercero_ocasional_concepto.deleteMany({
+          where: { liquidacion_ocasional_id: cabeceraId, id: { in: idsConceptos } },
         });
       }
 
