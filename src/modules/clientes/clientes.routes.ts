@@ -66,7 +66,7 @@ export async function clientesRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA'] },
+          tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA_NATURAL', 'PERSONA'] },
           requiere_osi: { type: 'string' },
           paga_recargos: { type: 'string' },
           search: { type: 'string' },
@@ -88,7 +88,8 @@ export async function clientesRoutes(app: FastifyInstance) {
           page: { type: 'string', default: '1' },
           limit: { type: 'string', default: '10' },
           tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA_NATURAL', 'TODOS'] },
-          search: { type: 'string', description: 'Búsqueda en nombre, NIT, representante, cédula, teléfono, correo y dirección' }
+          search: { type: 'string', description: 'Búsqueda en nombre, NIT, representante, cédula, teléfono, correo y dirección' },
+          orden: { type: 'string', enum: ['asc', 'desc'], description: 'Orden alfabético por nombre' }
         }
       }
     }
@@ -96,6 +97,9 @@ export async function clientesRoutes(app: FastifyInstance) {
 
   // Listar clientes ocultos (solo para administradores)
   // IMPORTANTE: Esta ruta debe ir ANTES de /clientes/:id
+  // Papelera (antes de `/clientes/:id`, que la casaría como id).
+  app.get('/clientes/papelera', ClientesController.obtenerPapelera)
+
   app.get('/clientes/ocultos', {
     schema: {
       description: 'Obtener lista de clientes ocultos (solo admin)',
@@ -132,7 +136,7 @@ export async function clientesRoutes(app: FastifyInstance) {
         properties: {
           tipo: { 
             type: 'string', 
-            enum: ['EMPRESA', 'PERSONA'],
+            enum: ['EMPRESA', 'PERSONA_NATURAL', 'PERSONA'],
             default: 'EMPRESA'
           },
           nit: { type: 'string', nullable: true },
@@ -178,7 +182,7 @@ export async function clientesRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         properties: {
-          tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA'] },
+          tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA_NATURAL', 'PERSONA'] },
           nit: { type: 'string', nullable: true },
           nombre: { type: 'string' },
           representante: { type: 'string', nullable: true },
@@ -207,6 +211,19 @@ export async function clientesRoutes(app: FastifyInstance) {
       }
     }
   }, ClientesController.eliminar)
+
+  app.delete('/clientes/:id/permanente', {
+    ...puedeEscribir,
+    schema: {
+      description: 'Eliminar definitivamente un cliente de la papelera (sin historial)',
+      tags: ['clientes'],
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } }
+      }
+    }
+  }, ClientesController.eliminarPermanente)
 
   // Rutas adicionales (van después de las rutas CRUD básicas)
   app.post('/clientes/:id/restore', {
@@ -295,7 +312,7 @@ export async function clientesRoutes(app: FastifyInstance) {
         required: ['ids', 'accion'],
         properties: {
           ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
-          accion: { type: 'string', enum: ['ocultar', 'mostrar', 'eliminar'] }
+          accion: { type: 'string', enum: ['ocultar', 'mostrar', 'eliminar', 'restaurar'] }
         }
       }
     }

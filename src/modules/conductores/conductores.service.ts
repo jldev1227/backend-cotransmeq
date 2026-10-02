@@ -51,7 +51,10 @@ export const ConductoresService = {
     search?: string;
     page?: number;
     limit?: number;
+    /** Orden alfabético por nombre y apellido (A–Z por defecto). */
+    orden?: "asc" | "desc";
   }) {
+    const orden = filters?.orden === "desc" ? "desc" : "asc";
     const page = filters?.page || 1;
     const limit = filters?.limit || 50;
     const skip = (page - 1) * limit;
@@ -121,7 +124,7 @@ export const ConductoresService = {
           created_at: true,
           updated_at: true,
         },
-        orderBy: { nombre: "asc" },
+        orderBy: [{ nombre: orden }, { apellido: orden }],
         skip,
         take: limit,
       }),

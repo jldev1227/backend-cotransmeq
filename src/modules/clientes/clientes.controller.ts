@@ -52,17 +52,24 @@ export const ClientesController = {
   },
 
   async obtenerTodos(request: FastifyRequest, reply: FastifyReply) {
-    const { page, limit, tipo, search } = request.query as { 
+    const { page, limit, tipo, search, orden } = request.query as {
       page?: string
       limit?: string
       tipo?: string
       search?: string
+      orden?: string
     }
     
     const pageNum = page ? parseInt(page) : 1
     const limitNum = limit ? parseInt(limit) : 10
     
-    const result = await ClientesService.list(pageNum, limitNum, tipo, search)
+    const result = await ClientesService.list(
+      pageNum,
+      limitNum,
+      tipo,
+      search,
+      orden === 'desc' ? 'desc' : 'asc',
+    )
     
     reply.send({
       success: true,
@@ -145,6 +152,49 @@ export const ClientesController = {
           success: false,
           message: 'Cliente no encontrado'
         })
+      }
+      throw error
+    }
+  },
+
+  // GET /clientes/papelera
+  async obtenerPapelera(request: FastifyRequest, reply: FastifyReply) {
+    const user = (request as any).user
+    const isAuthorized =
+      user?.role === 'admin' ||
+      user?.area?.includes('operaciones') ||
+      user?.area?.includes('talento_humano')
+    if (!isAuthorized) {
+      return reply.status(403).send({
+        success: false,
+        message: 'No autorizado. Solo administradores o personal de Operaciones/Talento Humano pueden ver la papelera.'
+      })
+    }
+    const query = request.query as any
+    const result = await ClientesService.obtenerPapelera(
+      parseInt(query.page) || 1,
+      parseInt(query.limit) || 10,
+      query.tipo || undefined,
+      query.search || undefined
+    )
+    return reply.send({ success: true, message: 'Papelera de clientes', ...result })
+  },
+
+  // DELETE /clientes/:id/permanente
+  async eliminarPermanente(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as ClienteParams
+    try {
+      await ClientesService.eliminarPermanente(id)
+      emitClienteEliminado(id)
+      return reply.send({ success: true, message: 'Cliente eliminado definitivamente' })
+    } catch (error: any) {
+      if (error?.message === 'Cliente no encontrado') {
+        return reply.status(404).send({ success: false, message: error.message })
+      }
+      if (error?.statusCode) {
+        return reply
+          .status(error.statusCode)
+          .send({ success: false, message: error.message, bloqueantes: error.bloqueantes })
       }
       throw error
     }
@@ -394,6 +444,10 @@ export const ClientesController = {
           case 'eliminar':
             result = await ClientesService.eliminarMasivo(ids)
             message = `${result?.count || 0} clientes movidos a la papelera`
+            break
+          case 'restaurar':
+            result = await ClientesService.restaurarMasivo(ids)
+            message = `${result?.count || 0} clientes restaurados`
             break
           default:
             return reply.status(400).send({

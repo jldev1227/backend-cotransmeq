@@ -50,7 +50,14 @@ export const ClientesService = {
     });
   },
 
-  async list(page: number = 1, limit: number = 10, tipo?: string, search?: string) {
+  async list(
+    page: number = 1,
+    limit: number = 10,
+    tipo?: string,
+    search?: string,
+    /** Orden alfabético por nombre (A–Z por defecto). */
+    orden: 'asc' | 'desc' = 'asc',
+  ) {
     const skip = (page - 1) * limit;
     
     const where: any = { 
@@ -81,7 +88,7 @@ export const ClientesService = {
         where,
         skip,
         take: limit,
-        orderBy: { nombre: 'asc' },
+        orderBy: { nombre: orden },
         include: {
           _count: {
             select: {
@@ -446,6 +453,95 @@ export const ClientesService = {
         updatedAt: new Date(),
       },
     });
+  },
+
+  /**
+   * Papelera: clientes con borrado lógico.
+   *
+   * Hasta ahora «eliminar» los sacaba del listado sin ningún sitio donde
+   * verlos ni devolverlos (salvo de uno en uno, conociendo el id). Misma
+   * forma que la papelera de conductores.
+   */
+  async obtenerPapelera(page: number = 1, limit: number = 10, tipo?: string, search?: string) {
+    const skip = (page - 1) * limit;
+    const where: any = { deletedAt: { not: null } };
+    if (tipo && tipo !== 'TODOS') where.tipo = tipo;
+    if (search && search.trim() !== '') {
+      where.OR = [
+        { nombre: { contains: search, mode: 'insensitive' } },
+        { nit: { contains: search, mode: 'insensitive' } },
+        { representante: { contains: search, mode: 'insensitive' } },
+        { cedula: { contains: search, mode: 'insensitive' } },
+        { correo: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    const [clientes, total] = await Promise.all([
+      prisma.clientes.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' },
+        include: {
+          _count: {
+            select: {
+              recargos: { where: { deleted_at: null } },
+              pernotes: { where: { deleted_at: null } },
+              servicio: true,
+            },
+          },
+        },
+      }),
+      prisma.clientes.count({ where }),
+    ]);
+    return {
+      data: clientes,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  },
+
+  // Operaciones masivas: restaurar de la papelera
+  async restaurarMasivo(ids: string[]) {
+    return prisma.clientes.updateMany({
+      where: { id: { in: ids }, deletedAt: { not: null } },
+      data: { deletedAt: null, updatedAt: new Date() },
+    });
+  },
+
+  /**
+   * Borrado definitivo, solo desde la papelera y solo sin historial.
+   *
+   * Un cliente con servicios, liquidaciones o recargos es parte de la
+   * contabilidad: borrarlo rompería esos registros (o fallaría por la clave
+   * foránea con un error ilegible). En ese caso se responde 409 explicando
+   * por qué, y el cliente se queda en la papelera.
+   */
+  async eliminarPermanente(id: string) {
+    const cliente = await prisma.clientes.findUnique({ where: { id } });
+    if (!cliente) throw new Error('Cliente no encontrado');
+    if (!cliente.deletedAt) {
+      throw Object.assign(new Error('Solo se eliminan definitivamente clientes que están en la papelera'), {
+        statusCode: 400,
+      });
+    }
+    const [servicios, liquidaciones, recargos, planillas, pernotes, tarifas, salidas] = await Promise.all([
+      prisma.servicio.count({ where: { cliente_id: id } }),
+      prisma.liquidacion_servicio.count({ where: { cliente_id: id } }),
+      prisma.recargos.count({ where: { cliente_id: id } }),
+      prisma.recargos_planillas.count({ where: { cliente_id: id } }),
+      prisma.pernotes.count({ where: { cliente_id: id } }),
+      prisma.tarifas_servicios.count({ where: { cliente_id: id } }),
+      prisma.salidas_no_conformes.count({ where: { cliente_id: id } }),
+    ]);
+    const bloqueantes = { servicios, liquidaciones, recargos, planillas, pernotes, tarifas, salidas };
+    if (Object.values(bloqueantes).some((n) => n > 0)) {
+      throw Object.assign(
+        new Error(
+          'No se puede eliminar definitivamente: el cliente tiene historial (servicios, liquidaciones o recargos). Puede quedarse en la papelera.',
+        ),
+        { statusCode: 409, bloqueantes },
+      );
+    }
+    return prisma.clientes.delete({ where: { id } });
   },
 
   // Operaciones masivas: Soft Delete

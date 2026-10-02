@@ -1,7 +1,15 @@
 import { z } from 'zod';
 
-// Enum TipoCliente para validación
-const TipoClienteEnum = z.enum(['EMPRESA', 'PERSONA']);
+// Enum TipoCliente para validación.
+//
+// La base guarda `EMPRESA | PERSONA_NATURAL` (enum de Prisma), pero aquí solo
+// se aceptaba `PERSONA`: crear una persona natural desde la web fallaba
+// siempre con 400, y editar una existente también, porque el formulario manda
+// su `tipo`. `PERSONA` se sigue aceptando por compatibilidad y se traduce.
+const TipoClienteEnum = z.preprocess(
+  (v) => (v === 'PERSONA' ? 'PERSONA_NATURAL' : v),
+  z.enum(['EMPRESA', 'PERSONA_NATURAL']),
+);
 
 // Schema base para Cliente (sin validaciones condicionales)
 const clienteBaseSchema = z.object({
@@ -12,7 +20,12 @@ const clienteBaseSchema = z.object({
   cedula: z.string().optional().nullable(),
   telefono: z.string().optional().nullable(),
   direccion: z.string().optional().nullable(),
-  correo: z.string().email('Formato de correo inválido').optional().nullable(),
+  /// Vacío equivale a «sin correo»: borrar el campo al editar no es un correo
+  /// mal escrito.
+  correo: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().email('Formato de correo inválido').optional().nullable(),
+  ),
   requiere_osi: z.boolean().default(false),
   paga_recargos: z.boolean().default(false),
 });
@@ -24,7 +37,7 @@ export const createClienteSchema = clienteBaseSchema.refine((data) => {
     return false;
   }
   // Si es persona, requiere cédula
-  if (data.tipo === 'PERSONA' && !data.cedula) {
+  if (data.tipo === 'PERSONA_NATURAL' && !data.cedula) {
     return false;
   }
   return true;

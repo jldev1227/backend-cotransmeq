@@ -10,6 +10,7 @@ interface ObtenerTodosQuery {
   search?: string
   estado?: string
   sede_trabajo?: string
+  orden?: string
 }
 
 interface ConductorParams {
@@ -60,9 +61,10 @@ export const ConductoresController = {
     reply: FastifyReply
   ) {
     try {
-      const { page, limit, search, estado, sede_trabajo } = request.query
+      const { page, limit, search, estado, sede_trabajo, orden } = request.query
 
       const filters: any = {}
+      if (orden === 'asc' || orden === 'desc') filters.orden = orden
       
       if (search) filters.search = search
       if (estado) filters.estado = estado
