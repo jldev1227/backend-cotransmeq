@@ -40,7 +40,7 @@
 
 import { hseqFr08 } from './hseq-fr-08'
 import { hseqFr09 } from './hseq-fr-09'
-import { foto, ordenarSecciones } from './factories'
+import { decimal, foto, ordenarSecciones } from './factories'
 import type { SeedDefinition } from './types'
 import type { FormFieldDraft, FormSectionDraft } from '../../../src/modules/formularios-dinamicos/domain'
 
@@ -169,13 +169,16 @@ function trasladarCampos(secciones: FormSectionDraft[], code: string): FormSecti
  *
  *   1 → versión 2 del motor: la primera por etapas (`sourceRevision` `…-etapas`).
  *   2 → versión 3: añade «Evidencia de pausas activas» en la etapa 2.
+ *   3 → versión 4: pide en la etapa 2 cada cuántas horas hizo pausa activa
+ *       (obligatorio; las fotos siguen opcionales) y vuelve obligatorio el
+ *       kilometraje final de la etapa 3.
  *
  * Subirla cambia TODOS los ids de la versión —se derivan de `sourceRevision`—,
  * así que el cargador escribe una versión NUEVA en vez de tocar la publicada,
  * que puede tener borradores colgando. Las asignaciones piloto NO cambian de id:
  * cuelgan de `REVISION_ASIGNACION`, y el cargador las mueve a la versión nueva.
  */
-export const REVISION_ETAPAS = 2
+export const REVISION_ETAPAS = 3
 
 const SUFIJO_ETAPAS = '-etapas'
 
@@ -190,6 +193,20 @@ function sufijoDeRevision(revision: number): string {
  * ya está, aborta en vez de colarlo en otro sitio o duplicarlo.
  */
 const CAMPOS_NUEVOS: { desdeRevision: number; seccion: string; campo: FormFieldDraft }[] = [
+	/// Se añaden en el orden del array: la pregunta de las horas va antes que las
+	/// fotos aunque sea de una revisión posterior.
+	{
+		desdeRevision: 3,
+		seccion: 'Verificación durante el desplazamiento o en paradas seguras',
+		campo: {
+			...decimal('pausas_activas_cada_horas', '¿Cada cuántas horas realizó pausa activa?', {
+				required: true,
+				helpText: 'En horas. Ejemplo: 2,5',
+				validation: { min: 0.5, max: 24, precision: 1 }
+			}),
+			sortOrder: 0
+		}
+	},
 	{
 		desdeRevision: 2,
 		seccion: 'Verificación durante el desplazamiento o en paradas seguras',
@@ -212,6 +229,35 @@ function anadirCampos(secciones: FormSectionDraft[], code: string, revision: num
 			throw new Error(`${code}: ya existe un campo con la clave «${campo.key}».`)
 		}
 		resultado = resultado.map((s) => (s === destino ? { ...s, fields: renumerar([...s.fields, campo]) } : s))
+	}
+	return resultado
+}
+
+/**
+ * Cambios de las revisiones posteriores sobre campos que ya existen.
+ *
+ * Mismo criterio estricto: si la clave no aparece, aborta en vez de dejar el
+ * campo como estaba sin avisar.
+ */
+const AJUSTES_DE_CAMPO: { desdeRevision: number; campo: string; cambios: Partial<FormFieldDraft> }[] = [
+	{
+		desdeRevision: 3,
+		campo: 'km_final',
+		cambios: { required: true, helpText: 'Al terminar el desplazamiento. Es obligatorio para cerrar el preoperacional.' }
+	}
+]
+
+function ajustarCampos(secciones: FormSectionDraft[], code: string, revision: number): FormSectionDraft[] {
+	let resultado = secciones
+	for (const { desdeRevision, campo, cambios } of AJUSTES_DE_CAMPO) {
+		if (revision < desdeRevision) continue
+		if (!resultado.some((s) => s.fields.some((f) => f.key === campo))) {
+			throw new Error(`${code}: no existe el campo «${campo}» que la revisión ${desdeRevision} ajusta.`)
+		}
+		resultado = resultado.map((s) => ({
+			...s,
+			fields: s.fields.map((f) => (f.key === campo ? { ...f, ...cambios } : f))
+		}))
 	}
 	return resultado
 }
@@ -304,7 +350,10 @@ export function repartirEnEtapas(base: SeedDefinition): FormSectionDraft[] {
 		)
 	}
 
-	return ordenarSecciones(anadirCampos(trasladarCampos(secciones, base.code), base.code, REVISION_ETAPAS))
+	const movidas = trasladarCampos(secciones, base.code)
+	return ordenarSecciones(
+		ajustarCampos(anadirCampos(movidas, base.code, REVISION_ETAPAS), base.code, REVISION_ETAPAS)
+	)
 }
 
 /**
@@ -333,6 +382,11 @@ function derivarPorEtapas(base: SeedDefinition): SeedDefinition {
 			'El campo «Kilometraje final» sigue en la sección de combustible (ETAPA 1) aunque se diligencie al terminar: moverlo habría cambiado el contenido, y la V2 replica la V1. El conductor puede volver a la etapa 1 a completarlo antes de enviar.',
 			...(REVISION_ETAPAS >= 2
 				? ['Revisión 2 (versión 3 del motor): añade en la ETAPA 2 el campo opcional «Evidencia de pausas activas» (foto, hasta 6).']
+				: []),
+			...(REVISION_ETAPAS >= 3
+				? [
+						'Revisión 3 (versión 4 del motor): añade en la ETAPA 2 «¿Cada cuántas horas realizó pausa activa?» (obligatorio, en horas) y vuelve obligatorio el «Kilometraje final» de la ETAPA 3.'
+					]
 				: [])
 		],
 		version: {
