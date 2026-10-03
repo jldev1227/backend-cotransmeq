@@ -15,6 +15,7 @@ import {
 } from './capacitaciones.service'
 import {
   EjecucionServicioError,
+  guardarRecomendaciones,
   iniciarServicio,
   liberarServicio,
   obtenerEjecucion
@@ -2103,7 +2104,9 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             destino_longitud: true,
             valor: true,
             numero_planilla: true,
-            // observaciones: NO se exponen en listado
+            /// Indicaciones del área administrativa para el conductor. El formulario web avisa que las ve.
+            /// Va también en el listado: la app lo guarda como copia sin conexión del detalle.
+            observaciones: true,
             municipios_servicio_origen_idTomunicipios: {
               select: { id: true, nombre_municipio: true, nombre_departamento: true, latitud: true, longitud: true }
             },
@@ -2149,6 +2152,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           destino_longitud: s.destino_longitud,
           valor: s.valor ? Number(s.valor) : 0,
           numero_planilla: s.numero_planilla,
+          observaciones: s.observaciones,
           origen: s.municipios_servicio_origen_idTomunicipios,
           destino: s.municipios_servicio_destino_idTomunicipios,
           vehiculo: s.vehiculos,
@@ -2165,10 +2169,10 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
-    // ─── Detalle de un servicio (sin observaciones) ───
+    // ─── Detalle de un servicio (con observaciones; sin no conformidades) ───
     protectedApp.get('/conductor-portal/servicios/:id', {
       schema: {
-        description: 'Detalle de un servicio del conductor (excluye observaciones)',
+        description: 'Detalle de un servicio del conductor, con las observaciones del área administrativa',
         tags: ['conductor-portal'],
         params: {
           type: 'object',
@@ -2203,8 +2207,9 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             valor: true,
             numero_planilla: true,
             created_at: true,
-            // observaciones: NO se exponen
-            // no_conformidades: NO se exponen
+            /// Indicaciones del área administrativa para el conductor. El formulario web avisa que las ve.
+            observaciones: true,
+            // no_conformidades: NO se exponen (nota interna)
             municipios_servicio_origen_idTomunicipios: {
               select: { id: true, nombre_municipio: true, nombre_departamento: true, latitud: true, longitud: true }
             },
@@ -2258,6 +2263,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
             destino_longitud: servicio.destino_longitud,
             valor: servicio.valor ? Number(servicio.valor) : 0,
             numero_planilla: servicio.numero_planilla,
+            observaciones: servicio.observaciones,
             created_at: servicio.created_at,
             origen: servicio.municipios_servicio_origen_idTomunicipios,
             destino: servicio.municipios_servicio_destino_idTomunicipios,
@@ -2472,6 +2478,22 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         return reply.send({ success: true, data })
       } catch (err: any) {
         return errorEjecucion(request, reply, err, 'No fue posible liberar el servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/recomendaciones', {
+      schema: {
+        description: 'Recomendaciones u observaciones del conductor después de liberar el servicio',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await guardarRecomendaciones(request.params.id, conductor.id, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorEjecucion(request, reply, err, 'No fue posible guardar las recomendaciones')
       }
     })
   })

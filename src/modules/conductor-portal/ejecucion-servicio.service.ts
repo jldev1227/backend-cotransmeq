@@ -8,6 +8,8 @@ import { lockSubmissionPorId, TX_OPCIONES } from '../formularios-dinamicos/formu
 import { aplicarEfectosColaterales, type ServicioEstado } from '../servicios/servicios.estados'
 import { emitServicioEstadoActualizado } from '../servicios/servicios.events'
 import { ServiciosService } from '../servicios/servicios.service'
+import { NotificacionesService } from '../notificaciones/notificaciones.service'
+import { emitNotificacion } from '../../sockets'
 
 /**
  * Inicio y liberación de un servicio por el conductor desde la app.
@@ -267,6 +269,7 @@ async function construirEjecucion(servicio: ServicioCargado, conductorId: string
           liberado_at: ejecucion.liberado_at?.toISOString() ?? null,
           iniciado_diferido: ejecucion.iniciado_diferido,
           liberado_diferido: ejecucion.liberado_diferido,
+          recomendaciones: ejecucion.recomendaciones,
           preoperacional,
           reporte: tieneReporte
             ? {
@@ -335,6 +338,10 @@ const liberarSchema = z.object({
   reporte: reporteSchema.optional()
 })
 
+const recomendacionesSchema = z.object({
+  recomendaciones: z.string().trim().min(1, 'Escribe la recomendación').max(5000)
+})
+
 function parsear<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {
   const r = schema.safeParse(body ?? {})
   if (!r.success) {
@@ -362,6 +369,51 @@ async function avisarCambioDeEstado(servicioId: string, estadoAnterior: string) 
     if (servicio) emitServicioEstadoActualizado(servicio, estadoAnterior)
   } catch {
     /* el aviso en tiempo real no es parte de la operación */
+  }
+}
+
+/**
+ * Avisa al área de operaciones que el conductor liberó el servicio: una
+ * notificación por usuario (con id, para que la campana la marque como leída) y
+ * el mismo aviso por socket. Al abrirla, el portal va al detalle del servicio.
+ *
+ * Nunca deshace la liberación: ya quedó guardada cuando esto corre.
+ */
+async function notificarLiberacionAOperaciones(servicioId: string) {
+  try {
+    const servicio = await prisma.servicio.findUnique({
+      where: { id: servicioId },
+      select: {
+        conductores: { select: { nombre: true, apellido: true } },
+        vehiculos: { select: { placa: true } },
+        municipios_servicio_origen_idTomunicipios: { select: { nombre_municipio: true } },
+        municipios_servicio_destino_idTomunicipios: { select: { nombre_municipio: true } }
+      }
+    })
+    if (!servicio) return
+    const usuarios = await prisma.usuarios.findMany({
+      where: { activo: true, area: { has: 'operaciones' } },
+      select: { id: true }
+    })
+    const conductor =
+      `${servicio.conductores?.nombre ?? ''} ${servicio.conductores?.apellido ?? ''}`.trim() || 'Un conductor'
+    const origen = servicio.municipios_servicio_origen_idTomunicipios?.nombre_municipio
+    const destino = servicio.municipios_servicio_destino_idTomunicipios?.nombre_municipio
+    const ruta = origen && destino ? ` ${origen} → ${destino}` : ''
+    const placa = servicio.vehiculos?.placa ? ` (${servicio.vehiculos.placa})` : ''
+    for (const usuario of usuarios) {
+      const notificacion = await NotificacionesService.crear({
+        usuario_id: usuario.id,
+        tipo: 'GENERAL',
+        titulo: 'Servicio realizado',
+        mensaje: `${conductor} liberó el servicio${ruta}${placa}. Toca para ver el detalle.`,
+        referencia_id: servicioId,
+        referencia_tipo: 'servicio'
+      })
+      emitNotificacion(notificacion)
+    }
+  } catch {
+    /* el aviso no es parte de la operación */
   }
 }
 
@@ -575,6 +627,29 @@ export async function liberarServicio(servicioId: string, conductorId: string, b
   }, TX_OPCIONES)
 
   const actualizado = await cargarServicio(servicioId, conductorId)
-  if (actualizado.estado !== servicio.estado) await avisarCambioDeEstado(servicioId, servicio.estado)
+  /// Solo la primera liberación avisa: el reintento de la cola offline sale arriba sin pasar por aquí, y si
+  /// otra petición ganó la carrera el estado ya venía en `realizado`.
+  if (actualizado.estado !== servicio.estado) {
+    await avisarCambioDeEstado(servicioId, servicio.estado)
+    await notificarLiberacionAOperaciones(servicioId)
+  }
   return construirEjecucion(actualizado, conductorId)
+}
+
+/**
+ * Recomendaciones u observaciones del conductor después de liberar. Opcionales
+ * y aparte de `novedades`. Reenviar las reemplaza: la cola offline puede
+ * repetir la petición y el conductor puede corregirlas.
+ */
+export async function guardarRecomendaciones(servicioId: string, conductorId: string, body: unknown) {
+  const input = parsear(recomendacionesSchema, body)
+  const servicio = await cargarServicio(servicioId, conductorId)
+  if (!servicio.ejecucion?.liberado_at) {
+    throw new EjecucionServicioError('El servicio todavía no está liberado.', 409, 'NO_LIBERADO')
+  }
+  await prisma.servicio_ejecucion.update({
+    where: { servicio_id: servicioId },
+    data: { recomendaciones: input.recomendaciones, recomendaciones_at: new Date() }
+  })
+  return construirEjecucion(await cargarServicio(servicioId, conductorId), conductorId)
 }

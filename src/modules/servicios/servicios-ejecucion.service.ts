@@ -17,6 +17,8 @@ import { etapasCerradas } from '../conductor-portal/ejecucion-servicio.service'
 const ETAPA_DESPLAZAMIENTO = 2
 /** Campo de evidencia de pausas activas (versión por etapas, revisión 2). Va primero. */
 const CAMPO_PAUSAS_ACTIVAS = 'pausas_activas_evidencia'
+/** Cada cuántas horas hizo pausa activa (versión por etapas, revisión 3). */
+const CAMPO_PAUSAS_CADA_HORAS = 'pausas_activas_cada_horas'
 
 export async function obtenerEjecucionServicio(servicioId: string) {
   const servicio = await prisma.servicio.findFirst({
@@ -65,7 +67,9 @@ export async function obtenerEjecucionServicio(servicioId: string) {
       }
     : null
 
-  const fotos_desplazamiento = sub ? await fotosDeDesplazamiento(sub.id) : []
+  const [fotos_desplazamiento, pausas_activas_cada_horas] = sub
+    ? await Promise.all([fotosDeDesplazamiento(sub.id), horasEntrePausas(sub.id)])
+    : [[], null]
 
   const reporte = {
     km_final: ejecucion.km_final,
@@ -95,11 +99,23 @@ export async function obtenerEjecucionServicio(servicioId: string) {
       liberado_registrado_at: ejecucion.liberado_registrado_at?.toISOString() ?? null,
       liberado_dispositivo_at: ejecucion.liberado_dispositivo_at?.toISOString() ?? null,
       liberado_diferido: ejecucion.liberado_diferido,
-      reporte: tieneReporte ? reporte : null
+      reporte: tieneReporte ? reporte : null,
+      pausas_activas_cada_horas,
+      recomendaciones: ejecucion.recomendaciones,
+      recomendaciones_at: ejecucion.recomendaciones_at?.toISOString() ?? null
     },
     preoperacional,
     fotos_desplazamiento
   }
+}
+
+/** Respuesta del preoperacional a «cada cuántas horas hizo pausa activa». Null en versiones que no la piden. */
+async function horasEntrePausas(submissionId: string): Promise<number | null> {
+  const respuesta = await prisma.form_answer.findFirst({
+    where: { submission_id: submissionId, field: { key: CAMPO_PAUSAS_CADA_HORAS } },
+    select: { value_decimal: true }
+  })
+  return respuesta?.value_decimal != null ? Number(respuesta.value_decimal) : null
 }
 
 /**
