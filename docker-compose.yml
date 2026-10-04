@@ -11,12 +11,6 @@ services:
     env_file:
       - ${BACKEND_ENV_FILE:-.env}
       - .azure-openai.env
-    environment:
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:?Falta AZURE_OPENAI_API_VERSION en GitHub Actions}
-      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:?Falta AZURE_OPENAI_DEPLOYMENT en GitHub Actions}
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:?Falta AZURE_OPENAI_ENDPOINT en GitHub Actions}
-      AZURE_OPENAI_KEY: ${AZURE_OPENAI_KEY:?Falta AZURE_OPENAI_KEY en GitHub Actions}
-      AZURE_OPENAI_MODEL: ${AZURE_OPENAI_MODEL:?Falta AZURE_OPENAI_MODEL en GitHub Actions}
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4000/ || exit 1"]
       interval: 15s
