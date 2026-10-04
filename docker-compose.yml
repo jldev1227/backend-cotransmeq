@@ -10,6 +10,7 @@ services:
       - "3001:4000"
     env_file:
       - ${BACKEND_ENV_FILE:-.env}
+      - .azure-openai.env
     environment:
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:?Falta AZURE_OPENAI_API_VERSION en GitHub Actions}
       AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:?Falta AZURE_OPENAI_DEPLOYMENT en GitHub Actions}
