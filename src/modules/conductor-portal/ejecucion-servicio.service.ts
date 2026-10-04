@@ -41,6 +41,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const CODIGO_AUTOMOVILES = 'HSEQ-FR-08'
 const CODIGO_BUSES = 'HSEQ-FR-09'
 
+/// Estados en que el conductor inicia el servicio desde la app. `en_curso` también:
+/// operaciones puede marcarlo en curso un minuto antes de que el conductor asocie
+/// el prealistamiento, y ese inicio no debe perderse.
+const ESTADOS_PARA_INICIAR: ServicioEstado[] = ['planificado', 'en_curso']
+/// Realizado por operaciones sin pasar por la app: solo se le asocia el
+/// preoperacional. No cambia de estado y no se libera desde la app.
+const ESTADOS_PARA_ASOCIAR: ServicioEstado[] = ['realizado']
+
 /** Versiones por etapas del motor de formularios (`settings.modo = 'ETAPAS'`). */
 const VERSION_POR_ETAPAS: Prisma.form_versionWhereInput = {
   settings_json: { path: ['modo'], equals: 'ETAPAS' }
@@ -247,11 +255,10 @@ async function construirEjecucion(servicio: ServicioCargado, conductorId: string
   return {
     habilitado,
     estado,
-    puede_iniciar:
-      habilitado &&
-      !iniciado &&
-      Boolean(servicio.vehiculo_id) &&
-      (estado === 'planificado' || (estado === 'solicitado' && Boolean(servicio.conductor_id))),
+    puede_iniciar: habilitado && !iniciado && Boolean(servicio.vehiculo_id) && ESTADOS_PARA_INICIAR.includes(estado),
+    /// Aparte de `puede_iniciar` para que una app anterior, que no lo conoce, no
+    /// ofrezca iniciar ni liberar un servicio ya realizado.
+    puede_asociar: habilitado && !iniciado && Boolean(servicio.vehiculo_id) && ESTADOS_PARA_ASOCIAR.includes(estado),
     puede_liberar:
       estado === 'en_curso' && iniciado && !ejecucion?.liberado_at && preoperacional?.status === 'SUBMITTED',
     vehiculo: servicio.vehiculos
@@ -435,7 +442,7 @@ export async function iniciarServicio(servicioId: string, conductorId: string, b
   }
 
   const estadoAnterior = servicio.estado as ServicioEstado
-  if (estadoAnterior !== 'planificado' && estadoAnterior !== 'solicitado') {
+  if (!ESTADOS_PARA_INICIAR.includes(estadoAnterior) && !ESTADOS_PARA_ASOCIAR.includes(estadoAnterior)) {
     throw new EjecucionServicioError(`El servicio está ${estadoAnterior}; no se puede iniciar.`, 409, 'ESTADO_INVALIDO')
   }
   if (!servicio.vehiculo_id) {
@@ -519,7 +526,8 @@ export async function iniciarServicio(servicioId: string, conductorId: string, b
       if (previa.preoperacional_submission_id === sub.id) return
       throw new EjecucionServicioError('El servicio ya se inició con otro preoperacional.', 409, 'ESTADO_INVALIDO')
     }
-    if (enBase.estado !== 'planificado' && enBase.estado !== 'solicitado') {
+    const estadoEnBase = enBase.estado as ServicioEstado
+    if (!ESTADOS_PARA_INICIAR.includes(estadoEnBase) && !ESTADOS_PARA_ASOCIAR.includes(estadoEnBase)) {
       throw new EjecucionServicioError(`El servicio está ${enBase.estado}; no se puede iniciar.`, 409, 'ESTADO_INVALIDO')
     }
 
@@ -538,6 +546,9 @@ export async function iniciarServicio(servicioId: string, conductorId: string, b
       create: { servicio_id: servicioId, ...datos },
       update: datos
     })
+
+    /// En curso o realizado por operaciones: el estado ya es el correcto.
+    if (estadoEnBase !== 'planificado') return
 
     /// Solo el estado: `fecha_realizacion` es la fecha planeada y no se toca.
     await tx.servicio.update({ where: { id: servicioId }, data: { estado: 'en_curso' } })
