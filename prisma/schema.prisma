@@ -1350,6 +1350,7 @@ model usuarios {
   activo                                                                      Boolean                                      @default(true)
   firma_url                                                                   String?
   anticipos                                                                   anticipos[]
+  api_tokens                                                                  api_tokens[]
   bonificaciones                                                              bonificaciones[]
   conductores                                                                 conductores[]
   configuracion_liquidador_configuracion_liquidador_actualizado_por_idTousers configuracion_liquidador[]                   @relation("configuracion_liquidador_actualizado_por_idTousers")
@@ -5505,4 +5506,24 @@ model pesv_jornada_policy {
 
   @@index([vigente_desde, vigente_hasta])
   @@index([deleted_at])
+}
+
+/// Tokens personales (solo hash SHA-256) con los que Claude u otra herramienta
+/// MCP consulta la app en nombre de un usuario, con sus mismos permisos. Ver
+/// `modules/mcp/api-tokens.service.ts`. Tabla creada a mano con la migración
+/// `20261003120000_api_tokens` (ver memoria «migraciones-historial-divergente»).
+model api_tokens {
+  id           String    @id @default(uuid()) @db.Uuid
+  usuario_id   String    @db.Uuid
+  nombre       String    @db.VarChar(60)
+  /// Primeros caracteres del token, para que el usuario reconozca cuál es cuál.
+  prefijo      String    @db.VarChar(10)
+  token_hash   String    @unique @db.VarChar(64)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  last_used_at DateTime? @db.Timestamptz(6)
+  /// Un token revocado no se borra: queda con fecha para auditoría.
+  revoked_at   DateTime? @db.Timestamptz(6)
+  usuario      usuarios  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@index([usuario_id])
 }

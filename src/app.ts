@@ -69,6 +69,9 @@ import { formulariosSarlaftRoutes } from './modules/formularios-sarlaft/formular
 import { formulariosDinamicosRoutes } from './modules/formularios-dinamicos/formularios-dinamicos.routes'
 import { formulariosPortalRoutes } from './modules/formularios-dinamicos/formularios-portal.routes'
 import { formulariosMisRoutes } from './modules/formularios-dinamicos/formularios-mis.routes'
+import { asistenteRoutes } from './modules/asistente/asistente.routes'
+import { apiTokensRoutes } from './modules/mcp/api-tokens.routes'
+import { mcpRoutes } from './modules/mcp/mcp.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -237,6 +240,14 @@ export function buildApp() {
     app.register(formulariosDinamicosRoutes, { prefix: '/api' })
     app.register(formulariosPortalRoutes, { prefix: '/api' })
     app.register(formulariosMisRoutes, { prefix: '/api' })
+
+    // Asistente de IA (chat con herramientas de solo lectura) y su segundo
+    // canal: servidor MCP para conectar Claude con token personal. Las
+    // herramientas y los permisos son los mismos en los dos; ver
+    // `modules/asistente/herramientas.ts`.
+    app.register(asistenteRoutes, { prefix: '/api' })
+    app.register(apiTokensRoutes, { prefix: '/api' })
+    app.register(mcpRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app
