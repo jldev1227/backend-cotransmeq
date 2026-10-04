@@ -46,6 +46,40 @@ function conflictoDeUnicidad(error: any): { status: 409; body: { error: string }
   };
 }
 
+/**
+ * Aviso a todos los que pueden aprobar: lo mismo que hace el POST del botón
+ * «Registrar». Es una función aparte para que el asistente, cuando crea una
+ * liquidación en nombre del usuario, avise exactamente igual que la pantalla.
+ * Nunca lanza: una notificación caída no debe deshacer una creación hecha.
+ */
+export async function notificarLiquidacionCreada(
+  liquidacion: { id: string; consecutivo: string; cliente?: { nombre?: string | null } | null },
+  userId: string | undefined,
+  userName: string,
+) {
+  try {
+    const consecutivo = liquidacion.consecutivo;
+    const clienteNombre = liquidacion.cliente?.nombre || "";
+    const aprobadores = await NotificacionesService.obtenerUsuariosAprobadores();
+    const otros = aprobadores.filter((u) => u.id !== userId);
+    if (otros.length > 0) {
+      const notifData = otros.map((u) => ({
+        usuario_id: u.id,
+        tipo: "LIQUIDACION_CREADA" as const,
+        titulo: `Nueva liquidación ${consecutivo}`,
+        mensaje: `${userName} creó la liquidación ${consecutivo} (${clienteNombre}).`,
+        referencia_id: liquidacion.id,
+      }));
+      await NotificacionesService.crearMasivas(notifData);
+      for (const nd of notifData) {
+        emitNotificacion(nd);
+      }
+    }
+  } catch (notifError) {
+    console.error("Error creando notificaciones de creación:", notifError);
+  }
+}
+
 export class LiquidacionesServiciosController {
   // ── TARIFAS ──
 
@@ -170,29 +204,7 @@ export class LiquidacionesServiciosController {
         }),
       );
 
-      // Notificar a todos los usuarios con acceso
-      try {
-        const consecutivo = liquidacion.consecutivo;
-        const clienteNombre = liquidacion.cliente?.nombre || "";
-        const aprobadores =
-          await NotificacionesService.obtenerUsuariosAprobadores();
-        const otros = aprobadores.filter((u) => u.id !== userId);
-        if (otros.length > 0) {
-          const notifData = otros.map((u) => ({
-            usuario_id: u.id,
-            tipo: "LIQUIDACION_CREADA" as const,
-            titulo: `Nueva liquidación ${consecutivo}`,
-            mensaje: `${userName} creó la liquidación ${consecutivo} (${clienteNombre}).`,
-            referencia_id: liquidacion.id,
-          }));
-          await NotificacionesService.crearMasivas(notifData);
-          for (const nd of notifData) {
-            emitNotificacion(nd);
-          }
-        }
-      } catch (notifError) {
-        console.error("Error creando notificaciones de creación:", notifError);
-      }
+      await notificarLiquidacionCreada(liquidacion, userId, userName);
 
       return reply.status(201).send(liquidacion);
     } catch (error: any) {

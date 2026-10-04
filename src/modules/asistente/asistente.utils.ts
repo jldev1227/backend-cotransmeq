@@ -57,3 +57,17 @@ export function fechaCorta(valor: Date | string | null | undefined): string | un
   if (Number.isNaN(d.getTime())) return undefined
   return d.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', year: 'numeric', month: 'short', day: 'numeric' })
 }
+
+/**
+ * Variantes de un nombre para buscar con tolerancia: primero todas las palabras,
+ * luego sin la última, y así hasta una. Así «wilmer moreno canizales» encuentra
+ * a «WILMER … MORENO CANIZALEZ» aunque un apellido venga mal escrito. Quien la
+ * usa prueba en orden y se queda con la primera que trae filas, avisando qué
+ * palabras ignoró.
+ */
+export function variantesNombre(texto: string): { partes: string[]; ignoradas: string[] }[] {
+  const partes = texto.split(/\s+/).filter(Boolean)
+  const salida: { partes: string[]; ignoradas: string[] }[] = []
+  for (let n = partes.length; n >= 1; n--) salida.push({ partes: partes.slice(0, n), ignoradas: partes.slice(n) })
+  return salida
+}

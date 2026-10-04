@@ -667,7 +667,7 @@ function buildHtml(data: SarlaftPDFData): string {
            que NINGUNA celda se desborde por cabecera larga
        ════════════════════════════════════════════════════ */
     :root {
-      --bg: #FCFCFB;
+      --bg: #F8FAFC;
       --surface: #ffffff;
       --ink: #0F172A;
       --ink-2: #1E293B;

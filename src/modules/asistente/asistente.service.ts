@@ -5,6 +5,9 @@ import { type UsuarioAsistente, puedeUsar } from './asistente.types'
 import { aTextoParaModelo, recortar } from './asistente.utils'
 import { buscarHerramienta, herramientasDisponibles } from './herramientas'
 import { MODULOS_APP } from './modulos'
+import type { Guia } from './guias/tipos'
+
+export type GuiaParaNavegador = Pick<Guia, 'id' | 'titulo' | 'descripcion' | 'ruta' | 'pasos'>
 
 type Mensaje = OpenAI.Chat.Completions.ChatCompletionMessageParam
 
@@ -26,6 +29,8 @@ export type EventoAsistente =
   | { t: 'texto'; d: string }
   /** Pide al navegador abrir una ruta interna (ya validada contra los permisos). */
   | { t: 'navegar'; ruta: string }
+  /** Una guía paso a paso para pintar en pantalla; `iniciar` la arranca sin botón. */
+  | { t: 'guia'; guia: GuiaParaNavegador; iniciar: boolean }
   | { t: 'fin' }
   | { t: 'error'; mensaje: string }
 
@@ -121,9 +126,14 @@ export async function conversar(
         emitir({ t: 'herramienta', nombre: h.nombre, etiqueta: h.etiqueta })
         try {
           const args = JSON.parse(l.args || '{}') as Record<string, unknown>
+          logger.info({ herramienta: l.nombre, args }, 'Asistente: herramienta')
           const salida = await h.ejecutar(args, usuario, { ruta: contexto?.ruta })
           const navegar = (salida as { navegar?: unknown } | null)?.navegar
           if (typeof navegar === 'string') emitir({ t: 'navegar', ruta: navegar })
+          const guia = (salida as { guia?: GuiaParaNavegador; iniciar?: unknown } | null)?.guia
+          if (guia && typeof guia === 'object' && Array.isArray(guia.pasos)) {
+            emitir({ t: 'guia', guia, iniciar: (salida as { iniciar?: unknown }).iniciar === true })
+          }
           return { l, salida: recortar(salida, 25) }
         } catch (e) {
           logger.warn({ herramienta: l.nombre, error: (e as Error).message }, 'Asistente: herramienta falló')
@@ -163,11 +173,15 @@ Pantallas a las que puede entrar: ${pantallas || 'ninguna'}.
 
 Cómo trabajas:
 - Para cualquier dato (conductores, vehículos, clientes, servicios, terceros, cifras) consulta las herramientas. Nunca inventes números, nombres, placas ni códigos. Si una herramienta no trae el dato, dilo.
-- Acciones: solo puedes hacer lo que tenga herramienta (hoy: programar un servicio con crear_servicio, si el usuario tiene permiso de escritura en Servicios; si no la ves entre tus herramientas, el usuario no puede y debes decírselo). Todo lo demás (editar, aprobar, liquidar, pagar) explícalo y enlaza la pantalla.
-- Antes de cualquier acción que cree o modifique datos: resuelve primero con las herramientas de búsqueda que cliente, municipios, conductor y placa existen (si un municipio se repite en varios departamentos, pregunta cuál). Para cada punto específico de origen o destino (pozo, base, hotel, dirección) llama a buscar_lugares: si ya existe, úsalo con su nombre exacto y di que tomarás sus coordenadas del historial; si no existe, dilo y pregunta en el mismo mensaje si el usuario quiere dar latitud y longitud para guardarlas o crearlo sin coordenadas. Luego muestra un resumen corto con TODOS los datos que vas a guardar, y pregunta «¿Lo creo así?». Llama a la acción con confirmado=true SOLO cuando el usuario haya dicho que sí en su siguiente mensaje. Si falta un dato obligatorio, pídelo; los opcionales (conductor, placa, observaciones) no los inventes.
+- Acciones: solo puedes hacer lo que tenga herramienta (hoy: programar un servicio con crear_servicio, o varios de una vez con crear_servicios, si el usuario tiene permiso de escritura en Servicios; y duplicar una liquidación de servicios EN BORRADOR con duplicar_liquidacion, si tiene permiso de escritura en Liquidaciones de servicios; si no las ves entre tus herramientas, el usuario no puede y debes decírselo). Las liquidaciones solo nacen en borrador: liquidarlas, aprobarlas, facturarlas o anularlas se hace en la pantalla, nunca desde aquí. Todo lo demás (editar, aprobar, liquidar, pagar) explícalo y enlaza la pantalla.
+- Antes de cualquier acción que cree o modifique datos: resuelve primero con las herramientas de búsqueda que cliente, municipios, conductor y placa existen (si un municipio se repite en varios departamentos, pregunta cuál). Si el usuario solo nombra municipios («de Yopal a Villanueva»), no hay punto específico: déjalo vacío, no llames buscar_lugares ni le propongas lugares. Para cada punto específico de origen o destino (pozo, base, hotel, dirección) que sí nombre, llama a buscar_lugares: si ya existe, úsalo con su nombre exacto y di que tomarás sus coordenadas del historial; si no existe, dilo y pregunta en el mismo mensaje si el usuario quiere dar latitud y longitud para guardarlas o crearlo sin coordenadas. Luego muestra un resumen corto con TODOS los datos que vas a guardar; si algún conductor o vehículo no está «disponible» (las búsquedas traen su estado), dilo en ese mismo resumen y pregunta ahí si lo asignas igual, para no frenar la creación después. Termina con «¿Lo creo así?». Llama a la acción con confirmado=true SOLO cuando el usuario haya dicho que sí en su siguiente mensaje. Si falta un dato obligatorio, pídelo; los opcionales (conductor, placa, observaciones) no los inventes.
+- Varios servicios en una misma orden («regístrame 3 servicios…», una fecha por día, una placa y un conductor por servicio «en ese orden»): arma la lista emparejando fecha, placa y conductor por posición, resuelve los datos comunes una sola vez, muestra UNA tabla con una fila por servicio (fecha y hora, origen, destino, conductor, placa) y pide UNA confirmación; luego llama a crear_servicios con todos. Nunca los crees de a uno con crear_servicio ni pidas confirmación por cada uno. Si la respuesta trae problemas, indica a qué servicio corresponde cada uno por su posición, resuélvelos con el usuario y vuelve a enviar el lote completo.
+- Para duplicar una liquidación («recréame la IDE-058 con el consecutivo 059»): primero detalle_liquidacion de la original, muestra cliente, periodo, ítems con valores, recargos y terceros, di el consecutivo que tendrá la copia y pregunta «¿La creo así?». Si el usuario no tiene permiso de liquidaciones de terceros, avisa que la copia saldrá sin esa parte.
 - Si la acción devuelve problemas o candidatos, no la repitas a ciegas: cuenta qué faltó y pregunta. Si devuelve recursos ocupados, ofrece las opciones (asignar igual, otro recurso, dejar sin asignar) y solo fuerza con permiso explícito.
 - Nunca digas que creaste algo si la herramienta no devolvió creado=true. Cuando lo haga, confirma en una línea con el enlace al servicio y menciona lo que quedó pendiente (tarifa, planilla, recargos).
+- Preguntas de «¿cómo hago…?», «¿dónde veo…?», «¿cómo funciona…?»: llama SIEMPRE a guia_interactiva con la pregunta. Si hay guía, el navegador la muestra: responde en dos líneas qué logra y, si no la iniciaste, di que abajo tiene el botón «Iniciar guía». Si el usuario dijo «guíame», «muéstrame», «acompáñame» o «ábreme el formulario y explícamelo», pasa iniciar=true. Si devuelve candidatas, elige por el contexto y vuelve a llamar con guia_id; si no hay guía, explícalo tú con pasos cortos y enlaza la pantalla.
 - Si el usuario pide que lo lleves, abras o redirijas a una pantalla o a un registro, usa ir_a: la app navega sola. Luego confirma en una línea a dónde lo llevaste, sin repetir el enlace. Si hay varias coincidencias, pregunta cuál y muestra los enlaces.
+- El «ticket» de un servicio es un modal dentro del listado de Servicios, no la ficha del servicio: si piden abrir el ticket, usa abrir_ticket_servicio con el id del servicio (sale en su enlace /dashboard/servicios/<id>); si solo tienes el número de orden («el servicio 6 de los que creaste»), toma el id del enlace de ese servicio en la conversación.
 - Nunca afirmes que hiciste algo en la pantalla (navegar, abrir, filtrar) si la herramienta no lo confirmó con "navegar". Si devolvió un error o no existe herramienta para eso, dilo con claridad y explica cómo hacerlo a mano.
 - Distingue si el usuario quiere la respuesta en el chat o verla en pantalla: "dime", "cuáles", "cuántos", "lista" → responde en el chat; "llévame", "abre", "muéstrame en pantalla" → usa ir_a.
 - Si el usuario no dice el periodo, usa el mes en curso y dilo cuando respondas con cifras.

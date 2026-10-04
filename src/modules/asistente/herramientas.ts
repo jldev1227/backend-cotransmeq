@@ -5,10 +5,12 @@ import {
   type UsuarioAsistente,
   puedeUsar,
 } from './asistente.types'
-import { enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
+import { variantesNombre, enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
 import { MODULOS_APP, buscarModulo, descripcionModulo, moduloDeRuta } from './modulos'
 import { ACCIONES } from './acciones'
 import { buscarLugares } from './lugares'
+import { ACCIONES_LIQUIDACIONES, HERRAMIENTAS_LIQUIDACIONES } from './liquidaciones'
+import { guiaInteractiva } from './guias/herramienta'
 
 /**
  * Registro de herramientas del asistente.
@@ -107,6 +109,41 @@ const irA: Herramienta = {
 
 // ── Conductores ───────────────────────────────────────────────────────────
 
+/**
+ * El ticket de un servicio es un MODAL del listado, no una pantalla: no tiene
+ * ruta propia. El listado entiende `?ticket=<id>` y lo abre solo, así que
+ * esta herramienta solo valida que el servicio exista y manda navegar ahí.
+ */
+const abrirTicketServicio: Herramienta = {
+  nombre: 'abrir_ticket_servicio',
+  descripcion:
+    'Abre en pantalla el ticket (modal) de un servicio. Pasa el id del servicio, que viene en los enlaces /dashboard/servicios/<id> que devuelven las otras herramientas. La app abre el listado de Servicios con el ticket desplegado.',
+  parametros: {
+    type: 'object',
+    properties: { servicio_id: { type: 'string', description: 'Id del servicio (UUID) o su enlace /dashboard/servicios/<id>' } },
+    required: ['servicio_id'],
+    additionalProperties: false,
+  },
+  etiqueta: 'Abriendo el ticket',
+  requiere: 'servicios',
+  canales: ['app'],
+  async ejecutar(args) {
+    const texto = textoOpcional(args.servicio_id, 300) ?? ''
+    const id = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.exec(texto)?.[0]
+    if (!id) return { error: 'Falta el id del servicio; búscalo primero con buscar_servicios' }
+    const s = await prisma.servicio.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, estado: true, fecha_realizacion: true, clientes: { select: { nombre: true } } },
+    })
+    if (!s) return { error: 'No existe ese servicio' }
+    return {
+      navegar: `/dashboard/servicios?ticket=${s.id}`,
+      pantalla: 'Ticket del servicio',
+      servicio: { cliente: s.clientes?.nombre, estado: s.estado, fecha_realizacion: fechaCorta(s.fecha_realizacion) },
+    }
+  },
+}
+
 const buscarConductores: Herramienta = {
   nombre: 'buscar_conductores',
   descripcion:
@@ -127,11 +164,10 @@ const buscarConductores: Herramienta = {
     const estado = textoOpcional(args.estado, 30)?.toLowerCase().replace(/\s+/g, '_')
     const limite = enteroEntre(args.limite, 1, LIMITE_MAXIMO, LIMITE_POR_DEFECTO)
 
-    const where: Record<string, unknown> = { deleted_at: null, oculto: false }
-    if (estado) where.estado = estado
-    if (texto) {
-      const partes = texto.split(/\s+/).filter(Boolean)
-      where.AND = partes.map((p) => ({
+    const base: Record<string, unknown> = { deleted_at: null, oculto: false }
+    if (estado) base.estado = estado
+    const condiciones = (partes: string[]) =>
+      partes.map((p) => ({
         OR: [
           { nombre: { contains: p, mode: 'insensitive' } },
           { apellido: { contains: p, mode: 'insensitive' } },
@@ -139,6 +175,20 @@ const buscarConductores: Herramienta = {
           { email: { contains: p, mode: 'insensitive' } },
         ],
       }))
+
+    // Con tolerancia: si el nombre completo no trae a nadie, se van soltando
+    // palabras (un apellido mal escrito no debe dejar al conductor sin aparecer).
+    let where = base
+    let palabrasIgnoradas: string[] = []
+    if (texto) {
+      for (const v of variantesNombre(texto)) {
+        const candidato = { ...base, AND: condiciones(v.partes) }
+        if ((await prisma.conductores.count({ where: candidato as never })) > 0 || v.partes.length === 1) {
+          where = candidato
+          palabrasIgnoradas = v.ignoradas
+          break
+        }
+      }
     }
 
     const [filas, total] = await Promise.all([
@@ -165,6 +215,7 @@ const buscarConductores: Herramienta = {
     ])
 
     return {
+      ...(palabrasIgnoradas.length ? { nota: `No hubo coincidencias con el nombre completo; se ignoró «${palabrasIgnoradas.join(' ')}». Confirma con el usuario que es la persona correcta` } : {}),
       total,
       mostrados: filas.length,
       conductores: filas.map((c) => ({
@@ -607,6 +658,8 @@ const buscarLugaresHerramienta: Herramienta = {
 export const HERRAMIENTAS: readonly Herramienta[] = [
   pantallasDisponibles,
   irA,
+  guiaInteractiva,
+  abrirTicketServicio,
   buscarConductores,
   buscarVehiculos,
   buscarClientes,
@@ -615,8 +668,10 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   buscarTerceros,
   buscarMunicipios,
   buscarLugaresHerramienta,
+  ...HERRAMIENTAS_LIQUIDACIONES,
   // Acciones (escriben): mismo permiso `full` que la ruta REST, solo canal app.
   ...ACCIONES,
+  ...ACCIONES_LIQUIDACIONES,
 ]
 
 export function herramientasDisponibles(usuario: UsuarioAsistente, canal: Canal): Herramienta[] {
