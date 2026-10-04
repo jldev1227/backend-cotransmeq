@@ -19,6 +19,12 @@ jobs:
     runs-on: [self-hosted, linux, x64, cotransmeq-ct123, backend-cotransmeq]
     timeout-minutes: 90
     environment: production
+    env:
+      AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+      AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+      AZURE_OPENAI_MODEL: ${{ vars.AZURE_OPENAI_MODEL }}
 
     steps:
       - name: Checkout exact commit
@@ -28,4 +34,4 @@ jobs:
           fetch-depth: 1
 
       - name: Build, deploy and verify
-        run: sudo /usr/local/sbin/deploy-backend-cotransmeq "$GITHUB_SHA"
+        run: sudo --preserve-env=AZURE_OPENAI_API_VERSION,AZURE_OPENAI_DEPLOYMENT,AZURE_OPENAI_ENDPOINT,AZURE_OPENAI_KEY,AZURE_OPENAI_MODEL /usr/local/sbin/deploy-backend-cotransmeq "$GITHUB_SHA"
