@@ -59,6 +59,13 @@ export interface Herramienta {
    * para que el prompt le exija al modelo confirmar antes de llamarla.
    */
   escribe?: boolean
+  /**
+   * Tope de elementos por lista que llega al modelo (por defecto 25) y de
+   * caracteres del resultado (por defecto 14 000). Una herramienta cuyo valor
+   * ES la lista completa —un cruce de cumplimiento— lo sube: con el tope
+   * común el modelo veía 25 de 50 y ofrecía «mostrar el resto» en otro turno.
+   */
+  salidaMaxima?: { lista?: number; caracteres?: number }
   /** Restricción extra por rol (p. ej. solo `admin`). */
   soloRoles?: string[]
   /**

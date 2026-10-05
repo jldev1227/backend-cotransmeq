@@ -10,6 +10,7 @@ import { MODULOS_APP, buscarModulo, descripcionModulo, moduloDeRuta } from './mo
 import { ACCIONES } from './acciones'
 import { buscarLugares } from './lugares'
 import { ACCIONES_LIQUIDACIONES, HERRAMIENTAS_LIQUIDACIONES } from './liquidaciones'
+import { HERRAMIENTAS_FORMULARIOS } from './formularios'
 import { guiaInteractiva } from './guias/herramienta'
 
 /**
@@ -669,6 +670,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   buscarMunicipios,
   buscarLugaresHerramienta,
   ...HERRAMIENTAS_LIQUIDACIONES,
+  ...HERRAMIENTAS_FORMULARIOS,
   // Acciones (escriben): mismo permiso `full` que la ruta REST, solo canal app.
   ...ACCIONES,
   ...ACCIONES_LIQUIDACIONES,

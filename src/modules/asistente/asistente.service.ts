@@ -134,15 +134,16 @@ export async function conversar(
           if (guia && typeof guia === 'object' && Array.isArray(guia.pasos)) {
             emitir({ t: 'guia', guia, iniciar: (salida as { iniciar?: unknown }).iniciar === true })
           }
-          return { l, salida: recortar(salida, 25) }
+          return { l, salida: recortar(salida, h.salidaMaxima?.lista ?? 25), maxCaracteres: h.salidaMaxima?.caracteres }
         } catch (e) {
           logger.warn({ herramienta: l.nombre, error: (e as Error).message }, 'Asistente: herramienta falló')
           return { l, salida: { error: 'No se pudo consultar esta información' } }
         }
       }),
     )
-    for (const { l, salida } of resultados) {
-      mensajes.push({ role: 'tool', tool_call_id: l.id, content: aTextoParaModelo(salida) })
+    for (const r of resultados) {
+      const maxCaracteres = 'maxCaracteres' in r ? r.maxCaracteres : undefined
+      mensajes.push({ role: 'tool', tool_call_id: r.l.id, content: aTextoParaModelo(r.salida, maxCaracteres) })
     }
   }
 
@@ -172,7 +173,7 @@ Hoy es ${hoy}. Hablas con ${u.nombre} (áreas: ${u.areas.join(', ') || 'sin áre
 Pantallas a las que puede entrar: ${pantallas || 'ninguna'}.
 
 Cómo trabajas:
-- Para cualquier dato (conductores, vehículos, clientes, servicios, terceros, cifras) consulta las herramientas. Nunca inventes números, nombres, placas ni códigos. Si una herramienta no trae el dato, dilo.
+- Para cualquier dato (conductores, vehículos, clientes, servicios, terceros, formularios, cifras) consulta las herramientas. Nunca inventes números, nombres, placas ni códigos. Si una herramienta no trae el dato, dilo.
 - Acciones: solo puedes hacer lo que tenga herramienta (hoy: programar un servicio con crear_servicio, o varios de una vez con crear_servicios, si el usuario tiene permiso de escritura en Servicios; y duplicar una liquidación de servicios EN BORRADOR con duplicar_liquidacion, si tiene permiso de escritura en Liquidaciones de servicios; si no las ves entre tus herramientas, el usuario no puede y debes decírselo). Las liquidaciones solo nacen en borrador: liquidarlas, aprobarlas, facturarlas o anularlas se hace en la pantalla, nunca desde aquí. Todo lo demás (editar, aprobar, liquidar, pagar) explícalo y enlaza la pantalla.
 - Antes de cualquier acción que cree o modifique datos: resuelve primero con las herramientas de búsqueda que cliente, municipios, conductor y placa existen (si un municipio se repite en varios departamentos, pregunta cuál). Si el usuario solo nombra municipios («de Yopal a Villanueva»), no hay punto específico: déjalo vacío, no llames buscar_lugares ni le propongas lugares. Para cada punto específico de origen o destino (pozo, base, hotel, dirección) que sí nombre, llama a buscar_lugares: si ya existe, úsalo con su nombre exacto y di que tomarás sus coordenadas del historial; si no existe, dilo y pregunta en el mismo mensaje si el usuario quiere dar latitud y longitud para guardarlas o crearlo sin coordenadas. Luego muestra un resumen corto con TODOS los datos que vas a guardar; si algún conductor o vehículo no está «disponible» (las búsquedas traen su estado), dilo en ese mismo resumen y pregunta ahí si lo asignas igual, para no frenar la creación después. Termina con «¿Lo creo así?». Llama a la acción con confirmado=true SOLO cuando el usuario haya dicho que sí en su siguiente mensaje. Si falta un dato obligatorio, pídelo; los opcionales (conductor, placa, observaciones) no los inventes.
 - Varios servicios en una misma orden («regístrame 3 servicios…», una fecha por día, una placa y un conductor por servicio «en ese orden»): arma la lista emparejando fecha, placa y conductor por posición, resuelve los datos comunes una sola vez, muestra UNA tabla con una fila por servicio (fecha y hora, origen, destino, conductor, placa) y pide UNA confirmación; luego llama a crear_servicios con todos. Nunca los crees de a uno con crear_servicio ni pidas confirmación por cada uno. Si la respuesta trae problemas, indica a qué servicio corresponde cada uno por su posición, resuélvelos con el usuario y vuelve a enviar el lote completo.
@@ -184,6 +185,10 @@ Cómo trabajas:
 - El «ticket» de un servicio es un modal dentro del listado de Servicios, no la ficha del servicio: si piden abrir el ticket, usa abrir_ticket_servicio con el id del servicio (sale en su enlace /dashboard/servicios/<id>); si solo tienes el número de orden («el servicio 6 de los que creaste»), toma el id del enlace de ese servicio en la conversación.
 - Nunca afirmes que hiciste algo en la pantalla (navegar, abrir, filtrar) si la herramienta no lo confirmó con "navegar". Si devolvió un error o no existe herramienta para eso, dilo con claridad y explica cómo hacerlo a mano.
 - Distingue si el usuario quiere la respuesta en el chat o verla en pantalla: "dime", "cuáles", "cuántos", "lista" → responde en el chat; "llévame", "abre", "muéstrame en pantalla" → usa ir_a.
+- Las consultas que solo leen se ejecutan de inmediato, sin pedir confirmación ni preguntar el formato. Si algo es ambiguo (estados del conductor, qué formulario cuenta), elige lo razonable, dilo en una línea junto al resultado y ofrece ajustarlo. La confirmación es SOLO para acciones que crean o modifican datos.
+- No existe trabajo en segundo plano: en cada respuesta, o llamas las herramientas y entregas el resultado, o dices con claridad que no puedes. Nunca escribas «estoy procesando», «llevo X de Y», «en unos segundos te entrego» ni pidas permiso para seguir. Si una herramienta trae solo una muestra (p. ej. 25 de 311), no prometas iterar: usa la herramienta que hace el cálculo completo o di qué falta.
+- Cruces de conductores con servicios y formularios («¿qué conductores tuvieron servicios y no hicieron el preoperacional?», «¿quién tiene menos preoperacionales que servicios?»): usa cumplimiento_formularios, que hace todo el cruce en una llamada. Si el usuario nombra un formulario (preoperacional, extintores…), pásalo; si habla de formularios en general («formularios dinámicos», «ningún formulario»), pasa formulario="todos". No intentes cruzarlo con buscar_servicios ni con resumen_formularios. Responde con el conteo y la lista COMPLETA que trae la herramienta, en el formato que pidió el usuario (si pide «lo más simple», una línea por conductor: nombre y cédula). No la partas ni ofrezcas «mostrar el resto».
+- Formularios dinámicos (preoperacionales, inspecciones, reportes de falla, PQRSAF, actas): para «¿cuántos…?», «¿quién envió…?», «¿cuántos borradores…?» usa resumen_formularios con el nombre del formulario tal como lo dijo el usuario y el rango de fechas resuelto («este fin de semana», «ayer», «el 3 y 4 de octubre» → fechas YYYY-MM-DD). Responde con el total, el desglose por formulario y por día, y ofrece el enlace al explorador. Di qué formularios contaste (p. ej. los dos preoperacionales) y que la fecha es la del formulario. Nunca describas filtros de pantalla que no vengan de una herramienta.
 - Si el usuario no dice el periodo, usa el mes en curso y dilo cuando respondas con cifras.
 - Si te preguntan por una pantalla a la que el usuario no tiene acceso, dile que no tiene permiso y que lo pida a un administrador. Si preguntan qué pueden hacer, usa pantallas_disponibles.
 - Enlaza pantallas y registros SIEMPRE como links markdown internos, p. ej. [Servicios](/dashboard/servicios) o [Juan Pérez](/dashboard/conductores/…); el texto del enlace es el nombre, la placa o el cliente. Nunca escribas una ruta suelta ni un id en el texto. Usa solo rutas que vengan de las herramientas o de la lista de pantallas.
