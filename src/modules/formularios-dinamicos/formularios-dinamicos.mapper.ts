@@ -448,6 +448,14 @@ function actorDeEnvio(row: any): { kind: 'CONDUCTOR' | 'USER'; id: string; nombr
   return null
 }
 
+/** `device.stagesClosed` saneado: enteros positivos, sin repetidos, en orden. */
+export function etapasCerradasDe(deviceJson: unknown): number[] {
+  const crudas = (deviceJson as { stagesClosed?: unknown } | null | undefined)?.stagesClosed
+  if (!Array.isArray(crudas)) return []
+  const numeros = crudas.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
+  return [...new Set(numeros)].sort((a, b) => a - b)
+}
+
 export function toSubmissionSummaryDto(row: any) {
   return {
     id: row.id,
@@ -463,6 +471,11 @@ export function toSubmissionSummaryDto(row: any) {
     businessDate: dateOnly(row.business_date),
     periodKey: row.period_key ?? null,
     context: json(row.context_json),
+    /// Etapas que el teléfono ya cerró en un borrador por etapas (ver
+    /// `device.stagesClosed`). `undefined` cuando la consulta no trajo
+    /// `device_json`; `[]` cuando no hay etapas cerradas o el formulario no es
+    /// por etapas. Un `SUBMITTED` las tiene todas aunque aquí no se repitan.
+    etapasCerradas: row.device_json === undefined ? undefined : etapasCerradasDe(row.device_json),
     startedAt: iso(row.started_at),
     submittedAt: iso(row.submitted_at),
     updatedAt: iso(row.updated_at),

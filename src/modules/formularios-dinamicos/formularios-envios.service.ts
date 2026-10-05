@@ -39,6 +39,9 @@ const listSelect = {
   business_date: true,
   period_key: true,
   context_json: true,
+  /// Solo por `stagesClosed`: el avance por etapas que respalda el teléfono
+  /// en el borrador. Sin esto el explorador no puede decir «va en la etapa 2».
+  device_json: true,
   started_at: true,
   submitted_at: true,
   /// Última escritura. En un borrador es lo único que dice hasta cuándo alcanzó
