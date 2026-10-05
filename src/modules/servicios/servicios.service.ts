@@ -73,6 +73,25 @@ async function obtenerFotosConductoresBatch(
 }
 
 /**
+ * Número de planilla de un servicio.
+ *
+ * Los servicios que nacen de una planilla de recargos no guardan el número en
+ * `servicios.numero_planilla`: vive en `recargos_planillas`. Sin esto la lista
+ * de servicios mostraba «Sin planilla» en todos ellos (863 en transmeralda).
+ * Se respeta el propio del servicio si lo tiene y, si no, se toma el de la
+ * primera planilla activa vinculada.
+ */
+function completarNumeroPlanilla(servicio: any) {
+  if (servicio.numero_planilla) return
+  const planillas: any[] = Array.isArray(servicio.recargos_planillas) ? servicio.recargos_planillas : []
+  const conNumero = planillas.find((p) => !p?.deleted_at && p?.numero_planilla)
+  if (conNumero) {
+    servicio.numero_planilla = conNumero.numero_planilla
+    servicio.numero_planilla_origen = 'recargo'
+  }
+}
+
+/**
  * Transformar un array de servicios en batch (eficiente: 1 query de fotos + URLs firmadas en paralelo).
  */
 async function transformarServiciosBatch(servicios: any[]): Promise<any[]> {
@@ -113,6 +132,7 @@ function transformarServicioSync(servicio: any, signedUrlMap?: Map<string, strin
   if (!servicio) return null
 
   const servicioPlano = JSON.parse(JSON.stringify(servicio))
+  completarNumeroPlanilla(servicioPlano)
 
   let conductor = servicioPlano.conductores || null
   const cliente = servicioPlano.clientes || null
@@ -151,6 +171,7 @@ async function transformarServicio(servicio: any) {
   }
   
   const servicioPlano = JSON.parse(JSON.stringify(servicio))
+  completarNumeroPlanilla(servicioPlano)
   
   let conductor = servicioPlano.conductores || null
   const cliente = servicioPlano.clientes || null
@@ -425,6 +446,8 @@ export const ServiciosService = {
       where.OR = [
         // Campos directos del servicio
         { origen_especifico: { contains: filters.search, mode: 'insensitive' } },
+        { numero_planilla: { contains: filters.search, mode: 'insensitive' } },
+        { recargos_planillas: { some: { deleted_at: null, numero_planilla: { contains: filters.search, mode: 'insensitive' } } } },
         { destino_especifico: { contains: filters.search, mode: 'insensitive' } },
         /**
          * `estado` es un enum de Prisma, no texto: no admite `contains` y con
@@ -528,6 +551,8 @@ export const ServiciosService = {
           select: { iniciado_at: true, liberado_at: true, iniciado_diferido: true, liberado_diferido: true }
         },
         recargos_planillas: {
+          /// Una planilla eliminada no presta su número ni sus datos al servicio.
+          where: { deleted_at: null },
           select: {
             id: true,
             numero_planilla: true,
@@ -745,6 +770,8 @@ export const ServiciosService = {
           }
         },
         recargos_planillas: {
+          /// Una planilla eliminada no presta su número ni sus datos al servicio.
+          where: { deleted_at: null },
           select: {
             id: true,
             numero_planilla: true,
