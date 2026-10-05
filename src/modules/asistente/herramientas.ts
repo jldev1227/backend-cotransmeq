@@ -11,6 +11,7 @@ import { ACCIONES } from './acciones'
 import { buscarLugares } from './lugares'
 import { ACCIONES_LIQUIDACIONES, HERRAMIENTAS_LIQUIDACIONES } from './liquidaciones'
 import { HERRAMIENTAS_FORMULARIOS } from './formularios'
+import { detalleServicio } from './servicio-referencia'
 import { guiaInteractiva } from './guias/herramienta'
 
 /**
@@ -665,6 +666,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   buscarVehiculos,
   buscarClientes,
   buscarServicios,
+  detalleServicio,
   resumenServicios,
   buscarTerceros,
   buscarMunicipios,

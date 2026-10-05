@@ -84,8 +84,19 @@ export async function asistenteRoutes(app: FastifyInstance) {
       )
     } catch (e) {
       if (!abort.signal.aborted) {
-        logger.error({ error: (e as Error).message }, 'Asistente: la conversación falló')
-        emitir({ t: 'error', mensaje: 'El asistente no pudo responder en este momento. Intenta de nuevo.' })
+        /// El filtro de contenido de Azure da falsos positivos con frases de la
+        /// operación («créame un servicio con la ruta invertida…» salió como
+        /// «violencia alta»). Repetir igual no sirve: hay que decir que cambie
+        /// la redacción, no «intenta de nuevo».
+        const err = e as { code?: string; error?: { code?: string } }
+        const filtrado = err.code === 'content_filter' || err.error?.code === 'content_filter'
+        logger.error({ error: (e as Error).message, filtrado }, 'Asistente: la conversación falló')
+        emitir({
+          t: 'error',
+          mensaje: filtrado
+            ? 'El filtro de contenido de Azure bloqueó este mensaje (a veces marca frases normales por error). Escríbelo con otras palabras y vuelve a intentarlo.'
+            : 'El asistente no pudo responder en este momento. Intenta de nuevo.',
+        })
       }
     } finally {
       res.end()

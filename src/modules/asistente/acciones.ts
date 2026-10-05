@@ -5,6 +5,7 @@ import { emitServicioCreado } from '../servicios/servicios.events'
 import type { Herramienta } from './asistente.types'
 import { fechaCorta, textoOpcional, variantesNombre } from './asistente.utils'
 import { buscarLugares, coincidenciaExacta, coordenadasValidas, guardarLugar, type LugarFrecuente } from './lugares'
+import { cargarServicio, idDeServicio, propositoDe, rutaDe, type PuntoRuta } from './servicio-referencia'
 
 /**
  * Acciones del asistente: herramientas que ESCRIBEN.
@@ -184,9 +185,18 @@ const PROPIEDADES_SERVICIO = {
   origen_longitud: { type: 'number' },
   destino_latitud: { type: 'number', description: 'Latitud del punto de destino, si el usuario la dio' },
   destino_longitud: { type: 'number' },
+  servicio_referencia: {
+    type: 'string',
+    description:
+      'Id o enlace de un servicio existente que el usuario da como modelo («igual a este», «la misma ruta invertida de este»). El servidor copia de él la ruta exacta (municipios, puntos y coordenadas) y, si no se indican, el cliente y el propósito. No pases origen ni destino cuando uses esto.',
+  },
+  invertir_ruta: {
+    type: 'boolean',
+    description: 'Con servicio_referencia: true si el usuario pidió la ruta invertida (el destino de la referencia pasa a ser el origen y viceversa).',
+  },
   sin_coordenadas: {
     type: 'boolean',
-    description: 'true solo si el usuario dijo que no tiene o no quiere dar coordenadas para un lugar nuevo',
+    description: 'Ya no hace falta: un lugar nuevo se crea sin coordenadas y la respuesta lo avisa.',
   },
   forzar_recursos_ocupados: {
     type: 'boolean',
@@ -195,10 +205,14 @@ const PROPIEDADES_SERVICIO = {
   
 } as const
 
-const OBLIGATORIOS_SERVICIO = ['cliente', 'origen_municipio', 'destino_municipio', 'fecha_realizacion'] as const
+/// Cliente, origen y destino son obligatorios, pero pueden venir de
+/// `servicio_referencia`: por eso el esquema solo exige la fecha y el resto lo
+/// valida `prepararServicio`. Exigirlos en el esquema obligaba al modelo a
+/// escribir una ruta aunque la fuera a copiar el servidor, y la escribía mal.
+const OBLIGATORIOS_SERVICIO = ['fecha_realizacion'] as const
 
 const DESCRIPCION_REGLAS =
-  'Los puntos exactos se cruzan con el historial: si ya se visitaron, el servicio hereda sus coordenadas; si son nuevos, la herramienta devuelve lugares_nuevos y debes preguntar al usuario si quiere dar latitud/longitud o crearlo sin coordenadas (sin_coordenadas=true). Si el conductor o el vehículo no están disponibles, no crea nada hasta que el usuario lo autorice (forzar_recursos_ocupados=true). Tarifa, planilla y recargos se dejan para después del servicio.'
+  'Los puntos exactos se cruzan con el historial: si ya se visitaron, el servicio hereda sus coordenadas; si son nuevos se crean sin coordenadas y la respuesta lo avisa (no preguntes por coordenadas antes). Si el usuario da un servicio como modelo («igual a este», «la ruta invertida de este»), pasa servicio_referencia (y invertir_ruta) en vez de escribir origen y destino. Si el conductor o el vehículo no están disponibles, no crea nada hasta que el usuario lo autorice (forzar_recursos_ocupados=true). Tarifa, planilla y recargos se dejan para después del servicio.'
 
 export const crearServicio: Herramienta = {
   nombre: 'crear_servicio',
@@ -228,7 +242,8 @@ export const crearServicio: Herramienta = {
     }
     const preparado = await prepararServicio(args)
     if (preparado.ok === false) return preparado.respuesta
-    return materializarServicio(preparado.listo, usuario.id)
+    const creado = await materializarServicio(preparado.listo, usuario.id)
+    return preparado.listo.avisos.length ? { ...creado, avisos: preparado.listo.avisos } : creado
   },
 }
 
@@ -306,7 +321,11 @@ export const crearServicios: Herramienta = {
     for (const [i, p] of preparados.entries()) {
       if (p.ok === false) continue
       try {
-        creados.push({ posicion: i + 1, ...(await materializarServicio(p.listo, usuario.id)) })
+        creados.push({
+          posicion: i + 1,
+          ...(await materializarServicio(p.listo, usuario.id)),
+          ...(p.listo.avisos.length ? { avisos: p.listo.avisos } : {}),
+        })
       } catch (e) {
         return {
           creados: creados.length,
@@ -340,6 +359,7 @@ interface ServicioListo {
   origen: LugarResuelto
   destino: LugarResuelto
   ocupados: string[]
+  avisos: string[]
 }
 
 type Preparado = { ok: true; listo: ServicioListo } | { ok: false; respuesta: Record<string, unknown> }
@@ -349,7 +369,28 @@ type Preparado = { ok: true; listo: ServicioListo } | { ok: false; respuesta: Re
  * escribe nada. Si algo impide crear, devuelve la respuesta que el modelo debe
  * ver (candidatos, lugares nuevos, recursos ocupados).
  */
-async function prepararServicio(args: Record<string, unknown>): Promise<Preparado> {
+async function prepararServicio(argsModelo: Record<string, unknown>): Promise<Preparado> {
+  /// Servicio de referencia: la ruta sale de la base, no del modelo. Cliente
+  /// y propósito solo si el modelo no los dio.
+  let args = argsModelo
+  let rutaRef: { origen: PuntoRuta; destino: PuntoRuta } | null = null
+  if (argsModelo.servicio_referencia !== undefined && argsModelo.servicio_referencia !== null && argsModelo.servicio_referencia !== '') {
+    const id = idDeServicio(argsModelo.servicio_referencia)
+    const ref = id ? await cargarServicio(id) : null
+    if (!ref) {
+      return { ok: false, respuesta: { creado: false, error: 'No encontré el servicio de referencia; pide su enlace o id completo' } }
+    }
+    rutaRef = rutaDe(ref, argsModelo.invertir_ruta === true)
+    args = {
+      ...argsModelo,
+      cliente: textoOpcional(argsModelo.cliente) ?? ref.clientes.nit ?? ref.clientes.nombre,
+      proposito: argsModelo.proposito ?? propositoDe(ref),
+      origen_municipio: rutaRef.origen.municipio,
+      origen_departamento: rutaRef.origen.departamento,
+      destino_municipio: rutaRef.destino.municipio,
+      destino_departamento: rutaRef.destino.departamento,
+    }
+  }
   const cliente = textoOpcional(args.cliente)
   const origenMun = textoOpcional(args.origen_municipio)
   const destinoMun = textoOpcional(args.destino_municipio)
@@ -403,10 +444,15 @@ async function prepararServicio(args: Record<string, unknown>): Promise<Preparad
 
   // Lugares específicos: historial primero; coordenadas del usuario si las dio;
   // si el lugar es nuevo y nadie decidió, se devuelve la pregunta sin crear.
-  const [origen, destino] = await Promise.all([
-    resolverLugar('origen', textoOpcional(args.origen_especifico, 255), rOrigen.valor.id, args.origen_latitud, args.origen_longitud),
-    resolverLugar('destino', textoOpcional(args.destino_especifico, 255), rDestino.valor.id, args.destino_latitud, args.destino_longitud),
-  ])
+  const [origen, destino] = rutaRef
+    ? await Promise.all([
+        deReferencia('origen', rutaRef.origen, rOrigen.valor.id),
+        deReferencia('destino', rutaRef.destino, rDestino.valor.id),
+      ])
+    : await Promise.all([
+        resolverLugar('origen', textoOpcional(args.origen_especifico, 255), rOrigen.valor.id, args.origen_latitud, args.origen_longitud),
+        resolverLugar('destino', textoOpcional(args.destino_especifico, 255), rDestino.valor.id, args.destino_latitud, args.destino_longitud),
+      ])
   const candidatosLugar = [origen, destino].filter((l) => l.candidatos?.length)
   if (candidatosLugar.length) {
     return {
@@ -418,17 +464,12 @@ async function prepararServicio(args: Record<string, unknown>): Promise<Preparad
       },
     }
   }
-  const nuevos = [origen, destino].filter((l) => l.nombre && !l.coords)
-  if (nuevos.length && args.sin_coordenadas !== true) {
-    return {
-      ok: false,
-      respuesta: {
-        creado: false,
-        lugares_nuevos: nuevos.map((l) => ({ campo: l.campo, texto: l.nombre })),
-        pista: 'Son lugares que no se habían visitado. Pregunta al usuario si quiere dar sus coordenadas (latitud y longitud) para guardarlas y aprovecharlas en futuros servicios, o crearlo sin coordenadas. Con la respuesta vuelve a llamar con origen_latitud/origen_longitud (o destino_*) o con sin_coordenadas=true',
-      },
-    }
-  }
+  /// Un lugar nuevo ya NO frena la creación. Antes se devolvía la pregunta de
+  /// las coordenadas incluso después de que el usuario dijera «créalo»: era
+  /// una ronda más para un dato opcional que casi nadie tiene a mano.
+  const avisos = [origen, destino]
+    .filter((l) => l.nombre && !l.coords)
+    .map((l) => `El ${l.campo} «${l.nombre}» quedó sin coordenadas (lugar nuevo); se pueden agregar después en el servicio.`)
 
   // Mismo criterio que el modal de la app: con conductor y vehículo el
   // servicio nace planificado (o en curso si la fecha ya pasó); si falta
@@ -472,6 +513,7 @@ async function prepararServicio(args: Record<string, unknown>): Promise<Preparad
       origen,
       destino,
       ocupados,
+      avisos,
     },
   }
 }
@@ -565,6 +607,20 @@ async function resolverLugar(
     }
   }
   return { campo, nombre, coords: null, fuente: 'ninguna' }
+}
+
+/**
+ * Punto copiado de un servicio de referencia (no se vuelve a guardar). Si la
+ * referencia no traía coordenadas se buscan en el historial, pero solo por
+ * coincidencia EXACTA del nombre: con un parecido se arriesgaría a pegarle al
+ * servicio las coordenadas de otro sitio.
+ */
+async function deReferencia(campo: 'origen' | 'destino', p: PuntoRuta, municipioId: string): Promise<LugarResuelto> {
+  if (p.coords || !p.especifico) {
+    return { campo, nombre: p.especifico, coords: p.coords, fuente: p.coords ? 'historial' : 'ninguna' }
+  }
+  const exacto = coincidenciaExacta(await buscarLugares(p.especifico, municipioId), p.especifico)
+  return exacto ? deLugar(campo, exacto) : { campo, nombre: p.especifico, coords: null, fuente: 'ninguna' }
 }
 
 function deLugar(campo: 'origen' | 'destino', l: LugarFrecuente): LugarResuelto {
