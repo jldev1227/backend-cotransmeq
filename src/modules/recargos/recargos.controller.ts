@@ -17,6 +17,22 @@ interface RecargoParams {
   id: string;
 }
 
+/**
+ * Un 400 de zod con un `message` que se pueda mostrar tal cual. Manda la
+ * primera incidencia propia (las de `superRefine`, ya en español y con el
+ * día); si solo hay reglas genéricas de zod («Number must be…») se deja el
+ * texto neutro. El detalle va siempre en `errors`: el formulario de la
+ * planilla lo usa para marcar la celda exacta que falló.
+ */
+function responderValidacion(reply: FastifyReply, error: z.ZodError) {
+  const propia = error.errors.find((e) => e.code === "custom");
+  return reply.status(400).send({
+    success: false,
+    message: propia?.message ?? "Error de validación",
+    errors: error.errors,
+  });
+}
+
 export const RecargosController = {
   async crear(request: FastifyRequest, reply: FastifyReply) {
     try {
@@ -51,17 +67,7 @@ export const RecargosController = {
     } catch (error) {
       console.error("❌ Error en crear recargo:", error);
 
-      if (error instanceof z.ZodError) {
-        console.error(
-          "❌ Errores de validación Zod:",
-          JSON.stringify(error.errors, null, 2),
-        );
-        return reply.status(400).send({
-          success: false,
-          message: "Error de validación",
-          errors: error.errors,
-        });
-      }
+      if (error instanceof z.ZodError) return responderValidacion(reply, error);
 
       if (error instanceof Error) {
         reply.status(400).send({
@@ -212,6 +218,7 @@ export const RecargosController = {
         valor_pagar: valorPagar,
       });
     } catch (error) {
+      if (error instanceof z.ZodError) return responderValidacion(reply, error);
       if (error instanceof Error) {
         reply.status(400).send({
           success: false,

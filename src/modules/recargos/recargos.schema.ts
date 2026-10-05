@@ -14,7 +14,22 @@ export const diaLaboralSchema = z.object({
   disponibilidad: z.boolean().default(false),
   continua_siguiente_dia: z.boolean().default(false),
   observaciones: z.string().optional().nullable(),
-});
+})
+  // La hora fin tiene que ir después de la de inicio. Sin esta regla el
+  // formulario mandaba `total_horas` negativo y zod respondía «Number must be
+  // greater than or equal to 0» sobre `total_horas`, que no es la celda que
+  // hay que corregir. Un turno que pasa de medianoche se escribe con horas
+  // mayores de 24 (20 → 28) o con `continua_siguiente_dia`, nunca al revés.
+  .superRefine((d, ctx) => {
+    if (typeof d.hora_inicio !== "number" || typeof d.hora_fin !== "number") return;
+    if (d.hora_fin < d.hora_inicio) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["hora_fin"],
+        message: `Día ${d.dia}: la hora fin (${d.hora_fin}) debe ser mayor que la hora de inicio (${d.hora_inicio}).`,
+      });
+    }
+  });
 
 // Schema para crear recargo
 export const createRecargoSchema = z.object({
