@@ -3,7 +3,14 @@ import { prisma } from "../../config/prisma";
 import { evaluacionSchema } from "./evaluacion.schema";
 import { z } from "zod";
 import { preguntaSchema } from "./evaluacion.schema";
-import { registrarResultado, respuestaPreguntaSchema } from "./registrar-resultado";
+import {
+  calificarRespuestas,
+  OpcionDesconocidaError,
+  registrarResultado,
+  respuestaPreguntaSchema,
+  type TextosCalificados,
+} from "./registrar-resultado";
+import { getIo } from "../../sockets";
 import { evaluacionSinClave } from "./evaluacion-publica";
 import { EvaluacionPDFGeneratorService } from "./pdf-generator.service";
 import archiver from "archiver";
@@ -190,38 +197,47 @@ export const EvaluacionesController = {
           (p) => !p.id || !idsActuales.includes(p.id),
         );
 
-        // Eliminar TODAS las opciones viejas de una sola vez
-        if (preguntasExistentes.length > 0) {
+        // Las opciones se conservan por id. Antes se borraban todas y se
+        // recreaban: las respuestas ya registradas guardan el id de la opción
+        // marcada, así que un «Editar → Guardar» las dejaba apuntando a nada
+        // (0 puntos y «opciones que ya no existen» en el detalle). Ocurrió el
+        // 5-oct-2026 con los cuatro primeros en responder Peligro Biomecánico.
+        for (const p of preguntasExistentes) {
+          const opciones = p.opciones ?? [];
+          const idsConservados = opciones
+            .map((o) => o.id)
+            .filter((id): id is string => !!id);
           await tx.opcion.deleteMany({
-            where: {
-              preguntaId: { in: preguntasExistentes.map((p) => p.id!) },
+            where: { preguntaId: p.id!, id: { notIn: idsConservados } },
+          });
+          await tx.pregunta.update({
+            where: { id: p.id },
+            data: {
+              texto: p.texto,
+              tipo: p.tipo,
+              puntaje: p.puntaje,
+              relacionIzq: p.relacionIzq || [],
+              relacionDer: p.relacionDer || [],
+              respuestaCorrecta: p.respuestaCorrecta,
             },
           });
+          for (const o of opciones) {
+            const datos = { texto: o.texto, esCorrecta: o.esCorrecta };
+            const actualizadas = o.id
+              ? await tx.opcion.updateMany({
+                  where: { id: o.id, preguntaId: p.id! },
+                  data: datos,
+                })
+              : { count: 0 };
+            if (actualizadas.count === 0) {
+              await tx.opcion.create({
+                data: { ...datos, preguntaId: p.id! },
+              });
+            }
+          }
         }
 
-        // Actualizar existentes y crear nuevas EN PARALELO
         await Promise.all([
-          ...preguntasExistentes.map((p) =>
-            tx.pregunta.update({
-              where: { id: p.id },
-              data: {
-                texto: p.texto,
-                tipo: p.tipo,
-                puntaje: p.puntaje,
-                relacionIzq: p.relacionIzq || [],
-                relacionDer: p.relacionDer || [],
-                respuestaCorrecta: p.respuestaCorrecta,
-                opciones: p.opciones
-                  ? {
-                      create: p.opciones.map((o) => ({
-                        texto: o.texto,
-                        esCorrecta: o.esCorrecta,
-                      })),
-                    }
-                  : undefined,
-              },
-            }),
-          ),
           ...preguntasNuevas.map((p) =>
             tx.pregunta.create({
               data: {
@@ -314,17 +330,29 @@ export const EvaluacionesController = {
       (req.headers["x-forwarded-for"] as string) || req.ip || "unknown";
     const user_agent = req.headers["user-agent"] || "unknown";
 
-    const resultado = await registrarResultado(evaluacion, data.respuestas, {
-      nombre_completo: data.nombre_completo,
-      numero_documento: data.numero_documento,
-      cargo: data.cargo,
-      correo: data.correo,
-      telefono: data.telefono,
-      firma: data.firma,
-      device_fingerprint: data.device_fingerprint,
-      ip_address,
-      user_agent,
-    });
+    let resultado;
+    try {
+      resultado = await registrarResultado(evaluacion, data.respuestas, {
+        nombre_completo: data.nombre_completo,
+        numero_documento: data.numero_documento,
+        cargo: data.cargo,
+        correo: data.correo,
+        telefono: data.telefono,
+        firma: data.firma,
+        device_fingerprint: data.device_fingerprint,
+        ip_address,
+        user_agent,
+      });
+    } catch (error) {
+      if (error instanceof OpcionDesconocidaError) {
+        return res.status(409).send({
+          success: false,
+          code: "EVALUACION_MODIFICADA",
+          message: error.message,
+        });
+      }
+      throw error;
+    }
 
     return res.send({ success: true, data: resultado });
   },
@@ -350,6 +378,101 @@ export const EvaluacionesController = {
       orderBy: { created_at: "desc" },
     });
     return res.send({ success: true, data: resultados });
+  },
+
+  /**
+   * Un administrador corrige las respuestas de un resultado. Caso típico: la
+   * evaluación se editó después de que alguien respondiera, las opciones se
+   * recrearon con ids nuevos y esa persona quedó con 0 sin haber fallado.
+   * Se reemplazan todas las respuestas y se recalifica con la clave actual.
+   */
+  async actualizarRespuestas(
+    req: FastifyRequest<{ Params: { id: string; resultadoId: string } }>,
+    res: FastifyReply,
+  ) {
+    const { id, resultadoId } = req.params;
+    if (!UUID_RE.test(id) || !UUID_RE.test(resultadoId)) {
+      return res.status(404).send({ success: false, error: "No encontrado" });
+    }
+    const parsed = z
+      .object({ respuestas: z.array(respuestaPreguntaSchema) })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .send({ success: false, errors: parsed.error.errors });
+    }
+
+    const evaluacion = await prisma.evaluacion.findFirst({
+      where: { id, deleted_at: null },
+      include: { preguntas: { include: { opciones: true } } },
+    });
+    if (!evaluacion) {
+      return res
+        .status(404)
+        .send({ success: false, error: "Evaluación no encontrada" });
+    }
+    const actual = await prisma.resultado.findFirst({
+      where: { id: resultadoId, evaluacionId: id },
+      include: { respuestas: true },
+    });
+    if (!actual) {
+      return res
+        .status(404)
+        .send({ success: false, error: "Resultado no encontrado" });
+    }
+
+    const textosPrevios: TextosCalificados = new Map();
+    for (const r of actual.respuestas) {
+      if (r.valor_texto != null) {
+        textosPrevios.set(r.preguntaId, {
+          valor_texto: r.valor_texto,
+          puntaje: r.puntaje,
+        });
+      }
+    }
+    let calificacion;
+    try {
+      calificacion = await calificarRespuestas(
+        evaluacion,
+        parsed.data.respuestas,
+        textosPrevios,
+      );
+    } catch (error) {
+      if (error instanceof OpcionDesconocidaError) {
+        return res
+          .status(400)
+          .send({ success: false, message: error.message });
+      }
+      throw error;
+    }
+    const { puntaje_total, respuestasDB } = calificacion;
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      await tx.respuesta.deleteMany({ where: { resultadoId } });
+      return tx.resultado.update({
+        where: { id: resultadoId },
+        data: { puntaje_total, respuestas: { create: respuestasDB } },
+        include: {
+          respuestas: {
+            include: { pregunta: { include: { opciones: true } } },
+          },
+        },
+      });
+    });
+
+    const editor = (req as any).user;
+    console.log(
+      `✏️ Respuestas editadas: resultado ${resultadoId} de ${actual.nombre_completo} ` +
+        `(${actual.puntaje_total} → ${puntaje_total}) por usuario ${editor?.id ?? "?"}`,
+    );
+    try {
+      getIo()?.to(`evaluacion-${id}`).emit("respuesta-actualizada", resultado);
+    } catch (error) {
+      console.error("❌ Error emitiendo evento socket:", error);
+    }
+
+    return res.send({ success: true, data: resultado });
   },
 
   async verificarDispositivo(

@@ -34,18 +34,45 @@ export interface DatosRespondiente {
 }
 
 /**
- * Califica las respuestas, guarda el resultado y avisa por socket a quien esté
- * viendo la evaluación. Lo usan la web pública y el portal del conductor.
+ * Una respuesta marca una opción que la pregunta ya no tiene. Pasa cuando la
+ * evaluación se edita recreando sus opciones mientras alguien la tiene abierta:
+ * la página manda los ids viejos. Antes se calificaba 0 en silencio.
  */
-export async function registrarResultado(
+export class OpcionDesconocidaError extends Error {
+  constructor(public readonly preguntaId: string) {
+    super("La evaluación se modificó mientras la respondías. Recarga la página y vuelve a responder.");
+    this.name = "OpcionDesconocidaError";
+  }
+}
+
+export interface RespuestaCalificada {
+  preguntaId: string;
+  valor_texto?: string;
+  valor_numero?: number;
+  opcionesIds: string[];
+  relacion: RespuestaPregunta["relacion"] | [];
+  puntaje: number;
+}
+
+/**
+ * Respuestas de texto ya calificadas, por id de pregunta. Al editar un
+ * resultado, si el texto no cambió se conserva la nota en vez de volver a
+ * pedirla a la IA (que además no es determinista).
+ */
+export type TextosCalificados = Map<string, { valor_texto: string; puntaje: number }>;
+
+/**
+ * Califica cada respuesta contra la clave actual de la evaluación. Es la única
+ * lógica de puntuación: la usan el registro público y la edición por un
+ * administrador, para que ambos caminos den la misma nota.
+ */
+export async function calificarRespuestas(
   evaluacion: EvaluacionConPreguntas,
   respuestas: RespuestaPregunta[],
-  datos: DatosRespondiente,
-) {
-  const id = evaluacion.id;
-  // Calcular puntaje
+  textosPrevios?: TextosCalificados,
+): Promise<{ puntaje_total: number; respuestasDB: RespuestaCalificada[] }> {
   let puntaje_total = 0;
-  const respuestasDB = [];
+  const respuestasDB: RespuestaCalificada[] = [];
   for (const r of respuestas) {
     const pregunta = evaluacion.preguntas.find(
       (p: any) => p.id === r.preguntaId,
@@ -60,6 +87,13 @@ export async function registrarResultado(
         .filter((o: any) => o.esCorrecta)
         .map((o: any) => o.id);
       const seleccionadas = r.opcionesIds || [];
+      if (
+        seleccionadas.some(
+          (id: string) => !pregunta.opciones.some((o: any) => o.id === id),
+        )
+      ) {
+        throw new OpcionDesconocidaError(pregunta.id);
+      }
       if (pregunta.tipo === "OPCION_UNICA") {
         if (
           correctas.length === 1 &&
@@ -89,8 +123,15 @@ export async function registrarResultado(
         }
       }
     } else if (pregunta.tipo === "TEXTO") {
-      // Calificar con IA usando Ministral-3B si hay respuesta de texto
-      if (r.valor_texto && r.valor_texto.trim().length > 0) {
+      const previa = textosPrevios?.get(pregunta.id);
+      if (
+        previa &&
+        (r.valor_texto ?? "").trim() === previa.valor_texto.trim()
+      ) {
+        // Mismo texto que ya se calificó: se conserva la nota.
+        puntaje = previa.puntaje;
+      } else if (r.valor_texto && r.valor_texto.trim().length > 0) {
+        // Calificar con IA usando Ministral-3B si hay respuesta de texto
         try {
           const resultado = await aiGradingService.gradeTextResponse(
             pregunta.texto,
@@ -153,6 +194,23 @@ export async function registrarResultado(
       puntaje,
     });
   }
+  return { puntaje_total, respuestasDB };
+}
+
+/**
+ * Califica las respuestas, guarda el resultado y avisa por socket a quien esté
+ * viendo la evaluación. Lo usan la web pública y el portal del conductor.
+ */
+export async function registrarResultado(
+  evaluacion: EvaluacionConPreguntas,
+  respuestas: RespuestaPregunta[],
+  datos: DatosRespondiente,
+) {
+  const id = evaluacion.id;
+  const { puntaje_total, respuestasDB } = await calificarRespuestas(
+    evaluacion,
+    respuestas,
+  );
 
   // Guardar resultado y respuestas
   const resultado = await prisma.resultado.create({

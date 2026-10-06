@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { EvaluacionesController } from './evaluacion.controller';
 import { authMiddleware } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/permissions.middleware';
 
 export async function evaluacionesRoutes(app: FastifyInstance) {
   // ============================================
@@ -16,6 +17,13 @@ export async function evaluacionesRoutes(app: FastifyInstance) {
 
   // Resultados de quienes respondieron
   app.get('/evaluaciones/:id/resultados', { onRequest: authMiddleware }, EvaluacionesController.resultados);
+
+  // Corregir las respuestas de un resultado (solo quien administra evaluaciones)
+  app.put(
+    '/evaluaciones/:id/resultados/:resultadoId',
+    { onRequest: authMiddleware, preHandler: requirePermission('evaluaciones', 'full') },
+    EvaluacionesController.actualizarRespuestas,
+  );
 
   // Exportar resultados a PDF
   app.get('/evaluaciones/:id/exportar-pdf', { onRequest: authMiddleware }, EvaluacionesController.exportarPDF);
