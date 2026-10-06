@@ -47,6 +47,26 @@ function configuracionDePregunta(
   return generarSopa(p.configuracion) as unknown as Prisma.InputJsonValue;
 }
 
+/**
+ * Una pregunta tal como la recibe la plantilla del PDF. Una sola función
+ * para las tres exportaciones (resumen, individual y ZIP): el ZIP tenía su
+ * propia copia del mapeo y no pasaba `configuracion`, así que en el «Exportar
+ * todo» las sopas de letras salían como «Sin respuesta».
+ */
+function preguntaParaPdf(p: any) {
+  return {
+    id: p.id,
+    texto: p.texto,
+    tipo: p.tipo,
+    puntaje: p.puntaje,
+    opciones: p.opciones,
+    relacionIzq: p.relacionIzq || [],
+    relacionDer: p.relacionDer || [],
+    respuestaCorrecta: p.respuestaCorrecta,
+    configuracion: p.configuracion,
+  };
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -654,17 +674,7 @@ export const EvaluacionesController = {
             descripcion: evaluacion.descripcion,
             requiere_firma: evaluacion.requiere_firma,
             created_at: evaluacion.created_at.toISOString(),
-            preguntas: evaluacion.preguntas.map((p: any) => ({
-              id: p.id,
-              texto: p.texto,
-              tipo: p.tipo,
-              puntaje: p.puntaje,
-              opciones: p.opciones,
-              relacionIzq: p.relacionIzq || [],
-              relacionDer: p.relacionDer || [],
-              respuestaCorrecta: p.respuestaCorrecta,
-              configuracion: p.configuracion,
-            })),
+            preguntas: evaluacion.preguntas.map(preguntaParaPdf),
           },
           resultados.map((r: any) => ({
             id: r.id,
@@ -684,19 +694,7 @@ export const EvaluacionesController = {
               opcionesIds: resp.opcionesIds || [],
               relacion: resp.relacion,
               puntaje: resp.puntaje,
-              pregunta: resp.pregunta
-                ? {
-                    id: resp.pregunta.id,
-                    texto: resp.pregunta.texto,
-                    tipo: resp.pregunta.tipo,
-                    puntaje: resp.pregunta.puntaje,
-                    opciones: resp.pregunta.opciones,
-                    relacionIzq: resp.pregunta.relacionIzq || [],
-                    relacionDer: resp.pregunta.relacionDer || [],
-                    respuestaCorrecta: resp.pregunta.respuestaCorrecta,
-                    configuracion: resp.pregunta.configuracion,
-                  }
-                : undefined,
+              pregunta: resp.pregunta ? preguntaParaPdf(resp.pregunta) : undefined,
             })),
           })),
         );
@@ -764,17 +762,7 @@ export const EvaluacionesController = {
             descripcion: evaluacion.descripcion,
             requiere_firma: evaluacion.requiere_firma,
             created_at: evaluacion.created_at.toISOString(),
-            preguntas: evaluacion.preguntas.map((p: any) => ({
-              id: p.id,
-              texto: p.texto,
-              tipo: p.tipo,
-              puntaje: p.puntaje,
-              opciones: p.opciones,
-              relacionIzq: p.relacionIzq || [],
-              relacionDer: p.relacionDer || [],
-              respuestaCorrecta: p.respuestaCorrecta,
-              configuracion: p.configuracion,
-            })),
+            preguntas: evaluacion.preguntas.map(preguntaParaPdf),
           },
           {
             id: resultado.id,
@@ -794,19 +782,7 @@ export const EvaluacionesController = {
               opcionesIds: resp.opcionesIds || [],
               relacion: resp.relacion,
               puntaje: resp.puntaje,
-              pregunta: resp.pregunta
-                ? {
-                    id: resp.pregunta.id,
-                    texto: resp.pregunta.texto,
-                    tipo: resp.pregunta.tipo,
-                    puntaje: resp.pregunta.puntaje,
-                    opciones: resp.pregunta.opciones,
-                    relacionIzq: resp.pregunta.relacionIzq || [],
-                    relacionDer: resp.pregunta.relacionDer || [],
-                    respuestaCorrecta: resp.pregunta.respuestaCorrecta,
-                    configuracion: resp.pregunta.configuracion,
-                  }
-                : undefined,
+              pregunta: resp.pregunta ? preguntaParaPdf(resp.pregunta) : undefined,
             })),
           },
         );
@@ -873,16 +849,7 @@ export const EvaluacionesController = {
         descripcion: evaluacion.descripcion,
         requiere_firma: evaluacion.requiere_firma,
         created_at: evaluacion.created_at.toISOString(),
-        preguntas: evaluacion.preguntas.map((p: any) => ({
-          id: p.id,
-          texto: p.texto,
-          tipo: p.tipo,
-          puntaje: p.puntaje,
-          opciones: p.opciones,
-          relacionIzq: p.relacionIzq || [],
-          relacionDer: p.relacionDer || [],
-          respuestaCorrecta: p.respuestaCorrecta,
-        })),
+        preguntas: evaluacion.preguntas.map(preguntaParaPdf),
       };
 
       const zipFileName = `evaluacion_${evaluacion.titulo.replace(/[^a-zA-Z0-9]/g, "_")}_respuestas.zip`;
@@ -924,18 +891,7 @@ export const EvaluacionesController = {
             opcionesIds: resp.opcionesIds || [],
             relacion: resp.relacion,
             puntaje: resp.puntaje,
-            pregunta: resp.pregunta
-              ? {
-                  id: resp.pregunta.id,
-                  texto: resp.pregunta.texto,
-                  tipo: resp.pregunta.tipo,
-                  puntaje: resp.pregunta.puntaje,
-                  opciones: resp.pregunta.opciones,
-                  relacionIzq: resp.pregunta.relacionIzq || [],
-                  relacionDer: resp.pregunta.relacionDer || [],
-                  respuestaCorrecta: resp.pregunta.respuestaCorrecta,
-                }
-              : undefined,
+            pregunta: resp.pregunta ? preguntaParaPdf(resp.pregunta) : undefined,
           })),
         };
 
