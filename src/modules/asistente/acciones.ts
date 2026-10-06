@@ -3,7 +3,7 @@ import { createServicioSchema } from '../servicios/servicios.schema'
 import { ServiciosService } from '../servicios/servicios.service'
 import { emitServicioCreado } from '../servicios/servicios.events'
 import type { Herramienta } from './asistente.types'
-import { fechaCorta, textoOpcional, variantesNombre } from './asistente.utils'
+import { conYSinTildes, fechaCorta, textoOpcional, variantesNombre } from './asistente.utils'
 import { buscarLugares, coincidenciaExacta, coordenadasValidas, guardarLugar, type LugarFrecuente } from './lugares'
 import { cargarServicio, idDeServicio, propositoDe, rutaDe, type PuntoRuta } from './servicio-referencia'
 
@@ -121,11 +121,11 @@ export async function resolverConductor(texto: string) {
         deleted_at: null,
         oculto: false,
         AND: v.partes.map((p) => ({
-          OR: [
-            { nombre: { contains: p, mode: 'insensitive' as const } },
-            { apellido: { contains: p, mode: 'insensitive' as const } },
-            { numero_identificacion: { contains: p } },
-          ],
+          OR: conYSinTildes(p).flatMap((x) => [
+            { nombre: { contains: x, mode: 'insensitive' as const } },
+            { apellido: { contains: x, mode: 'insensitive' as const } },
+            { numero_identificacion: { contains: x } },
+          ]),
         })),
       },
       select: { id: true, nombre: true, apellido: true, numero_identificacion: true, estado: true },

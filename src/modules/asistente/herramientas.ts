@@ -5,7 +5,7 @@ import {
   type UsuarioAsistente,
   puedeUsar,
 } from './asistente.types'
-import { variantesNombre, enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
+import { conYSinTildes, variantesNombre, enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
 import { MODULOS_APP, buscarModulo, descripcionModulo, moduloDeRuta } from './modulos'
 import { ACCIONES } from './acciones'
 import { buscarLugares } from './lugares'
@@ -181,12 +181,12 @@ const buscarConductores: Herramienta = {
     if (!estado && excluir.length) base.estado = { notIn: excluir }
     const condiciones = (partes: string[]) =>
       partes.map((p) => ({
-        OR: [
-          { nombre: { contains: p, mode: 'insensitive' } },
-          { apellido: { contains: p, mode: 'insensitive' } },
-          { numero_identificacion: { contains: p } },
-          { email: { contains: p, mode: 'insensitive' } },
-        ],
+        OR: conYSinTildes(p).flatMap((x) => [
+          { nombre: { contains: x, mode: 'insensitive' } },
+          { apellido: { contains: x, mode: 'insensitive' } },
+          { numero_identificacion: { contains: x } },
+          { email: { contains: x, mode: 'insensitive' } },
+        ]),
       }))
 
     // Con tolerancia: si el nombre completo no trae a nadie, se van soltando

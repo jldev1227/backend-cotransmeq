@@ -71,3 +71,13 @@ export function variantesNombre(texto: string): { partes: string[]; ignoradas: s
   for (let n = partes.length; n >= 1; n--) salida.push({ partes: partes.slice(0, n), ignoradas: partes.slice(n) })
   return salida
 }
+
+/**
+ * La palabra tal cual y sin tildes. `ILIKE` distingue «Mónica» de «MONICA», y
+ * el modelo suele escribir el nombre con tilde aunque el usuario no la puso
+ * (y casi todos los nombres de la base están en mayúsculas sin tilde).
+ */
+export function conYSinTildes(palabra: string): string[] {
+  const sin = palabra.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return sin === palabra ? [palabra] : [palabra, sin]
+}

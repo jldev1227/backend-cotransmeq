@@ -1,6 +1,6 @@
 import { prisma } from '../../config/prisma'
 import type { Herramienta } from './asistente.types'
-import { enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
+import { conYSinTildes, enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
 
 /**
  * Nómina de conductores (liquidaciones de nómina, tabla `liquidaciones`) en el
@@ -55,7 +55,7 @@ export const buscarNomina: Herramienta = {
         ? { periodo_end: { startsWith: `${Number.isInteger(anio) && anio >= 2020 ? anio : new Date().getFullYear()}-${String(mes).padStart(2, '0')}` } }
         : {}),
       ...(conductor
-        ? { AND: conductor.split(/\s+/).map((p) => ({ OR: [{ conductores: { nombre: contiene(p) } }, { conductores: { apellido: contiene(p) } }, { conductores: { numero_identificacion: { contains: p } } }] })) }
+        ? { AND: conductor.split(/\s+/).map((p) => ({ OR: conYSinTildes(p).flatMap((x) => [{ conductores: { nombre: contiene(x) } }, { conductores: { apellido: contiene(x) } }, { conductores: { numero_identificacion: { contains: x } } }]) })) }
         : {}),
     }
     const [filas, total] = await Promise.all([
@@ -124,4 +124,65 @@ export const buscarNomina: Herramienta = {
   },
 }
 
-export const HERRAMIENTAS_NOMINA: readonly Herramienta[] = [buscarNomina]
+/**
+ * Abre en pantalla el desprendible de un conductor. El asistente solo sabe
+ * navegar: el canvas de nómina entiende `?desprendible=<liquidacionId>`, va a
+ * esa hoja y abre el mismo PDF del botón «Ver desprendible» del carril.
+ */
+export const abrirDesprendible: Herramienta = {
+  nombre: 'abrir_desprendible',
+  descripcion:
+    'Abre en pantalla el desprendible de nómina de un conductor (el mismo PDF que recibe él). Busca su liquidación más reciente o la del periodo indicado y lleva al canvas de nómina con el desprendible abierto. Úsala para «muéstrame / ábreme el desprendible de Mónica». Si hay varios conductores con ese nombre devuelve candidatos.',
+  parametros: {
+    type: 'object',
+    properties: {
+      conductor: { type: 'string', description: 'Nombre o cédula del conductor' },
+      mes: { type: 'integer', minimum: 1, maximum: 12, description: 'Mes en que termina el periodo, si el usuario lo dijo' },
+      anio: { type: 'integer', minimum: 2020, maximum: 2100 },
+    },
+    required: ['conductor'],
+    additionalProperties: false,
+  },
+  etiqueta: 'Abriendo el desprendible',
+  requiere: MODULO,
+  canales: ['app'],
+  async ejecutar(args) {
+    const texto = textoOpcional(args.conductor, 80)
+    if (!texto) return { error: 'Indica el conductor' }
+    const mes = Number(args.mes)
+    const anio = Number(args.anio)
+    const contiene = (q: string) => ({ contains: q, mode: 'insensitive' as const })
+    const filas = await prisma.liquidaciones.findMany({
+      where: {
+        deleted_at: null,
+        AND: texto.split(/\s+/).filter(Boolean).map((p) => ({
+          OR: conYSinTildes(p).flatMap((x) => [{ conductores: { nombre: contiene(x) } }, { conductores: { apellido: contiene(x) } }, { conductores: { numero_identificacion: { contains: x } } }]),
+        })),
+        ...(Number.isInteger(mes) && mes >= 1 && mes <= 12
+          ? { periodo_end: { startsWith: `${Number.isInteger(anio) && anio >= 2020 ? anio : new Date().getFullYear()}-${String(mes).padStart(2, '0')}` } }
+          : {}),
+      },
+      select: { id: true, periodo_start: true, periodo_end: true, estado: true, conductor_id: true, conductores: { select: { nombre: true, apellido: true, numero_identificacion: true } } },
+      orderBy: [{ periodo_end: 'desc' }, { created_at: 'desc' }],
+      take: 20,
+    })
+    if (filas.length === 0) return { error: `No encontré liquidaciones de nómina de «${texto}»${mes ? ' en ese periodo' : ''}` }
+    const conductores = new Map(filas.map((f) => [f.conductor_id, f]))
+    if (conductores.size > 1) {
+      return {
+        error: 'Hay varios conductores con ese nombre; pregunta cuál',
+        candidatos: [...conductores.values()].map((f) => ({ conductor: `${f.conductores?.nombre} ${f.conductores?.apellido}`.trim(), cedula: f.conductores?.numero_identificacion })),
+      }
+    }
+    const l = filas[0]
+    const q = new URLSearchParams({ inicio: l.periodo_start, fin: l.periodo_end, liquidacion: l.id, desprendible: l.id })
+    return {
+      navegar: `/dashboard/nomina/canvas?${q.toString()}`,
+      conductor: `${l.conductores?.nombre} ${l.conductores?.apellido}`.trim(),
+      periodo: `${l.periodo_start} a ${l.periodo_end}`,
+      estado: l.estado.toLowerCase(),
+    }
+  },
+}
+
+export const HERRAMIENTAS_NOMINA: readonly Herramienta[] = [buscarNomina, abrirDesprendible]
