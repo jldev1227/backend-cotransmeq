@@ -1,8 +1,9 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/prisma";
 import { aiGradingService } from "../../services/ai-grading.service";
 import { getIo } from "../../sockets";
+import { calificarSopa, type ConfigSopa, type Trazo } from "./sopa-letras";
 
 // Respuesta a una pregunta, tal como la envían la web pública y el portal del conductor
 export const respuestaPreguntaSchema = z.object({
@@ -12,6 +13,16 @@ export const respuestaPreguntaSchema = z.object({
   opcionesIds: z.array(z.string()).optional(),
   relacion: z
     .array(z.object({ izq: z.string(), der: z.string() }))
+    .optional(),
+  /** Sopa de letras: líneas marcadas entre dos celdas `[fila, columna]`. */
+  trazos: z
+    .array(
+      z.object({
+        palabra: z.string().optional(),
+        desde: z.tuple([z.number().int(), z.number().int()]),
+        hasta: z.tuple([z.number().int(), z.number().int()]),
+      }),
+    )
     .optional(),
 });
 
@@ -50,7 +61,8 @@ export interface RespuestaCalificada {
   valor_texto?: string;
   valor_numero?: number;
   opcionesIds: string[];
-  relacion: RespuestaPregunta["relacion"] | [];
+  /** RELACION: pares `{izq, der}`. SOPA_LETRAS: trazos válidos. */
+  relacion: Prisma.InputJsonValue;
   puntaje: number;
 }
 
@@ -73,7 +85,7 @@ export async function calificarRespuestas(
 ): Promise<{ puntaje_total: number; respuestasDB: RespuestaCalificada[] }> {
   let puntaje_total = 0;
   const respuestasDB: RespuestaCalificada[] = [];
-  for (const r of respuestas) {
+  for (let r of respuestas) {
     const pregunta = evaluacion.preguntas.find(
       (p: any) => p.id === r.preguntaId,
     );
@@ -172,6 +184,19 @@ export async function calificarRespuestas(
       }
       puntaje = aciertos;
       if (puntaje > pregunta.puntaje) puntaje = pregunta.puntaje;
+    } else if (pregunta.tipo === "SOPA_LETRAS") {
+      const config = pregunta.configuracion as unknown as ConfigSopa | null;
+      if (config?.cuadricula?.length) {
+        const trazos: Trazo[] = (r.trazos ?? []).map((t) => ({
+          palabra: t.palabra,
+          desde: [t.desde[0], t.desde[1]],
+          hasta: [t.hasta[0], t.hasta[1]],
+        }));
+        const resultado = calificarSopa(config, trazos, pregunta.puntaje);
+        puntaje = resultado.puntaje;
+        // Lo que se guarda es lo que el backend validó, no lo que llegó.
+        r = { ...r, opcionesIds: resultado.encontradas, trazos: resultado.trazosValidos };
+      }
     } else if (pregunta.tipo === "VERDADERO_FALSO") {
       // Comparar valor_numero (1=Verdadero, 0=Falso) con respuestaCorrecta
       if (
@@ -190,7 +215,9 @@ export async function calificarRespuestas(
       valor_texto: r.valor_texto,
       valor_numero: r.valor_numero,
       opcionesIds: r.opcionesIds || [],
-      relacion: r.relacion || [],
+      relacion: (pregunta.tipo === "SOPA_LETRAS"
+        ? (r.trazos ?? [])
+        : r.relacion || []) as unknown as Prisma.InputJsonValue,
       puntaje,
     });
   }

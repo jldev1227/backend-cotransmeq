@@ -7,6 +7,7 @@ export const tipoPreguntaEnum = z.enum([
   'TEXTO',
   'RELACION',
   'VERDADERO_FALSO',
+  'SOPA_LETRAS',
 ]);
 
 export const opcionSchema = z.object({
@@ -24,6 +25,20 @@ export const preguntaSchema = z.object({
   relacionIzq: z.array(z.string()).optional(),
   relacionDer: z.array(z.string()).optional(),
   respuestaCorrecta: z.number().optional().nullable(), // Para preguntas numéricas
+  /**
+   * Sopa de letras. El editor manda `palabras`, `tamano` y `diagonales`; si
+   * reenvía una configuración ya generada (`cuadricula`), el backend la
+   * conserva mientras la entrada no cambie.
+   */
+  configuracion: z
+    .object({
+      palabras: z.array(z.string()).min(1),
+      tamano: z.number().int().min(6).max(20).optional(),
+      diagonales: z.boolean().optional(),
+    })
+    .passthrough()
+    .optional()
+    .nullable(),
 });
 
 export const evaluacionSchema = z.object({

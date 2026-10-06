@@ -18,6 +18,8 @@ export async function evaluacionesRoutes(app: FastifyInstance) {
   // Resultados de quienes respondieron
   app.get('/evaluaciones/:id/resultados', { onRequest: authMiddleware }, EvaluacionesController.resultados);
 
+  app.get('/evaluaciones/:id/resultados/:resultadoId', { onRequest: authMiddleware }, EvaluacionesController.resultado);
+
   // Corregir las respuestas de un resultado (solo quien administra evaluaciones)
   app.put(
     '/evaluaciones/:id/resultados/:resultadoId',

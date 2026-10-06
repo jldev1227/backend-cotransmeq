@@ -1,4 +1,5 @@
 import type { EvaluacionConPreguntas } from "./registrar-resultado";
+import { sopaParaPublico, type ConfigSopa } from "./sopa-letras";
 
 /** Fisher-Yates sobre una copia: no toca el arreglo original. */
 export function barajar<T>(lista: T[]): T[] {
@@ -31,6 +32,11 @@ export function evaluacionSinClave(evaluacion: EvaluacionConPreguntas) {
       opciones: p.opciones.map((o) => ({ id: o.id, texto: o.texto })),
       relacionIzq: p.relacionIzq,
       relacionDer: p.tipo === "RELACION" ? barajar(p.relacionDer) : p.relacionDer,
+      // La sopa viaja sin la ubicación de las palabras: solo cuadrícula y lista.
+      configuracion:
+        p.tipo === "SOPA_LETRAS" && p.configuracion
+          ? sopaParaPublico(p.configuracion as unknown as ConfigSopa)
+          : null,
     })),
   };
 }

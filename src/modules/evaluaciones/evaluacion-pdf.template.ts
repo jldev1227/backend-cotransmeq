@@ -12,12 +12,14 @@ import path from "node:path";
  * común con el desprendible de nómina ni con el resto de documentos que
  * emite el panel.
  *
- * Ahora es HTML paginado por Chromium, como el desprendible
- * (`nomina-canvas/desprendible.template.ts`) y como salidas-NC: la misma
- * cabecera oscura con logotipo y NIT, las mismas tarjetas, la misma
- * tipografía embebida. Este archivo es igual en los dos repos salvo el
- * bloque `MARCA`, que es lo único que cambia entre Transmeralda y
- * Cotransmeq.
+ * Ahora es HTML paginado por Chromium con el mismo lenguaje que el
+ * rutograma (`servicios/rutograma.template.ts`) y el desprendible: membrete
+ * oscuro con logotipo, NIT y bloque de formato, tarjetas con esquinas
+ * redondeadas, fila de indicadores, cabeceras de tabla en el tinte de marca,
+ * bloque de firmas y pie fijo. Como en el rutograma, el cuerpo va dentro de
+ * una tabla de una celda: Chromium repite el `<thead>` en cada hoja, así el
+ * membrete sale arriba de todas, y el pie es `position: fixed`. Este archivo
+ * es igual en los dos repos salvo el bloque `MARCA`.
  *
  * ⚠️ SIN IMPORTS DE OTROS MÓDULOS. Las fuentes embebidas y las variables
  * `--tpdf-*` llegan por `prelude`, igual que en el desprendible, para que el
@@ -52,7 +54,8 @@ export type TipoPreguntaPdf =
   | "NUMERICA"
   | "TEXTO"
   | "RELACION"
-  | "VERDADERO_FALSO";
+  | "VERDADERO_FALSO"
+  | "SOPA_LETRAS";
 
 export interface OpcionPdf {
   id: string;
@@ -69,6 +72,12 @@ export interface PreguntaPdf {
   relacionIzq: string[];
   relacionDer: string[];
   respuestaCorrecta?: number | null;
+  /** Sopa de letras: cuadrícula y ubicación de cada palabra. */
+  configuracion?: {
+    tamano: number;
+    cuadricula: string[];
+    palabras: { texto: string; fila: number; columna: number; dFila: number; dColumna: number }[];
+  } | null;
 }
 
 export interface EvaluacionPdf {
@@ -131,6 +140,7 @@ const TIPO_ETIQUETA: Record<string, string> = {
   TEXTO: "Texto",
   RELACION: "Relación",
   VERDADERO_FALSO: "Verdadero o falso",
+  SOPA_LETRAS: "Sopa de letras",
 };
 
 function esc(v: unknown): string {
@@ -255,6 +265,38 @@ function renderRespuesta(respuesta: RespuestaPdf, pregunta: PreguntaPdf): string
     return `<ul class="opciones">${filas}</ul>`;
   }
 
+  if (pregunta.tipo === "SOPA_LETRAS") {
+    const config = pregunta.configuracion;
+    if (!config?.cuadricula?.length) return sinRespuesta;
+    const trazos: { palabra?: string; desde: [number, number]; hasta: [number, number] }[] =
+      Array.isArray(respuesta.relacion) ? respuesta.relacion : [];
+    const marcadas = new Set<string>();
+    for (const tr of trazos) {
+      const dF = Math.sign(tr.hasta[0] - tr.desde[0]);
+      const dC = Math.sign(tr.hasta[1] - tr.desde[1]);
+      const largo = Math.max(Math.abs(tr.hasta[0] - tr.desde[0]), Math.abs(tr.hasta[1] - tr.desde[1])) + 1;
+      for (let k = 0; k < largo; k++) marcadas.add(`${tr.desde[0] + dF * k},${tr.desde[1] + dC * k}`);
+    }
+    const encontradas = new Set(
+      Array.isArray(respuesta.opcionesIds) ? respuesta.opcionesIds : [],
+    );
+    const cuadricula = `<table class="sopa"><tbody>${config.cuadricula
+      .map(
+        (fila, f) =>
+          `<tr>${[...fila]
+            .map((letra, c) => `<td class="${marcadas.has(`${f},${c}`) ? "sopa-marcada" : ""}">${esc(letra)}</td>`)
+            .join("")}</tr>`,
+      )
+      .join("")}</tbody></table>`;
+    const lista = config.palabras
+      .map((p) => {
+        const ok = encontradas.has(p.texto);
+        return `<li class="${ok ? "ok" : "omitida"}">${ok ? marcador("correcta") : `<span class="marca marca--omitida" aria-hidden="true"></span>`}${esc(p.texto)}</li>`;
+      })
+      .join("");
+    return `<div class="sopa-bloque">${cuadricula}<ul class="opciones sopa-lista">${lista}</ul></div><p class="nota">${encontradas.size} de ${config.palabras.length} palabras encontradas</p>`;
+  }
+
   // OPCION_UNICA / OPCION_MULTIPLE
   const elegidas = new Set(Array.isArray(respuesta.opcionesIds) ? respuesta.opcionesIds : []);
   if (!elegidas.size) return sinRespuesta;
@@ -276,148 +318,207 @@ function renderRespuesta(respuesta: RespuestaPdf, pregunta: PreguntaPdf): string
 
 // ── Piezas comunes ──────────────────────────────────────────────
 
-function cabecera(kicker: string, titulo: string, sub: string): string {
-  const logo = LOGO_DATA_URL
+function logoHtml(): string {
+  return LOGO_DATA_URL
     ? `<img class="brand-logo" src="${LOGO_DATA_URL}" alt="${esc(MARCA.nombreCorto)}">`
     : `<strong class="brand-fallback">${esc(MARCA.empresa)}</strong>`;
-  return `<header class="cabecera">
-    <div class="brand">
-      ${logo}
-      <p class="brand-meta">${esc(MARCA.empresa)}<br>NIT ${esc(MARCA.nit)}</p>
-    </div>
-    <div class="doc">
-      <p class="kicker">${esc(kicker)}</p>
-      <h1>${esc(titulo)}</h1>
-      ${sub ? `<p class="sub">${esc(sub)}</p>` : ""}
-    </div>
-    <div class="meta-doc">
-      <span><b>CÓDIGO</b>${esc(MARCA.codigo)}</span>
-      <span><b>VERSIÓN</b>${esc(MARCA.version)}</span>
-    </div>
-  </header>`;
 }
 
-function pie(): string {
-  return `<p class="document-footer">Documento generado electrónicamente por ${esc(MARCA.nombreCorto)} · ${esc(fechaHora(new Date().toISOString()))}</p>`;
+interface Membrete {
+  kicker: string;
+  titulo: string;
+  sub?: string;
+  /** Pastilla bajo el título, como el estado del servicio en el rutograma. */
+  estado?: { texto: string; tono: "ok" | "mal" | "neutro" };
+  /** Pares del bloque de formato, además de código y versión. */
+  formato: [string, string][];
+}
+
+/**
+ * Membrete corporativo, calcado del rutograma: marca y NIT, kicker, título,
+ * línea secundaria y el bloque de formato a la derecha. Va en el `<thead>`
+ * para que se repita en cada hoja.
+ */
+function cabecera(m: Membrete): string {
+  const pares: [string, string][] = [
+    ["Código", MARCA.codigo],
+    ["Versión", MARCA.version],
+    ...m.formato,
+  ];
+  return `<header class="cabecera">
+    <div>
+      <div class="brand">
+        ${logoHtml()}
+        <p class="brand-meta">${esc(MARCA.empresa)}<br>NIT ${esc(MARCA.nit)}</p>
+      </div>
+      <div class="doc">
+        <p class="kicker">${esc(m.kicker)}</p>
+        <h1>${esc(m.titulo)}</h1>
+        ${m.sub ? `<p class="sub">${esc(m.sub)}</p>` : ""}
+        ${m.estado ? `<span class="estado estado--${m.estado.tono}">${esc(m.estado.texto)}</span>` : ""}
+      </div>
+    </div>
+    <dl class="formato">
+      ${pares.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}
+    </dl>
+  </header>
+  <div class="cab-espacio"></div>`;
+}
+
+function pie(documento: string, derecha: string): string {
+  return `<footer class="pie">
+    <span>${esc(documento)} · ${esc(MARCA.codigo)} v${esc(MARCA.version)} · Documento generado electrónicamente por ${esc(MARCA.nombreCorto)}</span>
+    <span>${esc(derecha)}</span>
+  </footer>`;
+}
+
+/** Esqueleto de página: membrete repetido, pie fijo y el cuerpo en medio. */
+function documento(membrete: string, cuerpo: string, pieHtml: string): string {
+  return `<table class="doc-tabla">
+<thead><tr><td>${membrete}</td></tr></thead>
+<tfoot><tr><td><div class="pie-espacio"></div></td></tr></tfoot>
+<tbody><tr><td><main>${cuerpo}</main></td></tr></tbody>
+</table>
+${pieHtml}`;
+}
+
+function dato(label: string, valor: string): string {
+  return `<div class="dato">
+    <span class="dato-label">${esc(label)}</span>
+    <span class="dato-valor">${valor || "—"}</span>
+  </div>`;
+}
+
+function stat(label: string, valor: string, sub: string, tono = ""): string {
+  return `<div class="stat${tono ? ` stat--${tono}` : ""}">
+    <span class="stat-label">${esc(label)}</span>
+    <span class="stat-valor">${valor}</span>
+    <span class="stat-sub">${sub}</span>
+  </div>`;
 }
 
 function estilos(prelude: string, orientacion: "portrait" | "landscape"): string {
   return `<style>${prelude}</style>
 <style>
-  @page { size: letter ${orientacion}; margin: 9mm 10mm 11mm; }
+  @page { size: letter ${orientacion}; margin: 8mm 10mm 8mm; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: 'Inter Tight', system-ui, sans-serif;
-    font-size: var(--tpdf-fs-body, 7.8pt);
+    font-size: 7.6pt;
+    line-height: 1.3;
     color: ${MARCA.texto};
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  h1, h2, h3, p, ul { margin: 0; }
+  h1, h2, h3, p, ul, dl { margin: 0; }
   ul { padding: 0; list-style: none; }
-  main { display: flex; flex-direction: column; gap: 8pt; }
+  table { width: 100%; border-collapse: collapse; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+  .c { text-align: center; }
+  .d { text-align: right; }
+  .tenue { color: #94a3b8; }
 
-  /* Cabecera oscura */
+  /* ── Esqueleto: membrete repetido y pie fijo ─────────────────────── */
+  table.doc-tabla > thead { display: table-header-group; }
+  table.doc-tabla > tfoot { display: table-footer-group; }
+  table.doc-tabla > thead > tr > td, table.doc-tabla > tbody > tr > td, table.doc-tabla > tfoot > tr > td { padding: 0; }
+  .cab-espacio { height: 6pt; }
+  .pie-espacio { height: 20pt; }
+  .pie {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5pt 2pt 0; border-top: .6pt solid ${MARCA.borde};
+    color: ${MARCA.muted}; font-size: 5.7pt; letter-spacing: .025em; background: #fff;
+  }
+
+  /* ── Membrete corporativo ─────────────────────────────────────────── */
   .cabecera {
     position: relative; overflow: hidden;
-    display: grid; grid-template-columns: 1fr auto; gap: 6pt 14pt;
-    border-radius: 18pt; padding: 13pt 18pt 14pt;
-    background: linear-gradient(160deg, ${MARCA.oscuro2} 0%, ${MARCA.oscuro} 70%);
-    color: #fff;
+    display: grid; grid-template-columns: 1fr auto; gap: 14pt; align-items: end;
+    border-radius: 14pt; padding: 11pt 16pt 12pt;
+    background: ${MARCA.oscuro}; color: #fff;
   }
   .cabecera::before, .cabecera::after {
     content: ''; position: absolute; border-radius: 999pt;
     background: rgba(255,255,255,.055);
   }
-  .cabecera::before { width: 170pt; height: 170pt; right: -60pt; top: -90pt; }
-  .cabecera::after { width: 60pt; height: 60pt; left: 38%; bottom: -34pt; }
-  .brand { position: relative; z-index: 2; display: flex; align-items: center; gap: 8pt; grid-column: 1; }
-  .brand-logo { width: 92pt; max-height: 28pt; object-fit: contain; object-position: left center; filter: brightness(0) invert(1); }
+  .cabecera::before { width: 150pt; height: 150pt; right: 120pt; top: -96pt; }
+  .cabecera::after { width: 54pt; height: 54pt; left: -18pt; bottom: -26pt; }
+  .cabecera > * { position: relative; z-index: 2; }
+  .brand { display: flex; align-items: center; gap: 8pt; }
+  .brand-logo { width: 90pt; max-height: 28pt; object-fit: contain; object-position: left center; filter: brightness(0) invert(1); }
   .brand-fallback { color: #fff; font-size: 10pt; letter-spacing: .08em; }
-  .brand-meta { color: #f0fdf4; font-size: 7.4pt; line-height: 1.35; font-weight: 700; letter-spacing: .015em; }
-  .meta-doc {
-    position: relative; z-index: 2; grid-column: 2; grid-row: 1;
-    display: flex; gap: 5pt; align-self: start;
-  }
-  .meta-doc span {
-    display: inline-flex; flex-direction: column; gap: 1pt;
-    padding: 4pt 7pt; border-radius: 8pt;
-    background: rgba(255,255,255,.12); color: #fff;
-    font-size: 6.6pt; font-weight: 700;
-  }
-  .meta-doc b { font-size: 5pt; letter-spacing: .12em; color: ${MARCA.eyebrow}; }
-  .doc { position: relative; z-index: 2; grid-column: 1 / -1; margin-top: 4pt; max-width: 88%; }
-  .doc .kicker { color: ${MARCA.eyebrow}; font-size: 6.3pt; font-weight: 800; letter-spacing: .15em; }
-  .doc h1 { margin-top: 3pt; color: #fff; font-size: 16pt; line-height: 1.12; letter-spacing: -.02em; font-weight: 800; }
-  .doc .sub { margin-top: 4pt; color: ${MARCA.heroTexto}; font-size: 7.6pt; line-height: 1.4; font-weight: 500; }
-
-  /* Tarjetas */
-  .card { overflow: hidden; background: #fff; border: .6pt solid ${MARCA.borde}; border-radius: 13pt; break-inside: avoid; }
-  /* La tabla puede ocupar varias páginas: si la tarjeta entera evitara el
-     corte, saltaría completa a la página siguiente y dejaría la primera
-     medio vacía. Se parte por filas y la cabecera se repite sola. */
-  .card--tabla { break-inside: auto; overflow: visible; }
-  .card--tabla table { border-radius: 0 0 13pt 13pt; overflow: hidden; }
-  .card-title { padding: 8pt 10pt 6pt; color: ${MARCA.texto}; font-size: 9pt; font-weight: 800; letter-spacing: -.01em; }
-  .card-subtitle { display: block; margin-top: 1pt; color: ${MARCA.muted}; font-size: 6pt; font-weight: 500; letter-spacing: 0; }
-
-  /* Franja de identidad */
-  .identity-strip { display: grid; gap: 7pt 10pt; padding: 9pt 10pt; background: ${MARCA.fondo}; }
-  .identity-label { display: block; font-size: 5.5pt; color: ${MARCA.muted}; font-weight: 800; letter-spacing: .09em; }
-  .identity-value { display: block; margin-top: 2pt; font-size: 7.4pt; line-height: 1.25; font-weight: 800; overflow-wrap: anywhere; }
-
-  /* Puntaje */
-  .puntaje-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 8pt; }
-  .puntaje { display: flex; flex-direction: column; gap: 4pt; padding: 10pt 12pt; }
-  .puntaje .label { font-size: 5.8pt; font-weight: 800; letter-spacing: .12em; color: ${MARCA.muted}; }
-  .puntaje .grande { display: flex; align-items: baseline; gap: 3pt; font-variant-numeric: tabular-nums; }
-  .puntaje .grande strong { font-size: 26pt; line-height: 1; font-weight: 800; letter-spacing: -.03em; color: ${MARCA.oscuro}; }
-  .puntaje .grande span { font-size: 9pt; font-weight: 700; color: ${MARCA.muted}; }
-  .barra { position: relative; height: 6pt; border-radius: 999pt; background: ${MARCA.tinte}; overflow: hidden; margin-top: 2pt; }
-  .barra i { position: absolute; inset: 0 auto 0 0; border-radius: 999pt; background: ${MARCA.primario}; }
-  .barra--bajo i { background: #b42318; }
-  .barra--medio i { background: #d97706; }
-  .puntaje .pct { font-size: 7pt; font-weight: 700; color: ${MARCA.texto}; }
-  .resumen-acierto { display: flex; flex-direction: column; justify-content: center; gap: 5pt; padding: 10pt 12pt; }
+  .brand-meta { color: #ecfff6; font-size: 6.6pt; line-height: 1.3; font-weight: 750; letter-spacing: .015em; }
+  .doc { margin-top: 8pt; }
+  .doc .kicker { color: ${MARCA.eyebrow}; font-size: 6pt; font-weight: 800; letter-spacing: .15em; }
+  .doc h1 { margin-top: 2pt; color: #fff; font-size: 15pt; line-height: 1.1; letter-spacing: -.025em; font-weight: 800; overflow-wrap: anywhere; }
+  .doc .sub { margin-top: 3pt; color: ${MARCA.heroTexto}; font-size: 7.4pt; line-height: 1.35; font-weight: 500; max-width: 400pt; }
+  .formato { display: grid; grid-template-columns: auto auto; gap: 2pt 8pt; align-self: start; padding: 6pt 9pt; border-radius: 9pt; background: rgba(255,255,255,.1); font-size: 6.2pt; }
+  .formato dt { color: ${MARCA.eyebrow}; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .formato dd { margin: 0; color: #fff; font-weight: 700; text-align: right; white-space: nowrap; }
   .estado {
-    align-self: flex-start; padding: 4pt 10pt; border-radius: 999pt;
-    font-size: 7.2pt; font-weight: 800; letter-spacing: .08em; white-space: nowrap;
+    display: inline-block; margin-top: 5pt; padding: 2.5pt 7pt; border-radius: 999pt;
+    background: rgba(255,255,255,.14); color: #fff;
+    font-size: 5.8pt; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
   }
-  .estado--aprobado { background: ${MARCA.tinte}; color: ${MARCA.oscuro}; }
-  .estado--reprobado { background: #fff0ed; color: #b42318; }
-  .conteos { display: flex; flex-wrap: wrap; gap: 4pt 10pt; font-size: 7pt; font-weight: 600; color: ${MARCA.texto}; }
-  .conteos span { display: inline-flex; align-items: center; gap: 3pt; }
-  .conteos .marca { width: 9pt; height: 9pt; }
-  .minimo { font-size: 6.2pt; color: ${MARCA.muted}; }
+  .estado--ok { background: ${MARCA.tinte}; color: ${MARCA.oscuro}; }
+  .estado--mal { background: #fff0ed; color: #b42318; }
 
-  /* Tabla */
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  /* ── Tarjetas ─────────────────────────────────────────────────────── */
+  main { display: flex; flex-direction: column; gap: 7pt; }
+  .card { overflow: hidden; background: #fff; border: .6pt solid ${MARCA.borde}; border-radius: 12pt; break-inside: avoid; }
+  /* Las tablas largas se dejan partir entre hojas, fila a fila. */
+  .card--fluida { break-inside: auto; }
+  .card--fluida tr { break-inside: avoid; }
+  .card-title { padding: 6pt 9pt 4pt; color: ${MARCA.texto}; font-size: 8.6pt; font-weight: 850; }
+  .card-subtitle { display: block; margin-top: 1pt; color: ${MARCA.muted}; font-size: 5.8pt; font-weight: 550; }
+  .identity-strip { display: grid; gap: 8pt; padding: 8pt 9pt; background: ${MARCA.fondo}; }
+  .dato { min-width: 0; }
+  .dato-label { display: block; font-size: 5.4pt; color: ${MARCA.muted}; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+  .dato-valor { display: block; margin-top: 1.5pt; font-size: 7.2pt; line-height: 1.25; font-weight: 750; overflow-wrap: anywhere; }
+  .dato-valor .sub { display: block; font-size: 6.2pt; font-weight: 500; color: #475569; }
+
+  /* ── Indicadores ──────────────────────────────────────────────────── */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7pt; }
+  .stat { padding: 7pt 9pt; border: .6pt solid ${MARCA.borde}; border-radius: 10pt; background: #fff; }
+  .stat-label { display: block; font-size: 5.4pt; color: ${MARCA.muted}; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+  .stat-valor { display: block; margin-top: 2pt; font-size: 12.5pt; font-weight: 850; letter-spacing: -.02em; color: ${MARCA.oscuro}; font-variant-numeric: tabular-nums; }
+  .stat-valor small { font-size: 7pt; font-weight: 700; color: ${MARCA.muted}; letter-spacing: 0; }
+  .stat-sub { display: block; font-size: 5.8pt; color: ${MARCA.muted}; }
+  .stat--mal .stat-valor { color: #b42318; }
+  .stat--medio .stat-valor { color: #b45309; }
+  .barra { position: relative; height: 4pt; margin-top: 3pt; border-radius: 999pt; background: ${MARCA.tinte}; overflow: hidden; }
+  .barra i { position: absolute; inset: 0 auto 0 0; border-radius: 999pt; background: ${MARCA.primario}; }
+  .stat--mal .barra i { background: #b42318; }
+  .stat--medio .barra i { background: #d97706; }
+
+  /* ── Tablas ───────────────────────────────────────────────────────── */
   thead { display: table-header-group; }
-  thead th {
-    background: ${MARCA.tinte}; color: ${MARCA.oscuro}; text-align: left;
-    padding: 5pt 7pt; font-size: 5.8pt; letter-spacing: .08em; font-weight: 800;
-  }
-  tbody td { padding: 6pt 7pt; border-bottom: .5pt solid #f1f5f9; vertical-align: top; }
-  tbody tr { break-inside: avoid; }
+  thead th { background: ${MARCA.tinte}; color: ${MARCA.oscuro}; text-align: left; padding: 4.5pt 6pt; font-size: 5.8pt; letter-spacing: .08em; text-transform: uppercase; }
+  thead th.c { text-align: center; }
+  thead th.d { text-align: right; }
+  tbody td { padding: 4.5pt 6pt; border-bottom: .5pt solid #edf3f0; vertical-align: top; font-size: 7pt; }
   tbody tr:last-child td { border-bottom: 0; }
-  .c { text-align: center; }
-  .d { text-align: right; }
-  .num { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: ${MARCA.muted}; }
+  td .sub { display: block; font-size: 5.8pt; color: ${MARCA.muted}; font-weight: 500; }
+  td.vacio { color: #94a3b8; font-style: italic; text-align: center; padding: 7pt; }
   .pregunta { font-weight: 700; line-height: 1.35; white-space: pre-line; }
-  .tipo { display: inline-block; margin-top: 3pt; padding: 1.5pt 5pt; border-radius: 999pt; background: ${MARCA.fondo}; color: ${MARCA.muted}; font-size: 5.4pt; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
-  .pts { display: inline-block; margin-top: 3pt; padding: 1.5pt 6pt; border-radius: 999pt; font-size: 6pt; font-weight: 800; white-space: nowrap; }
+  .tipo { display: inline-block; margin-top: 3pt; padding: 1.5pt 5pt; border-radius: 999pt; background: ${MARCA.fondo}; color: ${MARCA.muted}; font-size: 5.2pt; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .pts { display: inline-block; margin-top: 3pt; padding: 1.5pt 6pt; border-radius: 999pt; font-size: 5.8pt; font-weight: 800; white-space: nowrap; }
   .pts--correcta { background: ${MARCA.tinte}; color: ${MARCA.oscuro}; }
   .pts--parcial { background: #fef3c7; color: #92400e; }
   .pts--incorrecta { background: #fff0ed; color: #b42318; }
-  .acierto { display: flex; flex-direction: column; align-items: center; gap: 2pt; font-size: 6pt; font-weight: 700; }
-  .acierto .marca { width: 12pt; height: 12pt; }
+  .acierto { display: flex; flex-direction: column; align-items: center; gap: 2pt; font-size: 5.8pt; font-weight: 700; }
+  .acierto .marca { width: 11pt; height: 11pt; }
   .acierto--correcta { color: ${MARCA.oscuro}; }
   .acierto--parcial { color: #92400e; }
   .acierto--incorrecta { color: #b42318; }
+  .resultado-pill { display: inline-block; padding: 2.5pt 7pt; border-radius: 999pt; font-size: 5.6pt; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+  .resultado-pill--ok { background: ${MARCA.tinte}; color: ${MARCA.oscuro}; }
+  .resultado-pill--mal { background: #fff0ed; color: #b42318; }
 
-  /* Respuestas */
+  /* ── Respuestas ───────────────────────────────────────────────────── */
   .opciones { display: flex; flex-direction: column; gap: 2.5pt; }
   .opciones li { display: flex; align-items: flex-start; gap: 4pt; line-height: 1.35; }
   .opciones li.ok { color: ${MARCA.oscuro}; font-weight: 700; }
@@ -434,33 +535,30 @@ function estilos(prelude: string, orientacion: "portrait" | "landscape"): string
   .marca--omitida { border: 1pt dashed ${MARCA.primario}; background: transparent; }
   .par { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3pt; }
   .par .flecha { color: ${MARCA.muted}; font-weight: 400; }
-  .nota, .nota-inline { font-size: 6.2pt; color: ${MARCA.muted}; font-weight: 500; }
+  .nota, .nota-inline { font-size: 6pt; color: ${MARCA.muted}; font-weight: 500; }
   .nota { margin-top: 3pt; }
   .nota strong { color: ${MARCA.oscuro}; }
   .nota-inline { margin-left: 3pt; }
   .sin-respuesta { color: ${MARCA.muted}; font-style: italic; }
   .texto-libre { white-space: pre-line; line-height: 1.4; }
   .valor-num { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 8pt; }
+  .sopa-bloque { display: grid; grid-template-columns: auto 1fr; gap: 8pt; align-items: start; }
+  table.sopa { width: auto; border-collapse: separate; border-spacing: 1pt; }
+  table.sopa td { width: 10pt; height: 10pt; padding: 0; border: 0; border-radius: 2pt; background: ${MARCA.fondo}; color: ${MARCA.texto}; font-family: 'JetBrains Mono', monospace; font-size: 6.2pt; font-weight: 700; text-align: center; vertical-align: middle; line-height: 10pt; }
+  table.sopa td.sopa-marcada { background: ${MARCA.primario}; color: #fff; }
+  .sopa-lista { gap: 1.5pt; }
 
-  /* Firma */
-  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 22pt; padding: 10pt 14pt 9pt; break-inside: avoid; }
+  /* ── Firmas ───────────────────────────────────────────────────────── */
+  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 22pt; padding: 8pt 14pt 8pt; background: #fff; border: .6pt solid ${MARCA.borde}; border-radius: 12pt; break-inside: avoid; }
   .firma { min-width: 0; text-align: center; display: flex; flex-direction: column; }
-  .firma-media { height: 47pt; display: flex; align-items: flex-end; justify-content: center; }
-  .firma .linea { width: 100%; border-top: .75pt solid #94a3b8; margin-top: 1pt; padding-top: 4pt; color: ${MARCA.oscuro}; font-weight: 800; }
-  .firma-image { display: block; max-height: 45pt; max-width: 190pt; object-fit: contain; }
+  .firma-media { height: 36pt; display: flex; align-items: flex-end; justify-content: center; }
+  .firma-image { display: block; max-height: 36pt; max-width: 160pt; object-fit: contain; }
+  .firma .linea { width: 100%; border-top: .75pt solid #9eb0a8; margin-top: 1pt; padding-top: 3pt; color: ${MARCA.oscuro}; font-weight: 800; }
   .firma small { color: ${MARCA.muted}; font-size: 5.8pt; }
-  .firma-pendiente { height: 47pt; }
 
-  /* Resumen (apaisado) */
-  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8pt; padding: 10pt 12pt; }
-  .stat { display: flex; flex-direction: column; gap: 2pt; }
-  .stat b { font-size: 5.5pt; color: ${MARCA.muted}; font-weight: 800; letter-spacing: .09em; }
-  .stat span { font-size: 11pt; font-weight: 800; letter-spacing: -.02em; color: ${MARCA.oscuro}; font-variant-numeric: tabular-nums; }
-  .stat small { font-size: 6pt; color: ${MARCA.muted}; }
+  /* ── Resumen (apaisado) ───────────────────────────────────────────── */
+  .stats--6 { grid-template-columns: repeat(6, 1fr); }
   .firma-celda img { display: block; max-height: 22pt; max-width: 70pt; object-fit: contain; }
-  .vacio { color: ${MARCA.muted}; font-style: italic; text-align: center; padding: 10pt; }
-
-  .document-footer { text-align: center; color: ${MARCA.muted}; font-size: 5.7pt; letter-spacing: .025em; margin-top: 2pt; }
 </style>`;
 }
 
@@ -474,9 +572,13 @@ export function renderResultadoIndividualHtml(
   const maximo = puntajeMaximoDe(evaluacion);
   const pctTotal = porcentaje(resultado.puntaje_total, maximo);
   const aprobado = pctTotal >= MINIMO_APROBACION;
-  const tonoBarra = pctTotal >= 70 ? "" : pctTotal >= 50 ? "barra--medio" : "barra--bajo";
+  const tono = pctTotal >= MINIMO_APROBACION ? "" : pctTotal >= 50 ? "medio" : "mal";
 
-  const respuestas = resultado.respuestas.filter((r) => r.pregunta);
+  // En el orden de la evaluación, no en el que las devuelva la base.
+  const posicion = new Map(evaluacion.preguntas.map((p, i) => [p.id, i]));
+  const respuestas = resultado.respuestas
+    .filter((r) => r.pregunta)
+    .sort((a, b) => (posicion.get(a.preguntaId) ?? 99) - (posicion.get(b.preguntaId) ?? 99));
   const conteos = { correcta: 0, parcial: 0, incorrecta: 0 };
   for (const r of respuestas) conteos[acierto(r.puntaje, r.pregunta!.puntaje)]++;
 
@@ -485,7 +587,7 @@ export function renderResultadoIndividualHtml(
       const p = r.pregunta!;
       const estado = acierto(r.puntaje, p.puntaje);
       return `<tr>
-        <td class="c num">${i + 1}</td>
+        <td class="c mono">${i + 1}</td>
         <td>
           <p class="pregunta">${esc(p.texto)}</p>
           <span class="tipo">${esc(TIPO_ETIQUETA[p.tipo] ?? p.tipo)}</span>
@@ -497,72 +599,67 @@ export function renderResultadoIndividualHtml(
     })
     .join("");
 
-  const firma = evaluacion.requiere_firma
-    ? `<section class="card firmas">
+  const firmas = evaluacion.requiere_firma
+    ? `<div class="firmas">
         <div class="firma">
           <div class="firma-media">${resultado.firma ? `<img class="firma-image" src="${esc(resultado.firma)}" alt="Firma del evaluado">` : ""}</div>
           <div class="linea">${esc(resultado.nombre_completo)}</div>
           <small>C.C. ${esc(resultado.numero_documento)} · Firmado el ${esc(fechaHora(resultado.created_at))}</small>
         </div>
         <div class="firma">
-          <div class="firma-media firma-pendiente"></div>
+          <div class="firma-media"></div>
           <div class="linea">${esc(MARCA.empresa)}</div>
           <small>Responsable de la evaluación</small>
         </div>
-      </section>`
+      </div>`
     : "";
 
-  return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8">
-${estilos(opciones.prelude ?? "", "portrait")}
-<style>
-  .identity-strip { grid-template-columns: 1.6fr .9fr 1.1fr; }
-</style>
-</head>
-<body>
-<main>
-  ${cabecera("RESULTADO DE EVALUACIÓN", evaluacion.titulo, evaluacion.descripcion ?? "")}
-
+  const cuerpo = `
   <section class="card">
-    <div class="identity-strip">
-      <div><span class="identity-label">NOMBRE</span><span class="identity-value">${esc(resultado.nombre_completo)}</span></div>
-      <div><span class="identity-label">DOCUMENTO</span><span class="identity-value">${esc(resultado.numero_documento)}</span></div>
-      <div><span class="identity-label">CARGO</span><span class="identity-value">${esc(resultado.cargo || "—")}</span></div>
-      <div><span class="identity-label">CORREO</span><span class="identity-value">${esc(resultado.correo || "—")}</span></div>
-      <div><span class="identity-label">TELÉFONO</span><span class="identity-value">${esc(resultado.telefono || "—")}</span></div>
-      <div><span class="identity-label">RESPONDIDA EL</span><span class="identity-value">${esc(fechaHora(resultado.created_at))}</span></div>
+    <div class="identity-strip" style="grid-template-columns: 1.5fr .9fr 1.1fr">
+      ${dato("Evaluado", `${esc(resultado.nombre_completo)}<span class="sub">C.C. ${esc(resultado.numero_documento)}</span>`)}
+      ${dato("Cargo", esc(resultado.cargo))}
+      ${dato("Respondida el", esc(fechaHora(resultado.created_at)))}
+      ${dato("Correo", esc((resultado.correo || "").toLowerCase()))}
+      ${dato("Teléfono", `<span class="mono">${esc(resultado.telefono)}</span>`)}
+      ${dato("Evaluación creada", esc(fechaLarga(evaluacion.created_at)))}
     </div>
   </section>
 
-  <div class="puntaje-grid">
-    <section class="card puntaje">
-      <span class="label">PUNTAJE OBTENIDO</span>
-      <div class="grande"><strong>${resultado.puntaje_total}</strong><span>/ ${maximo} puntos</span></div>
-      <div class="barra ${tonoBarra}"><i style="width:${Math.min(100, pctTotal)}%"></i></div>
-      <span class="pct">${pct(pctTotal)} de acierto</span>
-    </section>
-    <section class="card resumen-acierto">
-      <span class="estado estado--${aprobado ? "aprobado" : "reprobado"}">${aprobado ? "APROBADO" : "NO APROBADO"}</span>
-      <div class="conteos">
-        <span>${marcador("correcta")}${conteos.correcta} correctas</span>
-        <span>${marcador("parcial")}${conteos.parcial} parciales</span>
-        <span>${marcador("incorrecta")}${conteos.incorrecta} incorrectas</span>
-      </div>
-      <span class="minimo">Mínimo para aprobar: ${MINIMO_APROBACION} % · ${evaluacion.preguntas.length} preguntas · evaluación creada el ${esc(fechaLarga(evaluacion.created_at))}</span>
-    </section>
+  <div class="stats">
+    ${stat("Puntaje", `${resultado.puntaje_total}<small> / ${maximo}</small>`, `${evaluacion.preguntas.length} preguntas`, tono)}
+    ${stat("Acierto", pct(pctTotal), `<span class="barra"><i style="width:${Math.min(100, pctTotal)}%"></i></span>`, tono)}
+    ${stat("Correctas", String(conteos.correcta), `${conteos.parcial} parcial(es) · ${conteos.incorrecta} incorrecta(s)`)}
+    ${stat("Resultado", aprobado ? "Aprobado" : "No aprobado", `Mínimo para aprobar: ${MINIMO_APROBACION} %`, aprobado ? "" : "mal")}
   </div>
 
-  <section class="card card--tabla">
+  <section class="card card--fluida">
     <h2 class="card-title">Preguntas y respuestas<span class="card-subtitle">Lo que respondió el evaluado frente a la clave de corrección</span></h2>
     <table>
-      <thead><tr><th class="c" style="width:22pt">#</th><th style="width:40%">PREGUNTA</th><th>RESPUESTA</th><th class="c" style="width:52pt">ACIERTO</th></tr></thead>
+      <thead><tr><th class="c" style="width:22pt">#</th><th style="width:38%">Pregunta</th><th>Respuesta</th><th class="c" style="width:52pt">Acierto</th></tr></thead>
       <tbody>${filas || `<tr><td colspan="4" class="vacio">Sin respuestas registradas.</td></tr>`}</tbody>
     </table>
   </section>
 
-  ${firma}
-  ${pie()}
-</main>
+  ${firmas}`;
+
+  const membrete = cabecera({
+    kicker: "FORMACIÓN · RESULTADO DE EVALUACIÓN",
+    titulo: evaluacion.titulo,
+    sub: evaluacion.descripcion ?? "",
+    estado: { texto: aprobado ? "Aprobado" : "No aprobado", tono: aprobado ? "ok" : "mal" },
+    formato: [
+      ["Puntaje", `${resultado.puntaje_total} / ${maximo}`],
+      ["Emitido", fechaHora(new Date().toISOString())],
+    ],
+  });
+
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+${estilos(opciones.prelude ?? "", "portrait")}
+</head>
+<body>
+${documento(membrete, cuerpo, pie("Resultado de evaluación", `${resultado.nombre_completo} · C.C. ${resultado.numero_documento}`))}
 </body></html>`;
 }
 
@@ -587,66 +684,67 @@ export function renderResumenEvaluacionHtml(
       const p = porcentaje(r.puntaje_total, maximo);
       const aprobado = p >= MINIMO_APROBACION;
       const firma = conFirma
-        ? `<td class="c firma-celda">${r.firma && r.firma.startsWith("data:image") ? `<img src="${esc(r.firma)}" alt="Firma">` : `<span class="sin-respuesta">—</span>`}</td>`
+        ? `<td class="c firma-celda">${r.firma && r.firma.startsWith("data:image") ? `<img src="${esc(r.firma)}" alt="Firma">` : `<span class="tenue">—</span>`}</td>`
         : "";
       return `<tr>
-        <td class="c num">${i + 1}</td>
-        <td><p class="pregunta">${esc(r.nombre_completo)}</p></td>
-        <td>${esc(r.numero_documento)}</td>
+        <td class="c mono">${i + 1}</td>
+        <td><strong>${esc(r.nombre_completo)}</strong><span class="sub">${esc(fechaHora(r.created_at))}</span></td>
+        <td class="mono">${esc(r.numero_documento)}</td>
         <td>${esc(r.cargo || "—")}</td>
         <td>${esc((r.correo || "—").toLowerCase())}</td>
-        <td>${esc(r.telefono || "—")}</td>
-        <td class="d"><strong>${r.puntaje_total}</strong> / ${maximo}</td>
-        <td class="d">${pct(p)}</td>
-        <td class="c"><span class="estado estado--${aprobado ? "aprobado" : "reprobado"}" style="font-size:6pt;padding:2.5pt 7pt">${aprobado ? "APROBADO" : "NO APROBADO"}</span></td>
+        <td class="mono">${esc(r.telefono || "—")}</td>
+        <td class="d mono"><strong>${r.puntaje_total}</strong> / ${maximo}</td>
+        <td class="d mono">${pct(p)}</td>
+        <td class="c"><span class="resultado-pill resultado-pill--${aprobado ? "ok" : "mal"}">${aprobado ? "Aprobado" : "No aprobado"}</span></td>
         ${firma}
       </tr>`;
     })
     .join("");
 
-  return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8">
-${estilos(opciones.prelude ?? "", "landscape")}
-<style>
-  .doc { max-width: 70%; }
-  tbody td { padding: 5pt 7pt; }
-</style>
-</head>
-<body>
-<main>
-  ${cabecera("RESUMEN DE RESULTADOS", evaluacion.titulo, evaluacion.descripcion ?? "")}
+  const cuerpo = `
+  <div class="stats stats--6">
+    ${stat("Creada el", `<span style="font-size:8pt">${esc(fechaLarga(evaluacion.created_at))}</span>`, conFirma ? "Con firma digital" : "Sin firma")}
+    ${stat("Preguntas", String(evaluacion.preguntas.length), "En la evaluación")}
+    ${stat("Puntaje máximo", String(maximo), "Puntos posibles")}
+    ${stat("Participantes", String(resultados.length), "Respuestas recibidas")}
+    ${stat("Aprobados", String(aprobados), resultados.length ? `${pct(porcentaje(aprobados, resultados.length))} · mínimo ${MINIMO_APROBACION} %` : "—")}
+    ${stat("Promedio", pct(Math.round(promedio * 10) / 10), "De acierto")}
+  </div>
 
-  <section class="card">
-    <div class="stats">
-      <div class="stat"><b>CREADA EL</b><span style="font-size:8pt">${esc(fechaLarga(evaluacion.created_at))}</span></div>
-      <div class="stat"><b>PREGUNTAS</b><span>${evaluacion.preguntas.length}</span></div>
-      <div class="stat"><b>PUNTAJE MÁXIMO</b><span>${maximo}</span></div>
-      <div class="stat"><b>PARTICIPANTES</b><span>${resultados.length}</span></div>
-      <div class="stat"><b>APROBADOS</b><span>${aprobados}</span><small>${resultados.length ? pct(porcentaje(aprobados, resultados.length)) : "—"} · mínimo ${MINIMO_APROBACION} %</small></div>
-      <div class="stat"><b>PROMEDIO</b><span>${pct(Math.round(promedio * 10) / 10)}</span><small>${conFirma ? "Con firma digital" : "Sin firma"}</small></div>
-    </div>
-  </section>
-
-  <section class="card card--tabla">
+  <section class="card card--fluida">
     <h2 class="card-title">Participantes<span class="card-subtitle">En orden de respuesta · puntaje sobre ${maximo}</span></h2>
     <table>
       <thead><tr>
         <th class="c" style="width:22pt">#</th>
-        <th style="width:21%">NOMBRE</th>
-        <th style="width:9%">DOCUMENTO</th>
-        <th style="width:15%">CARGO</th>
-        <th style="width:17%">CORREO</th>
-        <th style="width:9%">TELÉFONO</th>
-        <th class="d" style="width:8%">PUNTAJE</th>
+        <th style="width:21%">Nombre</th>
+        <th style="width:9%">Documento</th>
+        <th style="width:15%">Cargo</th>
+        <th style="width:17%">Correo</th>
+        <th style="width:9%">Teléfono</th>
+        <th class="d" style="width:8%">Puntaje</th>
         <th class="d" style="width:7%">%</th>
-        <th class="c" style="width:11%">RESULTADO</th>
-        ${conFirma ? `<th class="c" style="width:10%">FIRMA</th>` : ""}
+        <th class="c" style="width:11%">Resultado</th>
+        ${conFirma ? `<th class="c" style="width:10%">Firma</th>` : ""}
       </tr></thead>
       <tbody>${filas || `<tr><td colspan="${conFirma ? 10 : 9}" class="vacio">Nadie ha respondido esta evaluación todavía.</td></tr>`}</tbody>
     </table>
-  </section>
+  </section>`;
 
-  ${pie()}
-</main>
+  const membrete = cabecera({
+    kicker: "FORMACIÓN · RESUMEN DE RESULTADOS",
+    titulo: evaluacion.titulo,
+    sub: evaluacion.descripcion ?? "",
+    formato: [
+      ["Participantes", String(resultados.length)],
+      ["Emitido", fechaHora(new Date().toISOString())],
+    ],
+  });
+
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+${estilos(opciones.prelude ?? "", "landscape")}
+</head>
+<body>
+${documento(membrete, cuerpo, pie("Resumen de resultados", `${resultados.length} participante(s)`))}
 </body></html>`;
 }

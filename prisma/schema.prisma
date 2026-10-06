@@ -9,6 +9,7 @@ enum TipoPreguntaEnum {
   TEXTO
   RELACION
   VERDADERO_FALSO
+  SOPA_LETRAS
 }
 
 model Evaluacion {
@@ -36,6 +37,8 @@ model Pregunta {
   relacionIzq       String[] // Para preguntas de relación: palabras/conceptos lado izquierdo. Si no aplica, dejar lista vacía.
   relacionDer       String[] // Para preguntas de relación: palabras/conceptos lado derecho. Si no aplica, dejar lista vacía.
   respuestaCorrecta Float? // Para preguntas numéricas: respuesta correcta
+  /// Sopa de letras: cuadrícula generada y ubicación de cada palabra.
+  configuracion     Json?
   created_at        DateTime         @default(now()) @db.Timestamptz(6)
   evaluacion        Evaluacion       @relation(fields: [evaluacionId], references: [id], onDelete: Cascade)
   respuestas        Respuesta[]

@@ -11,6 +11,8 @@ import {
   type TextosCalificados,
 } from "./registrar-resultado";
 import { getIo } from "../../sockets";
+import { generarSopa, mismaSopa, type ConfigSopa } from "./sopa-letras";
+import { Prisma } from "@prisma/client";
 import { evaluacionSinClave } from "./evaluacion-publica";
 import { EvaluacionPDFGeneratorService } from "./pdf-generator.service";
 import archiver from "archiver";
@@ -26,6 +28,24 @@ const respuestaRegistroSchema = z.object({
   device_fingerprint: z.string().optional(),
   respuestas: z.array(respuestaPreguntaSchema),
 });
+
+/**
+ * La configuración que se guarda para una pregunta. Solo la sopa de letras
+ * la usa: se genera la cuadrícula al crear y se conserva al editar mientras
+ * las palabras, el tamaño y las direcciones no cambien (así los trazos ya
+ * registrados siguen apuntando a las mismas celdas).
+ */
+function configuracionDePregunta(
+  p: { tipo?: string; configuracion?: any },
+  anterior?: unknown,
+): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  if (p.tipo !== "SOPA_LETRAS" || !p.configuracion) return Prisma.JsonNull;
+  const previa = anterior as ConfigSopa | null | undefined;
+  if (previa?.cuadricula?.length && mismaSopa(previa, p.configuracion)) {
+    return previa as unknown as Prisma.InputJsonValue;
+  }
+  return generarSopa(p.configuracion) as unknown as Prisma.InputJsonValue;
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -132,13 +152,19 @@ export const EvaluacionesController = {
         .status(400)
         .send({ success: false, errors: parsed.error.errors });
     const { titulo, descripcion, requiere_firma, preguntas } = parsed.data;
+    let configuraciones: (Prisma.InputJsonValue | typeof Prisma.JsonNull)[];
+    try {
+      configuraciones = preguntas.map((p) => configuracionDePregunta(p));
+    } catch (error: any) {
+      return res.status(400).send({ success: false, message: error.message });
+    }
     const evaluacion = await prisma.evaluacion.create({
       data: {
         titulo,
         descripcion,
         requiere_firma,
         preguntas: {
-          create: preguntas.map((p: any) => ({
+          create: preguntas.map((p: any, i: number) => ({
             texto: p.texto,
             tipo: p.tipo,
             puntaje: p.puntaje,
@@ -146,6 +172,7 @@ export const EvaluacionesController = {
             relacionIzq: p.relacionIzq || [],
             relacionDer: p.relacionDer || [],
             respuestaCorrecta: p.respuestaCorrecta,
+            configuracion: configuraciones[i],
           })),
         },
       },
@@ -182,7 +209,9 @@ export const EvaluacionesController = {
     );
 
     // Ejecutar todo en una transacción
-    const evaluacion = await prisma.$transaction(
+    let evaluacion;
+    try {
+    evaluacion = await prisma.$transaction(
       async (tx) => {
         // 1. Eliminar preguntas removidas
         if (idsAEliminar.length > 0) {
@@ -210,6 +239,7 @@ export const EvaluacionesController = {
           await tx.opcion.deleteMany({
             where: { preguntaId: p.id!, id: { notIn: idsConservados } },
           });
+          const previa = preguntasActuales.find((q) => q.id === p.id);
           await tx.pregunta.update({
             where: { id: p.id },
             data: {
@@ -219,6 +249,7 @@ export const EvaluacionesController = {
               relacionIzq: p.relacionIzq || [],
               relacionDer: p.relacionDer || [],
               respuestaCorrecta: p.respuestaCorrecta,
+              configuracion: configuracionDePregunta(p, previa?.configuracion),
             },
           });
           for (const o of opciones) {
@@ -248,6 +279,7 @@ export const EvaluacionesController = {
                 relacionIzq: p.relacionIzq || [],
                 relacionDer: p.relacionDer || [],
                 respuestaCorrecta: p.respuestaCorrecta,
+                configuracion: configuracionDePregunta(p),
                 opciones: p.opciones
                   ? {
                       create: p.opciones.map((o) => ({
@@ -270,6 +302,12 @@ export const EvaluacionesController = {
       },
       { timeout: 15000 },
     ); // 👈 también aumenta el timeout como respaldo
+    } catch (error: any) {
+      if (/sopa de letras|cuadrícula/i.test(error?.message ?? "")) {
+        return res.status(400).send({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
     return res.send({ success: true, data: evaluacion });
   },
@@ -357,6 +395,13 @@ export const EvaluacionesController = {
     return res.send({ success: true, data: resultado });
   },
 
+  /**
+   * Lista de resultados, ligera: sin la firma (una imagen en base64 por
+   * persona) y sin la pregunta anidada en cada respuesta (el panel ya tiene
+   * las preguntas de la evaluación). Con 15 respuestas la versión completa
+   * pesaba 525 KB y en producción no llegaba a cargar; esta pesa decenas.
+   * El detalle completo se pide aparte con `resultado`.
+   */
   async resultados(
     req: FastifyRequest<{ Params: { id: string } }>,
     res: FastifyReply,
@@ -364,20 +409,60 @@ export const EvaluacionesController = {
     const { id } = req.params;
     const resultados = await prisma.resultado.findMany({
       where: { evaluacionId: id },
-      include: {
+      select: {
+        id: true,
+        evaluacionId: true,
+        nombre_completo: true,
+        numero_documento: true,
+        cargo: true,
+        correo: true,
+        telefono: true,
+        puntaje_total: true,
+        firma: true,
+        created_at: true,
         respuestas: {
-          include: {
-            pregunta: {
-              include: {
-                opciones: true,
-              },
-            },
+          select: {
+            id: true,
+            preguntaId: true,
+            valor_texto: true,
+            valor_numero: true,
+            opcionesIds: true,
+            relacion: true,
+            puntaje: true,
           },
         },
       },
       orderBy: { created_at: "desc" },
     });
-    return res.send({ success: true, data: resultados });
+    return res.send({
+      success: true,
+      data: resultados.map(({ firma, ...r }) => ({ ...r, tiene_firma: !!firma })),
+    });
+  },
+
+  /** Un resultado completo: con firma y con la pregunta de cada respuesta. */
+  async resultado(
+    req: FastifyRequest<{ Params: { id: string; resultadoId: string } }>,
+    res: FastifyReply,
+  ) {
+    const { id, resultadoId } = req.params;
+    if (!UUID_RE.test(id) || !UUID_RE.test(resultadoId)) {
+      return res.status(404).send({ success: false, error: "No encontrado" });
+    }
+    const resultado = await prisma.resultado.findFirst({
+      where: { id: resultadoId, evaluacionId: id },
+      include: {
+        respuestas: {
+          include: { pregunta: { include: { opciones: true } } },
+        },
+      },
+    });
+    if (!resultado) {
+      return res
+        .status(404)
+        .send({ success: false, error: "Resultado no encontrado" });
+    }
+    return res.send({ success: true, data: resultado });
   },
 
   /**
@@ -578,6 +663,7 @@ export const EvaluacionesController = {
               relacionIzq: p.relacionIzq || [],
               relacionDer: p.relacionDer || [],
               respuestaCorrecta: p.respuestaCorrecta,
+              configuracion: p.configuracion,
             })),
           },
           resultados.map((r: any) => ({
@@ -608,6 +694,7 @@ export const EvaluacionesController = {
                     relacionIzq: resp.pregunta.relacionIzq || [],
                     relacionDer: resp.pregunta.relacionDer || [],
                     respuestaCorrecta: resp.pregunta.respuestaCorrecta,
+                    configuracion: resp.pregunta.configuracion,
                   }
                 : undefined,
             })),
@@ -686,6 +773,7 @@ export const EvaluacionesController = {
               relacionIzq: p.relacionIzq || [],
               relacionDer: p.relacionDer || [],
               respuestaCorrecta: p.respuestaCorrecta,
+              configuracion: p.configuracion,
             })),
           },
           {
@@ -716,6 +804,7 @@ export const EvaluacionesController = {
                     relacionIzq: resp.pregunta.relacionIzq || [],
                     relacionDer: resp.pregunta.relacionDer || [],
                     respuestaCorrecta: resp.pregunta.respuestaCorrecta,
+                    configuracion: resp.pregunta.configuracion,
                   }
                 : undefined,
             })),
