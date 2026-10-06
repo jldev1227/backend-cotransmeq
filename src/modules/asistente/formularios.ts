@@ -462,7 +462,7 @@ export const buscarEnviosFormulario: Herramienta = {
       hasta: { type: 'string', description: 'YYYY-MM-DD, incluida. Por defecto, hoy' },
       conductor_o_placa: { type: 'string', description: 'Nombre, cédula o placa' },
       estado: { type: 'string', enum: [...ESTADOS, 'TODOS'], description: 'Por defecto SUBMITTED' },
-      limite: { type: 'integer', minimum: 1, maximum: 100 },
+      limite: { type: 'integer', minimum: 1, maximum: 500, description: 'Hasta 500; sube el tope si el usuario quiere la lista completa' },
     },
     additionalProperties: false,
   },
@@ -476,7 +476,7 @@ export const buscarEnviosFormulario: Herramienta = {
     if (elegidos.length === 0) return { error: `No hay ningún formulario que coincida con «${String(args.formulario)}»` }
     const estado = typeof args.estado === 'string' && [...ESTADOS, 'TODOS'].includes(args.estado) ? args.estado : 'SUBMITTED'
     const quien = textoOpcional(args.conductor_o_placa, 80)
-    const limite = enteroEntre(args.limite, 1, 100, 30)
+    const limite = enteroEntre(args.limite, 1, 500, 30)
     const contiene = (q: string) => ({ contains: q, mode: 'insensitive' as const })
 
     const where: Prisma.form_submissionWhereInput = {
@@ -660,7 +660,7 @@ export const respuestasCampoFormulario: Herramienta = {
       agrupar_por: { type: 'string', enum: ['dia', 'conductor', 'placa', 'ninguno'], description: 'Por defecto ninguno (solo el total)' },
       valor: { type: 'string', description: 'Si se indica, lista los envíos cuya respuesta fue este valor (opción o texto, parcial)' },
       conductor_o_placa: { type: 'string', description: 'Limitar a un conductor o una placa' },
-      limite: { type: 'integer', minimum: 1, maximum: 200, description: 'Tope de filas en listas y agrupaciones' },
+      limite: { type: 'integer', minimum: 1, maximum: 500, description: 'Tope de filas en listas y agrupaciones (hasta 500)' },
     },
     required: ['formulario', 'campo'],
     additionalProperties: false,
@@ -675,7 +675,7 @@ export const respuestasCampoFormulario: Herramienta = {
     if (!campoTexto) return { error: 'Indica el campo' }
     const { elegidos } = await resolverFormularios(textoOpcional(args.formulario, 120))
     if (elegidos.length === 0) return { error: 'No hay ningún formulario que coincida' }
-    const limite = enteroEntre(args.limite, 1, 200, 50)
+    const limite = enteroEntre(args.limite, 1, 500, 50)
     const agrupar = typeof args.agrupar_por === 'string' && ['dia', 'conductor', 'placa'].includes(args.agrupar_por) ? args.agrupar_por : undefined
     const valorBuscado = textoOpcional(args.valor, 80)?.toLowerCase()
     const quien = textoOpcional(args.conductor_o_placa, 80)

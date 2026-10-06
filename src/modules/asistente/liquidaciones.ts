@@ -39,7 +39,7 @@ function enteroOpcional(valor: unknown, min: number, max: number): number | unde
 const MODULO = 'liquidaciones-servicios'
 const MODULO_TERCEROS = 'liquidaciones-terceros'
 const LIMITE_POR_DEFECTO = 10
-const LIMITE_MAXIMO = 25
+const LIMITE_MAXIMO = 500
 
 const ESTADOS = ['BORRADOR', 'LIQUIDADA', 'APROBADA', 'FACTURADA', 'ANULADA'] as const
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
@@ -60,10 +60,126 @@ function soloFecha(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+type EstadoLiq = (typeof ESTADOS)[number]
+function estadosDe(valor: unknown): EstadoLiq[] {
+  if (!Array.isArray(valor)) return []
+  return valor.map((v) => String(v).toUpperCase()).filter((v): v is EstadoLiq => (ESTADOS as readonly string[]).includes(v))
+}
+const PENDIENTES_DE_FACTURAR: EstadoLiq[] = ['BORRADOR', 'LIQUIDADA', 'APROBADA']
+
+/**
+ * Totales de liquidaciones sin tope de filas: la pregunta «¿cuánto falta
+ * facturar de Sertecpet?» se responde con un `groupBy`, no sumando a mano una
+ * lista de 25. Antes el modelo sumaba la página que veía y pedía permiso para
+ * «traer las 198».
+ */
+export const resumenLiquidaciones: Herramienta = {
+  nombre: 'resumen_liquidaciones',
+  descripcion:
+    'Totales de liquidaciones de servicios SIN tope de filas: cuántas hay y cuánto suman (servicios, recargos, subtotal, IVA, total) filtrando por cliente, estado(s), periodo o rango de meses, agrupado por estado, cliente, periodo u operadora. Úsala para «¿cuánto falta facturar de X?» (pendientes = borrador + liquidada + aprobada; pasa pendientes_de_facturar=true), «¿cuánto se liquidó en septiembre?», «¿cuántas liquidaciones hay por estado?», «total histórico por cliente». Nunca sumes a mano los resultados de buscar_liquidaciones.',
+  parametros: {
+    type: 'object',
+    properties: {
+      cliente: { type: 'string', description: 'Nombre o NIT del cliente (parcial)' },
+      estados: { type: 'array', items: { type: 'string', enum: [...ESTADOS] }, description: 'Estados a incluir; vacío = todos menos anuladas' },
+      pendientes_de_facturar: { type: 'boolean', description: 'true = solo BORRADOR, LIQUIDADA y APROBADA (lo que aún no se ha facturado)' },
+      incluir_anuladas: { type: 'boolean' },
+      mes: { type: 'integer', minimum: 1, maximum: 12 },
+      anio: { type: 'integer', minimum: 2020, maximum: 2100 },
+      desde_mes: { type: 'string', description: 'YYYY-MM inicial de un rango de periodos' },
+      hasta_mes: { type: 'string', description: 'YYYY-MM final, incluido' },
+      agrupar_por: { type: 'string', enum: ['estado', 'cliente', 'periodo', 'operadora', 'ninguno'], description: 'Por defecto estado' },
+      operadora: { type: 'string' },
+    },
+    additionalProperties: false,
+  },
+  etiqueta: 'Sumando liquidaciones',
+  requiere: MODULO,
+  salidaMaxima: { lista: 500, caracteres: 60000 },
+  async ejecutar(args) {
+    const cliente = textoOpcional(args.cliente, 120)
+    const operadora = textoOpcional(args.operadora, 120)
+    const mes = enteroOpcional(args.mes, 1, 12)
+    const anio = enteroOpcional(args.anio, 2020, 2100)
+    const contiene = (q: string) => ({ contains: q.replace(/^#+/, '').trim(), mode: 'insensitive' as const })
+    let estados = args.pendientes_de_facturar === true ? PENDIENTES_DE_FACTURAR : estadosDe(args.estados)
+    if (estados.length === 0) estados = ESTADOS.filter((e) => e !== 'ANULADA' || args.incluir_anuladas === true)
+    const agrupar = typeof args.agrupar_por === 'string' && ['estado', 'cliente', 'periodo', 'operadora', 'ninguno'].includes(args.agrupar_por) ? args.agrupar_por : 'estado'
+
+    const periodo = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}$/.test(v) ? { anio: Number(v.slice(0, 4)), mes: Number(v.slice(5, 7)) } : undefined)
+    const d = periodo(args.desde_mes)
+    const h = periodo(args.hasta_mes)
+    const rangoPeriodos =
+      d || h
+        ? {
+            OR: [] as Prisma.liquidacion_servicioWhereInput[],
+            AND: [
+              ...(d ? [{ OR: [{ anio: { gt: d.anio } }, { anio: d.anio, mes: { gte: d.mes } }] }] : []),
+              ...(h ? [{ OR: [{ anio: { lt: h.anio } }, { anio: h.anio, mes: { lte: h.mes } }] }] : []),
+            ],
+          }
+        : {}
+    if ('OR' in rangoPeriodos) delete (rangoPeriodos as { OR?: unknown }).OR
+
+    const where: Prisma.liquidacion_servicioWhereInput = {
+      deleted_at: null,
+      confirmada_at: { not: null },
+      estado: { in: estados },
+      ...(mes ? { mes } : {}),
+      ...(anio ? { anio } : {}),
+      ...(cliente ? { cliente: { OR: [{ nombre: contiene(cliente) }, { nit: contiene(cliente) }] } } : {}),
+      ...(operadora ? { operadora: contiene(operadora) } : {}),
+      ...rangoPeriodos,
+    }
+
+    const sumas = { valor_servicios: true, valor_recargos: true, valor_pernoctes: true, subtotal: true, valor_iva: true, total: true } as const
+    const n = (v: unknown) => Math.round(Number(v ?? 0) * 100) / 100
+    const totales = (g: { _count: { _all: number }; _sum: Record<string, unknown> }) => ({
+      liquidaciones: g._count._all,
+      valor_servicios: n(g._sum.valor_servicios),
+      valor_recargos: n(g._sum.valor_recargos),
+      valor_pernoctes: n(g._sum.valor_pernoctes),
+      subtotal: n(g._sum.subtotal),
+      valor_iva: n(g._sum.valor_iva),
+      total: n(g._sum.total),
+    })
+
+    const general = await prisma.liquidacion_servicio.aggregate({ where, _count: { _all: true }, _sum: sumas })
+    let grupos: unknown[] = []
+    if (agrupar === 'estado') {
+      const g = await prisma.liquidacion_servicio.groupBy({ by: ['estado'], where, _count: { _all: true }, _sum: sumas })
+      grupos = g.map((x) => ({ estado: x.estado.toLowerCase(), ...totales(x) })).sort((a, b) => b.total - a.total)
+    } else if (agrupar === 'periodo') {
+      const g = await prisma.liquidacion_servicio.groupBy({ by: ['anio', 'mes'], where, _count: { _all: true }, _sum: sumas, orderBy: [{ anio: 'desc' }, { mes: 'desc' }] })
+      grupos = g.map((x) => ({ periodo: `${x.mes}/${x.anio}`, ...totales(x) }))
+    } else if (agrupar === 'operadora') {
+      const g = await prisma.liquidacion_servicio.groupBy({ by: ['operadora'], where, _count: { _all: true }, _sum: sumas })
+      grupos = g.map((x) => ({ operadora: x.operadora ?? 'sin operadora', ...totales(x) })).sort((a, b) => b.total - a.total)
+    } else if (agrupar === 'cliente') {
+      const g = await prisma.liquidacion_servicio.groupBy({ by: ['cliente_id'], where, _count: { _all: true }, _sum: sumas })
+      const clientes = await prisma.clientes.findMany({ where: { id: { in: g.map((x) => x.cliente_id) } }, select: { id: true, nombre: true, nit: true } })
+      const nombre = new Map(clientes.map((c) => [c.id, c]))
+      grupos = g.map((x) => ({ cliente: nombre.get(x.cliente_id)?.nombre ?? '?', nit: nombre.get(x.cliente_id)?.nit, ...totales(x) })).sort((a, b) => b.total - a.total)
+    }
+
+    return {
+      filtros: {
+        cliente: cliente ?? 'todos',
+        estados: estados.map((e) => e.toLowerCase()),
+        periodo: mes || anio ? `${mes ?? '*'}/${anio ?? '*'}` : d || h ? `${args.desde_mes ?? '…'} a ${args.hasta_mes ?? '…'}` : 'histórico completo',
+        operadora,
+      },
+      totales: totales(general as never),
+      ...(agrupar !== 'ninguno' ? { agrupado_por: agrupar, grupos } : {}),
+      enlace: '/dashboard/liquidaciones-servicios',
+    }
+  },
+}
+
 export const buscarLiquidaciones: Herramienta = {
   nombre: 'buscar_liquidaciones',
   descripcion:
-    'Busca liquidaciones de servicios por consecutivo, cliente, placa, número de factura, periodo (mes/año) o estado. Devuelve cabecera, totales y la factura activa de cada una; para ver ítems, recorridos, recargos, terceros, facturas e historial de una, usa detalle_liquidacion.',
+    'Lista liquidaciones de servicios por consecutivo, cliente, placa, número de factura, periodo (mes/año) o estado(s). Devuelve cabecera, totales y la factura activa de cada una; para ver ítems, recorridos, recargos, terceros, facturas e historial de una, usa detalle_liquidacion. Para TOTALES (cuánto falta facturar, cuánto se liquidó por cliente o por mes, cuántas hay por estado) usa resumen_liquidaciones, que suma sobre todas sin tope.',
   parametros: {
     type: 'object',
     properties: {
@@ -73,7 +189,8 @@ export const buscarLiquidaciones: Herramienta = {
       anio: { type: 'integer', minimum: 2020, maximum: 2100 },
       estado: { type: 'string', enum: [...ESTADOS] },
       factura: { type: 'string', description: 'Número de factura, para ver qué liquidaciones agrupa' },
-      limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO },
+      estados: { type: 'array', items: { type: 'string', enum: [...ESTADOS] }, description: 'Varios estados a la vez, p. ej. ["BORRADOR","LIQUIDADA","APROBADA"] = pendientes de facturar' },
+      limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO, description: 'Hasta 500. Si el usuario quiere TODAS, pide el total que devolvió la búsqueda anterior' },
     },
     additionalProperties: false,
   },
@@ -85,6 +202,7 @@ export const buscarLiquidaciones: Herramienta = {
     const mes = enteroOpcional(args.mes, 1, 12)
     const anio = enteroOpcional(args.anio, 2020, 2100)
     const estado = typeof args.estado === 'string' && (ESTADOS as readonly string[]).includes(args.estado) ? args.estado : undefined
+    const estados = estadosDe(args.estados)
     const factura = textoOpcional(args.factura, 50)
     const limite = enteroEntre(args.limite, 1, LIMITE_MAXIMO, LIMITE_POR_DEFECTO)
 
@@ -92,7 +210,7 @@ export const buscarLiquidaciones: Herramienta = {
     const where = {
       deleted_at: null,
       confirmada_at: { not: null },
-      ...(estado ? { estado: estado as (typeof ESTADOS)[number] } : {}),
+      ...(estados.length ? { estado: { in: estados } } : estado ? { estado: estado as (typeof ESTADOS)[number] } : {}),
       ...(mes ? { mes } : {}),
       ...(anio ? { anio } : {}),
       ...(cliente ? { cliente: { nombre: contiene(cliente) } } : {}),
@@ -569,5 +687,5 @@ function clonarRecargos(recargos: unknown, conTerceros: boolean): unknown {
   return copia
 }
 
-export const HERRAMIENTAS_LIQUIDACIONES: readonly Herramienta[] = [buscarLiquidaciones, detalleLiquidacion, buscarFacturas]
+export const HERRAMIENTAS_LIQUIDACIONES: readonly Herramienta[] = [buscarLiquidaciones, resumenLiquidaciones, detalleLiquidacion, buscarFacturas]
 export const ACCIONES_LIQUIDACIONES: readonly Herramienta[] = [duplicarLiquidacion]

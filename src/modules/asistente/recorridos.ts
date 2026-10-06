@@ -201,7 +201,7 @@ export const resumenRecorridos: Herramienta = {
       hasta: { type: 'string', description: 'Fecha final YYYY-MM-DD, incluida' },
       cliente: { type: 'string', description: 'Solo tramos de este cliente' },
       placa: { type: 'string', description: 'Solo tramos con esta placa' },
-      limite: { type: 'integer', minimum: 1, maximum: 200 },
+      limite: { type: 'integer', minimum: 1, maximum: 500 },
     },
     additionalProperties: false,
   },
@@ -213,7 +213,7 @@ export const resumenRecorridos: Herramienta = {
     if ('error' in r) return r
     const cliente = textoOpcional(args.cliente, 120)?.toLowerCase()
     const placa = textoOpcional(args.placa, 20)?.replace(/[\s-]/g, '').toUpperCase()
-    const limite = enteroEntre(args.limite, 1, 200, 200)
+    const limite = enteroEntre(args.limite, 1, 500, 500)
 
     let dias = await cargarDias(r.desde, r.hasta)
     if (cliente || placa) {

@@ -35,6 +35,24 @@ export type EventoAsistente =
   | { t: 'error'; mensaje: string }
 
 const MAX_RONDAS_HERRAMIENTAS = 5
+
+/**
+ * Cuántas filas de una lista llegan al modelo. Antes era 25 fijo y el modelo
+ * decía «la API pagina» y sumaba la muestra. Si el usuario pidió más (el
+ * modelo pasa `limite`), se respeta hasta 500; la herramienta puede subir el
+ * piso con `salidaMaxima`.
+ */
+export function topeLista(h: { salidaMaxima?: { lista?: number } }, args: Record<string, unknown>): number {
+  const pedido = Number(args.limite)
+  const base = h.salidaMaxima?.lista ?? 25
+  return Number.isFinite(pedido) && pedido > base ? Math.min(pedido, 500) : base
+}
+
+export function topeCaracteres(h: { salidaMaxima?: { lista?: number; caracteres?: number } }, args: Record<string, unknown>): number | undefined {
+  const base = h.salidaMaxima?.caracteres ?? 14000
+  const porFilas = topeLista(h, args) * 450
+  return Math.min(Math.max(base, porFilas), 150000)
+}
 const MAX_MENSAJES_HISTORIAL = 12
 
 /** Nombre comercial con el que el asistente se presenta. Cambia en el repo gemelo. */
@@ -65,6 +83,7 @@ export async function conversar(
   /// `confirmado`, el servidor lo pone en true. La confirmación la dio una
   /// persona; no depende de que el modelo la recuerde.
   const confirmo = usuarioConfirmo(historial)
+  const acepto = !confirmo && usuarioAcepto(historial)
   const mensajes: Mensaje[] = [
     { role: 'system', content: instrucciones(usuario, contexto) },
     ...historial
@@ -80,7 +99,15 @@ export async function conversar(
               'El usuario YA CONFIRMÓ la acción que le propusiste. Si después le preguntaste por un dato que faltaba o era ambiguo, acaba de responderlo: tómalo y llama ahora mismo a la acción con confirmado=true y los datos ya acordados. No vuelvas a resumir, no vuelvas a preguntar y no pidas otra confirmación.',
           },
         ]
-      : []),
+      : acepto
+        ? [
+            {
+              role: 'system' as const,
+              content:
+                'El usuario acaba de aceptar lo que ofreciste. Hazlo AHORA llamando a las herramientas necesarias (con el tope de filas que haga falta, hasta 500, o la herramienta de totales) y entrega el resultado completo en esta respuesta. No vuelvas a preguntar si lo haces.',
+            },
+          ]
+        : []),
   ]
 
   for (let ronda = 0; ronda <= MAX_RONDAS_HERRAMIENTAS; ronda++) {
@@ -91,7 +118,9 @@ export async function conversar(
         model: deploymentAzure(),
         messages: mensajes,
         stream: true,
-        max_completion_tokens: 6000,
+        /// Listas completas de 400 filas no caben en 6000 tokens: el modelo
+        /// las «resumía» o navegaba y decía que las había puesto.
+        max_completion_tokens: 20000,
         reasoning_effort: 'low',
         ...(conHerramientas ? { tools, tool_choice: 'auto' as const } : {}),
       },
@@ -152,7 +181,7 @@ export async function conversar(
           if (guia && typeof guia === 'object' && Array.isArray(guia.pasos)) {
             emitir({ t: 'guia', guia, iniciar: (salida as { iniciar?: unknown }).iniciar === true })
           }
-          return { l, salida: recortar(salida, h.salidaMaxima?.lista ?? 25), maxCaracteres: h.salidaMaxima?.caracteres }
+          return { l, salida: recortar(salida, topeLista(h, args)), maxCaracteres: topeCaracteres(h, args) }
         } catch (e) {
           logger.warn({ herramienta: l.nombre, error: (e as Error).message }, 'Asistente: herramienta falló')
           return { l, salida: { error: 'No se pudo consultar esta información' } }
@@ -171,6 +200,8 @@ export async function conversar(
 const AFIRMACIONES =
   /^(si|ok|okay|dale|listo|confirmo|confirmado|confirmar|confirma|hagale|hazlo|hacelo|crealo|creala|crealos|crealas|crea|registralo|registrala|registra|procede|adelante|correcto|exacto|perfecto|de una|va|vale|claro|por supuesto|afirmativo|asi es|asi esta bien|esta bien|me parece|aprobado|apruebo|positivo|obvio)\b/
 const PREGUNTA_CONFIRMACION = /¿[^?]*\b(cre[oa]|cre[oa]mos|registro|registramos|hago|hacemos|guardo|procedo|confirmas?|duplico|programo)\b[^?]*\?/i
+/** «¿Quieres que lo calcule / traiga / busque / abra…?»: una oferta de consulta que el modelo no debió hacer. */
+const PREGUNTA_OFERTA = /¿[^?]*\b(quieres|deseas|te|lo|la|los|las)\b[^?]*\b(calcul\w*|traig\w*|busq\w*|busco|list\w*|muestr\w*|abr\w*|revis\w*|sum\w*|consult\w*|amplí\w*|detall\w*|hago|hacemos|sigo|continú\w*)\b[^?]*\?/i
 
 const normalizar = (t: string) =>
   t
@@ -193,6 +224,16 @@ const NEGACION = /\b(no|pero|cambia|cambiar|espera|mejor|otro|otra|falta|quita|a
  * volver a pedirla: eso era lo que el usuario describía como «confirmé y me
  * seguía pidiendo confirmación». Un «no», «cambia», «mejor…» posterior la anula.
  */
+/** El usuario acaba de decir «sí» a una oferta de consulta («¿quieres que lo calcule?»). */
+export function usuarioAcepto(historial: MensajeChat[]): boolean {
+  const ultimo = historial[historial.length - 1]
+  const anterior = historial[historial.length - 2]
+  if (!ultimo || ultimo.rol !== 'usuario' || !anterior || anterior.rol !== 'asistente') return false
+  if (!PREGUNTA_OFERTA.test(anterior.contenido)) return false
+  const texto = normalizar(ultimo.contenido)
+  return !!texto && texto.length <= 160 && !NEGACION.test(texto) && (AFIRMACIONES.test(texto) || /\bconfirm/.test(texto))
+}
+
 export function usuarioConfirmo(historial: MensajeChat[]): boolean {
   const ultimo = historial[historial.length - 1]
   if (!ultimo || ultimo.rol !== 'usuario') return false
@@ -270,6 +311,10 @@ Cómo trabajas:
 - Asistencias (listas de asistencia a capacitaciones, charlas, reuniones): buscar_asistencias y detalle_asistencia (quiénes firmaron). Solo lectura.
 - Liquidaciones de servicios: detalle_liquidacion trae TODO (ítems con recorrido, placa, planilla y enlace al servicio; recargos; terceros; facturas con número, fecha y estado; historial). buscar_facturas para buscar por número de factura o ver qué liquidaciones agrupa una factura. buscar_liquidaciones_terceros para lo que se paga a los propietarios (terceros) con su liquidación y factura.
 - Formularios dinámicos, envíos concretos: buscar_envios_formulario lista envíos uno a uno (fecha, quién, placa, enlace); detalle_envio_formulario lee TODAS las respuestas de un envío con la pregunta en lenguaje natural y señala hallazgos (respuestas en Malo / No cumple). Indicadores sobre un campo («¿cuántos preoperacionales marcaron los frenos en malo?», «promedio de kilometraje», «¿qué placas reportaron llantas en regular?»): respuestas_campo_formulario con el formulario, el campo (clave o texto de la pregunta), el rango y, si aplica, agrupar_por o valor. Si no sabes cómo se llama el campo, campos_formulario lo lista; no preguntes al usuario la clave técnica.
+- Totales y cifras agregadas («¿cuánto falta facturar de X?», «¿cuánto se liquidó en septiembre?», «¿cuántas hay por estado?», «histórico por cliente»): usa resumen_liquidaciones (o resumen_servicios, resumen_formularios, resumen_recorridos según el tema). Suman sobre TODO sin tope. Nunca sumes a mano una lista parcial ni digas «la API pagina» o «solo veo 25».
+- Listas: las búsquedas aceptan limite hasta 500. Si el usuario quiere ver todo, o la primera llamada dice total > mostradas y hace falta el conjunto completo, vuelve a llamar con limite igual al total (hasta 500) en la misma respuesta; no preguntes si lo haces. Si son más de 500, da el total con la herramienta de resumen y muestra las primeras 500 ordenadas.
+- Si el usuario pide una lista COMPLETA, escríbela completa en el chat (una línea por fila, compacta), aunque sean cientos de filas. Nunca digas «aquí te pongo los 418» sin ponerlos, ni la sustituyas por navegar a la pantalla: navega solo si lo pidió.
+- Nunca ofrezcas «¿quieres que lo calcule / lo traiga / lo busque?»: si puedes hacerlo, hazlo en esa misma respuesta. Una oferta de ese tipo seguida de un «sí» del usuario es un turno perdido.
 - Si el usuario no dice el periodo, usa el mes en curso y dilo cuando respondas con cifras. En las consultas nunca pidas precisiones que puedas suponer: elige lo razonable, responde y di en una línea qué asumiste.
 - Si te preguntan por una pantalla a la que el usuario no tiene acceso, dile que no tiene permiso y que lo pida a un administrador. Si preguntan qué pueden hacer, usa pantallas_disponibles.
 - Enlaza pantallas y registros SIEMPRE como links markdown internos, p. ej. [Servicios](/dashboard/servicios) o [Juan Pérez](/dashboard/conductores/…); el texto del enlace es el nombre, la placa o el cliente. Nunca escribas una ruta suelta ni un id en el texto. Usa solo rutas que vengan de las herramientas o de la lista de pantallas.

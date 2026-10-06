@@ -40,7 +40,7 @@ import { guiaInteractiva } from './guias/herramienta'
  */
 
 const LIMITE_POR_DEFECTO = 10
-const LIMITE_MAXIMO = 25
+const LIMITE_MAXIMO = 500
 
 function nombreCompleto(c: { nombre?: string | null; apellido?: string | null } | null | undefined) {
   return c ? `${c.nombre ?? ''} ${c.apellido ?? ''}`.trim() : undefined
@@ -162,7 +162,8 @@ const buscarConductores: Herramienta = {
     properties: {
       texto: { type: 'string', description: 'Nombre, cédula o correo (parcial)' },
       estado: { type: 'string', description: 'Estado del conductor' },
-      limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO },
+      excluir_estados: { type: 'array', items: { type: 'string' }, description: 'Estados a dejar fuera, p. ej. ["desvinculado","retirado"]' },
+      limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO, description: 'Hasta 500; pide el total si el usuario quiere la lista completa' },
     },
     additionalProperties: false,
   },
@@ -175,6 +176,8 @@ const buscarConductores: Herramienta = {
 
     const base: Record<string, unknown> = { deleted_at: null, oculto: false }
     if (estado) base.estado = estado
+    const excluir = Array.isArray(args.excluir_estados) ? args.excluir_estados.map((e) => String(e).toLowerCase().replace(/\s+/g, '_')) : []
+    if (!estado && excluir.length) base.estado = { notIn: excluir }
     const condiciones = (partes: string[]) =>
       partes.map((p) => ({
         OR: [

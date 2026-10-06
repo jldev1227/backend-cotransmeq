@@ -13,7 +13,7 @@ import { enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asisten
  */
 
 const MODULO = 'sarlaft'
-const LIMITE_MAXIMO = 50
+const LIMITE_MAXIMO = 100
 const TIPOS = ['cliente_proveedor', 'accionistas', 'personal', 'autorizacion_propietario', 'declaracion_empresa_transporte'] as const
 const ESTADOS = ['recibido', 'aprobado', 'condicionado', 'rechazado'] as const
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
@@ -38,7 +38,6 @@ export const buscarSarlaft: Herramienta = {
   },
   etiqueta: 'Buscando formularios SARLAFT',
   requiere: MODULO,
-  salidaMaxima: { lista: LIMITE_MAXIMO },
   async ejecutar(args) {
     const tipo = typeof args.tipo === 'string' && (TIPOS as readonly string[]).includes(args.tipo) ? (args.tipo as (typeof TIPOS)[number]) : null
     const estado = textoOpcional(args.estado, 30)?.toLowerCase().replace(/\s+/g, '_') ?? null

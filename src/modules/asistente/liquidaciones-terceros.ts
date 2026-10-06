@@ -11,7 +11,7 @@ import { enteroEntre, textoOpcional } from './asistente.utils'
  */
 
 const MODULO = 'liquidaciones-terceros'
-const LIMITE_MAXIMO = 100
+const LIMITE_MAXIMO = 500
 
 function enteroOpcional(valor: unknown, min: number, max: number): number | undefined {
   if (valor === null || valor === undefined || valor === '') return undefined
@@ -38,7 +38,6 @@ export const buscarLiquidacionesTerceros: Herramienta = {
   },
   etiqueta: 'Buscando liquidaciones de terceros',
   requiere: MODULO,
-  salidaMaxima: { lista: LIMITE_MAXIMO, caracteres: 45000 },
   async ejecutar(args) {
     const texto = textoOpcional(args.texto, 120)
     const terceroTexto = textoOpcional(args.tercero, 120)

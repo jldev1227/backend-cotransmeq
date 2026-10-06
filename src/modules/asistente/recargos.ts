@@ -18,7 +18,7 @@ import { idDeServicio } from './servicio-referencia'
  */
 
 const MODULO = 'recargos'
-const LIMITE_MAXIMO = 50
+const LIMITE_MAXIMO = 500
 const ESTADOS = ['pendiente', 'liquidada', 'facturada', 'no_esta', 'encontrada', 'borrador', 'activo', 'completado', 'liquidado', 'cancelado'] as const
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -78,7 +78,6 @@ export const buscarRecargos: Herramienta = {
   },
   etiqueta: 'Buscando planillas de recargos',
   requiere: MODULO,
-  salidaMaxima: { lista: LIMITE_MAXIMO },
   async ejecutar(args) {
     const texto = textoOpcional(args.texto, 80)
     const conductor = textoOpcional(args.conductor, 80)

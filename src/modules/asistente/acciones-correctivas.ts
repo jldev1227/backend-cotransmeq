@@ -13,7 +13,7 @@ import { enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asisten
  */
 
 const MODULO = 'acciones-correctivas'
-const LIMITE_MAXIMO = 50
+const LIMITE_MAXIMO = 500
 const ESTADOS = ['EN_PROCESO', 'VENCIDA', 'CUMPLIDA', 'REPLANTEADA'] as const
 const TIPOS = ['CORRECTIVA', 'PREVENTIVA', 'MEJORA'] as const
 const RIESGOS = ['ALTO', 'MEDIO', 'BAJO'] as const
@@ -51,7 +51,6 @@ export const buscarAccionesCorrectivas: Herramienta = {
   },
   etiqueta: 'Buscando acciones correctivas',
   requiere: MODULO,
-  salidaMaxima: { lista: LIMITE_MAXIMO, caracteres: 40000 },
   async ejecutar(args) {
     const texto = textoOpcional(args.texto, 120)
     const estado = enumerado(args.estado, ESTADOS)

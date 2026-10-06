@@ -9,7 +9,7 @@ import { enteroEntre, fechaOpcional, textoOpcional } from './asistente.utils'
  */
 
 const MODULO = 'asistencias'
-const LIMITE_MAXIMO = 50
+const LIMITE_MAXIMO = 500
 const TIPOS = ['capacitacion', 'charla', 'divulgacion', 'reunion', 'otro'] as const
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 
@@ -37,7 +37,6 @@ export const buscarAsistencias: Herramienta = {
   },
   etiqueta: 'Buscando asistencias',
   requiere: MODULO,
-  salidaMaxima: { lista: LIMITE_MAXIMO },
   async ejecutar(args) {
     const texto = textoOpcional(args.texto, 120)
     const tipo = typeof args.tipo_evento === 'string' && (TIPOS as readonly string[]).includes(args.tipo_evento) ? args.tipo_evento : undefined

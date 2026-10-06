@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { env } from '../../config/env'
 import { logger } from '../../utils/logger'
 import { type UsuarioAsistente, cargarUsuarioAsistente, puedeUsar } from '../asistente/asistente.types'
+import { topeCaracteres, topeLista } from '../asistente/asistente.service'
 import { aTextoParaModelo, recortar } from '../asistente/asistente.utils'
 import { buscarHerramienta, herramientasDisponibles } from '../asistente/herramientas'
 import { apiTokensService, pareceToken } from './api-tokens.service'
@@ -111,8 +112,9 @@ async function atender(token: string, request: FastifyRequest, reply: FastifyRep
       return { isError: true, content: [{ type: 'text', text: 'Herramienta no disponible para este usuario.' }] }
     }
     try {
-      const salida = absolutizar(recortar(await h.ejecutar(peticion.params.arguments ?? {}, usuario), h.salidaMaxima?.lista ?? 25), base)
-      const texto = aTextoParaModelo(salida, h.salidaMaxima?.caracteres ?? 40000)
+      const args = peticion.params.arguments ?? {}
+      const salida = absolutizar(recortar(await h.ejecutar(args, usuario), topeLista(h, args)), base)
+      const texto = aTextoParaModelo(salida, Math.max(40000, topeCaracteres(h, args) ?? 0))
       /// `search`/`fetch` (contrato de ChatGPT) devuelven además el objeto
       /// estructurado, que es lo que su cliente lee.
       const estructurado = (h.nombre === 'search' || h.nombre === 'fetch') && salida && typeof salida === 'object' && !Array.isArray(salida)
