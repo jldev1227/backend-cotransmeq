@@ -18,6 +18,7 @@ import { HERRAMIENTAS_ACCIONES_CORRECTIVAS } from './acciones-correctivas'
 import { HERRAMIENTAS_SARLAFT } from './sarlaft'
 import { HERRAMIENTAS_LIQUIDACIONES_TERCEROS } from './liquidaciones-terceros'
 import { HERRAMIENTAS_BUSCADOR } from './buscador-global'
+import { HERRAMIENTAS_NOMINA } from './nomina'
 import { detalleServicio } from './servicio-referencia'
 import { guiaInteractiva } from './guias/herramienta'
 
@@ -690,6 +691,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   ...HERRAMIENTAS_ACCIONES_CORRECTIVAS,
   ...HERRAMIENTAS_SARLAFT,
   ...HERRAMIENTAS_LIQUIDACIONES_TERCEROS,
+  ...HERRAMIENTAS_NOMINA,
   ...HERRAMIENTAS_BUSCADOR,
   // Acciones (escriben): mismo permiso `full` que la ruta REST; en MCP van marcadas como no-solo-lectura.
   ...ACCIONES,

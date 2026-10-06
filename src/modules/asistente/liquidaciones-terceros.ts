@@ -143,4 +143,104 @@ export const buscarLiquidacionesTerceros: Herramienta = {
   },
 }
 
-export const HERRAMIENTAS_LIQUIDACIONES_TERCEROS: readonly Herramienta[] = [buscarLiquidacionesTerceros]
+/**
+ * Cierres finales de terceros (`liquidacion_tercero_final`): lo que al final se
+ * le paga a cada propietario por placa y periodo, con costos laborales, gastos,
+ * impuestos y descuentos. Es lo que se ve en el canvas de terceros.
+ */
+export const cierresTerceros: Herramienta = {
+  nombre: 'cierres_terceros',
+  descripcion:
+    'Lista los cierres finales de terceros (propietarios) por periodo (mes/año), tercero, placa o estado (BORRADOR, APROBADA, ANULADA): consecutivo, tercero, placa, liquidación de servicios de origen, valor a liquidar, costos laborales, gastos operativos, impuestos, descuentos y total a pagar, con los totales del conjunto y el enlace al canvas. Úsala para «¿cuánto se le paga a X este mes?», «¿qué cierres están en borrador?», «total pagado a terceros en septiembre».',
+  parametros: {
+    type: 'object',
+    properties: {
+      tercero: { type: 'string', description: 'Nombre o identificación del propietario' },
+      placa: { type: 'string' },
+      estado: { type: 'string', enum: ['BORRADOR', 'APROBADA', 'ANULADA'] },
+      mes: { type: 'integer', minimum: 1, maximum: 12 },
+      anio: { type: 'integer', minimum: 2020, maximum: 2100 },
+      limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO, description: 'Hasta 500' },
+    },
+    additionalProperties: false,
+  },
+  etiqueta: 'Consultando los cierres de terceros',
+  requiere: MODULO,
+  async ejecutar(args) {
+    const tercero = textoOpcional(args.tercero, 120)
+    const placa = textoOpcional(args.placa, 20)?.replace(/[\s-]/g, '')
+    const estado = typeof args.estado === 'string' && ['BORRADOR', 'APROBADA', 'ANULADA'].includes(args.estado.toUpperCase()) ? args.estado.toUpperCase() : undefined
+    const mes = enteroOpcional(args.mes, 1, 12)
+    const anio = enteroOpcional(args.anio, 2020, 2100)
+    const limite = enteroEntre(args.limite, 1, LIMITE_MAXIMO, 50)
+    const contiene = (q: string) => ({ contains: q, mode: 'insensitive' as const })
+    const where = {
+      deleted_at: null,
+      ...(estado ? { estado } : {}),
+      ...(mes ? { mes } : {}),
+      ...(anio ? { anio } : {}),
+      ...(placa ? { placa: contiene(placa) } : {}),
+      ...(tercero ? { tercero: { OR: [{ nombre_completo: contiene(tercero) }, { identificacion: { contains: tercero } }] } } : {}),
+    }
+    const [filas, total] = await Promise.all([
+      prisma.liquidacion_tercero_final.findMany({
+        where,
+        select: {
+          id: true,
+          consecutivo: true,
+          placa: true,
+          mes: true,
+          anio: true,
+          estado: true,
+          valor_liquidar: true,
+          total_costos_laborales: true,
+          total_gastos_operativos: true,
+          total_impuestos: true,
+          total_descuentos: true,
+          total_pagar: true,
+          motivo_anulacion: true,
+          created_at: true,
+          tercero: { select: { nombre_completo: true, identificacion: true } },
+          liquidacion_servicio: { select: { id: true, consecutivo: true, cliente: { select: { nombre: true } } } },
+        },
+        orderBy: [{ anio: 'desc' }, { mes: 'desc' }, { consecutivo: 'desc' }],
+        take: limite,
+      }),
+      prisma.liquidacion_tercero_final.count({ where }),
+    ])
+    const n = (v: unknown) => Math.round(Number(v ?? 0) * 100) / 100
+    const suma = (f: (x: (typeof filas)[number]) => unknown) => n(filas.reduce((s, x) => s + Number(f(x) ?? 0), 0))
+    return {
+      total,
+      mostrados: filas.length,
+      totales_de_lo_mostrado: {
+        valor_liquidar: suma((x) => x.valor_liquidar),
+        costos_laborales: suma((x) => x.total_costos_laborales),
+        gastos_operativos: suma((x) => x.total_gastos_operativos),
+        impuestos: suma((x) => x.total_impuestos),
+        descuentos: suma((x) => x.total_descuentos),
+        total_pagar: suma((x) => x.total_pagar),
+      },
+      cierres: filas.map((x) => ({
+        consecutivo: x.consecutivo,
+        tercero: x.tercero?.nombre_completo ?? 'sin tercero',
+        identificacion: x.tercero?.identificacion ?? undefined,
+        placa: x.placa,
+        periodo: `${x.mes}/${x.anio}`,
+        estado: x.estado.toLowerCase(),
+        liquidacion_servicios: x.liquidacion_servicio.consecutivo,
+        cliente: x.liquidacion_servicio.cliente.nombre,
+        valor_liquidar: n(x.valor_liquidar),
+        costos_laborales: n(x.total_costos_laborales),
+        gastos_operativos: n(x.total_gastos_operativos),
+        impuestos: n(x.total_impuestos),
+        descuentos: n(x.total_descuentos),
+        total_pagar: n(x.total_pagar),
+        motivo_anulacion: x.motivo_anulacion ?? undefined,
+        enlace: `/dashboard/liquidaciones-terceros/canvas?anio=${x.anio}&mes=${x.mes}&cierre=${x.id}`,
+      })),
+    }
+  },
+}
+
+export const HERRAMIENTAS_LIQUIDACIONES_TERCEROS: readonly Herramienta[] = [buscarLiquidacionesTerceros, cierresTerceros]

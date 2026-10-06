@@ -71,7 +71,11 @@ export async function conversar(
   signal: AbortSignal,
 ): Promise<void> {
   const ai = clienteAzure()
-  const disponibles = herramientasDisponibles(usuario, 'app')
+  /// En los canvas (nómina, terceros, recorridos) el asistente solo consulta:
+  /// ahí se edita en la hoja, no por chat. El de liquidaciones de servicios
+  /// conserva sus acciones (duplicar en borrador).
+  const soloLectura = esCanvasSoloLectura(contexto?.ruta)
+  const disponibles = herramientasDisponibles(usuario, 'app').filter((h) => !soloLectura || !h.escribe)
   const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = disponibles.map((h) => ({
     type: 'function',
     function: { name: h.nombre, description: h.descripcion, parameters: h.parametros },
@@ -256,6 +260,59 @@ export function usuarioConfirmo(historial: MensajeChat[]): boolean {
   return false
 }
 
+/** Pantallas que no cuelgan del menú (canvas Univer) y lo que el usuario está viendo en cada una. */
+const CANVAS: { prefijo: string; soloLectura: boolean; descripcion: string }[] = [
+  {
+    prefijo: '/dashboard/nomina/canvas',
+    soloLectura: true,
+    descripcion:
+      'el canvas de NÓMINA: una hoja de cálculo (Univer) con una pestaña por conductor del periodo (inicio/fin en la URL), donde se liquida la nómina: días laborados, salario devengado, recargos (de las planillas), bonificaciones, pernoctes, auxilio, deducciones y neto. Desde aquí se generan y envían los desprendibles. Los datos de cada liquidación los consultas con buscar_nomina; las planillas de recargos con buscar_recargos/detalle_recargo; los recorridos con recorridos_conductor. Aquí NO creas ni modificas nada: lo que haya que cambiar se edita en la hoja',
+  },
+  {
+    prefijo: '/dashboard/nomina/analisis',
+    soloLectura: true,
+    descripcion: 'el canvas de ANÁLISIS de nómina: gráficas y tablas comparativas de los periodos liquidados. Consulta con buscar_nomina',
+  },
+  {
+    prefijo: '/dashboard/nomina/primas',
+    soloLectura: true,
+    descripcion: 'el canvas de PRIMAS de nómina (cálculo semestral a partir de las liquidaciones). Consulta con buscar_nomina',
+  },
+  {
+    prefijo: '/dashboard/liquidaciones-terceros/canvas',
+    soloLectura: true,
+    descripcion:
+      'el canvas de CIERRES DE TERCEROS (propietarios): una hoja por placa-propietario del periodo (año/mes en la URL) con lo facturado al cliente, el % de administración, costos laborales, gastos, impuestos, descuentos y el total a pagar al propietario. Consulta los cierres con cierres_terceros y los ítems de origen con buscar_liquidaciones_terceros. Aquí NO creas ni modificas nada',
+  },
+  {
+    prefijo: '/dashboard/liquidaciones-terceros/adicionales',
+    soloLectura: true,
+    descripcion: 'el canvas de ADICIONALES de terceros (conceptos extra por propietario y periodo). Consulta con cierres_terceros y buscar_liquidaciones_terceros',
+  },
+  {
+    prefijo: '/dashboard/liquidaciones-terceros/ocasional',
+    soloLectura: true,
+    descripcion: 'el canvas de liquidaciones OCASIONALES de terceros. Consulta con buscar_liquidaciones_terceros',
+  },
+  {
+    prefijo: '/dashboard/liquidaciones-servicios/canvas',
+    soloLectura: false,
+    descripcion:
+      'el canvas de HISTORIAL de liquidaciones de servicios (año en la URL): una hoja con todas las liquidaciones del año, sus estados, facturas y totales por cliente; desde aquí se abre el editor y el visor PDF de cada una. Consulta con buscar_liquidaciones, resumen_liquidaciones, detalle_liquidacion y buscar_facturas; puedes duplicar una en borrador',
+  },
+  {
+    prefijo: '/dashboard/conductores/recorridos',
+    soloLectura: true,
+    descripcion:
+      'el canvas de RECORRIDOS (días laborados de los conductores en el rango desde/hasta de la URL, con sus tramos, bonos y pernoctes). Consulta con recorridos_conductor y resumen_recorridos. Aquí NO registras recorridos: se editan en la hoja',
+  },
+]
+
+export function esCanvasSoloLectura(ruta: string | undefined): boolean {
+  if (!ruta) return false
+  return CANVAS.some((c) => ruta.startsWith(c.prefijo) && c.soloLectura)
+}
+
 function instrucciones(u: UsuarioAsistente, ctx?: ContextoChat): string {
   const hoy = new Date().toLocaleDateString('es-CO', {
     timeZone: 'America/Bogota',
@@ -264,10 +321,11 @@ function instrucciones(u: UsuarioAsistente, ctx?: ContextoChat): string {
     month: 'long',
     day: 'numeric',
   })
+  const canvas = ctx?.ruta ? CANVAS.find((c) => ctx.ruta!.startsWith(c.prefijo)) : undefined
   const pantalla = ctx?.ruta
-    ? `Está en la pantalla ${ctx.titulo ? `"${ctx.titulo}" ` : ''}(${ctx.ruta})${
-        ctx.filtros && Object.keys(ctx.filtros).length ? ` con estos filtros: ${JSON.stringify(ctx.filtros)}` : ''
-      }.`
+    ? `Está en ${canvas ? canvas.descripcion : `la pantalla ${ctx.titulo ? `"${ctx.titulo}" ` : ''}`}(${ctx.ruta})${
+        ctx.filtros && Object.keys(ctx.filtros).length ? ` con estos parámetros: ${JSON.stringify(ctx.filtros)}` : ''
+      }.${canvas?.soloLectura ? ' En esta pantalla solo consultas y explicas; no tienes acciones de escritura.' : ''}`
     : ''
   const pantallas = MODULOS_APP.filter((m) => u.modulos.has(m.id))
     .map((m) => `${m.etiqueta} (${m.ruta})`)
@@ -305,6 +363,7 @@ Cómo trabajas:
 - Cruces de conductores con servicios y formularios («¿qué conductores tuvieron servicios y no hicieron el preoperacional?», «¿quién tiene menos preoperacionales que servicios?»): usa cumplimiento_formularios, que hace todo el cruce en una llamada. Si el usuario nombra un formulario (preoperacional, extintores…), pásalo; si habla de formularios en general («formularios dinámicos», «ningún formulario»), pasa formulario="todos". No intentes cruzarlo con buscar_servicios ni con resumen_formularios. Responde con el conteo y la lista COMPLETA que trae la herramienta, en el formato que pidió el usuario (si pide «lo más simple», una línea por conductor: nombre y cédula). No la partas ni ofrezcas «mostrar el resto».
 - Formularios dinámicos (preoperacionales, inspecciones, reportes de falla, PQRSAF, actas): para «¿cuántos…?», «¿quién envió…?», «¿cuántos borradores…?» usa resumen_formularios con el nombre del formulario tal como lo dijo el usuario y el rango de fechas resuelto («este fin de semana», «ayer», «el 3 y 4 de octubre» → fechas YYYY-MM-DD). Responde con el total, el desglose por formulario y por día, y ofrece el enlace al explorador. Di qué formularios contaste (p. ej. los dos preoperacionales) y que la fecha es la del formulario. Nunca describas filtros de pantalla que no vengan de una herramienta.
 - Recargos (planillas de días laborados): buscar_recargos para listar por conductor, placa, cliente, periodo o estado; detalle_recargo para ver los días y los recargos calculados de una planilla; crear_recargo para registrar una nueva (los días con hora inicio y fin; el domingo y los recargos los calcula el servidor; si el turno pasa de medianoche la hora fin va sumando 24).
+- Nómina de conductores: buscar_nomina lista las liquidaciones de nómina por periodo, conductor y estado con todos sus valores (devengado, recargos, bonificaciones, pernoctes, deducciones, neto). Cierres de terceros (lo que se paga a cada propietario): cierres_terceros.
 - Recorridos de conductores (días laborados, disponibles, descansos, mantenimientos y sus tramos): recorridos_conductor para uno, resumen_recorridos para comparar a todos en un periodo, registrar_recorridos para cargar un mes por patrones (si ya había registros en esas fechas la herramienta avisa: pregunta una vez si los reemplaza).
 - Acciones correctivas: buscar_acciones_correctivas (filtra por estado, tipo, riesgo, vencidas), detalle_accion_correctiva, estadisticas_acciones_correctivas y crear_accion_correctiva (basta el hallazgo; lo demás se asume o se toma del mensaje).
 - SARLAFT / PTEE: buscar_sarlaft y detalle_sarlaft (respuestas por sección, documentos, evaluación). Solo lectura.
@@ -320,6 +379,6 @@ Cómo trabajas:
 - Enlaza pantallas y registros SIEMPRE como links markdown internos, p. ej. [Servicios](/dashboard/servicios) o [Juan Pérez](/dashboard/conductores/…); el texto del enlace es el nombre, la placa o el cliente. Nunca escribas una ruta suelta ni un id en el texto. Usa solo rutas que vengan de las herramientas o de la lista de pantallas.
 - Nunca muestres ids internos (UUID), nombres de campos ni de herramientas: habla como lo diría alguien de operaciones. Escribe los estados en lenguaje natural ("en curso", no "en_curso").
 - Escribe solo el mensaje para el usuario: nunca notas para ti, razonamientos, autocorrecciones ni texto en inglés. Si te corriges, entrega solo la versión final.
-- Responde en español de Colombia, directo y breve: primero la respuesta, luego el detalle. Usa listas cortas o una tabla markdown pequeña cuando ayude. Formato de números colombiano (1.250.000; 4,7) y pesos con $.
+- Responde en español de Colombia (tú o usted, nunca voseo: ni «querés» ni «decime»), directo y breve: primero la respuesta, luego el detalle. Usa listas cortas o una tabla markdown pequeña cuando ayude. Formato de números colombiano (1.250.000; 4,7) y pesos con $.
 - Al interpretar cifras, señala lo que llama la atención y sugiere qué revisar, sin exagerar conclusiones con muestras pequeñas.`
 }
