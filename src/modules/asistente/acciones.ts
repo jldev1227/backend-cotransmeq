@@ -60,20 +60,38 @@ function elegir<T extends { id: string }>(
   }
 }
 
-async function resolverCliente(texto: string) {
-  const filas = await prisma.clientes.findMany({
-    where: {
-      deletedAt: null,
-      oculto: false,
-      OR: [{ nombre: { contains: texto, mode: 'insensitive' } }, { nit: { contains: texto, mode: 'insensitive' } }],
-    },
-    select: { id: true, nombre: true, nit: true },
-    take: 10,
-  })
-  return elegir(filas, texto, (f) => f.nombre ?? '', (f) => ({ cliente: f.nombre, nit: f.nit }), 'clientes')
+export async function resolverCliente(texto: string) {
+  // El modelo a veces manda el cliente tal como lo mostró: «FEPCO SERVICIOS
+  // S.A.S — NIT 860.528.871». Se prueba el texto entero, luego solo el nombre
+  // (antes del guion o del paréntesis) y, si trae un NIT, por sus dígitos
+  // (en la base el NIT puede llevar puntos o el dígito de verificación).
+  const nombre = texto.split(/\s+[—–-]\s+|\s*\(/)[0].trim()
+  const digitos = texto.replace(/\D/g, '')
+  const variantes = [...new Set([texto.trim(), nombre.replace(/^nit\s*/i, '')].filter(Boolean))]
+  let filas: { id: string; nombre: string | null; nit: string | null }[] = []
+  for (const v of variantes) {
+    filas = await prisma.clientes.findMany({
+      where: {
+        deletedAt: null,
+        oculto: false,
+        OR: [{ nombre: { contains: v, mode: 'insensitive' } }, { nit: { contains: v, mode: 'insensitive' } }],
+      },
+      select: { id: true, nombre: true, nit: true },
+      take: 10,
+    })
+    if (filas.length) break
+  }
+  if (digitos.length >= 6) {
+    const porNit = (await prisma.clientes.findMany({ where: { deletedAt: null, oculto: false, nit: { not: null } }, select: { id: true, nombre: true, nit: true } })).filter((c) =>
+      (c.nit ?? '').replace(/\D/g, '').startsWith(digitos),
+    )
+    if (porNit.length === 1) return { ok: true as const, valor: porNit[0] }
+    if (filas.length === 0) filas = porNit
+  }
+  return elegir(filas, nombre, (f) => f.nombre ?? '', (f) => ({ cliente: f.nombre, nit: f.nit }), 'clientes')
 }
 
-async function resolverMunicipio(nombre: string, departamento?: string) {
+export async function resolverMunicipio(nombre: string, departamento?: string) {
   const filas = await prisma.municipios.findMany({
     where: {
       nombre_municipio: { contains: nombre, mode: 'insensitive' },
@@ -92,7 +110,7 @@ async function resolverMunicipio(nombre: string, departamento?: string) {
   )
 }
 
-async function resolverConductor(texto: string) {
+export async function resolverConductor(texto: string) {
   // Misma tolerancia que buscar_conductores: si el nombre completo no trae a
   // nadie, se sueltan palabras. Con menos palabras es más fácil que haya
   // varios: `elegir` devuelve candidatos y el modelo pregunta.
@@ -124,7 +142,7 @@ async function resolverConductor(texto: string) {
   )
 }
 
-async function resolverVehiculo(placa: string) {
+export async function resolverVehiculo(placa: string) {
   const limpia = placa.replace(/[\s-]/g, '').toUpperCase()
   const filas = await prisma.vehiculos.findMany({
     where: { deleted_at: null, placa: { contains: limpia, mode: 'insensitive' } },
@@ -235,7 +253,6 @@ export const crearServicio: Herramienta = {
   requiere: 'servicios',
   nivel: 'full',
   escribe: true,
-  canales: ['app'],
   async ejecutar(args, usuario) {
     if (args.confirmado !== true) {
       return { error: 'Falta la confirmación del usuario: muéstrale el resumen y pregúntale si lo creas' }
@@ -289,7 +306,6 @@ export const crearServicios: Herramienta = {
   requiere: 'servicios',
   nivel: 'full',
   escribe: true,
-  canales: ['app'],
   async ejecutar(args, usuario) {
     if (args.confirmado !== true) {
       return { error: 'Falta la confirmación del usuario: muéstrale la tabla con todos los servicios y pregúntale si los creas' }

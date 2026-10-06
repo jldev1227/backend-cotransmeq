@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { emitLiquidacionServicio, eventoMeta } from '../../sockets'
 import { LiquidacionesServiciosService } from '../liquidaciones-servicios/liquidaciones-servicios.service'
@@ -41,6 +42,8 @@ const LIMITE_POR_DEFECTO = 10
 const LIMITE_MAXIMO = 25
 
 const ESTADOS = ['BORRADOR', 'LIQUIDADA', 'APROBADA', 'FACTURADA', 'ANULADA'] as const
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+const ENLACE_FACTURAS = '/dashboard/liquidaciones-servicios?tab=facturas'
 
 function enlaces(id: string) {
   return {
@@ -60,7 +63,7 @@ function soloFecha(d: Date): string {
 export const buscarLiquidaciones: Herramienta = {
   nombre: 'buscar_liquidaciones',
   descripcion:
-    'Busca liquidaciones de servicios por consecutivo, cliente, placa, periodo (mes/año) o estado. Devuelve cabecera y totales; para ver los ítems y recargos de una, usa detalle_liquidacion.',
+    'Busca liquidaciones de servicios por consecutivo, cliente, placa, número de factura, periodo (mes/año) o estado. Devuelve cabecera, totales y la factura activa de cada una; para ver ítems, recorridos, recargos, terceros, facturas e historial de una, usa detalle_liquidacion.',
   parametros: {
     type: 'object',
     properties: {
@@ -69,6 +72,7 @@ export const buscarLiquidaciones: Herramienta = {
       mes: { type: 'integer', minimum: 1, maximum: 12 },
       anio: { type: 'integer', minimum: 2020, maximum: 2100 },
       estado: { type: 'string', enum: [...ESTADOS] },
+      factura: { type: 'string', description: 'Número de factura, para ver qué liquidaciones agrupa' },
       limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO },
     },
     additionalProperties: false,
@@ -81,6 +85,7 @@ export const buscarLiquidaciones: Herramienta = {
     const mes = enteroOpcional(args.mes, 1, 12)
     const anio = enteroOpcional(args.anio, 2020, 2100)
     const estado = typeof args.estado === 'string' && (ESTADOS as readonly string[]).includes(args.estado) ? args.estado : undefined
+    const factura = textoOpcional(args.factura, 50)
     const limite = enteroEntre(args.limite, 1, LIMITE_MAXIMO, LIMITE_POR_DEFECTO)
 
     const contiene = (q: string) => ({ contains: q.replace(/^#+/, '').trim(), mode: 'insensitive' as const })
@@ -91,6 +96,7 @@ export const buscarLiquidaciones: Herramienta = {
       ...(mes ? { mes } : {}),
       ...(anio ? { anio } : {}),
       ...(cliente ? { cliente: { nombre: contiene(cliente) } } : {}),
+      ...(factura ? { factura_items: { some: { deleted_at: null, factura: { numero_factura: contiene(factura), deleted_at: null } } } } : {}),
       ...(texto
         ? {
             OR: [
@@ -100,6 +106,8 @@ export const buscarLiquidaciones: Herramienta = {
               { osi: contiene(texto) },
               { operadora: contiene(texto) },
               { items: { some: { deleted_at: null, placa: contiene(texto) } } },
+              { items: { some: { deleted_at: null, numero_planilla: contiene(texto) } } },
+              { factura_items: { some: { deleted_at: null, factura: { numero_factura: contiene(texto) } } } },
             ],
           }
         : {}),
@@ -124,6 +132,7 @@ export const buscarLiquidaciones: Herramienta = {
           cliente: { select: { nombre: true } },
           creado_por: { select: { nombre: true } },
           _count: { select: { items: { where: { deleted_at: null } } } },
+          factura_items: { where: { deleted_at: null, factura: { deleted_at: null } }, select: { factura: { select: { numero_factura: true, estado: true } } } },
         },
         orderBy: [{ anio: 'desc' }, { mes: 'desc' }, { consecutivo: 'desc' }],
         take: limite,
@@ -146,6 +155,8 @@ export const buscarLiquidaciones: Herramienta = {
         osi: l.osi,
         operadora: l.operadora,
         con_terceros: l.tercero_liquidado,
+        factura: l.factura_items.find((f) => f.factura.estado === 'ACTIVA')?.factura.numero_factura ?? null,
+        facturas_anuladas: l.factura_items.filter((f) => f.factura.estado !== 'ACTIVA').map((f) => f.factura.numero_factura),
         fecha: fechaCorta(l.fecha_liquidacion),
         creada_por: l.creado_por?.nombre,
         ...enlaces(l.id),
@@ -157,17 +168,20 @@ export const buscarLiquidaciones: Herramienta = {
 export const detalleLiquidacion: Herramienta = {
   nombre: 'detalle_liquidacion',
   descripcion:
-    'Trae una liquidación de servicios completa por su consecutivo: cabecera, cada ítem (placa, fechas, recorrido, tipo, cantidad, valor), recargos y terceros. Úsala antes de duplicar una, para mostrarle al usuario qué se va a copiar.',
+    'Trae una liquidación de servicios COMPLETA por su consecutivo, id o enlace: cabecera y totales, cada ítem (placa, fechas, recorrido, tipo de servicio, cantidad, valor, descuento, recargos y pernoctes del ítem, planilla y enlace al servicio), las filas de recargos, los terceros (propietarios) con sus valores, las facturas que la incluyen (número, fecha, estado), quién la creó, liquidó y aprobó, y el historial de cambios de estado. Úsala para cualquier pregunta sobre una liquidación concreta y antes de duplicarla.',
   parametros: {
     type: 'object',
-    properties: { consecutivo: { type: 'string', description: 'Consecutivo exacto, p. ej. IDE-058' } },
-    required: ['consecutivo'],
+    properties: {
+      liquidacion: { type: 'string', description: 'Consecutivo (p. ej. IDE-058), id o enlace de la liquidación' },
+      consecutivo: { type: 'string', description: 'Alias de liquidacion' },
+    },
     additionalProperties: false,
   },
   etiqueta: 'Abriendo la liquidación',
   requiere: MODULO,
+  salidaMaxima: { lista: 80, caracteres: 45000 },
   async ejecutar(args) {
-    const consecutivo = textoOpcional(args.consecutivo, 50)
+    const consecutivo = textoOpcional(args.liquidacion, 300) ?? textoOpcional(args.consecutivo, 300)
     if (!consecutivo) return { error: 'Falta el consecutivo' }
     const l = await cargarPorConsecutivo(consecutivo)
     if (!l) return { error: `No existe la liquidación «${consecutivo}»` }
@@ -197,7 +211,6 @@ export const duplicarLiquidacion: Herramienta = {
   requiere: MODULO,
   nivel: 'full',
   escribe: true,
-  canales: ['app'],
   async ejecutar(args, usuario) {
     if (args.confirmado !== true) {
       return { error: 'Falta la confirmación del usuario: muéstrale qué se va a copiar y pregúntale si la creas' }
@@ -328,19 +341,31 @@ export const duplicarLiquidacion: Herramienta = {
 
 /* ────────────────────────── apoyo ────────────────────────── */
 
-async function cargarPorConsecutivo(consecutivo: string) {
+/** Acepta el consecutivo («IDE-058»), el id o un enlace /dashboard/liquidaciones-servicios/<id>. */
+async function cargarPorConsecutivo(texto: string) {
+  const id = texto.match(UUID)?.[0]?.toLowerCase()
   return prisma.liquidacion_servicio.findFirst({
-    where: { consecutivo: { equals: consecutivo.trim(), mode: 'insensitive' }, deleted_at: null, confirmada_at: { not: null } },
+    where: {
+      ...(id ? { id } : { consecutivo: { equals: texto.replace(/^#+/, '').trim(), mode: 'insensitive' } }),
+      deleted_at: null,
+      confirmada_at: { not: null },
+    },
     include: {
       cliente: { select: { id: true, nombre: true, nit: true } },
       creado_por: { select: { nombre: true } },
       liquidado_por: { select: { nombre: true } },
-      items: { where: { deleted_at: null }, orderBy: { orden: 'asc' } },
+      aprobado_por: { select: { nombre: true } },
+      items: { where: { deleted_at: null }, orderBy: { orden: 'asc' }, include: { tercero: { select: { nombre_completo: true } } } },
       terceros_items: {
         where: { deleted_at: null },
         orderBy: { orden: 'asc' },
-        include: { tercero: { select: { nombre_completo: true } } },
+        include: { tercero: { select: { nombre_completo: true, identificacion: true } } },
       },
+      factura_items: {
+        where: { deleted_at: null, factura: { deleted_at: null } },
+        include: { factura: { select: { numero_factura: true, estado: true, fecha_facturacion: true, valor_total: true, motivo_anulacion: true, facturado_por: { select: { nombre: true } } } } },
+      },
+      historial_estados: { orderBy: { created_at: 'asc' }, include: { usuario: { select: { nombre: true } } } },
     },
   })
 }
@@ -349,6 +374,16 @@ type LiquidacionCargada = NonNullable<Awaited<ReturnType<typeof cargarPorConsecu
 
 function describir(l: LiquidacionCargada) {
   const recargos = l.recargos_data as { rows?: unknown[]; terceroRows?: unknown[] } | null
+  const facturas = l.factura_items.map((fi) => ({
+    numero: fi.factura.numero_factura,
+    estado: fi.factura.estado.toLowerCase(),
+    fecha: fechaCorta(fi.factura.fecha_facturacion),
+    valor_total_factura: Number(fi.factura.valor_total),
+    valor_de_esta_liquidacion: Number(fi.valor_liquidacion),
+    facturada_por: fi.factura.facturado_por?.nombre,
+    motivo_anulacion: fi.factura.motivo_anulacion ?? undefined,
+    enlace: ENLACE_FACTURAS,
+  }))
   return {
     consecutivo: l.consecutivo,
     estado: l.estado.toLowerCase(),
@@ -356,16 +391,25 @@ function describir(l: LiquidacionCargada) {
     nit: l.cliente.nit,
     periodo: `${l.mes}/${l.anio}`,
     fecha: fechaCorta(l.fecha_liquidacion),
+    fecha_aprobacion: fechaCorta(l.fecha_aprobacion),
+    fecha_facturacion: fechaCorta(l.fecha_facturacion),
     osi: l.osi,
     operadora: l.operadora,
     observaciones: l.observaciones,
+    motivo_anulacion: l.motivo_anulacion ?? undefined,
+    con_terceros: l.tercero_liquidado,
     creada_por: l.creado_por?.nombre,
     liquidada_por: l.liquidado_por?.nombre,
+    aprobada_por: l.aprobado_por?.nombre,
+    factura: facturas.find((f) => f.estado === 'activa')?.numero ?? null,
+    facturas,
     totales: {
       valor_servicios: Number(l.valor_servicios),
       valor_recargos: Number(l.valor_recargos),
       valor_transporte_adicional: Number(l.valor_transporte_adicional),
+      valor_administracion_ta: Number(l.valor_administracion_ta),
       valor_pernoctes: Number(l.valor_pernoctes),
+      cantidad_pernoctes: l.cantidad_pernoctes,
       subtotal: Number(l.subtotal),
       porcentaje_iva: Number(l.porcentaje_iva),
       valor_iva: Number(l.valor_iva),
@@ -379,24 +423,128 @@ function describir(l: LiquidacionCargada) {
       tipo: etiquetaTipo(String(i.tipo_servicio)),
       cantidad: Number(i.cantidad),
       valor_unitario: Number(i.valor_unitario),
+      subtotal: Number(i.subtotal),
       descuento_pct: Number(i.porcentaje_descuento),
       valor_final: Number(i.valor_final),
+      recargos: Number(i.valor_recargos_total) || undefined,
+      pernoctes: i.cantidad_pernoctes || undefined,
+      valor_pernoctes: Number(i.valor_pernoctes_total) || undefined,
       planilla: i.numero_planilla,
+      tercero: i.tercero?.nombre_completo,
+      servicio: i.servicio_id ? `/dashboard/servicios/${i.servicio_id}` : undefined,
+      recargos_detalle: i.recargos_detalle ?? undefined,
     })),
     recargos: {
       filas: Array.isArray(recargos?.rows) ? recargos.rows.length : 0,
       valor_total: Number(l.valor_recargos),
+      detalle: Array.isArray(recargos?.rows) ? recargos.rows : undefined,
     },
     terceros: l.terceros_items.map((t) => ({
       tercero: t.tercero?.nombre_completo ?? 'sin tercero',
+      identificacion: t.tercero?.identificacion ?? undefined,
       placa: t.placa,
+      recorrido: t.recorrido,
+      fechas: t.fechas,
       valor_unitario: Number(t.valor_unitario),
       cantidad: Number(t.cantidad),
+      total_facturado: Number(t.total_facturado),
       porcentaje_admin: Number(t.porcentaje_admin),
+      valor_admin: Number(t.valor_admin),
       valor_liquidar: Number(t.valor_liquidar),
+      ingreso_empresa: Number(t.ingreso_empresa),
+      estado: String(t.estado).toLowerCase(),
+    })),
+    historial: l.historial_estados.map((h) => ({
+      fecha: h.created_at.toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' }),
+      de: h.estado_anterior?.toLowerCase() ?? undefined,
+      a: h.estado_nuevo.toLowerCase(),
+      accion: h.accion ?? undefined,
+      por: h.usuario.nombre,
+      motivo: h.motivo ?? undefined,
     })),
     ...enlaces(l.id),
   }
+}
+
+export const buscarFacturas: Herramienta = {
+  nombre: 'buscar_facturas',
+  descripcion:
+    'Busca facturas de liquidaciones de servicios por número, estado (activa o anulada), cliente o fecha de facturación. Devuelve por factura: número, fecha, estado, valor total, quién la emitió o anuló, observaciones y las liquidaciones que agrupa (consecutivo, cliente, periodo, valor). Para saber qué factura tiene una liquidación concreta basta detalle_liquidacion.',
+  parametros: {
+    type: 'object',
+    properties: {
+      texto: { type: 'string', description: 'Número de factura, consecutivo de liquidación o nombre del cliente' },
+      estado: { type: 'string', enum: ['ACTIVA', 'ANULADA'] },
+      desde: { type: 'string', description: 'Fecha de facturación desde, YYYY-MM-DD' },
+      hasta: { type: 'string', description: 'Hasta, YYYY-MM-DD incluida' },
+      limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO },
+    },
+    additionalProperties: false,
+  },
+  etiqueta: 'Buscando facturas',
+  requiere: MODULO,
+  async ejecutar(args) {
+    const texto = textoOpcional(args.texto, 80)
+    const estado = args.estado === 'ACTIVA' || args.estado === 'ANULADA' ? args.estado : undefined
+    const desde = typeof args.desde === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.desde) ? args.desde : undefined
+    const hasta = typeof args.hasta === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.hasta) ? args.hasta : undefined
+    const limite = enteroEntre(args.limite, 1, LIMITE_MAXIMO, LIMITE_POR_DEFECTO)
+    const contiene = (q: string) => ({ contains: q.replace(/^#+/, '').trim(), mode: 'insensitive' as const })
+    const where: Prisma.factura_liquidacion_servicioWhereInput = {
+      deleted_at: null,
+      ...(estado ? { estado } : {}),
+      ...(desde || hasta
+        ? { fecha_facturacion: { ...(desde ? { gte: new Date(`${desde}T00:00:00-05:00`) } : {}), ...(hasta ? { lte: new Date(`${hasta}T23:59:59.999-05:00`) } : {}) } }
+        : {}),
+      ...(texto
+        ? {
+            OR: [
+              { numero_factura: contiene(texto) },
+              { items: { some: { deleted_at: null, liquidacion: { OR: [{ consecutivo: contiene(texto) }, { cliente: { nombre: contiene(texto) } }, { cliente: { nit: contiene(texto) } }] } } } },
+            ],
+          }
+        : {}),
+    }
+    const [filas, total] = await Promise.all([
+      prisma.factura_liquidacion_servicio.findMany({
+        where,
+        include: {
+          facturado_por: { select: { nombre: true } },
+          anulado_por: { select: { nombre: true } },
+          items: {
+            where: { deleted_at: null },
+            include: { liquidacion: { select: { id: true, consecutivo: true, mes: true, anio: true, estado: true, total: true, cliente: { select: { nombre: true } } } } },
+          },
+        },
+        orderBy: { fecha_facturacion: 'desc' },
+        take: limite,
+      }),
+      prisma.factura_liquidacion_servicio.count({ where }),
+    ])
+    return {
+      total,
+      mostradas: filas.length,
+      facturas: filas.map((f) => ({
+        numero: f.numero_factura,
+        fecha: fechaCorta(f.fecha_facturacion),
+        estado: f.estado.toLowerCase(),
+        valor_total: Number(f.valor_total),
+        facturada_por: f.facturado_por.nombre,
+        observaciones: f.observaciones ?? undefined,
+        anulada: f.estado === 'ANULADA' ? { fecha: fechaCorta(f.fecha_anulacion), por: f.anulado_por?.nombre, motivo: f.motivo_anulacion } : undefined,
+        clientes: [...new Set(f.items.map((i) => i.liquidacion.cliente.nombre))],
+        liquidaciones: f.items.map((i) => ({
+          consecutivo: i.liquidacion.consecutivo,
+          cliente: i.liquidacion.cliente.nombre,
+          periodo: `${i.liquidacion.mes}/${i.liquidacion.anio}`,
+          estado: i.liquidacion.estado.toLowerCase(),
+          valor: Number(i.valor_liquidacion),
+          ...enlaces(i.liquidacion.id),
+        })),
+        enlace: ENLACE_FACTURAS,
+      })),
+    }
+  },
 }
 
 /** «059» con origen «IDE-058» → «IDE-059»; «IDE-059» o «FS-3380» se respetan. */
@@ -421,5 +569,5 @@ function clonarRecargos(recargos: unknown, conTerceros: boolean): unknown {
   return copia
 }
 
-export const HERRAMIENTAS_LIQUIDACIONES: readonly Herramienta[] = [buscarLiquidaciones, detalleLiquidacion]
+export const HERRAMIENTAS_LIQUIDACIONES: readonly Herramienta[] = [buscarLiquidaciones, detalleLiquidacion, buscarFacturas]
 export const ACCIONES_LIQUIDACIONES: readonly Herramienta[] = [duplicarLiquidacion]

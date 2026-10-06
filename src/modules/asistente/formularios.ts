@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import type { Herramienta } from './asistente.types'
-import { enteroEntre, fechaOpcional, textoOpcional } from './asistente.utils'
+import { enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
 
 /**
  * Formularios dinámicos (preoperacionales, inspecciones, reportes) en el asistente.
@@ -403,3 +403,402 @@ export const cumplimientoFormularios: Herramienta = {
 }
 
 export const HERRAMIENTAS_FORMULARIOS: readonly Herramienta[] = [resumenFormularios, cumplimientoFormularios]
+
+/* ────────────────── envíos y respuestas por campo ────────────────── */
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+const enlaceEnvio = (id: string) => `/dashboard/formularios/envios/${id}`
+
+/** Valor legible de una respuesta: opción (etiqueta), número, texto, fecha… */
+function valorDe(a: {
+  value_text: string | null
+  value_decimal: unknown
+  value_boolean: boolean | null
+  value_date: Date | null
+  value_datetime: Date | null
+  value_json: unknown
+  options: { option: { value: string; label: string } }[]
+}): string | number | boolean | null {
+  if (a.options.length) return a.options.map((o) => o.option.label).join(', ')
+  if (a.value_text !== null) return a.value_text
+  if (a.value_decimal !== null && a.value_decimal !== undefined) return Number(a.value_decimal)
+  if (a.value_boolean !== null) return a.value_boolean
+  if (a.value_date) return iso(a.value_date)
+  if (a.value_datetime) return a.value_datetime.toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' })
+  if (a.value_json !== null && a.value_json !== undefined) return JSON.stringify(a.value_json)
+  return null
+}
+
+/** Rango de fechas de negocio: por defecto el mes en curso. */
+function rangoFechas(args: Record<string, unknown>): { desde: string; hasta: string } | { error: string } {
+  const desde = fechaOpcional(args.desde) ?? primeroDeMesBogota()
+  const hasta = fechaOpcional(args.hasta) ?? hoyBogota()
+  if (hasta < desde) return { error: 'La fecha final es anterior a la inicial' }
+  return { desde, hasta }
+}
+
+const SELECT_ENVIO = {
+  id: true,
+  status: true,
+  business_date: true,
+  submitted_at: true,
+  conductor: { select: { nombre: true, apellido: true, numero_identificacion: true } },
+  usuario: { select: { nombre: true } },
+  vehiculo: { select: { placa: true } },
+  service_id: true,
+  version: { select: { title: true, form: { select: { code: true, name: true } } } },
+  _count: { select: { answers: true, attachments: true } },
+} as const
+
+export const buscarEnviosFormulario: Herramienta = {
+  nombre: 'buscar_envios_formulario',
+  descripcion:
+    'Lista envíos concretos de formularios dinámicos (uno por fila) filtrando por formulario, rango de fechas, conductor o placa y estado. Devuelve fecha, formulario, quién lo diligenció, placa y el enlace de cada envío. Para contar o agrupar usa resumen_formularios; para leer las respuestas de un envío usa detalle_envio_formulario; para un campo concreto a lo largo de muchos envíos usa respuestas_campo_formulario.',
+  parametros: {
+    type: 'object',
+    properties: {
+      formulario: { type: 'string', description: 'Nombre o código del formulario (vacío = todos)' },
+      desde: { type: 'string', description: 'YYYY-MM-DD (fecha del formulario). Por defecto, el 1.º del mes' },
+      hasta: { type: 'string', description: 'YYYY-MM-DD, incluida. Por defecto, hoy' },
+      conductor_o_placa: { type: 'string', description: 'Nombre, cédula o placa' },
+      estado: { type: 'string', enum: [...ESTADOS, 'TODOS'], description: 'Por defecto SUBMITTED' },
+      limite: { type: 'integer', minimum: 1, maximum: 100 },
+    },
+    additionalProperties: false,
+  },
+  etiqueta: 'Buscando envíos',
+  requiere: MODULO,
+  salidaMaxima: { lista: 100, caracteres: 40000 },
+  async ejecutar(args) {
+    const r = rangoFechas(args)
+    if ('error' in r) return r
+    const { elegidos } = await resolverFormularios(textoOpcional(args.formulario, 120))
+    if (elegidos.length === 0) return { error: `No hay ningún formulario que coincida con «${String(args.formulario)}»` }
+    const estado = typeof args.estado === 'string' && [...ESTADOS, 'TODOS'].includes(args.estado) ? args.estado : 'SUBMITTED'
+    const quien = textoOpcional(args.conductor_o_placa, 80)
+    const limite = enteroEntre(args.limite, 1, 100, 30)
+    const contiene = (q: string) => ({ contains: q, mode: 'insensitive' as const })
+
+    const where: Prisma.form_submissionWhereInput = {
+      deleted_at: null,
+      version: { form_id: { in: elegidos.map((f) => f.id) } },
+      business_date: { gte: diaUTC(r.desde), lte: diaUTC(r.hasta) },
+      ...(estado === 'TODOS' ? {} : { status: estado }),
+      ...(quien
+        ? {
+            OR: [
+              { vehiculo: { placa: contiene(quien.replace(/[\s-]/g, '')) } },
+              { conductor: { numero_identificacion: { contains: quien } } },
+              { AND: quien.split(/\s+/).map((p) => ({ OR: [{ conductor: { nombre: contiene(p) } }, { conductor: { apellido: contiene(p) } }, { usuario: { nombre: contiene(p) } }] })) },
+            ],
+          }
+        : {}),
+    }
+    const [filas, total] = await Promise.all([
+      prisma.form_submission.findMany({ where, select: SELECT_ENVIO, orderBy: [{ business_date: 'desc' }, { submitted_at: 'desc' }], take: limite }),
+      prisma.form_submission.count({ where }),
+    ])
+    return {
+      rango: `${r.desde} a ${r.hasta}`,
+      formularios_incluidos: elegidos.map((f) => `${f.code} ${f.name}`),
+      total,
+      mostrados: filas.length,
+      envios: filas.map((s) => ({
+        fecha: fechaDia(s.business_date),
+        formulario: `${s.version.form.code} ${s.version.form.name}`,
+        quien: s.conductor ? `${s.conductor.nombre} ${s.conductor.apellido}`.trim() : s.usuario?.nombre,
+        cedula: s.conductor?.numero_identificacion,
+        placa: s.vehiculo?.placa,
+        estado: ETIQUETA_ESTADO[s.status as Estado] ?? s.status.toLowerCase(),
+        enviado: s.submitted_at?.toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' }),
+        respuestas: s._count.answers,
+        adjuntos: s._count.attachments || undefined,
+        servicio: s.service_id ? `/dashboard/servicios/${s.service_id}` : undefined,
+        enlace: enlaceEnvio(s.id),
+      })),
+    }
+  },
+}
+
+export const detalleEnvioFormulario: Herramienta = {
+  nombre: 'detalle_envio_formulario',
+  descripcion:
+    'Trae un envío de formulario dinámico completo por su id o enlace: quién, cuándo, placa y TODAS sus respuestas con la pregunta en lenguaje natural (agrupadas por sección, con el valor elegido o escrito), más cuántos adjuntos tiene. Úsala para leer un preoperacional, una inspección o un reporte concreto.',
+  parametros: {
+    type: 'object',
+    properties: { envio: { type: 'string', description: 'Id o enlace del envío (/dashboard/formularios/envios/<id>)' } },
+    required: ['envio'],
+    additionalProperties: false,
+  },
+  etiqueta: 'Abriendo el envío',
+  requiere: MODULO,
+  salidaMaxima: { lista: 200, caracteres: 45000 },
+  async ejecutar(args) {
+    const id = textoOpcional(args.envio, 300)?.match(UUID)?.[0]?.toLowerCase()
+    if (!id) return { error: 'Indica el id o el enlace del envío' }
+    const s = await prisma.form_submission.findFirst({
+      where: { id, deleted_at: null },
+      select: {
+        ...SELECT_ENVIO,
+        void_reason: true,
+        voided_at: true,
+        context_json: true,
+        answers: {
+          orderBy: [{ row_index: 'asc' }, { created_at: 'asc' }],
+          select: {
+            row_index: true,
+            value_text: true,
+            value_decimal: true,
+            value_boolean: true,
+            value_date: true,
+            value_datetime: true,
+            value_json: true,
+            options: { select: { option: { select: { value: true, label: true } } } },
+            field: { select: { key: true, label: true, type: true, sort_order: true, section: { select: { title: true, sort_order: true } } } },
+          },
+        },
+      },
+    })
+    if (!s) return { error: 'No existe ese envío (o fue descartado)' }
+
+    const secciones = new Map<string, { orden: number; respuestas: { pregunta: string; respuesta: unknown; fila?: number }[] }>()
+    for (const a of s.answers) {
+      if (a.field.type === 'INFO' || a.field.type === 'SIGNATURE' || a.field.type === 'PHOTO') continue
+      const valor = valorDe(a)
+      if (valor === null || valor === '') continue
+      const titulo = a.field.section?.title ?? 'General'
+      const sec = secciones.get(titulo) ?? { orden: a.field.section?.sort_order ?? 0, respuestas: [] }
+      sec.respuestas.push({ pregunta: a.field.label, respuesta: valor, ...(a.row_index !== null ? { fila: a.row_index + 1 } : {}) })
+      secciones.set(titulo, sec)
+    }
+    const malas = s.answers.filter((a) => a.options.some((o) => /^(m|malo|mal|nc|no cumple|r|regular)$/i.test(o.option.value) || /malo|no cumple|regular/i.test(o.option.label)))
+
+    return {
+      formulario: `${s.version.form.code} ${s.version.form.name}`,
+      fecha: fechaDia(s.business_date),
+      estado: ETIQUETA_ESTADO[s.status as Estado] ?? s.status.toLowerCase(),
+      quien: s.conductor ? `${s.conductor.nombre} ${s.conductor.apellido}`.trim() : s.usuario?.nombre,
+      cedula: s.conductor?.numero_identificacion,
+      placa: s.vehiculo?.placa,
+      enviado: s.submitted_at?.toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' }),
+      anulado: s.voided_at ? { fecha: fechaCorta(s.voided_at), motivo: s.void_reason } : undefined,
+      servicio: s.service_id ? `/dashboard/servicios/${s.service_id}` : undefined,
+      adjuntos: s._count.attachments,
+      hallazgos: malas.length ? malas.map((a) => `${a.field.label}: ${a.options.map((o) => o.option.label).join(', ')}`) : undefined,
+      secciones: [...secciones.entries()].sort((a, b) => a[1].orden - b[1].orden).map(([seccion, v]) => ({ seccion, respuestas: v.respuestas })),
+      enlace: enlaceEnvio(s.id),
+    }
+  },
+}
+
+export const camposFormulario: Herramienta = {
+  nombre: 'campos_formulario',
+  descripcion:
+    'Lista las preguntas (campos) de un formulario dinámico con su clave, tipo y opciones de respuesta, por sección. Úsala antes de respuestas_campo_formulario cuando no sepas cómo se llama exactamente el campo que el usuario quiere analizar.',
+  parametros: {
+    type: 'object',
+    properties: { formulario: { type: 'string', description: 'Nombre o código del formulario' } },
+    required: ['formulario'],
+    additionalProperties: false,
+  },
+  etiqueta: 'Leyendo la estructura del formulario',
+  requiere: MODULO,
+  salidaMaxima: { lista: 250, caracteres: 45000 },
+  async ejecutar(args) {
+    const { elegidos } = await resolverFormularios(textoOpcional(args.formulario, 120))
+    if (elegidos.length === 0) return { error: 'No hay ningún formulario que coincida' }
+    if (elegidos.length > 3) return { error: 'Coinciden demasiados formularios; precisa cuál', formularios: elegidos.map((f) => `${f.code} ${f.name}`) }
+    const salida = []
+    for (const f of elegidos) {
+      const version = await prisma.form_version.findFirst({
+        where: { form_id: f.id, status: 'PUBLISHED' },
+        orderBy: { version_number: 'desc' },
+        select: {
+          version_number: true,
+          sections: { orderBy: { sort_order: 'asc' }, select: { id: true, title: true } },
+          fields: {
+            orderBy: { sort_order: 'asc' },
+            where: { type: { notIn: ['INFO'] } },
+            select: { key: true, label: true, type: true, required: true, section_id: true, parent_field_id: true, options: { orderBy: { sort_order: 'asc' }, select: { value: true, label: true } } },
+          },
+        },
+      })
+      if (!version) continue
+      salida.push({
+        formulario: `${f.code} ${f.name}`,
+        version: version.version_number,
+        secciones: version.sections.map((s) => ({
+          seccion: s.title,
+          campos: version.fields
+            .filter((c) => c.section_id === s.id)
+            .map((c) => ({
+              clave: c.key,
+              pregunta: c.label,
+              tipo: c.type.toLowerCase().replace(/_/g, ' '),
+              obligatorio: c.required || undefined,
+              dentro_de_grupo: c.parent_field_id ? true : undefined,
+              opciones: c.options.length ? c.options.map((o) => o.label) : undefined,
+            })),
+        })),
+      })
+    }
+    return { formularios: salida }
+  },
+}
+
+export const respuestasCampoFormulario: Herramienta = {
+  nombre: 'respuestas_campo_formulario',
+  descripcion:
+    'Indicador sobre UN campo (pregunta) de un formulario dinámico a lo largo de muchos envíos en un rango de fechas: cuenta cuántas veces se eligió cada opción (o sí/no), y para campos numéricos da suma, promedio, mínimo y máximo. Puede agrupar por día, por conductor o por placa, y listar quién respondió un valor concreto («¿qué vehículos tuvieron frenos en Malo?»). El campo se busca por su clave o por el texto de la pregunta (usa campos_formulario si no casa). Por defecto solo envíos entregados del mes en curso.',
+  parametros: {
+    type: 'object',
+    properties: {
+      formulario: { type: 'string', description: 'Nombre o código del formulario' },
+      campo: { type: 'string', description: 'Clave o texto de la pregunta (p. ej. «frenos», «kilometraje», «estado_llantas»)' },
+      desde: { type: 'string', description: 'YYYY-MM-DD; por defecto el 1.º del mes' },
+      hasta: { type: 'string', description: 'YYYY-MM-DD, incluida; por defecto hoy' },
+      agrupar_por: { type: 'string', enum: ['dia', 'conductor', 'placa', 'ninguno'], description: 'Por defecto ninguno (solo el total)' },
+      valor: { type: 'string', description: 'Si se indica, lista los envíos cuya respuesta fue este valor (opción o texto, parcial)' },
+      conductor_o_placa: { type: 'string', description: 'Limitar a un conductor o una placa' },
+      limite: { type: 'integer', minimum: 1, maximum: 200, description: 'Tope de filas en listas y agrupaciones' },
+    },
+    required: ['formulario', 'campo'],
+    additionalProperties: false,
+  },
+  etiqueta: 'Calculando el indicador',
+  requiere: MODULO,
+  salidaMaxima: { lista: 200, caracteres: 45000 },
+  async ejecutar(args) {
+    const r = rangoFechas(args)
+    if ('error' in r) return r
+    const campoTexto = textoOpcional(args.campo, 120)
+    if (!campoTexto) return { error: 'Indica el campo' }
+    const { elegidos } = await resolverFormularios(textoOpcional(args.formulario, 120))
+    if (elegidos.length === 0) return { error: 'No hay ningún formulario que coincida' }
+    const limite = enteroEntre(args.limite, 1, 200, 50)
+    const agrupar = typeof args.agrupar_por === 'string' && ['dia', 'conductor', 'placa'].includes(args.agrupar_por) ? args.agrupar_por : undefined
+    const valorBuscado = textoOpcional(args.valor, 80)?.toLowerCase()
+    const quien = textoOpcional(args.conductor_o_placa, 80)
+
+    /// El campo puede existir en varias versiones del formulario (misma
+    /// clave, distinto id): se toman todos los ids que casan.
+    const q = normalizar(campoTexto)
+    const campos = await prisma.form_field.findMany({
+      where: { version: { form_id: { in: elegidos.map((f) => f.id) } }, type: { notIn: ['INFO', 'SIGNATURE', 'PHOTO', 'REPEATABLE_GROUP'] } },
+      select: { id: true, key: true, label: true, type: true, version: { select: { form: { select: { code: true } } } } },
+    })
+    let elegidosCampo = campos.filter((c) => normalizar(c.key) === q || normalizar(c.label) === q)
+    if (elegidosCampo.length === 0) elegidosCampo = campos.filter((c) => normalizar(c.key).includes(q) || normalizar(c.label).includes(q))
+    if (elegidosCampo.length === 0) return { error: `Ningún campo de ${elegidos.map((f) => f.code).join(', ')} se llama «${campoTexto}»`, pista: 'Usa campos_formulario para ver las preguntas' }
+    const claves = new Set(elegidosCampo.map((c) => c.key))
+    if (claves.size > 1) {
+      return {
+        error: 'Varios campos coinciden; indica cuál',
+        campos: [...new Map(elegidosCampo.map((c) => [c.key, { clave: c.key, pregunta: c.label, formulario: c.version.form.code }])).values()],
+      }
+    }
+    const campo = elegidosCampo[0]
+    const contiene = (t: string) => ({ contains: t, mode: 'insensitive' as const })
+
+    const filas = await prisma.form_answer.findMany({
+      where: {
+        field_id: { in: elegidosCampo.map((c) => c.id) },
+        submission: {
+          deleted_at: null,
+          status: 'SUBMITTED',
+          business_date: { gte: diaUTC(r.desde), lte: diaUTC(r.hasta) },
+          ...(quien
+            ? {
+                OR: [
+                  { vehiculo: { placa: contiene(quien.replace(/[\s-]/g, '')) } },
+                  { conductor: { numero_identificacion: { contains: quien } } },
+                  { AND: quien.split(/\s+/).map((p) => ({ OR: [{ conductor: { nombre: contiene(p) } }, { conductor: { apellido: contiene(p) } }] })) },
+                ],
+              }
+            : {}),
+        },
+      },
+      select: {
+        value_text: true,
+        value_decimal: true,
+        value_boolean: true,
+        value_date: true,
+        value_datetime: true,
+        value_json: true,
+        options: { select: { option: { select: { value: true, label: true } } } },
+        submission: {
+          select: { id: true, business_date: true, conductor: { select: { nombre: true, apellido: true, numero_identificacion: true } }, usuario: { select: { nombre: true } }, vehiculo: { select: { placa: true } } },
+        },
+      },
+      take: 20000,
+    })
+
+    const quienDe = (s: (typeof filas)[number]['submission']) => (s.conductor ? `${s.conductor.nombre} ${s.conductor.apellido}`.trim() : s.usuario?.nombre ?? 'desconocido')
+    const claveGrupo = (s: (typeof filas)[number]['submission']) => (agrupar === 'dia' ? iso(s.business_date) : agrupar === 'placa' ? s.vehiculo?.placa ?? 'sin placa' : quienDe(s))
+
+    const numerico = ['INTEGER', 'DECIMAL'].includes(campo.type)
+    const conteo = new Map<string, number>()
+    const grupos = new Map<string, Map<string, number>>()
+    const numeros: number[] = []
+    const numerosPorGrupo = new Map<string, number[]>()
+    const coincidencias: { fecha: string; quien: string; placa?: string; respuesta: unknown; enlace: string }[] = []
+
+    for (const a of filas) {
+      const v = valorDe(a)
+      if (v === null || v === '') continue
+      const etiqueta = String(v)
+      if (numerico && typeof v === 'number') {
+        numeros.push(v)
+        if (agrupar) {
+          const g = claveGrupo(a.submission)
+          numerosPorGrupo.set(g, [...(numerosPorGrupo.get(g) ?? []), v])
+        }
+      } else {
+        conteo.set(etiqueta, (conteo.get(etiqueta) ?? 0) + 1)
+        if (agrupar) {
+          const g = claveGrupo(a.submission)
+          const m = grupos.get(g) ?? new Map<string, number>()
+          m.set(etiqueta, (m.get(etiqueta) ?? 0) + 1)
+          grupos.set(g, m)
+        }
+      }
+      if (valorBuscado && etiqueta.toLowerCase().includes(valorBuscado) && coincidencias.length < limite) {
+        coincidencias.push({ fecha: iso(a.submission.business_date), quien: quienDe(a.submission), placa: a.submission.vehiculo?.placa, respuesta: v, enlace: enlaceEnvio(a.submission.id) })
+      }
+    }
+
+    const estadisticas = (xs: number[]) =>
+      xs.length
+        ? { n: xs.length, suma: Math.round(xs.reduce((s, x) => s + x, 0) * 100) / 100, promedio: Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 100) / 100, minimo: Math.min(...xs), maximo: Math.max(...xs) }
+        : { n: 0 }
+
+    return {
+      formulario: elegidos.map((f) => `${f.code} ${f.name}`),
+      campo: { clave: campo.key, pregunta: campo.label, tipo: campo.type.toLowerCase().replace(/_/g, ' ') },
+      rango: `${r.desde} a ${r.hasta}`,
+      respuestas_consideradas: filas.length,
+      ...(numerico
+        ? { estadisticas: estadisticas(numeros) }
+        : {
+            por_valor: [...conteo.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([valor, veces]) => ({ valor, veces, porcentaje: filas.length ? Math.round((veces / filas.length) * 1000) / 10 : 0 })),
+          }),
+      ...(agrupar
+        ? {
+            agrupado_por: agrupar,
+            grupos: numerico
+              ? [...numerosPorGrupo.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, limite).map(([grupo, xs]) => ({ grupo, ...estadisticas(xs) }))
+              : [...grupos.entries()]
+                  .sort((a, b) => [...b[1].values()].reduce((s, x) => s + x, 0) - [...a[1].values()].reduce((s, x) => s + x, 0))
+                  .slice(0, limite)
+                  .map(([grupo, m]) => ({ grupo, total: [...m.values()].reduce((s, x) => s + x, 0), ...Object.fromEntries(m) })),
+          }
+        : {}),
+      ...(valorBuscado ? { valor_buscado: valorBuscado, coincidencias } : {}),
+      enlace_explorador: `/dashboard/formularios?vista=envios&desde=${r.desde}&hasta=${r.hasta}${elegidos.length === 1 ? `&formId=${elegidos[0].id}` : ''}`,
+    }
+  },
+}
+
+export const HERRAMIENTAS_ENVIOS: readonly Herramienta[] = [buscarEnviosFormulario, detalleEnvioFormulario, camposFormulario, respuestasCampoFormulario]

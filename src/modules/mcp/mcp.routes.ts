@@ -28,24 +28,22 @@ function urlApp(): string {
 
 /**
  * Los enlaces de las herramientas son rutas de la app ("/dashboard/…"). Dentro
- * de la app sirven tal cual; para Claude se vuelven absolutos.
+ * de la app sirven tal cual; para Claude o ChatGPT se vuelven absolutos. Se
+ * mira el VALOR, no la clave: los enlaces viajan en `enlace`, `url`,
+ * `servicio`, `pantalla`, `enlace_explorador`…
  */
 function absolutizar(valor: unknown, base: string): unknown {
   if (Array.isArray(valor)) return valor.map((v) => absolutizar(v, base))
   if (valor && typeof valor === 'object' && !(valor instanceof Date)) {
-    return Object.fromEntries(
-      Object.entries(valor).map(([k, v]) => [
-        k,
-        (k === 'enlace' || k === 'ruta') && typeof v === 'string' && v.startsWith('/') ? `${base}${v}` : absolutizar(v, base),
-      ]),
-    )
+    return Object.fromEntries(Object.entries(valor).map(([k, v]) => [k, absolutizar(v, base)]))
   }
+  if (typeof valor === 'string' && valor.startsWith('/dashboard')) return `${base}${valor}`
   return valor
 }
 
 function instrucciones(u: UsuarioAsistente, base: string): string {
-  return `Conectado a ${EMPRESA} como ${u.nombre} (áreas: ${u.areas.join(', ') || 'sin área'}; rol ${u.rol}). ${EMPRESA} es la plataforma interna con la que una empresa colombiana de transporte especial administra su flota, conductores, servicios, recargos, nómina, liquidaciones y cumplimiento (HSEQ, PESV, SARLAFT).
-Las herramientas son de solo lectura y respetan los permisos de este usuario. Para cualquier dato usa siempre las herramientas, no supongas. Cuando una herramienta devuelva un enlace, inclúyelo para que el usuario abra la pantalla en ${base || 'la app'}. Responde en español de Colombia con formato numérico colombiano.`
+  return `Conectado a ${EMPRESA} como ${u.nombre} (áreas: ${u.areas.join(', ') || 'sin área'}; rol ${u.rol}). ${EMPRESA} es la plataforma interna con la que una empresa colombiana de transporte especial administra su flota, conductores, servicios, recargos y planillas, recorridos de conductores, nómina, liquidaciones de servicios y de terceros, facturas, formularios HSEQ (preoperacionales, inspecciones), asistencias, acciones correctivas, PESV y SARLAFT.
+Las herramientas respetan los permisos de este usuario. La mayoría solo consultan; las que crean datos (crear_servicio, crear_servicios, crear_recargo, registrar_recorridos, crear_accion_correctiva, duplicar_liquidacion) solo aparecen si el usuario tiene permiso de escritura, exigen confirmado=true y deben llamarse después de mostrarle al usuario un resumen y de que él confirme una vez; no pidas confirmaciones repetidas. Para cualquier dato usa siempre las herramientas, no supongas; en las consultas asume lo razonable (mes en curso, todos los formularios) y dilo. search y fetch sirven para buscar en toda la plataforma y traer un resultado completo. Cuando una herramienta devuelva un enlace, inclúyelo para que el usuario abra la pantalla en ${base || 'la app'}. Responde en español de Colombia con formato numérico colombiano.`
 }
 
 function jsonRpcError(reply: FastifyReply, status: number, code: number, message: string) {
@@ -53,13 +51,15 @@ function jsonRpcError(reply: FastifyReply, status: number, code: number, message
 }
 
 /**
- * Servidor MCP (Streamable HTTP, sin estado) para conectar Claude a la app.
- * Expone las mismas herramientas que el asistente del chat, filtradas por los
- * permisos del dueño del token.
+ * Servidor MCP (Streamable HTTP, sin estado) para conectar Claude o ChatGPT a
+ * la app. Expone las mismas herramientas que el asistente del chat, filtradas
+ * por los permisos del dueño del token, más `search`/`fetch` (el par que ChatGPT
+ * exige para Deep Research).
  *
  * Autenticación con token personal (ver `apiTokensService`), por cabecera
- * `Authorization: Bearer cmq_…` (Claude Desktop / Claude Code) o en la ruta
- * `/mcp/cmq_…` para los conectores de claude.ai, que solo piden una URL.
+ * `Authorization: Bearer cmq_…` (Claude Desktop / Claude Code / ChatGPT con
+ * «token de acceso») o en la ruta `/mcp/cmq_…` para los conectores que solo
+ * piden una URL (claude.ai, ChatGPT en modo desarrollador sin autenticación).
  *
  * Sin sesiones: cada POST crea un `Server` nuevo y responde en JSON. GET y
  * DELETE (stream del servidor y cierre de sesión) responden 405.
@@ -80,7 +80,7 @@ export async function mcpRoutes(app: FastifyInstance) {
     app.route({
       method: ['GET', 'DELETE', 'PUT', 'PATCH'],
       url: ruta,
-      handler: async (_request, reply) => jsonRpcError(reply, 405, -32000, 'Método no permitido'),
+      handler: async (_request, reply) => jsonRpcError(reply.header('Allow', 'POST'), 405, -32000, 'Método no permitido'),
     })
   }
 }
@@ -101,7 +101,7 @@ async function atender(token: string, request: FastifyRequest, reply: FastifyRep
       name: h.nombre,
       description: h.descripcion,
       inputSchema: h.parametros as { type: 'object'; [k: string]: unknown },
-      annotations: { readOnlyHint: !h.escribe },
+      annotations: { title: h.etiqueta, readOnlyHint: !h.escribe, destructiveHint: false, idempotentHint: !h.escribe, openWorldHint: false },
     })),
   }))
 
@@ -111,8 +111,12 @@ async function atender(token: string, request: FastifyRequest, reply: FastifyRep
       return { isError: true, content: [{ type: 'text', text: 'Herramienta no disponible para este usuario.' }] }
     }
     try {
-      const salida = await h.ejecutar(peticion.params.arguments ?? {}, usuario)
-      return { content: [{ type: 'text', text: aTextoParaModelo(absolutizar(recortar(salida, 25), base), 40000) }] }
+      const salida = absolutizar(recortar(await h.ejecutar(peticion.params.arguments ?? {}, usuario), h.salidaMaxima?.lista ?? 25), base)
+      const texto = aTextoParaModelo(salida, h.salidaMaxima?.caracteres ?? 40000)
+      /// `search`/`fetch` (contrato de ChatGPT) devuelven además el objeto
+      /// estructurado, que es lo que su cliente lee.
+      const estructurado = (h.nombre === 'search' || h.nombre === 'fetch') && salida && typeof salida === 'object' && !Array.isArray(salida)
+      return { content: [{ type: 'text', text: texto }], ...(estructurado ? { structuredContent: salida as Record<string, unknown> } : {}) }
     } catch (e) {
       logger.warn({ herramienta: h.nombre, usuario: usuario.id, error: (e as Error).message }, 'MCP: herramienta falló')
       return { isError: true, content: [{ type: 'text', text: 'No se pudo consultar esta información.' }] }

@@ -59,6 +59,12 @@ export async function conversar(
     function: { name: h.nombre, description: h.descripcion, parameters: h.parametros },
   }))
 
+  /// «Confirmé y me seguía pidiendo confirmación»: si el último mensaje del
+  /// usuario es un «sí» a una pregunta de confirmación del asistente, se le
+  /// dice al modelo que ejecute ya, y si aun así llama a la acción sin
+  /// `confirmado`, el servidor lo pone en true. La confirmación la dio una
+  /// persona; no depende de que el modelo la recuerde.
+  const confirmo = usuarioConfirmo(historial)
   const mensajes: Mensaje[] = [
     { role: 'system', content: instrucciones(usuario, contexto) },
     ...historial
@@ -66,6 +72,15 @@ export async function conversar(
       .map((m): Mensaje =>
         m.rol === 'usuario' ? { role: 'user', content: m.contenido } : { role: 'assistant', content: m.contenido },
       ),
+    ...(confirmo
+      ? [
+          {
+            role: 'system' as const,
+            content:
+              'El usuario YA CONFIRMÓ la acción que le propusiste. Si después le preguntaste por un dato que faltaba o era ambiguo, acaba de responderlo: tómalo y llama ahora mismo a la acción con confirmado=true y los datos ya acordados. No vuelvas a resumir, no vuelvas a preguntar y no pidas otra confirmación.',
+          },
+        ]
+      : []),
   ]
 
   for (let ronda = 0; ronda <= MAX_RONDAS_HERRAMIENTAS; ronda++) {
@@ -126,6 +141,9 @@ export async function conversar(
         emitir({ t: 'herramienta', nombre: h.nombre, etiqueta: h.etiqueta })
         try {
           const args = JSON.parse(l.args || '{}') as Record<string, unknown>
+          if (h.escribe && confirmo && args.confirmado !== true && 'confirmado' in (h.parametros.properties as Record<string, unknown>)) {
+            args.confirmado = true
+          }
           logger.info({ herramienta: l.nombre, args }, 'Asistente: herramienta')
           const salida = await h.ejecutar(args, usuario, { ruta: contexto?.ruta })
           const navegar = (salida as { navegar?: unknown } | null)?.navegar
@@ -148,6 +166,53 @@ export async function conversar(
   }
 
   emitir({ t: 'fin' })
+}
+
+const AFIRMACIONES =
+  /^(si|ok|okay|dale|listo|confirmo|confirmado|confirmar|confirma|hagale|hazlo|hacelo|crealo|creala|crealos|crealas|crea|registralo|registrala|registra|procede|adelante|correcto|exacto|perfecto|de una|va|vale|claro|por supuesto|afirmativo|asi es|asi esta bien|esta bien|me parece|aprobado|apruebo|positivo|obvio)\b/
+const PREGUNTA_CONFIRMACION = /¿[^?]*\b(cre[oa]|cre[oa]mos|registro|registramos|hago|hacemos|guardo|procedo|confirmas?|duplico|programo)\b[^?]*\?/i
+
+const normalizar = (t: string) =>
+  t
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const NEGACION = /\b(no|pero|cambia|cambiar|espera|mejor|otro|otra|falta|quita|agrega|corrige|todavia|aun no|cancela|olvida)\b/
+
+/**
+ * ¿El usuario ya confirmó la acción en curso?
+ *
+ * Caso directo: el último mensaje es un «sí» corto a una pregunta del tipo
+ * «¿Lo creo así?». Caso con aclaración: confirmó, el asistente preguntó por un
+ * dato que faltaba o era ambiguo («¿cuál de los dos Fepco?») y el usuario
+ * acaba de responderlo. En ambos la confirmación ya está dada y no hay que
+ * volver a pedirla: eso era lo que el usuario describía como «confirmé y me
+ * seguía pidiendo confirmación». Un «no», «cambia», «mejor…» posterior la anula.
+ */
+export function usuarioConfirmo(historial: MensajeChat[]): boolean {
+  const ultimo = historial[historial.length - 1]
+  if (!ultimo || ultimo.rol !== 'usuario') return false
+  // Se busca hacia atrás (hasta 6 mensajes) el par pregunta de confirmación → sí.
+  for (let i = historial.length - 2; i >= Math.max(0, historial.length - 7); i--) {
+    const pregunta = historial[i]
+    const respuesta = historial[i + 1]
+    if (pregunta.rol !== 'asistente' || respuesta.rol !== 'usuario') continue
+    if (!PREGUNTA_CONFIRMACION.test(pregunta.contenido)) continue
+    const texto = normalizar(respuesta.contenido)
+    const afirmo = !!texto && texto.length <= 80 && !NEGACION.test(texto) && (AFIRMACIONES.test(texto) || /\bconfirm/.test(texto))
+    if (!afirmo) return false
+    // Lo que el usuario dijo después deben ser aclaraciones cortas, no un cambio de idea.
+    const posteriores = historial.slice(i + 2).filter((m) => m.rol === 'usuario')
+    return posteriores.every((m) => {
+      const t = normalizar(m.contenido)
+      return t.length <= 120 && !NEGACION.test(t)
+    })
+  }
+  return false
 }
 
 function instrucciones(u: UsuarioAsistente, ctx?: ContextoChat): string {
@@ -174,7 +239,9 @@ Pantallas a las que puede entrar: ${pantallas || 'ninguna'}.
 
 Cómo trabajas:
 - Para cualquier dato (conductores, vehículos, clientes, servicios, terceros, formularios, cifras) consulta las herramientas. Nunca inventes números, nombres, placas ni códigos. Si una herramienta no trae el dato, dilo.
-- Acciones: solo puedes hacer lo que tenga herramienta (hoy: programar un servicio con crear_servicio, o varios de una vez con crear_servicios, si el usuario tiene permiso de escritura en Servicios; y duplicar una liquidación de servicios EN BORRADOR con duplicar_liquidacion, si tiene permiso de escritura en Liquidaciones de servicios; si no las ves entre tus herramientas, el usuario no puede y debes decírselo). Las liquidaciones solo nacen en borrador: liquidarlas, aprobarlas, facturarlas o anularlas se hace en la pantalla, nunca desde aquí. Todo lo demás (editar, aprobar, liquidar, pagar) explícalo y enlaza la pantalla.
+- Acciones: solo puedes hacer lo que tenga herramienta: programar servicios (crear_servicio, crear_servicios), duplicar una liquidación de servicios EN BORRADOR (duplicar_liquidacion), crear una planilla de recargos (crear_recargo), registrar recorridos de un conductor (registrar_recorridos) y crear una acción correctiva (crear_accion_correctiva). Cada una exige permiso de escritura en su módulo: si no la ves entre tus herramientas, el usuario no puede y debes decírselo. Las liquidaciones solo nacen en borrador: liquidarlas, aprobarlas, facturarlas o anularlas se hace en la pantalla, nunca desde aquí. Todo lo demás (editar, aprobar, liquidar, pagar, evaluar un SARLAFT) explícalo y enlaza la pantalla.
+- Regla de oro de las acciones: UN resumen con todo lo que vas a hacer y UNA pregunta de confirmación. En cuanto el usuario diga sí (en cualquier forma: «sí», «dale», «confirmo», «créalo»), llama a la acción con confirmado=true EN ESA MISMA RESPUESTA. Jamás vuelvas a resumir, a preguntar «¿seguro?» ni a pedir que repita la confirmación. Si la herramienta responde con un problema (ya_existe, ya_registrados, candidatos, problemas), pregunta SOLO por eso, una vez, y al resolverlo vuelve a llamar con confirmado=true sin pedir otra confirmación general.
+- Para rellenar una acción asume lo razonable en vez de preguntar: fecha de hoy si no dicen, tipo CORRECTIVA, propósito personal, número automático, cliente del servicio de referencia, etc. Pregunta solo por lo que la herramienta marca como obligatorio y no se puede deducir.
 - Crear un servicio, en UN solo resumen y UNA sola confirmación:
   1. Saca todo lo que puedas del mensaje (también de una solicitud pegada de un correo). En «A - B» o «de A a B», A es el origen y B el destino. Si no dicen conductor ni placa, van sin asignar; propósito por defecto, personal.
   2. Resuelve con las búsquedas (cliente, municipios, conductor, placa, buscar_lugares para cada punto específico) ANTES de mostrar nada. Si un punto exacto tiene un parecido en el historial con coordenadas, propón ese por su nombre exacto; si no hay, se crea como lugar nuevo sin coordenadas: dilo en el resumen, no preguntes por coordenadas.
@@ -196,7 +263,14 @@ Cómo trabajas:
 - No existe trabajo en segundo plano: en cada respuesta, o llamas las herramientas y entregas el resultado, o dices con claridad que no puedes. Nunca escribas «estoy procesando», «llevo X de Y», «en unos segundos te entrego» ni pidas permiso para seguir. Si una herramienta trae solo una muestra (p. ej. 25 de 311), no prometas iterar: usa la herramienta que hace el cálculo completo o di qué falta.
 - Cruces de conductores con servicios y formularios («¿qué conductores tuvieron servicios y no hicieron el preoperacional?», «¿quién tiene menos preoperacionales que servicios?»): usa cumplimiento_formularios, que hace todo el cruce en una llamada. Si el usuario nombra un formulario (preoperacional, extintores…), pásalo; si habla de formularios en general («formularios dinámicos», «ningún formulario»), pasa formulario="todos". No intentes cruzarlo con buscar_servicios ni con resumen_formularios. Responde con el conteo y la lista COMPLETA que trae la herramienta, en el formato que pidió el usuario (si pide «lo más simple», una línea por conductor: nombre y cédula). No la partas ni ofrezcas «mostrar el resto».
 - Formularios dinámicos (preoperacionales, inspecciones, reportes de falla, PQRSAF, actas): para «¿cuántos…?», «¿quién envió…?», «¿cuántos borradores…?» usa resumen_formularios con el nombre del formulario tal como lo dijo el usuario y el rango de fechas resuelto («este fin de semana», «ayer», «el 3 y 4 de octubre» → fechas YYYY-MM-DD). Responde con el total, el desglose por formulario y por día, y ofrece el enlace al explorador. Di qué formularios contaste (p. ej. los dos preoperacionales) y que la fecha es la del formulario. Nunca describas filtros de pantalla que no vengan de una herramienta.
-- Si el usuario no dice el periodo, usa el mes en curso y dilo cuando respondas con cifras.
+- Recargos (planillas de días laborados): buscar_recargos para listar por conductor, placa, cliente, periodo o estado; detalle_recargo para ver los días y los recargos calculados de una planilla; crear_recargo para registrar una nueva (los días con hora inicio y fin; el domingo y los recargos los calcula el servidor; si el turno pasa de medianoche la hora fin va sumando 24).
+- Recorridos de conductores (días laborados, disponibles, descansos, mantenimientos y sus tramos): recorridos_conductor para uno, resumen_recorridos para comparar a todos en un periodo, registrar_recorridos para cargar un mes por patrones (si ya había registros en esas fechas la herramienta avisa: pregunta una vez si los reemplaza).
+- Acciones correctivas: buscar_acciones_correctivas (filtra por estado, tipo, riesgo, vencidas), detalle_accion_correctiva, estadisticas_acciones_correctivas y crear_accion_correctiva (basta el hallazgo; lo demás se asume o se toma del mensaje).
+- SARLAFT / PTEE: buscar_sarlaft y detalle_sarlaft (respuestas por sección, documentos, evaluación). Solo lectura.
+- Asistencias (listas de asistencia a capacitaciones, charlas, reuniones): buscar_asistencias y detalle_asistencia (quiénes firmaron). Solo lectura.
+- Liquidaciones de servicios: detalle_liquidacion trae TODO (ítems con recorrido, placa, planilla y enlace al servicio; recargos; terceros; facturas con número, fecha y estado; historial). buscar_facturas para buscar por número de factura o ver qué liquidaciones agrupa una factura. buscar_liquidaciones_terceros para lo que se paga a los propietarios (terceros) con su liquidación y factura.
+- Formularios dinámicos, envíos concretos: buscar_envios_formulario lista envíos uno a uno (fecha, quién, placa, enlace); detalle_envio_formulario lee TODAS las respuestas de un envío con la pregunta en lenguaje natural y señala hallazgos (respuestas en Malo / No cumple). Indicadores sobre un campo («¿cuántos preoperacionales marcaron los frenos en malo?», «promedio de kilometraje», «¿qué placas reportaron llantas en regular?»): respuestas_campo_formulario con el formulario, el campo (clave o texto de la pregunta), el rango y, si aplica, agrupar_por o valor. Si no sabes cómo se llama el campo, campos_formulario lo lista; no preguntes al usuario la clave técnica.
+- Si el usuario no dice el periodo, usa el mes en curso y dilo cuando respondas con cifras. En las consultas nunca pidas precisiones que puedas suponer: elige lo razonable, responde y di en una línea qué asumiste.
 - Si te preguntan por una pantalla a la que el usuario no tiene acceso, dile que no tiene permiso y que lo pida a un administrador. Si preguntan qué pueden hacer, usa pantallas_disponibles.
 - Enlaza pantallas y registros SIEMPRE como links markdown internos, p. ej. [Servicios](/dashboard/servicios) o [Juan Pérez](/dashboard/conductores/…); el texto del enlace es el nombre, la placa o el cliente. Nunca escribas una ruta suelta ni un id en el texto. Usa solo rutas que vengan de las herramientas o de la lista de pantallas.
 - Nunca muestres ids internos (UUID), nombres de campos ni de herramientas: habla como lo diría alguien de operaciones. Escribe los estados en lenguaje natural ("en curso", no "en_curso").

@@ -10,7 +10,14 @@ import { MODULOS_APP, buscarModulo, descripcionModulo, moduloDeRuta } from './mo
 import { ACCIONES } from './acciones'
 import { buscarLugares } from './lugares'
 import { ACCIONES_LIQUIDACIONES, HERRAMIENTAS_LIQUIDACIONES } from './liquidaciones'
-import { HERRAMIENTAS_FORMULARIOS } from './formularios'
+import { HERRAMIENTAS_ENVIOS, HERRAMIENTAS_FORMULARIOS } from './formularios'
+import { HERRAMIENTAS_RECARGOS } from './recargos'
+import { HERRAMIENTAS_ASISTENCIAS } from './asistencias'
+import { HERRAMIENTAS_RECORRIDOS } from './recorridos'
+import { HERRAMIENTAS_ACCIONES_CORRECTIVAS } from './acciones-correctivas'
+import { HERRAMIENTAS_SARLAFT } from './sarlaft'
+import { HERRAMIENTAS_LIQUIDACIONES_TERCEROS } from './liquidaciones-terceros'
+import { HERRAMIENTAS_BUSCADOR } from './buscador-global'
 import { detalleServicio } from './servicio-referencia'
 import { guiaInteractiva } from './guias/herramienta'
 
@@ -673,7 +680,15 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   buscarLugaresHerramienta,
   ...HERRAMIENTAS_LIQUIDACIONES,
   ...HERRAMIENTAS_FORMULARIOS,
-  // Acciones (escriben): mismo permiso `full` que la ruta REST, solo canal app.
+  ...HERRAMIENTAS_ENVIOS,
+  ...HERRAMIENTAS_RECARGOS,
+  ...HERRAMIENTAS_ASISTENCIAS,
+  ...HERRAMIENTAS_RECORRIDOS,
+  ...HERRAMIENTAS_ACCIONES_CORRECTIVAS,
+  ...HERRAMIENTAS_SARLAFT,
+  ...HERRAMIENTAS_LIQUIDACIONES_TERCEROS,
+  ...HERRAMIENTAS_BUSCADOR,
+  // Acciones (escriben): mismo permiso `full` que la ruta REST; en MCP van marcadas como no-solo-lectura.
   ...ACCIONES,
   ...ACCIONES_LIQUIDACIONES,
 ]

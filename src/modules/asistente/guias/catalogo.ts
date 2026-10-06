@@ -178,7 +178,7 @@ export const GUIAS: readonly Guia[] = [
       },
       {
         titulo: 'Pégalo en Claude',
-        texto: 'Con el token copiado, usa los botones de copiar: la URL para Claude Desktop o el comando para Claude Code. Desde ahí Claude consulta la app con tus mismos permisos, solo lectura.',
+        texto: 'Con el token copiado, usa los botones de copiar: la URL para Claude Desktop o el comando para Claude Code. Desde ahí Claude (o ChatGPT, con el bloque de abajo) trabaja con tus mismos permisos.',
         ancla: '@perfil-claude-form',
       },
     ],
