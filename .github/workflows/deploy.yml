@@ -25,6 +25,9 @@ jobs:
       AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
       AZURE_OPENAI_MODEL: ${{ vars.AZURE_OPENAI_MODEL }}
+      # Autocompletado de sitios de la app móvil (módulo maps). Viaja en el mismo archivo que
+      # carga el contenedor (`env_file` de docker-compose).
+      HERE_MAPS_API_KEY: ${{ secrets.HERE_MAPS_API_KEY }}
 
     steps:
       - name: Checkout exact commit
@@ -36,8 +39,8 @@ jobs:
       - name: Build, deploy and verify
         run: |
           umask 077
-          printf 'AZURE_OPENAI_API_VERSION=%s\nAZURE_OPENAI_DEPLOYMENT=%s\nAZURE_OPENAI_ENDPOINT=%s\nAZURE_OPENAI_KEY=%s\nAZURE_OPENAI_MODEL=%s\n' \
-            "$AZURE_OPENAI_API_VERSION" "$AZURE_OPENAI_DEPLOYMENT" "$AZURE_OPENAI_ENDPOINT" "$AZURE_OPENAI_KEY" "$AZURE_OPENAI_MODEL" \
+          printf 'AZURE_OPENAI_API_VERSION=%s\nAZURE_OPENAI_DEPLOYMENT=%s\nAZURE_OPENAI_ENDPOINT=%s\nAZURE_OPENAI_KEY=%s\nAZURE_OPENAI_MODEL=%s\nHERE_MAPS_API_KEY=%s\n' \
+            "$AZURE_OPENAI_API_VERSION" "$AZURE_OPENAI_DEPLOYMENT" "$AZURE_OPENAI_ENDPOINT" "$AZURE_OPENAI_KEY" "$AZURE_OPENAI_MODEL" "$HERE_MAPS_API_KEY" \
             > .azure-openai.env
           trap 'rm -f .azure-openai.env' EXIT
           sudo /usr/local/sbin/deploy-backend-cotransmeq "$GITHUB_SHA"
