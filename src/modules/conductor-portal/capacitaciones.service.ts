@@ -3,8 +3,13 @@ import { z } from 'zod'
 
 import { prisma } from '../../config/prisma'
 import { getIo } from '../../sockets'
-import { registrarResultado, respuestaPreguntaSchema } from '../evaluaciones/registrar-resultado'
+import {
+  OpcionDesconocidaError,
+  registrarResultado,
+  respuestaPreguntaSchema
+} from '../evaluaciones/registrar-resultado'
 import { barajar } from '../evaluaciones/evaluacion-publica'
+import { sopaParaPublico, type ConfigSopa } from '../evaluaciones/sopa-letras'
 
 /**
  * Asistencias y evaluaciones de capacitación desde la app del conductor. El conductor ya está
@@ -25,6 +30,13 @@ export interface MetaPeticion {
 
 const ZONA_HORARIA = 'America/Bogota'
 const LIMITE_HISTORIAL = 30
+/**
+ * Días que una evaluación recién creada se ofrece a todos los conductores en la
+ * app. Antes solo aparecían las ligadas a una formación PESV cuya asistencia ya
+ * se firmó, y el resto solo se podía abrir escaneando su QR: una evaluación
+ * hecha para responder desde el teléfono no le aparecía a nadie.
+ */
+const DIAS_EVALUACION_ABIERTA = 30
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const huellaPortal = (conductorId: string) => `portal-conductor:${conductorId}`
@@ -192,6 +204,36 @@ export async function listarCapacitaciones(conductorId: string) {
     })
   }
 
+  // Evaluaciones recientes que el conductor no ha respondido, aunque no estén en una formación
+  const abiertas = await prisma.evaluacion.findMany({
+    where: {
+      deleted_at: null,
+      created_at: { gte: diaBogota(-DIAS_EVALUACION_ABIERTA) },
+      id: { notIn: [...evaluacionesVistas, ...pendientesVistas] }
+    },
+    select: {
+      id: true,
+      titulo: true,
+      descripcion: true,
+      requiere_firma: true,
+      preguntas: { select: { puntaje: true } }
+    },
+    orderBy: { created_at: 'desc' },
+    take: LIMITE_HISTORIAL
+  })
+  for (const e of abiertas) {
+    if (!e.preguntas.length) continue
+    evaluacionesPendientes.push({
+      id: e.id,
+      titulo: e.titulo,
+      descripcion: e.descripcion,
+      preguntas: e.preguntas.length,
+      puntaje_maximo: puntajeMaximo(e.preguntas),
+      requiere_firma: e.requiere_firma,
+      formacion: null
+    })
+  }
+
   return {
     asistencias_pendientes: pendientes.map(resumenAsistencia),
     evaluaciones_pendientes: evaluacionesPendientes,
@@ -347,7 +389,8 @@ function detalleDeRespuestas(
       valor_texto: r.valor_texto,
       valor_numero: r.valor_numero,
       opciones_ids: r.opcionesIds,
-      relacion: Array.isArray(r.relacion) ? (r.relacion as { izq: string; der: string }[]) : [],
+      // RELACION: pares `{izq, der}`; SOPA_LETRAS: trazos `{palabra, desde, hasta}` validados.
+      relacion: Array.isArray(r.relacion) ? (r.relacion as unknown[]) : [],
       puntaje: r.puntaje,
       estado: r.puntaje >= pregunta.puntaje ? 'correcta' : r.puntaje > 0 ? 'parcial' : 'incorrecta'
     }]
@@ -375,7 +418,12 @@ export async function obtenerEvaluacion(id: string, conductorId: string) {
         puntaje: p.puntaje,
         opciones: p.opciones.map((o) => ({ id: o.id, texto: o.texto })),
         relacion_izq: p.relacionIzq,
-        relacion_der: p.tipo === 'RELACION' ? barajar(p.relacionDer) : p.relacionDer
+        relacion_der: p.tipo === 'RELACION' ? barajar(p.relacionDer) : p.relacionDer,
+        // Sopa de letras: cuadrícula y lista, sin dónde está cada palabra
+        configuracion:
+          p.tipo === 'SOPA_LETRAS' && p.configuracion
+            ? sopaParaPublico(p.configuracion as unknown as ConfigSopa)
+            : null
       }))
     },
     resultado: resultado
@@ -418,14 +466,21 @@ export async function responderEvaluacion(
   }
 
   const datos = datosConductor(conductor)
-  const resultado = await registrarResultado(evaluacion, parsed.data.respuestas, {
-    ...datos,
-    correo: conductor.email ?? '',
-    firma,
-    device_fingerprint: huellaPortal(conductor.id),
-    ip_address: meta.ip.slice(0, 45),
-    user_agent: meta.userAgent
-  })
+  let resultado
+  try {
+    resultado = await registrarResultado(evaluacion, parsed.data.respuestas, {
+      ...datos,
+      correo: conductor.email ?? '',
+      firma,
+      device_fingerprint: huellaPortal(conductor.id),
+      ip_address: meta.ip.slice(0, 45),
+      user_agent: meta.userAgent
+    })
+  } catch (error) {
+    // La evaluación se editó mientras el conductor la respondía: sus opciones ya no existen.
+    if (error instanceof OpcionDesconocidaError) throw new CapacitacionesError(error.message, 409)
+    throw error
+  }
 
   return {
     puntaje_total: resultado.puntaje_total,
