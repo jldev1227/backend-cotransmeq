@@ -36,6 +36,7 @@ export const MODULOS_APP: readonly ModuloApp[] = [
   },
   { id: 'evaluaciones', etiqueta: 'Evaluaciones', ruta: '/dashboard/evaluaciones' },
   { id: 'salidas-nc', etiqueta: 'Salidas NC', ruta: '/dashboard/salidas-nc', alias: ['salidas no conformes', 'no conformidades'] },
+  { id: 'viaticos', etiqueta: 'Viáticos', ruta: '/dashboard/viaticos', alias: ['viaticos', 'anticipos de viáticos', 'gastos de conductores'] },
   { id: 'formularios', etiqueta: 'Formularios', ruta: '/dashboard/formularios', alias: ['constructor de formularios'] },
   { id: 'mis-formularios', etiqueta: 'Mis formularios', ruta: '/dashboard/mis-formularios' },
   { id: 'nomina', etiqueta: 'Nómina', ruta: '/dashboard/nomina/canvas', alias: ['nomina', 'desprendibles'] },

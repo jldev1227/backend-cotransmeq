@@ -4,6 +4,7 @@ import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
+import { registrarViaticosPortal } from '../viaticos/viaticos-portal.routes'
 import { condicionesViaDelServicio, CondicionesViaError } from './condiciones-via.service'
 import {
   CapacitacionesError,
@@ -2496,6 +2497,9 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         return errorEjecucion(request, reply, err, 'No fue posible guardar las recomendaciones')
       }
     })
+
+    // ─── Viáticos: anticipos, gastos y solicitudes del conductor ───
+    registrarViaticosPortal(protectedApp)
   })
 }
 

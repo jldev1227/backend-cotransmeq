@@ -186,6 +186,14 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Gestión de nómina'
   },
 
+  // Anticipos de viáticos a conductores y la legalización de sus gastos.
+  // Operaciones los entrega y los controla; contabilidad solo consulta.
+  viaticos: {
+    full: ['administracion', 'operaciones'],
+    read: ['contabilidad'],
+    description: 'Anticipos de viáticos y gastos de conductores'
+  },
+
   extractos: {
     full: ['administracion', 'operaciones'],
     description: 'Extractos de operaciones'

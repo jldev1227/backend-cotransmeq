@@ -72,6 +72,7 @@ import { formulariosMisRoutes } from './modules/formularios-dinamicos/formulario
 import { asistenteRoutes } from './modules/asistente/asistente.routes'
 import { apiTokensRoutes } from './modules/mcp/api-tokens.routes'
 import { mcpRoutes } from './modules/mcp/mcp.routes'
+import { viaticosRoutes } from './modules/viaticos/viaticos.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -248,6 +249,7 @@ export function buildApp() {
     app.register(asistenteRoutes, { prefix: '/api' })
     app.register(apiTokensRoutes, { prefix: '/api' })
     app.register(mcpRoutes, { prefix: '/api' })
+    app.register(viaticosRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app
