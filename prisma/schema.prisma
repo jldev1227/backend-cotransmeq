@@ -1398,6 +1398,7 @@ model usuarios {
   facturas_liq_anulado                                                        factura_liquidacion_servicio[]               @relation("factura_liq_anulado_por")
   config_gastos_periodo_actualizados                                           configuracion_gastos_periodo[]               @relation("config_gastos_periodo_actualizado_por")
   sesiones                                                                    sesiones[]
+  enlaces_app                                                                 usuario_enlace_app[]
   notificaciones                                                              notificacion[]
   formularios_sarlaft_evaluados                                               formulario_sarlaft_ptee[]                    @relation("formularios_sarlaft_evaluador")
   sarlaft_documentos_generados                                                formulario_sarlaft_ptee_documento_generado[] @relation("sarlaft_documentos_generados_por")
@@ -1525,6 +1526,20 @@ model notificacion {
   @@index([usuario_id])
   @@index([leida])
   @@index([created_at(sort: Desc)])
+}
+
+model usuario_enlace_app {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuario_id    String    @db.Uuid
+  codigo_hash   String    @unique @db.VarChar(64)
+  expires_at    DateTime  @db.Timestamptz(6)
+  revoked_at    DateTime? @db.Timestamptz(6)
+  ultimo_uso_at DateTime? @db.Timestamptz(6)
+  usos          Int       @default(0)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  usuario       usuarios  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@index([usuario_id], map: "usuario_enlace_app_usuario_idx")
 }
 
 model vehiculos {

@@ -28,6 +28,8 @@ const envSchema = z.object({
   // Deep link confiable para solicitudes originadas en la app móvil.
   // No se recibe una URL arbitraria del cliente para evitar open redirects.
   MOBILE_PORTAL_URL: z.string().optional().default('cotransmeq://portal'),
+  // Autocompletado de sitios (HERE) para la app móvil; la web usa su propio proxy con la misma clave.
+  HERE_MAPS_API_KEY: z.string().optional(),
   // Clave de `localStorage` con la que el portal web del conductor guarda su
   // sesión. La lee el impresor de recibos: Chromium navega la página del
   // portal y tiene que sembrar la sesión con la MISMA clave que usa

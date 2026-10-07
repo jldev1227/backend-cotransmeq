@@ -73,6 +73,8 @@ import { asistenteRoutes } from './modules/asistente/asistente.routes'
 import { apiTokensRoutes } from './modules/mcp/api-tokens.routes'
 import { mcpRoutes } from './modules/mcp/mcp.routes'
 import { viaticosRoutes } from './modules/viaticos/viaticos.routes'
+import { appUsuariosRoutes } from './modules/app-usuarios/app-usuarios.routes'
+import { mapsRoutes } from './modules/maps/maps.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -250,6 +252,8 @@ export function buildApp() {
     app.register(apiTokensRoutes, { prefix: '/api' })
     app.register(mcpRoutes, { prefix: '/api' })
     app.register(viaticosRoutes, { prefix: '/api' })
+    app.register(appUsuariosRoutes, { prefix: '/api' })
+    app.register(mapsRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app
