@@ -138,6 +138,8 @@ export function validateSubmissionAnswers(params: {
 
   const visible = (field: FormFieldDto, occurrenceId: string | null): boolean =>
     esVisible(field, occurrenceId, flat, valorDe)
+  const requerido = (field: FormFieldDto, occurrenceId: string | null): boolean =>
+    esRequerido(field, occurrenceId, flat, valorDe)
 
   // ── Ocurrencias declaradas por contenedor ────────────────────────────────
   const ocurrenciasPorContenedor = new Map<string, Set<string>>()
@@ -166,7 +168,7 @@ export function validateSubmissionAnswers(params: {
       const ocurrencias = ocurrenciasPorContenedor.get(field.id) ?? new Set<string>()
       if (!visible(field, null)) continue
 
-      if (field.required && ocurrencias.size === 0) {
+      if (requerido(field, null) && ocurrencias.size === 0) {
         push(field, null, 'REQUIRED', `"${field.label}" necesita al menos una fila.`)
       }
       if (validation.minRows != null && ocurrencias.size > 0 && ocurrencias.size < validation.minRows) {
@@ -198,7 +200,7 @@ export function validateSubmissionAnswers(params: {
       const adjuntosDeclarados = adjuntosPorCampo.get(`${field.id}|${occurrenceId ?? ''}`) ?? 0
 
       if (cap.attachment) {
-        if (field.required && adjuntosDeclarados === 0) {
+        if (requerido(field, occurrenceId) && adjuntosDeclarados === 0) {
           push(field, occurrenceId, 'REQUIRED', `"${field.label}" necesita evidencia.`)
         }
         const maxFiles = validation.maxFiles ?? (field.type === 'SIGNATURE' ? 1 : undefined)
@@ -210,7 +212,7 @@ export function validateSubmissionAnswers(params: {
 
       const sinResponder = !answer || (vacio(answer.value) && (answer.optionValues ?? []).length === 0)
       if (sinResponder) {
-        if (field.required) push(field, occurrenceId, 'REQUIRED', `"${field.label}" es obligatorio.`)
+        if (requerido(field, occurrenceId)) push(field, occurrenceId, 'REQUIRED', `"${field.label}" es obligatorio.`)
         continue
       }
 
@@ -304,6 +306,30 @@ function esVisible(
   /// implica que por defecto no se ve.
   if (hayShow) return false
   return visible
+}
+
+/**
+ * ¿El campo es obligatorio para ESTA respuesta? Lo es si su definición lo
+ * marca, o si alguna regla `require` que apunta a él se cumple («la observación
+ * es obligatoria si el estado es Malo», «la fecha si el estado es Bueno»).
+ *
+ * Espejo de `resolveFormFieldStates` de la app: sin esto el servidor solo veía
+ * `required` y una regla `require` dependía de que el cliente la respetara.
+ */
+function esRequerido(
+  field: FormFieldDto,
+  occurrenceId: string | null,
+  flat: Map<string, FlatField>,
+  valorDe: (key: string, occurrenceId: string | null) => unknown,
+): boolean {
+  if (field.required) return true
+  for (const { field: otro } of flat.values()) {
+    const rule = otro.visibilityRule as Rule | null
+    if (!rule || typeof rule !== 'object' || rule.effect?.action !== 'require') continue
+    if ((rule.effect.targetFieldKey ?? otro.key) !== field.key) continue
+    if (evaluarRegla(rule, occurrenceId, valorDe)) return true
+  }
+  return false
 }
 
 function evaluarRegla(
@@ -614,4 +640,4 @@ function comprobarRango(
   return null
 }
 
-export const respuestasInternals = { esVisible, evaluarRegla, evaluarCondicion, tipar, comprobarRango }
+export const respuestasInternals = { esVisible, esRequerido, evaluarRegla, evaluarCondicion, tipar, comprobarRango }
