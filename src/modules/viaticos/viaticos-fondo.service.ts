@@ -26,6 +26,7 @@
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
+import { logger } from '../../utils/logger'
 import { prisma } from '../../config/prisma'
 import { emitNotificacion } from '../../sockets'
 import { parsear, UMBRAL_SALDO_BAJO, ViaticosError } from './viaticos.service'
@@ -103,6 +104,9 @@ export async function estadoFondo(usuarioId: string) {
         observaciones: m.observaciones,
         fecha: m.created_at.toISOString(),
         registrado_por: m.usuario?.nombre ?? null,
+        /// Lo que se registra a mano (el saldo recibido, una corrección) se puede editar; lo de un
+        /// anticipo o gasto se corrige editando ese anticipo o gasto.
+        editable: esManual(m),
         anticipo: m.anticipo
           ? {
               id: m.anticipo.id,
@@ -159,6 +163,46 @@ export async function ajustarSaldo(usuarioId: string, body: unknown) {
     await tx.viatico_fondo_movimiento.create({
       data: { fondo: FONDO, usuario_id: usuarioId, tipo: 'AJUSTE', valor: input.valor, observaciones: input.observaciones, creado_por_id: usuarioId }
     })
+  })
+  return estadoFondo(usuarioId)
+}
+
+/** Movimiento registrado a mano: una recarga o una corrección sin anticipo ni gasto detrás. */
+function esManual(m: { tipo: string; anticipo_id: string | null; gasto_empresa_id: string | null }) {
+  return (m.tipo === 'RECARGA' || m.tipo === 'AJUSTE') && !m.anticipo_id && !m.gasto_empresa_id
+}
+
+/**
+ * Corrige un movimiento registrado a mano: el valor o el concepto de un saldo recibido, o de una
+ * corrección. La recarga sigue siendo positiva y la corrección con signo y motivo. El cambio no
+ * puede dejar el saldo negativo (ya se entregó lo que había).
+ */
+export async function editarMovimiento(usuarioId: string, id: string, body: unknown) {
+  if (!z.string().uuid().safeParse(id).success) throw new ViaticosError('El movimiento no existe.', 404, 'NO_ENCONTRADO')
+  await prisma.$transaction(async (tx) => {
+    await bloquearFondo(tx)
+    const actual = await tx.viatico_fondo_movimiento.findFirst({ where: { id, fondo: FONDO } })
+    if (!actual) throw new ViaticosError('El movimiento no existe.', 404, 'NO_ENCONTRADO')
+    if (!esManual(actual)) {
+      throw new ViaticosError('Este movimiento viene de un anticipo o un gasto: corrígelo editando ese anticipo o gasto.', 409, 'MOVIMIENTO_NO_EDITABLE')
+    }
+    const input = actual.tipo === 'RECARGA' ? parsear(recargaSchema, body) : parsear(ajusteSchema, body)
+    const diferencia = redondear(input.valor - num(actual.valor))
+    if (diferencia < 0) {
+      const disponible = await saldo(tx)
+      if (-diferencia > disponible) {
+        throw new ViaticosError(
+          `No se puede bajar ${moneda(-diferencia)}: el saldo del área es ${moneda(disponible)} y ya se entregó el resto.`,
+          409,
+          'FONDO_INSUFICIENTE'
+        )
+      }
+    }
+    await tx.viatico_fondo_movimiento.update({ where: { id }, data: { valor: input.valor, observaciones: input.observaciones || null } })
+    logger.info(
+      { type: 'viatico-fondo-movimiento-editado', id, usuarioId, antes: { valor: num(actual.valor), observaciones: actual.observaciones }, despues: input },
+      '[viaticos] movimiento del fondo editado'
+    )
   })
   return estadoFondo(usuarioId)
 }

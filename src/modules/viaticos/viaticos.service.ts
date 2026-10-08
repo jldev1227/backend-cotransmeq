@@ -400,9 +400,6 @@ const anticipoSchema = z
     tercero_id: z.string().uuid().optional().nullable()
   })
   .superRefine((v, ctx) => {
-    if (v.metodo === 'TRANSFERENCIA' && !v.comprobante) {
-      ctx.addIssue({ code: 'custom', path: ['comprobante'], message: 'adjunta el comprobante de la transferencia' })
-    }
     if (v.metodo === 'RETIRO_TARJETA' && !v.tarjeta_cuenta?.trim()) {
       ctx.addIssue({ code: 'custom', path: ['tarjeta_cuenta'], message: 'indica de qué tarjeta o cuenta se retiró' })
     }
@@ -425,10 +422,13 @@ function datosMetodo(input: z.infer<typeof anticipoSchema>) {
       numero_comprobante: input.numero_comprobante || null,
       entidad: input.entidad || null,
       tarjeta_cuenta: null,
-      comprobante_key: input.comprobante!.key,
-      comprobante_mime: input.comprobante!.mime_type,
-      comprobante_nombre: input.comprobante!.nombre ?? null,
-      comprobante_lectura: (input.comprobante_lectura ?? undefined) as Prisma.InputJsonValue | undefined
+      /// El comprobante de la transferencia es opcional.
+      comprobante_key: input.comprobante?.key ?? null,
+      comprobante_mime: input.comprobante?.mime_type ?? null,
+      comprobante_nombre: input.comprobante?.nombre ?? null,
+      comprobante_lectura: input.comprobante
+        ? ((input.comprobante_lectura ?? undefined) as Prisma.InputJsonValue | undefined)
+        : Prisma.JsonNull
     }
   }
   return {
@@ -469,7 +469,7 @@ export async function crearAnticipo(usuarioId: string, body: unknown) {
     anticipoSchema,
     solicitud ? { ...crudo, conductor_id: solicitud.conductor_id, vehiculo_id: solicitud.vehiculo_id } : crudo
   )
-  if (input.metodo === 'TRANSFERENCIA') await verificarComprobante(input.comprobante!.key)
+  if (input.metodo === 'TRANSFERENCIA' && input.comprobante) await verificarComprobante(input.comprobante.key)
   await exigirConductorYVehiculo(input.conductor_id, input.vehiculo_id)
   const terceroId = await resolverTercero(input.tercero_id, input.vehiculo_id)
 
@@ -526,8 +526,8 @@ export async function actualizarAnticipo(usuarioId: string, id: string, body: un
     anticipoSchema,
     actual.solicitud_id ? { ...crudo, conductor_id: actual.conductor_id, vehiculo_id: actual.vehiculo_id } : crudo
   )
-  if (input.metodo === 'TRANSFERENCIA' && input.comprobante!.key !== actual.comprobante_key) {
-    await verificarComprobante(input.comprobante!.key)
+  if (input.metodo === 'TRANSFERENCIA' && input.comprobante && input.comprobante.key !== actual.comprobante_key) {
+    await verificarComprobante(input.comprobante.key)
   }
   await exigirConductorYVehiculo(input.conductor_id, input.vehiculo_id)
   const tieneGastos = await prisma.viatico_gasto.count({ where: { anticipo_id: id, anulado_at: null } })
@@ -557,7 +557,7 @@ export async function actualizarAnticipo(usuarioId: string, id: string, body: un
         fecha: aFecha(input.fecha),
         ...datosMetodo(input),
         /// Si el comprobante no cambió se conserva la lectura que ya tenía.
-        ...(input.metodo === 'TRANSFERENCIA' && input.comprobante!.key === actual.comprobante_key && !input.comprobante_lectura
+        ...(input.metodo === 'TRANSFERENCIA' && input.comprobante && input.comprobante.key === actual.comprobante_key && !input.comprobante_lectura
           ? { comprobante_lectura: actual.comprobante_lectura ?? Prisma.JsonNull }
           : {}),
         actualizado_por_id: usuarioId,

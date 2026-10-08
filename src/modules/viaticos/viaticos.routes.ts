@@ -9,7 +9,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { leerComprobante } from './viaticos-comprobante.service'
-import { ajustarSaldo, crearTerceroDePlaca, estadoFondo, registrarRecarga, terceroDePlaca } from './viaticos-fondo.service'
+import { ajustarSaldo, crearTerceroDePlaca, editarMovimiento, estadoFondo, registrarRecarga, terceroDePlaca } from './viaticos-fondo.service'
 import { actualizarGastoEmpresa, crearGastoEmpresa, listarGastosEmpresa, resumenViaticos, retirarGastoEmpresa } from './viaticos-empresa.service'
 import {
   actualizarAnticipo,
@@ -164,6 +164,14 @@ export async function viaticosRoutes(app: FastifyInstance) {
       return reply.status(201).send({ success: true, data: await ajustarSaldo(usuarioId(request), request.body) })
     } catch (err) {
       return responderError(request, reply, err, 'No fue posible corregir el saldo')
+    }
+  })
+
+  app.patch('/viaticos/fondo/movimientos/:id', puedeEscribir, async (request: ConId, reply) => {
+    try {
+      return reply.send({ success: true, data: await editarMovimiento(usuarioId(request), request.params.id, request.body) })
+    } catch (err) {
+      return responderError(request, reply, err, 'No fue posible editar el movimiento')
     }
   })
 
