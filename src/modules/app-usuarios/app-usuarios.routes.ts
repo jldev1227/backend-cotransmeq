@@ -4,6 +4,8 @@
  * - `GET|POST|DELETE /app-usuarios/enlace`: el usuario, desde su perfil web, consulta, genera o
  *   revoca su enlace.
  * - `POST /app-usuarios/canjear`: público; la app cambia el código del enlace por una sesión.
+ * - `POST|DELETE /app-usuarios/dispositivos-push`: la app registra o retira el token de push del
+ *   teléfono para el usuario de la sesión (ver `usuario-push`).
  */
 
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -18,6 +20,9 @@ import {
   puedeUsarApp,
   revocarEnlaces
 } from './app-usuarios.service'
+import { desactivarDispositivoUsuario, registrarDispositivoUsuario } from '../usuario-push/usuario-push.service'
+
+const TOKEN_EXPO = /^Expo(nent)?PushToken\[[^\]]+\]$/
 
 function responderError(request: FastifyRequest, reply: FastifyReply, err: unknown, mensaje: string) {
   if (err instanceof AppUsuariosError) {
@@ -95,5 +100,25 @@ export async function appUsuariosRoutes(app: FastifyInstance) {
     } catch (err) {
       return responderError(request, reply, err, 'No se pudo validar el enlace')
     }
+  })
+
+  app.post('/app-usuarios/dispositivos-push', { preHandler: authMiddleware }, async (request, reply) => {
+    const body = z
+      .object({ expo_push_token: z.string().regex(TOKEN_EXPO), plataforma: z.enum(['ios', 'android']) })
+      .safeParse(request.body)
+    if (!body.success) return reply.status(400).send({ success: false, message: 'Token de push no válido' })
+    try {
+      await registrarDispositivoUsuario((request as any).user.id, body.data.expo_push_token, body.data.plataforma)
+      return reply.send({ success: true })
+    } catch (err) {
+      return responderError(request, reply, err, 'No se pudo registrar el dispositivo')
+    }
+  })
+
+  app.delete('/app-usuarios/dispositivos-push', { preHandler: authMiddleware }, async (request, reply) => {
+    const token = (request.body as { expo_push_token?: unknown } | null)?.expo_push_token
+    if (typeof token !== 'string') return reply.status(400).send({ success: false, message: 'Falta el token' })
+    await desactivarDispositivoUsuario((request as any).user.id, token)
+    return reply.send({ success: true })
   })
 }

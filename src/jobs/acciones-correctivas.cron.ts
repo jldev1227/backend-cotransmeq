@@ -31,6 +31,19 @@ function toDateOnly(value: Date | string | null | undefined): Date | null {
   return d
 }
 
+/**
+ * Operaciones no recibe avisos de acciones correctivas: son de HSEQ y administración. Cuenta como
+ * operaciones quien tiene esa área sin HSEQ ni administración (varios son `role: 'admin'` y antes
+ * les llegaban todos los recordatorios). Tampoco si son quienes la crearon.
+ */
+async function usuariosDeOperaciones(): Promise<Set<string>> {
+  const usuarios = await prisma.usuarios.findMany({
+    where: { area: { has: 'operaciones' } },
+    select: { id: true, area: true }
+  })
+  return new Set(usuarios.filter((u) => !u.area.includes('hseq') && !u.area.includes('administracion')).map((u) => u.id))
+}
+
 async function yaNotificadaHoy(params: {
   usuario_id: string
   tipo: 'ACCION_CORRECTIVA_RECORDATORIO' | 'ACCION_CORRECTIVA_VENCIDA'
@@ -130,6 +143,7 @@ export async function ejecutarCronAccionesCorrectivasRecordatorios() {
     select: { id: true }
   })
   const adminIds = admins.map((a) => a.id)
+  const sinAvisos = await usuariosDeOperaciones()
 
   let notified = 0
 
@@ -147,6 +161,7 @@ export async function ejecutarCronAccionesCorrectivasRecordatorios() {
     const usuariosObjetivo = new Set<string>()
     adminIds.forEach((id) => usuariosObjetivo.add(id))
     if (accion.creado_por_id) usuariosObjetivo.add(accion.creado_por_id)
+    for (const id of sinAvisos) usuariosObjetivo.delete(id)
 
     for (const usuario_id of usuariosObjetivo) {
       const existe = await yaNotificadaHoy({

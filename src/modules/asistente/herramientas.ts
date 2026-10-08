@@ -17,6 +17,7 @@ import { HERRAMIENTAS_RECORRIDOS } from './recorridos'
 import { HERRAMIENTAS_ACCIONES_CORRECTIVAS } from './acciones-correctivas'
 import { HERRAMIENTAS_SARLAFT } from './sarlaft'
 import { HERRAMIENTAS_LIQUIDACIONES_TERCEROS } from './liquidaciones-terceros'
+import { HERRAMIENTAS_VIATICOS } from './viaticos'
 import { HERRAMIENTAS_BUSCADOR } from './buscador-global'
 import { HERRAMIENTAS_NOMINA } from './nomina'
 import { HERRAMIENTAS_USUARIOS } from './usuarios'
@@ -548,7 +549,7 @@ const resumenServicios: Herramienta = {
 const buscarTerceros: Herramienta = {
   nombre: 'buscar_terceros',
   descripcion:
-    'Busca terceros (propietarios de vehículos y otros beneficiarios de pagos) por nombre o identificación.',
+    'Busca terceros (propietarios de vehículos y otros beneficiarios de pagos) por nombre o identificación. Para sus placas, contacto, anticipos y gastos a su cargo usa detalle_tercero.',
   parametros: {
     type: 'object',
     properties: {
@@ -692,6 +693,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   ...HERRAMIENTAS_ACCIONES_CORRECTIVAS,
   ...HERRAMIENTAS_SARLAFT,
   ...HERRAMIENTAS_LIQUIDACIONES_TERCEROS,
+  ...HERRAMIENTAS_VIATICOS,
   ...HERRAMIENTAS_NOMINA,
   ...HERRAMIENTAS_USUARIOS,
   ...HERRAMIENTAS_BUSCADOR,

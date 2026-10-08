@@ -60,6 +60,24 @@ function soloFecha(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * Formas en que puede estar guardado un consecutivo: hay registros «FEPCO - 3424» (con espacios)
+ * junto a «FEPCO-3450». Quien pregunta escribe cualquiera de las dos, y comparar el texto exacto
+ * hacía decir «no existe» de una liquidación que sí está.
+ */
+function variantesConsecutivo(texto: string): string[] {
+  const limpio = texto.replace(/^#+/, '').trim()
+  const m = limpio.match(/^([A-Za-zÑñ]+)\s*-\s*([0-9.]+)$/)
+  if (!m) return [limpio]
+  const [, prefijo, numero] = m
+  return [...new Set([limpio, `${prefijo}-${numero}`, `${prefijo} - ${numero}`, `${prefijo} -${numero}`, `${prefijo}- ${numero}`])]
+}
+
+/** Sin tildes y en mayúsculas, como están escritos los recorridos. */
+function sinTildes(texto: string): string {
+  return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+}
+
 type EstadoLiq = (typeof ESTADOS)[number]
 function estadosDe(valor: unknown): EstadoLiq[] {
   if (!Array.isArray(valor)) return []
@@ -179,11 +197,11 @@ export const resumenLiquidaciones: Herramienta = {
 export const buscarLiquidaciones: Herramienta = {
   nombre: 'buscar_liquidaciones',
   descripcion:
-    'Lista liquidaciones de servicios por consecutivo, cliente, placa, número de factura, periodo (mes/año) o estado(s). Devuelve cabecera, totales y la factura activa de cada una; para ver ítems, recorridos, recargos, terceros, facturas e historial de una, usa detalle_liquidacion. Para TOTALES (cuánto falta facturar, cuánto se liquidó por cliente o por mes, cuántas hay por estado) usa resumen_liquidaciones, que suma sobre todas sin tope.',
+    'Lista liquidaciones de servicios por consecutivo, cliente, placa, número de factura, texto del RECORRIDO de sus ítems (p. ej. «campechana», «yopal»), periodo (mes/año) o estado(s). Devuelve cabecera, totales y la factura activa de cada una; para ver ítems, recorridos, recargos, terceros, facturas e historial de una, usa detalle_liquidacion. Para TOTALES (cuánto falta facturar, cuánto se liquidó por cliente o por mes, cuántas hay por estado) usa resumen_liquidaciones, que suma sobre todas sin tope. Para cuánto se cobra o se paga al tercero por un recorrido usa tarifas_recorrido, no esta.',
   parametros: {
     type: 'object',
     properties: {
-      texto: { type: 'string', description: 'Consecutivo (p. ej. IDE-058), nombre o NIT del cliente, placa, OSI u operadora' },
+      texto: { type: 'string', description: 'Consecutivo (p. ej. IDE-058), nombre o NIT del cliente, placa, OSI, operadora o parte del recorrido de un ítem (lugar, pozo, municipio)' },
       cliente: { type: 'string', description: 'Nombre del cliente, si se quiere filtrar solo por él' },
       mes: { type: 'integer', minimum: 1, maximum: 12 },
       anio: { type: 'integer', minimum: 2020, maximum: 2100 },
@@ -218,13 +236,15 @@ export const buscarLiquidaciones: Herramienta = {
       ...(texto
         ? {
             OR: [
-              { consecutivo: contiene(texto) },
+              ...variantesConsecutivo(texto).map((v) => ({ consecutivo: contiene(v) })),
               { cliente: { nombre: contiene(texto) } },
               { cliente: { nit: contiene(texto) } },
               { osi: contiene(texto) },
               { operadora: contiene(texto) },
               { items: { some: { deleted_at: null, placa: contiene(texto) } } },
               { items: { some: { deleted_at: null, numero_planilla: contiene(texto) } } },
+              { items: { some: { deleted_at: null, recorrido: contiene(texto) } } },
+              { terceros_items: { some: { deleted_at: null, recorrido: contiene(texto) } } },
               { factura_items: { some: { deleted_at: null, factura: { numero_factura: contiene(texto) } } } },
             ],
           }
@@ -457,6 +477,182 @@ export const duplicarLiquidacion: Herramienta = {
   },
 }
 
+/**
+ * «¿Cuánto se cobra y cuánto se le paga al tercero por Yopal–Campechana?». Responde desde los
+ * ítems liquidados que contienen ese recorrido, con lo cobrado al cliente y, cruzado por ítem,
+ * la fila del tercero (base, % de administración y lo que se le liquida).
+ *
+ * Antes no había cómo: el modelo buscaba servicios, tomaba «la liquidación más reciente del
+ * cliente» aunque fuera de otra ruta y daba totales de liquidaciones completas como si fueran la
+ * tarifa del tramo. Aquí cada fila es un ítem y el resumen agrupa por tramo, porque «Campechana»
+ * aparece en rutas con tarifas distintas (desde Yopal o desde Paz de Ariporo).
+ */
+export const tarifasRecorrido: Herramienta = {
+  nombre: 'tarifas_recorrido',
+  descripcion:
+    'Tarifas de un RECORRIDO según las liquidaciones de servicios: cuánto se cobró al cliente por ítem y cuánto se le pagó al tercero (propietario) por ese mismo ítem, con el % de administración y el margen de la empresa. Busca en el recorrido de los ítems (todas las palabras deben aparecer, sin importar tildes ni el orden de los puntos). Devuelve un resumen por tramo (valor más frecuente, mínimo, máximo y el último cobrado y pagado) y las filas más recientes con su liquidación. Úsala para «¿cuánto se cobra / se paga por X?», «¿cuál es la tarifa de A a B?», «¿qué liquidaciones tienen el recorrido X?». Filtra por cliente, placa o fechas si el usuario los da.',
+  parametros: {
+    type: 'object',
+    properties: {
+      recorrido: { type: 'string', description: 'Lugar o tramo tal como lo dice el usuario: «campechana», «yopal campechana», «paz de ariporo - pozo campechana»' },
+      cliente: { type: 'string', description: 'Nombre o NIT del cliente (parcial)' },
+      placa: { type: 'string' },
+      desde: { type: 'string', description: 'Fecha del ítem desde, YYYY-MM-DD' },
+      hasta: { type: 'string', description: 'Fecha del ítem hasta, YYYY-MM-DD incluida' },
+      incluir_anuladas: { type: 'boolean' },
+      limite: { type: 'integer', minimum: 1, maximum: 200, description: 'Filas de detalle (por defecto 30). El resumen por tramo usa todas las coincidencias' },
+    },
+    required: ['recorrido'],
+    additionalProperties: false,
+  },
+  etiqueta: 'Consultando tarifas del recorrido',
+  requiere: MODULO,
+  salidaMaxima: { lista: 200, caracteres: 45000 },
+  async ejecutar(args, usuario) {
+    const recorrido = textoOpcional(args.recorrido, 200)
+    if (!recorrido) return { error: 'Falta el recorrido' }
+    const cliente = textoOpcional(args.cliente, 120)
+    const placa = textoOpcional(args.placa, 20)
+    const desde = typeof args.desde === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.desde) ? args.desde : undefined
+    const hasta = typeof args.hasta === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.hasta) ? args.hasta : undefined
+    const limite = enteroEntre(args.limite, 1, 200, 30)
+    /// Lo que se paga a los propietarios es del módulo de terceros: sin él, solo lo cobrado.
+    const verTerceros = usuario.modulos.has(MODULO_TERCEROS)
+
+    const palabras = [...new Set(sinTildes(recorrido).split(/[\s\-–—,/()]+/).filter((p) => p.length >= 3))]
+    if (!palabras.length) return { error: 'Escribe al menos un lugar del recorrido (3 letras o más)' }
+    const contiene = (q: string) => ({ contains: q, mode: 'insensitive' as const })
+
+    const where: Prisma.liquidacion_servicio_itemWhereInput = {
+      deleted_at: null,
+      AND: palabras.map((p) => ({ recorrido: contiene(p) })),
+      ...(placa ? { placa: contiene(placa.toUpperCase()) } : {}),
+      ...(desde || hasta ? { fecha_inicial: { ...(desde ? { gte: new Date(`${desde}T00:00:00Z`) } : {}), ...(hasta ? { lte: new Date(`${hasta}T00:00:00Z`) } : {}) } } : {}),
+      liquidacion: {
+        deleted_at: null,
+        confirmada_at: { not: null },
+        ...(args.incluir_anuladas === true ? {} : { estado: { not: 'ANULADA' } }),
+        ...(cliente ? { cliente: { OR: [{ nombre: contiene(cliente) }, { nit: contiene(cliente) }] } } : {}),
+      },
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.liquidacion_servicio_item.findMany({
+        where,
+        select: {
+          id: true,
+          liquidacion_id: true,
+          placa: true,
+          fecha_inicial: true,
+          recorrido: true,
+          tipo_servicio: true,
+          cantidad: true,
+          valor_unitario: true,
+          valor_final: true,
+          liquidacion: { select: { id: true, consecutivo: true, estado: true, cliente: { select: { nombre: true } } } },
+        },
+        orderBy: [{ fecha_inicial: 'desc' }],
+        take: 500,
+      }),
+      prisma.liquidacion_servicio_item.count({ where }),
+    ])
+
+    // Fila del tercero de cada ítem: por `item_id`; las viejas no lo tienen y se cruzan por
+    // liquidación, placa y recorrido.
+    const terceros = verTerceros && items.length
+      ? await prisma.liquidacion_tercero.findMany({
+          where: { deleted_at: null, liquidacion_id: { in: [...new Set(items.map((i) => i.liquidacion_id))] } },
+          select: { item_id: true, liquidacion_id: true, placa: true, recorrido: true, valor_unitario: true, cantidad: true, porcentaje_admin: true, valor_liquidar: true, tercero: { select: { nombre_completo: true } } },
+        })
+      : []
+    const porItem = new Map(terceros.filter((t) => t.item_id).map((t) => [t.item_id!, t]))
+    const llave = (liq: string, placaT: string, rec: string) => `${liq}|${placaT.toUpperCase()}|${sinTildes(rec).replace(/\s+/g, ' ').trim()}`
+    const porLlave = new Map(terceros.map((t) => [llave(t.liquidacion_id, t.placa, t.recorrido), t]))
+
+    const n = (v: unknown) => Math.round(Number(v ?? 0) * 100) / 100
+    const filas = items.map((i) => {
+      const t = porItem.get(i.id) ?? porLlave.get(llave(i.liquidacion_id, i.placa, i.recorrido))
+      const cantidad = Number(i.cantidad) || 1
+      const cobradoUnitario = n(i.valor_unitario)
+      const pagadoUnitario = t ? n(Number(t.valor_liquidar) / (Number(t.cantidad) || 1)) : undefined
+      return {
+        tramo: tramoDe(i.recorrido),
+        fila: {
+          fecha: soloFecha(i.fecha_inicial),
+          liquidacion: i.liquidacion.consecutivo,
+          estado: i.liquidacion.estado.toLowerCase(),
+          cliente: i.liquidacion.cliente.nombre,
+          placa: i.placa,
+          recorrido: i.recorrido,
+          tipo: etiquetaTipo(String(i.tipo_servicio)),
+          cantidad,
+          cobrado_cliente_unitario: cobradoUnitario,
+          cobrado_cliente_total: n(i.valor_final),
+          ...(verTerceros
+            ? t
+              ? {
+                  tercero: t.tercero?.nombre_completo ?? undefined,
+                  base_tercero_unitaria: n(t.valor_unitario),
+                  porcentaje_admin: n(t.porcentaje_admin),
+                  pagado_tercero_unitario: pagadoUnitario,
+                  pagado_tercero_total: n(t.valor_liquidar),
+                  margen_empresa_unitario: pagadoUnitario !== undefined ? n(cobradoUnitario - pagadoUnitario) : undefined,
+                }
+              : { tercero: 'sin fila de tercero (vehículo propio o no se liquidó a tercero)' }
+            : {}),
+          enlace: enlaces(i.liquidacion.id).enlace,
+        },
+      }
+    })
+
+    // Resumen por tramo: «Campechana» sale en rutas con tarifas distintas.
+    const grupos = new Map<string, typeof filas>()
+    for (const f of filas) grupos.set(f.tramo, [...(grupos.get(f.tramo) ?? []), f])
+    const tramos = [...grupos.entries()]
+      .map(([tramo, gs]) => {
+        const cobrados = gs.map((g) => g.fila.cobrado_cliente_unitario)
+        const pagados = gs.map((g) => (g.fila as { pagado_tercero_unitario?: number }).pagado_tercero_unitario).filter((v): v is number => v !== undefined)
+        return {
+          tramo,
+          items: gs.length,
+          recorridos_escritos: [...new Set(gs.map((g) => g.fila.recorrido))].slice(0, 5),
+          cobrado_cliente_unitario: estadistica(cobrados),
+          ...(verTerceros ? { pagado_tercero_unitario: pagados.length ? estadistica(pagados) : 'sin filas de tercero' } : {}),
+          ultima: { fecha: gs[0].fila.fecha, liquidacion: gs[0].fila.liquidacion },
+        }
+      })
+      .sort((a, b) => b.items - a.items)
+
+    return {
+      buscado: palabras.join(' + '),
+      coincidencias: total,
+      ...(total > items.length ? { nota: `El resumen usa los ${items.length} ítems más recientes de ${total}` } : {}),
+      ...(verTerceros ? {} : { terceros: 'El usuario no tiene acceso a liquidaciones de terceros: solo se muestra lo cobrado al cliente' }),
+      como_leer: 'cobrado_cliente = valor del ítem en la liquidación (lo que paga el cliente). base_tercero = lo que factura el propietario; pagado_tercero = base menos el % de administración (lo que se le liquida). margen_empresa = cobrado − pagado.',
+      tramos,
+      filas: filas.slice(0, limite).map((f) => f.fila),
+    }
+  },
+}
+
+/** Tramo comparable: sin tildes, paréntesis ni «POZO», con los puntos ordenados (ida y vuelta valen igual). */
+function tramoDe(recorrido: string): string {
+  const puntos = sinTildes(recorrido)
+    .replace(/\([^)]*\)?/g, ' ')
+    .split(/\s*-\s*/)
+    .map((p) => p.replace(/\bPOZO\b/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  return [...new Set(puntos)].sort().join(' ↔ ')
+}
+
+function estadistica(valores: number[]) {
+  if (!valores.length) return undefined
+  const conteo = new Map<number, number>()
+  for (const v of valores) conteo.set(v, (conteo.get(v) ?? 0) + 1)
+  const [masFrecuente, veces] = [...conteo.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]
+  return { mas_frecuente: masFrecuente, veces, minimo: Math.min(...valores), maximo: Math.max(...valores), ultimo: valores[0] }
+}
+
 /* ────────────────────────── apoyo ────────────────────────── */
 
 /** Acepta el consecutivo («IDE-058»), el id o un enlace /dashboard/liquidaciones-servicios/<id>. */
@@ -464,7 +660,7 @@ async function cargarPorConsecutivo(texto: string) {
   const id = texto.match(UUID)?.[0]?.toLowerCase()
   return prisma.liquidacion_servicio.findFirst({
     where: {
-      ...(id ? { id } : { consecutivo: { equals: texto.replace(/^#+/, '').trim(), mode: 'insensitive' } }),
+      ...(id ? { id } : { OR: variantesConsecutivo(texto).map((v) => ({ consecutivo: { equals: v, mode: 'insensitive' as const } })) }),
       deleted_at: null,
       confirmada_at: { not: null },
     },
@@ -687,5 +883,5 @@ function clonarRecargos(recargos: unknown, conTerceros: boolean): unknown {
   return copia
 }
 
-export const HERRAMIENTAS_LIQUIDACIONES: readonly Herramienta[] = [buscarLiquidaciones, resumenLiquidaciones, detalleLiquidacion, buscarFacturas]
+export const HERRAMIENTAS_LIQUIDACIONES: readonly Herramienta[] = [buscarLiquidaciones, resumenLiquidaciones, detalleLiquidacion, tarifasRecorrido, buscarFacturas]
 export const ACCIONES_LIQUIDACIONES: readonly Herramienta[] = [duplicarLiquidacion]

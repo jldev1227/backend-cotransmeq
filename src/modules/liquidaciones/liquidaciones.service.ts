@@ -1440,11 +1440,13 @@ export const LiquidacionesService = {
   // Obtener empresas (clientes)
   async obtenerEmpresas() {
     return await prisma.clientes.findMany({
-      where: { oculto: false },
+      // Selector: los ocultos SÍ se pueden elegir; los eliminados no.
+      where: { deletedAt: null },
       select: {
         id: true,
         nombre: true,
         nit: true,
+        oculto: true,
         representante: true,
         telefono: true,
         direccion: true,

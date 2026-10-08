@@ -315,8 +315,8 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   fastify.get('/recargos/empresas-disponibles', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const empresas = await prisma.clientes.findMany({
-        where: { deletedAt: null, oculto: false },
-        select: { id: true, nombre: true, nit: true },
+        where: { deletedAt: null },
+        select: { id: true, nombre: true, nit: true, oculto: true },
         orderBy: { nombre: 'asc' }
       })
       reply.send({ success: true, data: empresas })

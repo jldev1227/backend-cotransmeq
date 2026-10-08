@@ -41,6 +41,7 @@ import { logger } from '../../utils/logger'
 import { emitNotificacion } from '../../sockets'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { enviarPushConductor } from '../conductor-portal/conductor-push.service'
+import { ajustarAnticipo, avisarFondoBajo, descontarAnticipo, reversarAnticipo, terceroDePlaca } from './viaticos-fondo.service'
 
 export class ViaticosError extends Error {
   constructor(message: string, readonly status: number, readonly code: string) {
@@ -153,6 +154,7 @@ const incluirResumen = {
   conductor: { select: { id: true, nombre: true, apellido: true, numero_identificacion: true } },
   vehiculo: { select: { id: true, placa: true, marca: true, linea: true } },
   creado_por: { select: { id: true, nombre: true } },
+  tercero: { select: { id: true, nombre_completo: true, identificacion: true } },
   solicitudes: { where: { estado: 'PENDIENTE' }, select: { id: true, valor_solicitado: true, created_at: true } }
 } satisfies Prisma.viatico_anticipoInclude
 
@@ -168,6 +170,7 @@ function aResumen(a: AnticipoConResumen, gastado: number) {
       numero_identificacion: a.conductor.numero_identificacion
     },
     vehiculo: { id: a.vehiculo.id, placa: a.vehiculo.placa, descripcion: [a.vehiculo.marca, a.vehiculo.linea].filter(Boolean).join(' ') },
+    tercero: a.tercero ? { id: a.tercero.id, nombre: a.tercero.nombre_completo, identificacion: a.tercero.identificacion } : null,
     concepto: a.concepto,
     metodo: a.metodo as 'TRANSFERENCIA' | 'RETIRO_TARJETA',
     fecha: deFecha(a.fecha),
@@ -392,7 +395,9 @@ const anticipoSchema = z
       .optional()
       .nullable(),
     comprobante_lectura: z.record(z.any()).optional().nullable(),
-    solicitud_id: z.string().uuid().optional().nullable()
+    solicitud_id: z.string().uuid().optional().nullable(),
+    /// Propietario de la placa; si no viene se toma el vinculado al vehículo (si hay).
+    tercero_id: z.string().uuid().optional().nullable()
   })
   .superRefine((v, ctx) => {
     if (v.metodo === 'TRANSFERENCIA' && !v.comprobante) {
@@ -437,6 +442,16 @@ function datosMetodo(input: z.infer<typeof anticipoSchema>) {
   }
 }
 
+/** El tercero indicado (si existe) o el vinculado a la placa; `null` si la placa no tiene. */
+async function resolverTercero(terceroId: string | null | undefined, vehiculoId: string): Promise<string | null> {
+  if (terceroId) {
+    const t = await prisma.terceros.findFirst({ where: { id: terceroId, deleted_at: null }, select: { id: true } })
+    if (!t) throw new ViaticosError('El tercero no existe.', 400, 'TERCERO_INVALIDO')
+    return t.id
+  }
+  return (await terceroDePlaca(vehiculoId)).tercero?.id ?? null
+}
+
 export async function crearAnticipo(usuarioId: string, body: unknown) {
   const crudo = (body ?? {}) as Record<string, unknown>
   let solicitud: Awaited<ReturnType<typeof prisma.viatico_solicitud.findUnique>> = null
@@ -456,12 +471,15 @@ export async function crearAnticipo(usuarioId: string, body: unknown) {
   )
   if (input.metodo === 'TRANSFERENCIA') await verificarComprobante(input.comprobante!.key)
   await exigirConductorYVehiculo(input.conductor_id, input.vehiculo_id)
+  const terceroId = await resolverTercero(input.tercero_id, input.vehiculo_id)
 
+  let fondo: { antes: number; despues: number } | null = null
   const creado = await prisma.$transaction(async (tx) => {
     const a = await tx.viatico_anticipo.create({
       data: {
         conductor_id: input.conductor_id,
         vehiculo_id: input.vehiculo_id,
+        tercero_id: terceroId,
         concepto: input.concepto,
         valor: input.valor,
         metodo: input.metodo,
@@ -480,8 +498,11 @@ export async function crearAnticipo(usuarioId: string, body: unknown) {
       })
       if (r.count !== 1) throw new ViaticosError('La solicitud ya fue resuelta.', 409, 'SOLICITUD_RESUELTA')
     }
+    /// Operaciones entrega contra su fondo: sin saldo, la transacción entera se deshace.
+    fondo = await descontarAnticipo(tx, usuarioId, a.id, input.valor)
     return a
   })
+  if (fondo) void avisarFondoBajo(usuarioId, fondo)
 
   const resumen = await anticipoParaAviso(creado.id)
   if (resumen) {
@@ -517,23 +538,32 @@ export async function actualizarAnticipo(usuarioId: string, id: string, body: un
       'ANTICIPO_CON_GASTOS'
     )
   }
-  await prisma.viatico_anticipo.update({
-    where: { id },
-    data: {
-      conductor_id: input.conductor_id,
-      vehiculo_id: input.vehiculo_id,
-      concepto: input.concepto,
-      valor: input.valor,
-      metodo: input.metodo,
-      fecha: aFecha(input.fecha),
-      ...datosMetodo(input),
-      /// Si el comprobante no cambió se conserva la lectura que ya tenía.
-      ...(input.metodo === 'TRANSFERENCIA' && input.comprobante!.key === actual.comprobante_key && !input.comprobante_lectura
-        ? { comprobante_lectura: actual.comprobante_lectura ?? Prisma.JsonNull }
-        : {}),
-      actualizado_por_id: usuarioId,
-      updated_at: new Date()
-    }
+  const terceroId =
+    input.tercero_id !== undefined || input.vehiculo_id !== actual.vehiculo_id
+      ? await resolverTercero(input.tercero_id, input.vehiculo_id)
+      : actual.tercero_id
+  await prisma.$transaction(async (tx) => {
+    /// Si salió del fondo de alguien, la diferencia de valor se devuelve o se descuenta de ese fondo.
+    await ajustarAnticipo(tx, usuarioId, id, num(actual.valor), input.valor)
+    await tx.viatico_anticipo.update({
+      where: { id },
+      data: {
+        conductor_id: input.conductor_id,
+        vehiculo_id: input.vehiculo_id,
+        tercero_id: terceroId,
+        concepto: input.concepto,
+        valor: input.valor,
+        metodo: input.metodo,
+        fecha: aFecha(input.fecha),
+        ...datosMetodo(input),
+        /// Si el comprobante no cambió se conserva la lectura que ya tenía.
+        ...(input.metodo === 'TRANSFERENCIA' && input.comprobante!.key === actual.comprobante_key && !input.comprobante_lectura
+          ? { comprobante_lectura: actual.comprobante_lectura ?? Prisma.JsonNull }
+          : {}),
+        actualizado_por_id: usuarioId,
+        updated_at: new Date()
+      }
+    })
   })
   /// Cambiar el valor mueve el umbral del 15 %: se reevalúa la alerta.
   await revisarAlertaSaldo(id)
@@ -552,9 +582,13 @@ export async function retirarAnticipo(usuarioId: string, id: string) {
       'ANTICIPO_CON_GASTOS'
     )
   }
-  await prisma.viatico_anticipo.update({
-    where: { id },
-    data: { deleted_at: new Date(), actualizado_por_id: usuarioId, updated_at: new Date() }
+  await prisma.$transaction(async (tx) => {
+    await tx.viatico_anticipo.update({
+      where: { id },
+      data: { deleted_at: new Date(), actualizado_por_id: usuarioId, updated_at: new Date() }
+    })
+    /// El dinero vuelve al fondo del que salió.
+    await reversarAnticipo(tx, usuarioId, id)
   })
   logger.info({ type: 'viatico-anticipo-retirado', id, usuarioId }, '[viaticos] anticipo eliminado')
   return { id }

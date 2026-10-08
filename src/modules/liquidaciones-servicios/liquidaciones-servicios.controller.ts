@@ -9,6 +9,7 @@ import {
 } from "../../sockets";
 import { NotificacionesService } from "../notificaciones/notificaciones.service";
 import { FacturacionLiquidacionesService } from "../facturacion-liquidaciones/facturacion-liquidaciones.service";
+import { enviarPushUsuarios } from "../usuario-push/usuario-push.service";
 
 /**
  * Traduce un choque de UNIQUE en un 409 legible, o devuelve `null` si el error
@@ -615,6 +616,16 @@ export class LiquidacionesServiciosController {
       try {
         const consecutivo = result.consecutivo;
         const clienteNombre = result.cliente?.nombre || "";
+        /// Además de la campana de la web, push a la app de gestión de quien tenga el teléfono
+        /// registrado; al tocarlo abre la liquidación. No espera ni falla el cambio de estado.
+        const push = (usuarioIds: string[], titulo: string, cuerpo: string) =>
+          void enviarPushUsuarios({
+            usuarioIds,
+            titulo,
+            cuerpo,
+            datos: { route: `/gestion/liquidacion/${id}`, liquidacion_id: id },
+            canal: "liquidaciones",
+          });
 
         if (estado === "ANULADA") {
           // Obtener la liquidación completa para saber quién la creó
@@ -632,6 +643,11 @@ export class LiquidacionesServiciosController {
               referencia_id: id,
             });
             emitNotificacion(notif);
+            push(
+              [liqCompleta.creado_por_id],
+              `Liquidación ${consecutivo} anulada`,
+              `Anulada por ${userName}${motivo_anulacion ? `: ${motivo_anulacion}` : ""}`,
+            );
           }
         } else if (estado === "LIQUIDADA") {
           // Notificar a usuarios con permisos de aprobación
@@ -651,6 +667,11 @@ export class LiquidacionesServiciosController {
             for (const nd of notifData) {
               emitNotificacion(nd);
             }
+            push(
+              otrosAprobadores.map((u) => u.id),
+              `${consecutivo} pendiente de aprobación`,
+              `${userName} la envió a aprobar · ${clienteNombre}`,
+            );
           }
         } else if (estado === "BORRADOR") {
           // Reversión de LIQUIDADA → BORRADOR: notificar aprobadores
@@ -670,6 +691,28 @@ export class LiquidacionesServiciosController {
               emitNotificacion(nd);
             }
           }
+          /// Si la devolvió otra persona, quien la creó debe saberlo: le toca corregirla.
+          const liqCompleta =
+            await LiquidacionesServiciosService.obtenerPorId(id);
+          if (
+            liqCompleta.creado_por_id &&
+            liqCompleta.creado_por_id !== userId &&
+            !otrosAprobadores.some((u) => u.id === liqCompleta.creado_por_id)
+          ) {
+            const notif = await NotificacionesService.crear({
+              usuario_id: liqCompleta.creado_por_id,
+              tipo: "LIQUIDACION_ACTUALIZADA",
+              titulo: `Liquidación ${consecutivo} devuelta a borrador`,
+              mensaje: `${userName} devolvió a borrador la liquidación ${consecutivo} (${clienteNombre}).`,
+              referencia_id: id,
+            });
+            emitNotificacion(notif);
+          }
+          push(
+            [...otrosAprobadores.map((u) => u.id), ...(liqCompleta.creado_por_id && liqCompleta.creado_por_id !== userId ? [liqCompleta.creado_por_id] : [])],
+            `${consecutivo} devuelta a borrador`,
+            `Devuelta por ${userName} · ${clienteNombre}`,
+          );
         } else if (estado === "APROBADA") {
           // Notificar al creador y liquidador que fue aprobada
           const liqCompleta =
@@ -694,6 +737,7 @@ export class LiquidacionesServiciosController {
             for (const nd of notifData) {
               emitNotificacion(nd);
             }
+            push([...targetIds], `Liquidación ${consecutivo} aprobada`, `Aprobada por ${userName} · ${clienteNombre}`);
           }
         }
       } catch (notifError) {

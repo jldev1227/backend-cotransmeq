@@ -89,7 +89,8 @@ export async function clientesRoutes(app: FastifyInstance) {
           limit: { type: 'string', default: '10' },
           tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA_NATURAL', 'TODOS'] },
           search: { type: 'string', description: 'Búsqueda en nombre, NIT, representante, cédula, teléfono, correo y dirección' },
-          orden: { type: 'string', enum: ['asc', 'desc'], description: 'Orden alfabético por nombre' }
+          orden: { type: 'string', enum: ['asc', 'desc'], description: 'Orden alfabético por nombre' },
+          incluir_ocultos: { type: 'string', enum: ['true', 'false'], description: 'Selectores: incluir clientes ocultos' }
         }
       }
     }

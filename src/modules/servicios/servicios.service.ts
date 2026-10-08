@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma'
+import { avisarServicioCreado } from '../avisos-equipo/avisos-equipo.service'
 import { CreateServicioInput, UpdateServicioInput, CambiarEstadoInput, AsignarPlanillaInput, BuscarServiciosInput } from './servicios.schema'
 import { getS3SignedUrl } from '../../config/aws'
 import { RecargosService } from '../recargos/recargos.service'
@@ -255,6 +256,7 @@ export const ServiciosService = {
           valor: data.valor ?? 0,
           numero_planilla: data.numero_planilla,
           observaciones: data.observaciones,
+          creado_por_id: userId ?? null,
         },
         include: {
           conductores: {
@@ -277,6 +279,7 @@ export const ServiciosService = {
               estado: true
             }
           },
+          creado_por: { select: { id: true, nombre: true } },
           clientes: {
             select: {
               id: true,
@@ -366,6 +369,8 @@ export const ServiciosService = {
     if (servicio.conductor_id) {
       await ServiciosNotificacionesService.asignado(servicio.id, servicio.conductor_id)
     }
+    /// Y el resto del equipo se entera de que hay un servicio nuevo (sin esperar: no frena la respuesta).
+    void avisarServicioCreado(servicio.id, userId)
 
     return (await transformarServiciosBatch([servicio]))[0] || null
   },
@@ -523,6 +528,7 @@ export const ServiciosService = {
             modelo: true
           }
         },
+        creado_por: { select: { id: true, nombre: true } },
         clientes: {
           select: {
             id: true,
@@ -739,6 +745,7 @@ export const ServiciosService = {
             linea: true
           }
         },
+        creado_por: { select: { id: true, nombre: true } },
         clientes: {
           select: {
             id: true,
@@ -867,6 +874,7 @@ export const ServiciosService = {
               modelo: true
             }
           },
+          creado_por: { select: { id: true, nombre: true } },
           clientes: {
             select: {
               id: true,
@@ -1115,6 +1123,7 @@ export const ServiciosService = {
           include: {
             conductores: true,
             vehiculos: true,
+            creado_por: { select: { id: true, nombre: true } },
             clientes: true,
             municipios_servicio_origen_idTomunicipios: true,
             municipios_servicio_destino_idTomunicipios: true
@@ -1129,6 +1138,7 @@ export const ServiciosService = {
         include: {
           conductores: true,
           vehiculos: true,
+          creado_por: { select: { id: true, nombre: true } },
           clientes: true,
           municipios_servicio_origen_idTomunicipios: true,
           municipios_servicio_destino_idTomunicipios: true
@@ -1332,9 +1342,10 @@ export const ServiciosService = {
   },
 
   // Métodos para obtener listas para filtros
+  // Selectores: los ocultos SÍ se pueden elegir (solo se excluyen eliminados).
   async obtenerConductores(search?: string) {
     const where: any = {
-      oculto: false
+      deleted_at: null
     }
 
     if (search && search.trim()) {
@@ -1354,7 +1365,8 @@ export const ServiciosService = {
         tipo_identificacion: true,
         numero_identificacion: true,
         telefono: true,
-        estado: true
+        estado: true,
+        oculto: true
       },
       orderBy: [
         { nombre: 'asc' },
@@ -1367,8 +1379,7 @@ export const ServiciosService = {
 
   async obtenerVehiculos(search?: string) {
     const where: any = {
-      deleted_at: null,
-      oculto: false
+      deleted_at: null
     }
 
     if (search && search.trim()) {
@@ -1386,7 +1397,8 @@ export const ServiciosService = {
         placa: true,
         marca: true,
         modelo: true,
-        estado: true
+        estado: true,
+        oculto: true
       },
       orderBy: {
         placa: 'asc'
@@ -1398,8 +1410,7 @@ export const ServiciosService = {
 
   async obtenerClientes(search?: string) {
     const where: any = {
-      deletedAt: null,
-      oculto: false
+      deletedAt: null
     }
 
     if (search && search.trim()) {
@@ -1414,7 +1425,8 @@ export const ServiciosService = {
       select: {
         id: true,
         nombre: true,
-        nit: true
+        nit: true,
+        oculto: true
       },
       orderBy: {
         nombre: 'asc'

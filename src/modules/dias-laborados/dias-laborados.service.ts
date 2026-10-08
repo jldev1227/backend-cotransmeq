@@ -466,12 +466,13 @@ export const DiasLaboradosService = {
   // ─────────────────────────────────────────────
   async listarClientes() {
     return prisma.clientes.findMany({
-      where: { deletedAt: null, oculto: false },
+      where: { deletedAt: null },
       select: {
         id: true,
         nombre: true,
         nit: true,
-        tipo: true
+        tipo: true,
+        oculto: true
       },
       orderBy: { nombre: 'asc' }
     })
@@ -482,7 +483,7 @@ export const DiasLaboradosService = {
   // ─────────────────────────────────────────────
   async listarVehiculos() {
     return prisma.vehiculos.findMany({
-      where: { oculto: false, deleted_at: null },
+      where: { deleted_at: null },
       select: {
         id: true,
         placa: true,
@@ -490,7 +491,8 @@ export const DiasLaboradosService = {
         linea: true,
         modelo: true,
         estado: true,
-        conductor_id: true
+        conductor_id: true,
+        oculto: true
       },
       orderBy: { placa: 'asc' }
     })

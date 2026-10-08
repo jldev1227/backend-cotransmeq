@@ -92,24 +92,16 @@ export const NotificacionesService = {
     })
   },
 
-  /** Obtener usuarios con permiso de aprobar servicios (admins + quienes tienen permiso) */
+  /**
+   * Quienes pueden aprobar liquidaciones: usuarios activos del área administración, que es la
+   * misma regla con la que `cambiarEstado` deja aprobar. Antes se tomaban los `role: 'admin'` y se
+   * descartaba a cualquiera con `permisos` como objeto (lo normal es `{}`), así que casi nadie
+   * recibía «Liquidación pendiente de revisión».
+   */
   async obtenerUsuariosAprobadores(): Promise<Array<{ id: string; nombre: string; correo: string }>> {
-    const usuarios = await prisma.usuarios.findMany({
-      where: {
-        OR: [
-          { role: 'admin' },
-          // Users with the permission to approve liquidaciones-servicios
-        ],
-      },
-      select: { id: true, nombre: true, correo: true, permisos: true },
+    return prisma.usuarios.findMany({
+      where: { activo: true, area: { has: 'administracion' } },
+      select: { id: true, nombre: true, correo: true },
     })
-    // Filter users who are admin OR have liquidaciones-servicios permission
-    return usuarios.filter((u: any) => {
-      if (u.permisos && typeof u.permisos === 'object') {
-        const p = u.permisos as any
-        return p['liquidaciones-servicios'] === true || p.aprobar_liquidaciones === true
-      }
-      return true // admins already matched by role
-    }).map(u => ({ id: u.id, nombre: u.nombre, correo: u.correo }))
   },
 }

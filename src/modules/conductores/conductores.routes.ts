@@ -32,7 +32,7 @@ export async function conductoresRoutes(app: FastifyInstance) {
   app.post('/conductores/masivo', puedeEscribir, ConductoresController.operacionesMasivas)
 
   // GET /api/conductores/select-list - Listado liviano para <select>
-  // Solo activos, no ocultos, sin fotos (optimizado para formularios
+  // Solo activos (ocultos incluidos), sin fotos (optimizado para formularios
   // donde solo se necesita id + nombre + identificación).
   // IMPORTANTE: esta ruta debe ir ANTES de /:id.
   app.get('/conductores/select-list', ConductoresController.listarParaSelect)

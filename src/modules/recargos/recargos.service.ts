@@ -1165,6 +1165,7 @@ export const RecargosService = {
           data: {
             id: randomUUID(),
             cliente_id: data.empresa_id,
+            creado_por_id: userId ?? null,
             conductor_id: data.conductor_id,
             vehiculo_id: data.vehiculo_id,
             origen_id: data.servicio_origen_id,
@@ -1352,6 +1353,7 @@ export const RecargosService = {
           data: {
             id: randomUUID(),
             cliente_id: empresaId,
+            creado_por_id: userId ?? null,
             fecha_solicitud: now,
             valor: 0,
             created_at: now,

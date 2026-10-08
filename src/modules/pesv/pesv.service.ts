@@ -547,12 +547,12 @@ export class PesvService {
   static async getFilterOptions() {
     const [conductores, vehiculos, clientes, municipios] = await Promise.all([
       prisma.conductores.findMany({
-        where: { estado: 'activo', oculto: false },
+        where: { estado: 'activo', deleted_at: null },
         select: { id: true, nombre: true, apellido: true, numero_identificacion: true },
         orderBy: { nombre: 'asc' },
       }),
       prisma.vehiculos.findMany({
-        where: { deleted_at: null, oculto: false },
+        where: { deleted_at: null },
         select: { id: true, placa: true, marca: true, modelo: true },
         orderBy: { placa: 'asc' },
       }),

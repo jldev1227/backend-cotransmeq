@@ -73,7 +73,6 @@ export async function resolverCliente(texto: string) {
     filas = await prisma.clientes.findMany({
       where: {
         deletedAt: null,
-        oculto: false,
         OR: [{ nombre: { contains: v, mode: 'insensitive' } }, { nit: { contains: v, mode: 'insensitive' } }],
       },
       select: { id: true, nombre: true, nit: true },
@@ -82,7 +81,7 @@ export async function resolverCliente(texto: string) {
     if (filas.length) break
   }
   if (digitos.length >= 6) {
-    const porNit = (await prisma.clientes.findMany({ where: { deletedAt: null, oculto: false, nit: { not: null } }, select: { id: true, nombre: true, nit: true } })).filter((c) =>
+    const porNit = (await prisma.clientes.findMany({ where: { deletedAt: null, nit: { not: null } }, select: { id: true, nombre: true, nit: true } })).filter((c) =>
       (c.nit ?? '').replace(/\D/g, '').startsWith(digitos),
     )
     if (porNit.length === 1) return { ok: true as const, valor: porNit[0] }
@@ -119,7 +118,6 @@ export async function resolverConductor(texto: string) {
     filas = await prisma.conductores.findMany({
       where: {
         deleted_at: null,
-        oculto: false,
         AND: v.partes.map((p) => ({
           OR: conYSinTildes(p).flatMap((x) => [
             { nombre: { contains: x, mode: 'insensitive' as const } },

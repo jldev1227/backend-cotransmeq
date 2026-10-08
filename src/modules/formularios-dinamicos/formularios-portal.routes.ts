@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { avisarPreoperacional } from '../avisos-equipo/avisos-equipo.service'
 import jwt from 'jsonwebtoken'
 import { ZodError, type ZodSchema } from 'zod'
 import { env } from '../../config/env'
@@ -547,6 +548,8 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
         businessDate: resultado.businessDate,
         idempotentReplay: resultado.idempotentReplay,
       })
+      /// Si es un preoperacional, operaciones y HSEQ se enteran (un reintento no vuelve a avisar).
+      if (!resultado.idempotentReplay) void avisarPreoperacional(resultado.submissionId)
 
       /// `200` y no `201` en el replay: el recurso no se creó en esta petición,
       /// y la outbox lo trata como éxito en los dos casos.

@@ -12,9 +12,10 @@ import { barajar } from '../evaluaciones/evaluacion-publica'
 import { sopaParaPublico, type ConfigSopa } from '../evaluaciones/sopa-letras'
 
 /**
- * Asistencias y evaluaciones de capacitación desde la app del conductor. El conductor ya está
- * autenticado, así que no llena sus datos: se toman de `conductores`. Una asistencia o evaluación
- * cuenta como respondida si hay una fila con su documento (web pública) o con la huella del portal.
+ * Asistencias y evaluaciones de capacitación desde la app: la del conductor y la de los usuarios
+ * administrativos. Quien responde ya está autenticado, así que no llena sus datos: se toman de
+ * `conductores` o de `users` (ver `Persona`). Una asistencia o evaluación cuenta como respondida
+ * si hay una fila con su documento (web pública) o con la huella de la app.
  */
 
 export class CapacitacionesError extends Error {
@@ -39,10 +40,21 @@ const LIMITE_HISTORIAL = 30
 const DIAS_EVALUACION_ABIERTA = 30
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-const huellaPortal = (conductorId: string) => `portal-conductor:${conductorId}`
+/** Quien firma o responde desde la app, sea conductor o usuario administrativo. */
+export interface Persona {
+  /** Va en `device_fingerprint`: identifica las filas hechas desde la app. */
+  huella: string
+  nombre_completo: string
+  numero_documento: string | null
+  cargo: string
+  telefono: string
+  correo: string
+  /** Desde cuándo trabaja en la empresa: las asistencias anteriores no le tocan. `null` si no se sabe. */
+  fecha_ingreso: Date | null
+}
 
-async function cargarConductor(conductorId: string) {
-  const conductor = await prisma.conductores.findUnique({
+export async function personaConductor(conductorId: string): Promise<Persona> {
+  const c = await prisma.conductores.findUnique({
     where: { id: conductorId },
     select: {
       id: true,
@@ -51,30 +63,58 @@ async function cargarConductor(conductorId: string) {
       numero_identificacion: true,
       cargo: true,
       telefono: true,
-      email: true
+      email: true,
+      fecha_ingreso: true
     }
   })
-  if (!conductor) throw new CapacitacionesError('Conductor no encontrado', 404)
-  return conductor
-}
-
-type Conductor = Awaited<ReturnType<typeof cargarConductor>>
-
-function datosConductor(c: Conductor) {
+  if (!c) throw new CapacitacionesError('Conductor no encontrado', 404)
   return {
+    huella: `portal-conductor:${c.id}`,
     nombre_completo: `${c.nombre} ${c.apellido}`.trim(),
-    numero_documento: c.numero_identificacion ?? '',
+    numero_documento: c.numero_identificacion || null,
     cargo: c.cargo || 'CONDUCTOR',
-    telefono: c.telefono ?? ''
+    telefono: c.telefono ?? '',
+    correo: c.email ?? '',
+    fecha_ingreso: c.fecha_ingreso ?? null
   }
 }
 
-// Filtro común a respuestas_asistencia y resultado: su documento o la huella del portal
-function delConductor(c: Conductor) {
+export async function personaUsuario(usuarioId: string): Promise<Persona> {
+  const u = await prisma.usuarios.findUnique({
+    where: { id: usuarioId },
+    select: { id: true, nombre: true, correo: true, telefono: true, cargo: true, area: true, numero_documento: true, fecha_ingreso: true, created_at: true }
+  })
+  if (!u) throw new CapacitacionesError('Usuario no encontrado', 404)
+  return {
+    huella: `app-usuario:${u.id}`,
+    nombre_completo: u.nombre.trim(),
+    numero_documento: u.numero_documento || null,
+    /// Sin cargo registrado, el área: la lista de asistencia no debe quedar con el cargo vacío.
+    cargo: u.cargo || (u.area ?? []).filter(Boolean).map((a) => a.replace(/_/g, ' ').toUpperCase()).join(', '),
+    telefono: u.telefono ?? '',
+    correo: u.correo,
+    /// Sin fecha de ingreso registrada, la de creación del usuario (la migración la rellena igual).
+    fecha_ingreso: u.fecha_ingreso ?? u.created_at
+  }
+}
+
+/// La app lo muestra como «Tus datos». Se llama `conductor` en la respuesta por compatibilidad
+/// con la app del conductor, que lo leía así antes de que los usuarios también firmaran.
+function datosPersona(p: Persona) {
+  return {
+    nombre_completo: p.nombre_completo,
+    numero_documento: p.numero_documento ?? '',
+    cargo: p.cargo,
+    telefono: p.telefono
+  }
+}
+
+// Filtro común a respuestas_asistencia y resultado: su documento o la huella de la app
+function dePersona(p: Persona) {
   const condiciones: { numero_documento?: string; device_fingerprint?: string }[] = [
-    { device_fingerprint: huellaPortal(c.id) }
+    { device_fingerprint: p.huella }
   ]
-  if (c.numero_identificacion) condiciones.push({ numero_documento: c.numero_identificacion })
+  if (p.numero_documento) condiciones.push({ numero_documento: p.numero_documento })
   return { OR: condiciones }
 }
 
@@ -84,6 +124,11 @@ function diaBogota(dias: number) {
   const d = new Date(`${hoy}T00:00:00.000Z`)
   d.setUTCDate(d.getUTCDate() + dias)
   return d
+}
+
+/** La fecha (columna `@db.Date`) como medianoche UTC, que es como Prisma compara esas columnas. */
+function inicioDelDia(d: Date) {
+  return new Date(`${d.toISOString().slice(0, 10)}T00:00:00.000Z`)
 }
 
 type Formulario = Prisma.formularios_asistenciaGetPayload<{}>
@@ -106,19 +151,20 @@ function resumenAsistencia(f: Formulario) {
 const puntajeMaximo = (preguntas: { puntaje: number }[]) =>
   preguntas.reduce((suma, p) => suma + p.puntaje, 0)
 
-export async function listarCapacitaciones(conductorId: string) {
-  const conductor = await cargarConductor(conductorId)
-  const filtro = delConductor(conductor)
+export async function listarCapacitaciones(persona: Persona) {
+  const filtro = dePersona(persona)
 
   const [pendientes, firmas, resultados] = await Promise.all([
     prisma.formularios_asistencia.findMany({
       where: {
         activo: true,
         deleted_at: null,
-        fecha: { gte: diaBogota(-1), lte: diaBogota(1) },
+        /// Todas las que se dictaron desde que entró (no solo las de hoy) y siguen abiertas: las
+        /// cerradas ya no reciben firmas. Sin fecha de ingreso conocida, solo las de estos días.
+        fecha: { gte: persona.fecha_ingreso ? inicioDelDia(persona.fecha_ingreso) : diaBogota(-1), lte: diaBogota(1) },
         respuestas: { none: filtro }
       },
-      orderBy: [{ fecha: 'asc' }, { hora_inicio: 'asc' }]
+      orderBy: [{ fecha: 'desc' }, { hora_inicio: 'desc' }]
     }),
     prisma.respuestas_asistencia.findMany({
       where: filtro,
@@ -162,7 +208,7 @@ export async function listarCapacitaciones(conductorId: string) {
     })
   }
 
-  // Evaluaciones de las formaciones PESV cuya asistencia ya firmó el conductor
+  // Evaluaciones de las formaciones PESV cuya asistencia ya firmó
   const formaciones = formulariosVistos.size
     ? await prisma.pesv_training_plan.findMany({
         where: {
@@ -204,7 +250,7 @@ export async function listarCapacitaciones(conductorId: string) {
     })
   }
 
-  // Evaluaciones recientes que el conductor no ha respondido, aunque no estén en una formación
+  // Evaluaciones recientes que no ha respondido, aunque no estén en una formación
   const abiertas = await prisma.evaluacion.findMany({
     where: {
       deleted_at: null,
@@ -251,39 +297,37 @@ async function formularioPorToken(token: string) {
 }
 
 /** Con `conImagen` trae también la firma (data URI PNG, decenas de KB). */
-async function firmaDelConductor(formularioId: string, conductor: Conductor, conImagen = false) {
+async function firmaDePersona(formularioId: string, persona: Persona, conImagen = false) {
   return prisma.respuestas_asistencia.findFirst({
-    where: { formulario_id: formularioId, ...delConductor(conductor) },
+    where: { formulario_id: formularioId, ...dePersona(persona) },
     select: { created_at: true, firma: conImagen },
     orderBy: { created_at: 'desc' }
   })
 }
 
-export async function obtenerAsistencia(token: string, conductorId: string) {
-  const conductor = await cargarConductor(conductorId)
+export async function obtenerAsistencia(token: string, persona: Persona) {
   const formulario = await formularioPorToken(token)
-  const firma = await firmaDelConductor(formulario.id, conductor, true)
+  const firma = await firmaDePersona(formulario.id, persona, true)
   return {
     asistencia: { ...resumenAsistencia(formulario), activo: formulario.activo },
     firmada_en: firma ? firma.created_at.toISOString() : null,
-    /// La firma que dejó el conductor, para que la vea en la asistencia firmada.
+    /// La firma que dejó, para que la vea en la asistencia firmada.
     firma: firma?.firma ?? null,
-    conductor: datosConductor(conductor)
+    conductor: datosPersona(persona)
   }
 }
 
 export async function firmarAsistencia(
   token: string,
-  conductorId: string,
+  persona: Persona,
   body: unknown,
   meta: MetaPeticion
 ) {
-  const conductor = await cargarConductor(conductorId)
   const formulario = await formularioPorToken(token)
   if (!formulario.activo) {
     throw new CapacitacionesError('Esta asistencia ya no está disponible', 403)
   }
-  if (await firmaDelConductor(formulario.id, conductor)) {
+  if (await firmaDePersona(formulario.id, persona)) {
     throw new CapacitacionesError('Ya firmaste esta asistencia', 409)
   }
 
@@ -291,11 +335,11 @@ export async function firmarAsistencia(
   if (typeof firma !== 'string' || !firma.startsWith('data:image/')) {
     throw new CapacitacionesError('La firma es requerida', 400)
   }
-  if (!conductor.numero_identificacion) {
+  if (!persona.numero_documento) {
     throw new CapacitacionesError('Tu perfil no tiene número de identificación registrado', 422)
   }
 
-  const datos = datosConductor(conductor)
+  const datos = datosPersona(persona)
   let respuesta
   try {
     respuesta = await prisma.respuestas_asistencia.create({
@@ -309,7 +353,7 @@ export async function firmarAsistencia(
         firma,
         ip_address: meta.ip.slice(0, 45),
         user_agent: meta.userAgent,
-        device_fingerprint: huellaPortal(conductor.id)
+        device_fingerprint: persona.huella
       }
     })
   } catch (err: any) {
@@ -356,9 +400,9 @@ const respuestaSelect = {
   puntaje: true
 } as const
 
-async function resultadoDelConductor(evaluacionId: string, conductor: Conductor) {
+async function resultadoDePersona(evaluacionId: string, persona: Persona) {
   return prisma.resultado.findFirst({
-    where: { evaluacionId, ...delConductor(conductor) },
+    where: { evaluacionId, ...dePersona(persona) },
     select: { puntaje_total: true, created_at: true, respuestas: { select: respuestaSelect } },
     orderBy: { created_at: 'desc' }
   })
@@ -374,7 +418,7 @@ type RespuestaGuardada = {
 }
 
 /**
- * Lo que respondió el conductor en cada pregunta y si acertó. Solo SU respuesta:
+ * Lo que respondió en cada pregunta y si acertó. Solo SU respuesta:
  * nunca la correcta, para que un error no le entregue la clave.
  */
 function detalleDeRespuestas(
@@ -397,11 +441,10 @@ function detalleDeRespuestas(
   })
 }
 
-export async function obtenerEvaluacion(id: string, conductorId: string) {
-  const conductor = await cargarConductor(conductorId)
+export async function obtenerEvaluacion(id: string, persona: Persona) {
   const evaluacion = await evaluacionVigente(id)
   const maximo = puntajeMaximo(evaluacion.preguntas)
-  const resultado = await resultadoDelConductor(evaluacion.id, conductor)
+  const resultado = await resultadoDePersona(evaluacion.id, persona)
 
   return {
     evaluacion: {
@@ -434,7 +477,7 @@ export async function obtenerEvaluacion(id: string, conductorId: string) {
           respuestas: detalleDeRespuestas(evaluacion.preguntas, resultado.respuestas)
         }
       : null,
-    conductor: datosConductor(conductor)
+    conductor: datosPersona(persona)
   }
 }
 
@@ -445,13 +488,12 @@ const responderEvaluacionSchema = z.object({
 
 export async function responderEvaluacion(
   id: string,
-  conductorId: string,
+  persona: Persona,
   body: unknown,
   meta: MetaPeticion
 ) {
-  const conductor = await cargarConductor(conductorId)
   const evaluacion = await evaluacionVigente(id)
-  if (await resultadoDelConductor(evaluacion.id, conductor)) {
+  if (await resultadoDePersona(evaluacion.id, persona)) {
     throw new CapacitacionesError('Ya respondiste esta evaluación', 409)
   }
 
@@ -461,23 +503,23 @@ export async function responderEvaluacion(
   if (evaluacion.requiere_firma && !firma) {
     throw new CapacitacionesError('Esta evaluación requiere tu firma', 400)
   }
-  if (!conductor.numero_identificacion) {
+  if (!persona.numero_documento) {
     throw new CapacitacionesError('Tu perfil no tiene número de identificación registrado', 422)
   }
 
-  const datos = datosConductor(conductor)
+  const datos = datosPersona(persona)
   let resultado
   try {
     resultado = await registrarResultado(evaluacion, parsed.data.respuestas, {
       ...datos,
-      correo: conductor.email ?? '',
+      correo: persona.correo,
       firma,
-      device_fingerprint: huellaPortal(conductor.id),
+      device_fingerprint: persona.huella,
       ip_address: meta.ip.slice(0, 45),
       user_agent: meta.userAgent
     })
   } catch (error) {
-    // La evaluación se editó mientras el conductor la respondía: sus opciones ya no existen.
+    // La evaluación se editó mientras la respondía: sus opciones ya no existen.
     if (error instanceof OpcionDesconocidaError) throw new CapacitacionesError(error.message, 409)
     throw error
   }

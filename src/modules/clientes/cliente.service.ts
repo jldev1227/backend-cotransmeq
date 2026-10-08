@@ -57,6 +57,8 @@ export const ClientesService = {
     search?: string,
     /** Orden alfabético por nombre (A–Z por defecto). */
     orden: 'asc' | 'desc' = 'asc',
+    /** Selectores: los ocultos también se pueden elegir. */
+    incluirOcultos = false,
   ) {
     const skip = (page - 1) * limit;
     
@@ -64,6 +66,7 @@ export const ClientesService = {
       deletedAt: null,
       oculto: false // Excluir clientes ocultos
     };
+    if (incluirOcultos) delete where.oculto;
 
     if (tipo && tipo !== 'TODOS') {
       where.tipo = tipo;
@@ -342,11 +345,11 @@ export const ClientesService = {
     };
   },
 
+  // Para selectores: los ocultos SÍ se pueden elegir.
   async listBasicos() {
     return prisma.clientes.findMany({
-      where: { 
-        deletedAt: null,
-        oculto: false // Excluir clientes ocultos
+      where: {
+        deletedAt: null
       },
       select: {
         id: true,
@@ -355,7 +358,8 @@ export const ClientesService = {
         tipo: true,
         telefono: true,
         correo: true,
-        requiere_osi: true
+        requiere_osi: true,
+        oculto: true
       },
       orderBy: { nombre: 'asc' }
     });

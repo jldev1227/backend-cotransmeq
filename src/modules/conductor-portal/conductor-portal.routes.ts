@@ -12,6 +12,7 @@ import {
   listarCapacitaciones,
   obtenerAsistencia,
   obtenerEvaluacion,
+  personaConductor,
   responderEvaluacion
 } from './capacitaciones.service'
 import {
@@ -45,6 +46,7 @@ import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aw
 import { emitirTokenPortal } from './portal-token.service'
 import type { PortalAccessChannel } from '../../lib/portal-access-link'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
+import { avisarDiaLaborado } from '../avisos-equipo/avisos-equipo.service'
 import { emitNotificacion } from '../../sockets'
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway'
 
@@ -126,6 +128,11 @@ async function notificarFirmaDesprendible(liquidacion: {
     const permisos = usuario.permisos && typeof usuario.permisos === 'object'
       ? usuario.permisos as Record<string, unknown>
       : {}
+    /// Operaciones no recibe este aviso (es de nómina): varios de sus usuarios tienen
+    /// `role: 'admin'` y les llegaba cada firma. Cuenta como operaciones quien tiene esa área
+    /// sin administración ni talento humano.
+    const deOperaciones = areas.includes('operaciones') && !areas.includes('administracion') && !areas.includes('talento_humano')
+    if (deOperaciones) return false
     return usuario.role === 'admin' ||
       usuario.role === 'gestor_nomina' ||
       areas.includes('talento_humano') ||
@@ -1773,7 +1780,13 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
         // Delegar al servicio oficial (maneja correctamente la tabla pivote de segmentos
         // y aplica la transacción replaceAll)
+        /// Solo el primer registro del día avisa al equipo: corregirlo después no es noticia.
+        const yaExistia = await prisma.registro_dia_laboral.findUnique({
+          where: { conductor_id_fecha: { conductor_id: conductor.id, fecha: new Date(`${data.fecha}T00:00:00.000Z`) } },
+          select: { id: true },
+        })
         const guardado = await DiasLaboradosService.upsertRegistro(conductor.id, data)
+        if (!yaExistia) void avisarDiaLaborado(conductor.id, data.fecha, data.tipo)
         const registro = guardado ? (await conAdjuntos([guardado]))[0] : guardado
 
         // Emitir evento en tiempo real para que el dashboard se actualice
@@ -1960,7 +1973,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     }, async (_request: FastifyRequest, reply: FastifyReply) => {
       const clientes = await prisma.clientes.findMany({
-        where: { deletedAt: null, oculto: false },
+        where: { deletedAt: null },
         select: { id: true, nombre: true, nit: true, tipo: true },
         orderBy: { nombre: 'asc' }
       })
@@ -1975,7 +1988,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     }, async (_request: FastifyRequest, reply: FastifyReply) => {
       const vehiculos = await prisma.vehiculos.findMany({
-        where: { oculto: false, deleted_at: null },
+        where: { deleted_at: null },
         select: { id: true, placa: true, marca: true, linea: true, modelo: true, estado: true, conductor_id: true },
         orderBy: { placa: 'asc' }
       })
@@ -2335,7 +2348,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
-        const data = await listarCapacitaciones(conductor.id)
+        const data = await listarCapacitaciones(await personaConductor(conductor.id))
         return reply.send({ success: true, data })
       } catch (err: any) {
         return errorCapacitaciones(request, reply, err, 'No fue posible consultar las capacitaciones')
@@ -2351,7 +2364,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
-        const data = await obtenerAsistencia(request.params.token, conductor.id)
+        const data = await obtenerAsistencia(request.params.token, await personaConductor(conductor.id))
         return reply.send({ success: true, data })
       } catch (err: any) {
         return errorCapacitaciones(request, reply, err, 'No fue posible consultar la asistencia')
@@ -2369,7 +2382,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         const conductor = (request as any).conductorPortal
         const data = await firmarAsistencia(
           request.params.token,
-          conductor.id,
+          await personaConductor(conductor.id),
           request.body,
           metaPeticion(request)
         )
@@ -2388,7 +2401,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
-        const data = await obtenerEvaluacion(request.params.id, conductor.id)
+        const data = await obtenerEvaluacion(request.params.id, await personaConductor(conductor.id))
         return reply.send({ success: true, data })
       } catch (err: any) {
         return errorCapacitaciones(request, reply, err, 'No fue posible consultar la evaluación')
@@ -2406,7 +2419,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         const conductor = (request as any).conductorPortal
         const data = await responderEvaluacion(
           request.params.id,
-          conductor.id,
+          await personaConductor(conductor.id),
           request.body,
           metaPeticion(request)
         )

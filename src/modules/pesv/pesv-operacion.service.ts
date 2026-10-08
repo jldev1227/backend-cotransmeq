@@ -1081,7 +1081,7 @@ export async function cerrarPoliticaJornada(id: string, vigenteHasta: string, ac
 /** Vehículos activos con su placa normalizada, para los selectores del panel. */
 export async function opcionesVehiculos() {
   const vehiculos = await prisma.vehiculos.findMany({
-    where: { deleted_at: null, oculto: false },
+    where: { deleted_at: null },
     select: { id: true, placa: true, marca: true, linea: true },
     orderBy: { placa: 'asc' },
   })

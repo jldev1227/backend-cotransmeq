@@ -52,12 +52,13 @@ export const ClientesController = {
   },
 
   async obtenerTodos(request: FastifyRequest, reply: FastifyReply) {
-    const { page, limit, tipo, search, orden } = request.query as {
+    const { page, limit, tipo, search, orden, incluir_ocultos } = request.query as {
       page?: string
       limit?: string
       tipo?: string
       search?: string
       orden?: string
+      incluir_ocultos?: string
     }
     
     const pageNum = page ? parseInt(page) : 1
@@ -69,6 +70,7 @@ export const ClientesController = {
       tipo,
       search,
       orden === 'desc' ? 'desc' : 'asc',
+      incluir_ocultos === 'true',
     )
     
     reply.send({
