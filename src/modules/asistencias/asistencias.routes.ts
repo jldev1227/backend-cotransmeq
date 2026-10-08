@@ -156,6 +156,33 @@ export async function asistenciasRoutes(app: FastifyInstance) {
     }
   }, AsistenciasController.eliminar)
 
+  // Activar o cerrar varios formularios (barra de selección)
+  app.patch('/asistencias/formularios/estado', {
+    onRequest: authMiddleware,
+    schema: {
+      description: 'Activar o cerrar varios formularios de asistencia a la vez',
+      tags: ['asistencias'],
+      body: {
+        type: 'object',
+        required: ['ids', 'activo'],
+        properties: {
+          ids: { type: 'array', minItems: 1, items: { type: 'string', format: 'uuid' } },
+          activo: { type: 'boolean' }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            actualizados: { type: 'number' }
+          }
+        }
+      }
+    }
+  }, AsistenciasController.cambiarEstado)
+
   // Eliminar respuestas individuales
   app.delete('/asistencias/respuestas', {
     onRequest: authMiddleware,
@@ -246,7 +273,9 @@ export async function asistenciasRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           filterActivo: { type: 'string', enum: ['all', 'activo', 'inactivo'] },
-          search: { type: 'string' }
+          search: { type: 'string' },
+          desde: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          hasta: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }
         }
       }
     }
@@ -262,6 +291,8 @@ export async function asistenciasRoutes(app: FastifyInstance) {
         properties: {
           filterActivo: { type: 'string', enum: ['all', 'activo', 'inactivo'] },
           search: { type: 'string' },
+          desde: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          hasta: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           jobId: { type: 'string' }
         }
       }

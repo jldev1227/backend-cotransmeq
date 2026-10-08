@@ -2,7 +2,51 @@ import { prisma } from '../../config/prisma'
 import crypto from 'crypto'
 import type { CreateFormularioAsistenciaInput, UpdateFormularioAsistenciaInput, CreateRespuestaAsistenciaInput } from './asistencias.schema'
 
+/** Filtros del listado: los mismos para la tabla, «Seleccionar todos» y «Descargar todas». */
+export interface FiltrosFormularios {
+  search?: string
+  filterActivo?: 'all' | 'activo' | 'inactivo'
+  /** Fechas del evento, `YYYY-MM-DD`, ambas inclusive. */
+  desde?: string
+  hasta?: string
+}
+
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/
+
 export class AsistenciasService {
+  /**
+   * El `where` del listado en un solo sitio. Antes la tabla, los ids y el ZIP
+   * armaban cada uno el suyo y no buscaban en los mismos campos: «Descargar
+   * todas» podía traer menos formularios de los que la tabla mostraba.
+   */
+  static construirWhere(filtros: FiltrosFormularios = {}) {
+    const where: any = { deleted_at: null }
+    const { search, filterActivo, desde, hasta } = filtros
+
+    if (search) {
+      where.OR = [
+        { tematica: { contains: search, mode: 'insensitive' } },
+        { objetivo: { contains: search, mode: 'insensitive' } },
+        { tipo_evento: { contains: search, mode: 'insensitive' } },
+        { tipo_evento_otro: { contains: search, mode: 'insensitive' } },
+        { lugar_sede: { contains: search, mode: 'insensitive' } },
+        { nombre_instructor: { contains: search, mode: 'insensitive' } }
+      ]
+    }
+
+    if (filterActivo === 'activo') where.activo = true
+    else if (filterActivo === 'inactivo') where.activo = false
+
+    // `fecha` es @db.Date: la medianoche UTC del día la compara tal cual.
+    const fecha: any = {}
+    if (desde && FECHA_ISO.test(desde)) fecha.gte = new Date(`${desde}T00:00:00.000Z`)
+    if (hasta && FECHA_ISO.test(hasta)) fecha.lte = new Date(`${hasta}T00:00:00.000Z`)
+    if (fecha.gte || fecha.lte) where.fecha = fecha
+
+    return where
+  }
+
+
   /**
    * Generar un token único para el formulario
    */
@@ -81,31 +125,15 @@ export class AsistenciasService {
   /**
    * Obtener todos los formularios de asistencia con paginación
    */
-  static async obtenerTodos(params: {
+  static async obtenerTodos(params: FiltrosFormularios & {
     page: number;
     limit: number;
-    search?: string;
-    filterActivo?: 'all' | 'activo' | 'inactivo';
     sortBy?: 'fecha' | 'tematica' | 'respuestas';
     sortOrder?: 'asc' | 'desc';
   }) {
-    const { page, limit, search, filterActivo, sortBy, sortOrder } = params;
+    const { page, limit, sortBy, sortOrder } = params;
 
-    const where: any = { deleted_at: null };
-
-    if (search) {
-      where.OR = [
-        { tematica: { contains: search, mode: 'insensitive' } },
-        { objetivo: { contains: search, mode: 'insensitive' } },
-        { tipo_evento: { contains: search, mode: 'insensitive' } },
-        { tipo_evento_otro: { contains: search, mode: 'insensitive' } },
-        { lugar_sede: { contains: search, mode: 'insensitive' } },
-        { nombre_instructor: { contains: search, mode: 'insensitive' } }
-      ];
-    }
-
-    if (filterActivo === 'activo') where.activo = true;
-    else if (filterActivo === 'inactivo') where.activo = false;
+    const where = this.construirWhere(params);
 
     const orderBy: any = {};
     if (sortBy === 'fecha') orderBy.fecha = sortOrder;
@@ -441,18 +469,8 @@ export class AsistenciasService {
   /**
    * Obtener todos los formularios con respuestas (sin paginar) para exportación masiva
    */
-  static async obtenerTodosConRespuestas(filters?: { filterActivo?: 'all' | 'activo' | 'inactivo'; search?: string }) {
-    const where: any = { deleted_at: null }
-    if (filters?.search) {
-      where.OR = [
-        { tematica: { contains: filters.search, mode: 'insensitive' } },
-        { objetivo: { contains: filters.search, mode: 'insensitive' } },
-        { lugar_sede: { contains: filters.search, mode: 'insensitive' } },
-        { nombre_instructor: { contains: filters.search, mode: 'insensitive' } }
-      ]
-    }
-    if (filters?.filterActivo === 'activo') where.activo = true
-    else if (filters?.filterActivo === 'inactivo') where.activo = false
+  static async obtenerTodosConRespuestas(filters?: FiltrosFormularios) {
+    const where = this.construirWhere(filters)
 
     return prisma.formularios_asistencia.findMany({
       where,
@@ -482,24 +500,25 @@ export class AsistenciasService {
   /**
    * Obtener solo los IDs de los formularios que coinciden con los filtros
    */
-  static async obtenerIdsFiltrados(filters?: { filterActivo?: 'all' | 'activo' | 'inactivo'; search?: string }) {
-    const where: any = { deleted_at: null }
-    if (filters?.search) {
-      where.OR = [
-        { tematica: { contains: filters.search, mode: 'insensitive' } },
-        { objetivo: { contains: filters.search, mode: 'insensitive' } },
-        { lugar_sede: { contains: filters.search, mode: 'insensitive' } },
-        { nombre_instructor: { contains: filters.search, mode: 'insensitive' } }
-      ]
-    }
-    if (filters?.filterActivo === 'activo') where.activo = true
-    else if (filters?.filterActivo === 'inactivo') where.activo = false
+  static async obtenerIdsFiltrados(filters?: FiltrosFormularios) {
+    const where = this.construirWhere(filters)
 
-    const rows = await prisma.formularios_asistencia.findMany({
+    return prisma.formularios_asistencia.findMany({
       where,
-      select: { id: true },
+      select: { id: true, activo: true },
       orderBy: { fecha: 'desc' }
     })
-    return rows.map(r => r.id)
+  }
+
+  /**
+   * Activa o cierra varios formularios de una vez. Devuelve cuántos cambió:
+   * los que ya estaban en ese estado no cuentan.
+   */
+  static async cambiarEstado(ids: string[], activo: boolean) {
+    const { count } = await prisma.formularios_asistencia.updateMany({
+      where: { id: { in: ids }, deleted_at: null, activo: !activo },
+      data: { activo }
+    })
+    return count
   }
 }

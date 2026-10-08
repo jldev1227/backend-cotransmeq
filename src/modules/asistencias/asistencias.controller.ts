@@ -10,6 +10,13 @@ import * as XLSX from 'xlsx'
 import archiver from 'archiver'
 import { PDFGeneratorService } from './pdf-generator.service'
 
+
+/** Nombre de la carpeta de cada mes en los ZIP de PDF. */
+const MESES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+]
+
 export class AsistenciasController {
   /**
    * Crear un nuevo formulario de asistencia
@@ -72,6 +79,8 @@ export class AsistenciasController {
         limit,
         search,
         filterActivo,
+        desde: query.desde || undefined,
+        hasta: query.hasta || undefined,
         sortBy,
         sortOrder
       });
@@ -602,7 +611,11 @@ export class AsistenciasController {
             data.respuestas
           )
 
-          let baseName = `${f.fecha.toISOString().split('T')[0]}_${f.tematica.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60)}`
+          // Una carpeta por año y dentro una por mes: `2026/09-septiembre/…`.
+          // `fecha` es @db.Date (medianoche UTC), por eso se leen las partes en UTC.
+          const fechaIso = f.fecha.toISOString().split('T')[0]
+          const carpeta = `${fechaIso.slice(0, 4)}/${fechaIso.slice(5, 7)}-${MESES[f.fecha.getUTCMonth()]}`
+          let baseName = `${carpeta}/${fechaIso}_${f.tematica.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60)}`
           let fileName = `${baseName}.pdf`
           let counter = 2
           while (usedNames.has(fileName)) {
@@ -638,7 +651,12 @@ export class AsistenciasController {
       const jobId = query.jobId || `all-${Date.now()}`
       const userId = (request as any).user?.sub
 
-      const formularios = await AsistenciasService.obtenerTodosConRespuestas({ filterActivo, search })
+      const formularios = await AsistenciasService.obtenerTodosConRespuestas({
+        filterActivo,
+        search,
+        desde: query.desde || undefined,
+        hasta: query.hasta || undefined
+      })
 
       return await AsistenciasController.generarZipPDFs(
         formularios,
@@ -706,17 +724,60 @@ export class AsistenciasController {
       const filterActivo = query.filterActivo as 'all' | 'activo' | 'inactivo' | undefined
       const search = query.search || undefined
 
-      const ids = await AsistenciasService.obtenerIdsFiltrados({ filterActivo, search })
+      const filas = await AsistenciasService.obtenerIdsFiltrados({
+        filterActivo,
+        search,
+        desde: query.desde || undefined,
+        hasta: query.hasta || undefined
+      })
 
+      /// `data` sigue siendo la lista de ids; `activos` dice cuáles lo están,
+      /// para que la barra de selección cuente cuántos activar y cuántos cerrar
+      /// aunque la selección abarque páginas que no se han cargado.
       return reply.status(200).send({
         success: true,
-        data: ids
+        data: filas.map((f) => f.id),
+        activos: filas.filter((f) => f.activo).map((f) => f.id)
       })
     } catch (error: any) {
       request.log.error(error)
       return reply.status(500).send({
         success: false,
         message: error.message || 'Error al obtener los IDs'
+      })
+    }
+  }
+
+  /**
+   * Activar o cerrar varios formularios a la vez (barra de selección)
+   */
+  static async cambiarEstado(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { ids, activo } = request.body as { ids: string[]; activo: boolean }
+
+      const actualizados = await AsistenciasService.cambiarEstado(ids, activo)
+
+      try {
+        const io = getIo()
+        io.emit(activo ? 'asistencias:formulario:updated' : 'asistencias:formulario:disabled', {
+          ids,
+          activo,
+          timestamp: new Date().toISOString()
+        })
+      } catch (error) {
+        request.log.warn('Socket.io not available for event emission')
+      }
+
+      return reply.status(200).send({
+        success: true,
+        message: activo ? 'Formularios activados' : 'Formularios cerrados',
+        actualizados
+      })
+    } catch (error: any) {
+      request.log.error(error)
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Error al cambiar el estado de los formularios'
       })
     }
   }
