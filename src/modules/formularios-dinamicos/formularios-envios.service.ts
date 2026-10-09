@@ -347,10 +347,15 @@ export async function restaurarEnvio(id: string, actor: AdminActor) {
 /**
  * Exportación CSV de la lista filtrada.
  *
- * Exporta la CABECERA de cada envío, no sus respuestas: los formularios tienen
- * campos distintos entre sí (y entre versiones del mismo), así que un CSV
- * plano con una columna por pregunta solo tiene sentido filtrando por
- * `versionId`. Cuando llega ese filtro se añaden las columnas de la versión.
+ * Las respuestas se despliegan en columnas cuando todas las filas son del
+ * MISMO formato (filtro por `formId` o por `versionId`, o porque la lista
+ * resultó de un solo formulario). Un formato tiene varias versiones y cada
+ * versión sus propias filas de `form_fields`, pero la pregunta es la misma: la
+ * columna se une por la `key` del campo, con la etiqueta de la versión más
+ * reciente que la tenga, y las preguntas que solo existen en versiones viejas
+ * van al final. Así un preoperacional diligenciado en la v1 y otro en la v4
+ * caen en el mismo CSV y en las mismas columnas. Entre formatos distintos no
+ * hay unión posible y el CSV lleva solo la cabecera de cada envío.
  */
 export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<string> {
   const where = buildWhere(query)
@@ -390,19 +395,32 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
     'motivo_anulacion',
   ]
 
-  /// Solo con `versionId` se pueden desplegar las respuestas en columnas: es la
-  /// única forma de garantizar que todas las filas comparten el mismo conjunto
-  /// de preguntas.
-  let camposVersion: { id: string; key: string; label: string }[] = []
+  /// Versiones presentes en las filas. Si son de un solo formato, se unen sus
+  /// campos por clave; si hay más de un formato, no se despliegan respuestas.
+  const versionIds = [...new Set(rows.map((r) => r.version_id))]
+  const formIds = new Set(rows.map((r) => r.version?.form_id).filter(Boolean))
+  const unSoloFormato = Boolean(query.versionId || query.formId || formIds.size === 1)
+
+  let camposVersion: { key: string; label: string }[] = []
+  const clavePorCampoId = new Map<string, string>()
   let respuestasPorEnvio = new Map<string, Map<string, string>>()
 
-  if (query.versionId && rows.length) {
+  if (unSoloFormato && rows.length) {
     const campos = await prisma.form_field.findMany({
-      where: { version_id: query.versionId, parent_field_id: null },
-      select: { id: true, key: true, label: true, sort_order: true, section: { select: { sort_order: true } } },
-      orderBy: [{ section: { sort_order: 'asc' } }, { sort_order: 'asc' }],
+      where: { version_id: { in: versionIds }, parent_field_id: null },
+      select: { id: true, key: true, label: true, sort_order: true, version: { select: { version_number: true } }, section: { select: { sort_order: true } } },
+      orderBy: [{ version: { version_number: 'desc' } }, { section: { sort_order: 'asc' } }, { sort_order: 'asc' }],
     })
-    camposVersion = campos.map((c) => ({ id: c.id, key: c.key, label: c.label }))
+    /// Recorrido de la versión más nueva a la más vieja: la primera vez que
+    /// aparece una clave fija su columna (orden y etiqueta); las demás
+    /// versiones solo aportan el mapeo de sus ids a esa clave.
+    const vistas = new Set<string>()
+    for (const c of campos) {
+      clavePorCampoId.set(c.id, c.key)
+      if (vistas.has(c.key)) continue
+      vistas.add(c.key)
+      camposVersion.push({ key: c.key, label: c.label })
+    }
 
     const respuestas = await prisma.form_answer.findMany({
       where: { submission_id: { in: rows.map((r) => r.id) }, occurrence_id: null },
@@ -421,8 +439,10 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
 
     respuestasPorEnvio = new Map()
     for (const r of respuestas) {
+      const clave = clavePorCampoId.get(r.field_id)
+      if (!clave) continue
       const porCampo = respuestasPorEnvio.get(r.submission_id) ?? new Map<string, string>()
-      porCampo.set(r.field_id, valorPlano(r))
+      porCampo.set(clave, valorPlano(r))
       respuestasPorEnvio.set(r.submission_id, porCampo)
     }
   }
@@ -449,7 +469,7 @@ export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<strin
       dto.voidedAt ?? '',
       dto.voidReason ?? '',
     ]
-    const dinamicas = camposVersion.map((c) => respuestasPorEnvio.get(row.id)?.get(c.id) ?? '')
+    const dinamicas = camposVersion.map((c) => respuestasPorEnvio.get(row.id)?.get(c.key) ?? '')
     lineas.push([...fijas, ...dinamicas].map(csvCell).join(','))
   }
 
