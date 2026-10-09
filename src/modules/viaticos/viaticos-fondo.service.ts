@@ -10,6 +10,9 @@
  * - GASTO_EMPRESA (−): un gasto que asume la empresa (oficina, mantenimiento…) pagado con el fondo.
  * - AJUSTE (±): le cambiaron el valor a un anticipo o gasto ya descontado, o una corrección manual.
  * - REVERSO (+): se eliminó un anticipo o gasto; el dinero vuelve al fondo.
+ * - CIERRE (0): marca el fin de un corte. No mueve plata: lo que quedaba sigue en el fondo y
+ *   pasa como «arrastre» al corte siguiente, donde se suma al próximo saldo recibido. Un saldo
+ *   recibido NO cierra el corte por sí solo: a veces llega plata a mitad de corte.
  * Sin saldo no se puede dar un anticipo, ni uno mayor a lo que hay. Se considera bajo cuando queda
  * en el 15 % (el mismo umbral del saldo de un anticipo) o menos de lo que había justo después de la
  * última recarga.
@@ -36,6 +39,8 @@ type Tx = Prisma.TransactionClient
 /** El único fondo que existe hoy: el del área de operaciones. */
 const FONDO = 'OPERACIONES'
 
+export type TipoMovimiento = 'RECARGA' | 'ANTICIPO' | 'GASTO_EMPRESA' | 'AJUSTE' | 'REVERSO' | 'CIERRE'
+
 const num = (v: Prisma.Decimal | number | null | undefined) => (v === null || v === undefined ? 0 : Number(v))
 const redondear = (v: number) => Math.round(v * 100) / 100
 const moneda = (v: number) => `$${Math.round(v).toLocaleString('es-CO')}`
@@ -58,6 +63,26 @@ async function bloquearFondo(tx: Tx) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`viatico_fondo:${FONDO}`}))`
 }
 
+export interface Corte {
+  /** Desde cuándo corre (fecha del cierre anterior o del primer movimiento). */
+  desde: string | null
+  /** Lo que quedaba al cerrar el corte anterior: entra a este como saldo inicial. */
+  arrastre: number
+  recibido: number
+  anticipos: number
+  gastos: number
+  ajustes: number
+  reversos: number
+  /** Saldo al cerrar (o el actual, si el corte sigue abierto). */
+  restante: number
+  movimientos: number
+  cerrado: { id: string; fecha: string; por: string | null; observaciones: string | null } | null
+}
+
+function nuevoCorte(desde: Date | null, arrastre: number): Corte {
+  return { desde: desde ? desde.toISOString() : null, arrastre, recibido: 0, anticipos: 0, gastos: 0, ajustes: 0, reversos: 0, restante: arrastre, movimientos: 0, cerrado: null }
+}
+
 /** Estado del fondo del área para la app y el panel: saldo, base de la última recarga y si está bajo. */
 export async function estadoFondo(usuarioId: string) {
   const [requiere, movimientos] = await Promise.all([
@@ -75,13 +100,29 @@ export async function estadoFondo(usuarioId: string) {
   let acumulado = 0
   let base = 0
   let ultimaRecarga: { valor: number; fecha: string; por: string | null } | null = null
+  /// Cortes: cada CIERRE termina uno. El corte abierto va acumulando desde el último cierre.
+  const cortes: Corte[] = []
+  let corte = nuevoCorte(movimientos[0]?.created_at ?? null, 0)
   for (const m of movimientos) {
-    acumulado = redondear(acumulado + num(m.valor))
+    const valor = num(m.valor)
+    acumulado = redondear(acumulado + valor)
     if (m.tipo === 'RECARGA') {
       base = acumulado
-      ultimaRecarga = { valor: num(m.valor), fecha: m.created_at.toISOString(), por: m.usuario?.nombre ?? null }
+      ultimaRecarga = { valor, fecha: m.created_at.toISOString(), por: m.usuario?.nombre ?? null }
+      corte.recibido = redondear(corte.recibido + valor)
+    } else if (m.tipo === 'ANTICIPO') corte.anticipos = redondear(corte.anticipos - valor)
+    else if (m.tipo === 'GASTO_EMPRESA') corte.gastos = redondear(corte.gastos - valor)
+    else if (m.tipo === 'AJUSTE') corte.ajustes = redondear(corte.ajustes + valor)
+    else if (m.tipo === 'REVERSO') corte.reversos = redondear(corte.reversos + valor)
+    if (m.tipo !== 'CIERRE') corte.movimientos += 1
+    if (m.tipo === 'CIERRE') {
+      corte.cerrado = { id: m.id, fecha: m.created_at.toISOString(), por: m.usuario?.nombre ?? null, observaciones: m.observaciones }
+      corte.restante = acumulado
+      cortes.push(corte)
+      corte = nuevoCorte(m.created_at, acumulado)
     }
   }
+  corte.restante = acumulado
   const porcentaje = base > 0 ? Math.round((acumulado / base) * 1000) / 10 : 0
   return {
     fondo: FONDO,
@@ -94,12 +135,16 @@ export async function estadoFondo(usuarioId: string) {
     saldo_bajo: base > 0 ? acumulado <= base * UMBRAL_SALDO_BAJO : acumulado <= 0,
     sin_saldo: acumulado <= 0,
     ultima_recarga: ultimaRecarga,
+    /// El corte abierto: lo que arrastró del anterior, lo recibido y lo gastado desde entonces.
+    corte_actual: corte,
+    /// Cortes cerrados, el más reciente primero.
+    cortes: cortes.reverse().slice(0, 12),
     movimientos: movimientos
-      .slice(-40)
+      .slice(-60)
       .reverse()
       .map((m) => ({
         id: m.id,
-        tipo: m.tipo as 'RECARGA' | 'ANTICIPO' | 'GASTO_EMPRESA' | 'AJUSTE' | 'REVERSO',
+        tipo: m.tipo as TipoMovimiento,
         valor: num(m.valor),
         observaciones: m.observaciones,
         fecha: m.created_at.toISOString(),
@@ -205,6 +250,116 @@ export async function editarMovimiento(usuarioId: string, id: string, body: unkn
     )
   })
   return estadoFondo(usuarioId)
+}
+
+const cierreSchema = z.object({ observaciones: z.string().trim().max(500).optional().nullable() })
+
+/**
+ * Cierra el corte en curso. No mueve plata: deja la marca con el saldo que quedaba, que pasa
+ * como arrastre al corte siguiente y se sumará al próximo saldo recibido. No se puede cerrar
+ * dos veces seguidas sin que haya pasado nada en medio.
+ */
+export async function cerrarCorte(usuarioId: string, body: unknown) {
+  const input = parsear(cierreSchema, body)
+  await prisma.$transaction(async (tx) => {
+    await bloquearFondo(tx)
+    const ultimo = await tx.viatico_fondo_movimiento.findFirst({ where: { fondo: FONDO }, orderBy: { created_at: 'desc' }, select: { tipo: true } })
+    if (!ultimo) throw new ViaticosError('Todavía no hay movimientos en el saldo del área: no hay nada que cerrar.', 409, 'CORTE_VACIO')
+    if (ultimo.tipo === 'CIERRE') throw new ViaticosError('El corte ya está cerrado: no ha pasado nada desde el último cierre.', 409, 'CORTE_YA_CERRADO')
+    const restante = await saldo(tx)
+    await tx.viatico_fondo_movimiento.create({
+      data: {
+        fondo: FONDO,
+        usuario_id: usuarioId,
+        tipo: 'CIERRE',
+        valor: 0,
+        observaciones: input.observaciones || `Cierre de corte · quedaron ${moneda(restante)} que pasan al siguiente`,
+        creado_por_id: usuarioId
+      }
+    })
+    logger.info({ type: 'viatico-fondo-cierre', usuarioId, restante }, '[viaticos] corte del fondo cerrado')
+  })
+  return estadoFondo(usuarioId)
+}
+
+const FECHA = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Consolidado del fondo en un periodo, para el PDF: cada movimiento con el saldo que había en ese
+ * momento (antes y después), el saldo con que arrancó el periodo, los totales y los cierres (con
+ * cuánto quedó en cada uno). Las fechas van en día de Colombia.
+ */
+export async function consolidadoFondo(desde: unknown, hasta: unknown) {
+  if (typeof desde !== 'string' || !FECHA.test(desde) || typeof hasta !== 'string' || !FECHA.test(hasta)) {
+    throw new ViaticosError('Indica el periodo como desde y hasta (AAAA-MM-DD).', 400, 'DATOS_INVALIDOS')
+  }
+  const inicio = new Date(`${desde}T00:00:00-05:00`)
+  const fin = new Date(`${hasta}T23:59:59.999-05:00`)
+  if (fin < inicio) throw new ViaticosError('La fecha final es anterior a la inicial.', 400, 'DATOS_INVALIDOS')
+  const movimientos = await prisma.viatico_fondo_movimiento.findMany({
+    where: { fondo: FONDO, created_at: { lte: fin } },
+    orderBy: { created_at: 'asc' },
+    include: {
+      anticipo: { select: { id: true, concepto: true, conductor: { select: { nombre: true, apellido: true } }, vehiculo: { select: { placa: true } } } },
+      gasto_empresa: { select: { id: true, categoria: true, descripcion: true, beneficiario: true } },
+      usuario: { select: { nombre: true } }
+    }
+  })
+  let acumulado = 0
+  let saldoInicial = 0
+  const filas: Array<{
+    id: string
+    tipo: TipoMovimiento
+    fecha: string
+    detalle: string
+    entra: number
+    sale: number
+    saldo_antes: number
+    saldo_despues: number
+    registrado_por: string | null
+    observaciones: string | null
+  }> = []
+  const totales = { recibido: 0, anticipos: 0, gastos: 0, ajustes: 0, reversos: 0, cierres: 0 }
+  const cierres: Array<{ id: string; fecha: string; restante: number; por: string | null; observaciones: string | null }> = []
+  for (const m of movimientos) {
+    const valor = num(m.valor)
+    const antes = acumulado
+    acumulado = redondear(acumulado + valor)
+    if (m.created_at < inicio) {
+      saldoInicial = acumulado
+      continue
+    }
+    const tipo = m.tipo as TipoMovimiento
+    if (tipo === 'RECARGA') totales.recibido = redondear(totales.recibido + valor)
+    else if (tipo === 'ANTICIPO') totales.anticipos = redondear(totales.anticipos - valor)
+    else if (tipo === 'GASTO_EMPRESA') totales.gastos = redondear(totales.gastos - valor)
+    else if (tipo === 'AJUSTE') totales.ajustes = redondear(totales.ajustes + valor)
+    else if (tipo === 'REVERSO') totales.reversos = redondear(totales.reversos + valor)
+    else if (tipo === 'CIERRE') {
+      totales.cierres += 1
+      cierres.push({ id: m.id, fecha: m.created_at.toISOString(), restante: acumulado, por: m.usuario?.nombre ?? null, observaciones: m.observaciones })
+    }
+    const detalle = m.anticipo
+      ? `${m.anticipo.conductor.nombre} ${m.anticipo.conductor.apellido}`.trim() + ` · ${m.anticipo.vehiculo.placa} · ${m.anticipo.concepto}`
+      : m.gasto_empresa
+        ? `${m.gasto_empresa.categoria} · ${m.gasto_empresa.descripcion}${m.gasto_empresa.beneficiario ? ` · ${m.gasto_empresa.beneficiario}` : ''}`
+        : tipo === 'CIERRE'
+          ? `Cierre de corte · quedaron ${moneda(acumulado)}`
+          : (m.observaciones ?? '')
+    filas.push({
+      id: m.id,
+      tipo,
+      fecha: m.created_at.toISOString(),
+      detalle,
+      entra: valor > 0 ? valor : 0,
+      sale: valor < 0 ? -valor : 0,
+      saldo_antes: antes,
+      saldo_despues: acumulado,
+      registrado_por: m.usuario?.nombre ?? null,
+      observaciones: m.observaciones
+    })
+  }
+  return { fondo: FONDO, desde, hasta, saldo_inicial: saldoInicial, saldo_final: acumulado, totales, cierres, movimientos: filas }
 }
 
 /** A qué se refiere un movimiento: un anticipo o un gasto de la empresa. */

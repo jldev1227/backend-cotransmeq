@@ -9,7 +9,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { leerComprobante } from './viaticos-comprobante.service'
-import { ajustarSaldo, crearTerceroDePlaca, editarMovimiento, estadoFondo, registrarRecarga, terceroDePlaca } from './viaticos-fondo.service'
+import { ajustarSaldo, crearTerceroDePlaca, cerrarCorte, consolidadoFondo, editarMovimiento, estadoFondo, registrarRecarga, terceroDePlaca } from './viaticos-fondo.service'
 import { actualizarGastoEmpresa, crearGastoEmpresa, listarGastosEmpresa, resumenViaticos, retirarGastoEmpresa } from './viaticos-empresa.service'
 import {
   actualizarAnticipo,
@@ -151,6 +151,15 @@ export async function viaticosRoutes(app: FastifyInstance) {
     }
   })
 
+  app.get('/viaticos/fondo/consolidado', puedeLeer, async (request, reply) => {
+    try {
+      const q = request.query as { desde?: unknown; hasta?: unknown }
+      return reply.send({ success: true, data: await consolidadoFondo(q.desde, q.hasta) })
+    } catch (err) {
+      return responderError(request, reply, err, 'No fue posible armar el consolidado del saldo')
+    }
+  })
+
   app.post('/viaticos/fondo/recargas', puedeEscribir, async (request, reply) => {
     try {
       return reply.status(201).send({ success: true, data: await registrarRecarga(usuarioId(request), request.body) })
@@ -164,6 +173,14 @@ export async function viaticosRoutes(app: FastifyInstance) {
       return reply.status(201).send({ success: true, data: await ajustarSaldo(usuarioId(request), request.body) })
     } catch (err) {
       return responderError(request, reply, err, 'No fue posible corregir el saldo')
+    }
+  })
+
+  app.post('/viaticos/fondo/cierres', puedeEscribir, async (request, reply) => {
+    try {
+      return reply.status(201).send({ success: true, data: await cerrarCorte(usuarioId(request), request.body ?? {}) })
+    } catch (err) {
+      return responderError(request, reply, err, 'No fue posible cerrar el corte')
     }
   })
 
