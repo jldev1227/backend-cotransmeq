@@ -27,6 +27,7 @@ import { evaluacionesRoutes } from './modules/evaluaciones/evaluacion.routes'
 import { liquidacionesRoutes } from './modules/liquidaciones/liquidaciones.routes'
 import { primasRoutes } from './modules/primas/primas.routes'
 import { extractosRoutes } from './modules/extractos/extractos.routes'
+import { extractosPublicRoutes } from './modules/extractos/extractos-public.routes'
 import { salidasNCRoutes } from './modules/salidas-nc/salidas-nc.routes'
 import { liquidacionesServiciosRoutes } from './modules/liquidaciones-servicios/liquidaciones-servicios.routes'
 import { operadorasRoutes } from './modules/operadoras/operadoras.routes'
@@ -175,6 +176,7 @@ export function buildApp() {
     app.register(liquidacionesRoutes, { prefix: '/api' })
     app.register(primasRoutes, { prefix: '/api' })
     app.register(extractosRoutes, { prefix: '/api' })
+    app.register(extractosPublicRoutes, { prefix: '/api' })
     app.register(salidasNCRoutes, { prefix: '/api' })
     app.register(liquidacionesServiciosRoutes, { prefix: '/api' })
     app.register(operadorasRoutes, { prefix: '/api' })

@@ -10,6 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "kilometraje:sync": "tsx scripts/sincronizar-kilometraje.ts",
+    "extractos:importar": "tsx scripts/importar-extractos-xlsm.ts",
     "seed": "tsx prisma/seed.ts",
     "seeds:formularios:inventario": "tsx prisma/seeds/formularios-hseq/inventario.ts",
     "seeds:formularios:cargar": "tsx prisma/seeds/formularios-hseq/cargar.ts",

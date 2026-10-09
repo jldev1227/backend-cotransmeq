@@ -671,6 +671,7 @@ model clientes {
   // ── PESV ─ relaciones inversas
   pesv_siniestros_cliente pesv_incident[]      @relation("pesv_siniestro_cliente")
   contratos_transporte    transport_contract[] @relation("contrato_cliente")
+  fuec_contratantes       fuec_contratante[]
 
   @@map("empresas")
 }
@@ -1562,6 +1563,11 @@ model usuario_enlace_app {
 
 model vehiculos {
   placa                                     String                                    @unique @db.VarChar(255)
+  /// Lo que imprime el extracto de contrato (FUEC); antes vivía solo en el xlsm.
+  numero_interno                            String?                                   @db.VarChar(20)
+  tarjeta_operacion                         String?                                   @db.VarChar(60)
+  /// Empresa afiliadora del vehículo: va como «convenio de colaboración» en el FUEC.
+  empresa_afiliacion                        String?                                   @db.VarChar(255)
   marca                                     String?                                   @db.VarChar(255)
   linea                                     String?                                   @db.VarChar(255)
   modelo                                    String?                                   @db.VarChar(255)
@@ -5384,6 +5390,23 @@ model fuec_extract {
   consecutivo       Int
   numero_completo   String           @db.VarChar(80)
   contrato_id       String?          @db.Uuid
+  contratante_id    String?          @db.Uuid
+  /// Copia de lo impreso: el catálogo puede cambiar después, el extracto no.
+  contratante_nombre String?         @db.VarChar(255)
+  contratante_nit   String?          @db.VarChar(50)
+  contrato_numero   String?          @db.VarChar(40)
+  objeto_contrato   String?
+  convenio          String?          @db.VarChar(255)
+  modelo            String?          @db.VarChar(20)
+  marca             String?          @db.VarChar(100)
+  clase             String?          @db.VarChar(100)
+  /// `{ nombre, cedula, telefono, direccion }` del responsable del contratante.
+  responsable_json  Json             @default("{}")
+  /// Va en el QR: `/public/extracto/<codigo>`. Aleatorio, no adivinable.
+  codigo_verificacion String?        @unique @db.VarChar(24)
+  /// HMAC-SHA512 del snapshot canónico; la página pública lo recalcula.
+  firma_sha512      String?          @db.VarChar(128)
+  emitido_at        DateTime?        @db.Timestamptz(6)
   vehiculo_id       String?          @db.Uuid
   vehiculo_placa    String?          @db.VarChar(20)
   numero_interno    String?          @db.VarChar(40)
@@ -5427,16 +5450,60 @@ model fuec_extract {
   anulado_por     usuarios?           @relation("fuec_anulado_por", fields: [anulado_por_id], references: [id], onDelete: SetNull)
   reemplaza_a     fuec_extract?       @relation("fuec_reemplazo", fields: [reemplaza_a_id], references: [id], onDelete: SetNull)
   reemplazado_por fuec_extract[]      @relation("fuec_reemplazo")
+  contratante     fuec_contratante?   @relation(fields: [contratante_id], references: [id], onDelete: SetNull)
 
   conductores fuec_extract_driver[]
   servicios   servicio[]            @relation("servicio_fuec")
 
   @@index([consecutivo])
   @@index([contrato_id])
+  @@index([contratante_id])
   @@index([vehiculo_id])
+  @@index([vehiculo_placa])
   @@index([vigencia_desde, vigencia_hasta])
   @@index([estado])
   @@index([deleted_at])
+}
+
+/// Contratante del FUEC con su número de contrato y el responsable que firma
+/// por él. Catálogo histórico: cada extracto copia estos valores al emitirse.
+model fuec_contratante {
+  id                    String    @id @default(uuid()) @db.Uuid
+  nombre                String    @db.VarChar(255)
+  nit                   String?   @db.VarChar(50)
+  numero_contrato       String?   @db.VarChar(40)
+  cliente_id            String?   @db.Uuid
+  responsable_nombre    String?   @db.VarChar(255)
+  responsable_cedula    String?   @db.VarChar(50)
+  responsable_telefono  String?   @db.VarChar(50)
+  responsable_direccion String?   @db.VarChar(255)
+  usos                  Int       @default(0)
+  ultimo_uso_at         DateTime? @db.Timestamptz(6)
+  deleted_at            DateTime? @db.Timestamptz(6)
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  cliente   clientes?      @relation(fields: [cliente_id], references: [id], onDelete: SetNull)
+  extractos fuec_extract[]
+
+  @@index([nombre])
+  @@index([cliente_id])
+}
+
+/// Textos que se repiten de un extracto a otro. `tipo`: `OBJETO` |
+/// `CONVENIO` | `ORIGEN_DESTINO`. `usos` ordena el desplegable.
+model fuec_catalogo {
+  id            String    @id @default(uuid()) @db.Uuid
+  tipo          String    @db.VarChar(20)
+  texto         String
+  usos          Int       @default(0)
+  ultimo_uso_at DateTime? @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([tipo, texto])
+  @@index([tipo, usos(sort: Desc)])
 }
 
 /// Conductor autorizado en un extracto. Tabla aparte y no tres columnas:
