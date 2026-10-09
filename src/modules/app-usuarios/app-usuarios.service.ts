@@ -23,8 +23,6 @@ import { getEmailFrontendUrl } from '../../services/email.service'
 import { SesionesService } from '../sesiones/sesiones.service'
 
 export const VIGENCIA_ENLACE_DIAS = 30
-/** Áreas que pueden entrar a la app. El rol admin entra siempre. */
-export const AREAS_APP: Area[] = ['administracion', 'operaciones', 'hseq']
 
 export class AppUsuariosError extends Error {
   constructor(
@@ -37,11 +35,6 @@ export class AppUsuariosError extends Error {
 }
 
 const sha256 = (valor: string) => crypto.createHash('sha256').update(valor).digest('hex')
-
-export function puedeUsarApp(usuario: { role?: string | null; area?: string[] | null }) {
-  if (usuario.role === 'admin') return true
-  return (usuario.area ?? []).some((a) => (AREAS_APP as string[]).includes(a))
-}
 
 /** Enlace web que abre la app: pasa por el puente https porque Gmail y WhatsApp anulan los esquemas propios. */
 function urlEnlace(codigo: string) {
@@ -76,13 +69,8 @@ async function cargarUsuarioHabilitado(usuarioId: string) {
   if (!usuario || usuario.activo === false) {
     throw new AppUsuariosError('El usuario no existe o está inactivo.', 403, 'USUARIO_INACTIVO')
   }
-  if (!puedeUsarApp(usuario)) {
-    throw new AppUsuariosError(
-      'La app es para administración, operaciones y HSEQ. Tu usuario no tiene ninguna de esas áreas.',
-      403,
-      'AREA_NO_HABILITADA'
-    )
-  }
+  /// Cualquier usuario activo puede entrar: antes solo admin o las áreas administración,
+  /// operaciones y HSEQ. Lo que ve adentro lo deciden sus permisos (`modulos_accesibles`).
   return usuario
 }
 

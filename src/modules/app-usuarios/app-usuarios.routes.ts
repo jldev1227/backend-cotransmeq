@@ -17,7 +17,6 @@ import {
   canjearCodigo,
   enlaceVigente,
   generarEnlace,
-  puedeUsarApp,
   revocarEnlaces
 } from './app-usuarios.service'
 import { desactivarDispositivoUsuario, registrarDispositivoUsuario } from '../usuario-push/usuario-push.service'
@@ -48,7 +47,8 @@ export async function appUsuariosRoutes(app: FastifyInstance) {
       return reply.send({
         success: true,
         data: {
-          habilitado: puedeUsarApp(user),
+          /// Siempre true: la app ya no se limita por área. Se mantiene por compatibilidad.
+          habilitado: true,
           enlace: await enlaceVigente(user.id)
         }
       })
