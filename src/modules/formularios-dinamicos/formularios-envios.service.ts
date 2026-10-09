@@ -60,7 +60,7 @@ const listSelect = {
   _count: { select: { answers: true, attachments: true } },
 } satisfies Prisma.form_submissionSelect
 
-function buildWhere(query: ListarEnviosQuery): Prisma.form_submissionWhereInput {
+async function buildWhere(query: ListarEnviosQuery): Promise<Prisma.form_submissionWhereInput> {
   const where: Prisma.form_submissionWhereInput = {
     /**
      * Los descartados quedan FUERA salvo que se pidan.
@@ -92,22 +92,55 @@ function buildWhere(query: ListarEnviosQuery): Prisma.form_submissionWhereInput 
   }
 
   if (query.search) {
-    /// Búsqueda por conductor o placa. No se busca dentro de las respuestas:
+    /// Búsqueda por quien diligenció, placa, asignación y FORMATO (código o
+    /// título de cualquier versión). No se busca dentro de las respuestas:
     /// requeriría un LIKE sobre `form_answers` sin índice y con millones de
     /// filas, y el explorador tiene filtros estructurados para eso.
+    ///
+    /// El formato se resuelve en memoria y no con `contains`: «inspeccion» tiene
+    /// que encontrar «Inspección» y un ILIKE distingue tildes. Las versiones son
+    /// unas decenas, así que leerlas todas cuesta menos que una extensión de BD.
+    const versionIds = await versionesQueCasan(query.search)
     where.OR = [
       { conductor: { nombre: { contains: query.search, mode: 'insensitive' } } },
       { conductor: { apellido: { contains: query.search, mode: 'insensitive' } } },
       { conductor: { numero_identificacion: { contains: query.search } } },
+      { usuario: { nombre: { contains: query.search, mode: 'insensitive' } } },
       { vehiculo: { placa: { contains: query.search, mode: 'insensitive' } } },
+      { assignment: { name: { contains: query.search, mode: 'insensitive' } } },
+      ...(versionIds.length ? [{ version_id: { in: versionIds } }] : []),
     ]
   }
 
   return where
 }
 
+/** Minúsculas y sin tildes, para comparar lo que escribe la gente con lo guardado. */
+function sinTildes(texto: string): string {
+  return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+/**
+ * Versiones cuyo formato casa con el término: por código («FR-04», «hseq-fr-04»),
+ * por nombre del formato o por título de la versión («inspeccion de botiquin»).
+ * Cada palabra del término tiene que aparecer en alguno de esos textos.
+ */
+async function versionesQueCasan(termino: string): Promise<string[]> {
+  const palabras = sinTildes(termino).split(/\s+/).filter(Boolean)
+  if (!palabras.length) return []
+  const versiones = await prisma.form_version.findMany({
+    select: { id: true, title: true, form: { select: { code: true, name: true } } },
+  })
+  return versiones
+    .filter((v) => {
+      const texto = sinTildes(`${v.form.code} ${v.form.name} ${v.title}`)
+      return palabras.every((p) => texto.includes(p))
+    })
+    .map((v) => v.id)
+}
+
 export async function listarEnvios(query: ListarEnviosQuery) {
-  const where = buildWhere(query)
+  const where = await buildWhere(query)
   const [total, rows] = await Promise.all([
     prisma.form_submission.count({ where }),
     prisma.form_submission.findMany({
@@ -358,7 +391,7 @@ export async function restaurarEnvio(id: string, actor: AdminActor) {
  * hay unión posible y el CSV lleva solo la cabecera de cada envío.
  */
 export async function exportarEnviosCsv(query: ListarEnviosQuery): Promise<string> {
-  const where = buildWhere(query)
+  const where = await buildWhere(query)
   /// Tope duro: el export es sincrónico y una consulta sin límite sobre esta
   /// tabla puede traer cientos de miles de filas y agotar la memoria del
   /// proceso. Si hace falta más, se acota por fechas.
