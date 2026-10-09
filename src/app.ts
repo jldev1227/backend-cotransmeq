@@ -9,6 +9,9 @@ import { env } from './config/env'
 import { prisma } from './config/prisma'
 import { logger } from './utils/logger'
 import { authRoutes } from './modules/auth/auth.routes'
+import { actividadRoutes } from './modules/actividad/actividad.routes'
+import { instalarRegistroActividad } from './modules/actividad/registro-actividad.service'
+import { dashboardRoutes } from './modules/dashboard/dashboard.routes'
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes'
 import { vehiculosRoutes } from './modules/vehiculos/vehiculos.routes'
 import { serviciosRoutes } from './modules/servicios/servicios.routes'
@@ -31,10 +34,7 @@ import { induccionesRoutes } from './modules/inducciones/inducciones.routes'
 import { diasLaboradosRoutes } from './modules/dias-laborados/dias-laborados.routes'
 import { desprendibleFirmaRoutes } from './modules/liquidaciones/desprendible-firma.routes'
 import { conductorPortalRoutes } from './modules/conductor-portal/conductor-portal.routes'
-import { pesvRoutes } from './modules/pesv/pesv.routes'
-import { pesvCentroRoutes } from './modules/pesv/pesv-centro.routes'
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes'
-import { actividadesPesvRoutes } from './modules/actividades-pesv/actividades-pesv.routes'
 import { contabilidadRoutes } from './modules/contabilidad/contabilidad.routes'
 import { certificadosTributariosRoutes } from './modules/certificados-tributarios/certificados.routes'
 import { certificadosPublicosRoutes } from './modules/certificados-tributarios/certificados-public.routes'
@@ -149,11 +149,17 @@ export function buildApp() {
         (request as any).prisma = prisma
     })
 
+    // «Qué hizo quién»: cada escritura que termina bien deja una fila legible
+    // en registro_actividad (ver modules/actividad).
+    instalarRegistroActividad(app)
+
     // register auth routes without prefix (for consistency with frontend)
     app.register(authRoutes, { prefix: '/api'})
     
     // register other routes with /api prefix
     app.register(usuariosRoutes, { prefix: '/api' })
+    app.register(actividadRoutes, { prefix: '/api' })
+    app.register(dashboardRoutes, { prefix: '/api' })
     app.register(vehiculosRoutes, { prefix: '/api' })
     app.register(serviciosRoutes, { prefix: '/api' })
     app.register(clientesRoutes, { prefix: '/api' })
@@ -173,13 +179,6 @@ export function buildApp() {
     app.register(liquidacionesServiciosRoutes, { prefix: '/api' })
     app.register(operadorasRoutes, { prefix: '/api' })
     app.register(diasLaboradosRoutes, { prefix: '/api' })
-    app.register(pesvRoutes, { prefix: '/api' })
-    // Centro de cumplimiento PESV. Registro APARTE de `pesvRoutes` a propósito:
-    // aquellas son las rutas heredadas del panel de conteos y se conservan como
-    // adaptadores durante la transición, mientras estas exigen niveles de
-    // permiso distintos por operación (leer / aportar / gestionar).
-    app.register(pesvCentroRoutes, { prefix: '/api' })
-    app.register(actividadesPesvRoutes, { prefix: '/api' })
     app.register(contabilidadRoutes, { prefix: '/api' })
     app.register(certificadosTributariosRoutes, { prefix: '/api' })
     app.register(facturacionLiquidacionesRoutes, { prefix: '/api' })

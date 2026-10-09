@@ -21,6 +21,8 @@ export interface ModuloApp {
 }
 
 export const MODULOS_APP: readonly ModuloApp[] = [
+  { id: 'dashboard', etiqueta: 'Inicio', ruta: '/dashboard', alias: ['panel', 'dashboard', 'inicio', 'resumen'] },
+  { id: 'actividad', etiqueta: 'Actividad reciente', ruta: '/dashboard/actividad', alias: ['historial', 'bitácora', 'bitacora', 'auditoría', 'auditoria', 'qué hizo'] },
   { id: 'flota', etiqueta: 'Flota', ruta: '/dashboard/flota', alias: ['vehículos', 'vehiculos', 'carros', 'placas'] },
   { id: 'conductores', etiqueta: 'Conductores', ruta: '/dashboard/conductores', alias: ['choferes'] },
   { id: 'servicios', etiqueta: 'Servicios', ruta: '/dashboard/servicios', alias: ['viajes', 'despachos'] },
@@ -52,7 +54,6 @@ export const MODULOS_APP: readonly ModuloApp[] = [
     ruta: '/dashboard/liquidaciones-terceros',
     alias: ['liquidaciones de terceros', 'propietarios', 'cierres'],
   },
-  { id: 'pesv', etiqueta: 'PESV', ruta: '/dashboard/pesv', alias: ['seguridad vial'] },
   { id: 'certificados', etiqueta: 'Certificados', ruta: '/dashboard/certificados', alias: ['certificados tributarios', 'retenciones'] },
   { id: 'terceros', etiqueta: 'Terceros', ruta: '/dashboard/terceros' },
   { id: 'usuarios', etiqueta: 'Equipo', ruta: '/dashboard/usuarios', alias: ['usuarios', 'sesiones', 'directorio'] },

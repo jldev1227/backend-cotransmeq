@@ -382,12 +382,6 @@ export function emitNotificacion(data: any) {
   io.emit('nueva-notificacion', data)
 }
 
-/** Emit an actividad PESV event to all connected clients */
-export function emitActividadPesv(event: 'actividad-pesv-created' | 'actividad-pesv-updated' | 'actividad-pesv-deleted', data: any) {
-  if (io) {
-    io.emit(event, data)
-  }
-}
 
 /** Emit a facturacion-liquidacion event to all connected clients */
 export function emitFacturacionLiquidacion(

@@ -1348,6 +1348,8 @@ model tipos_recargos {
 }
 
 model usuarios {
+  configuracion_empresa_actualizada                                           configuracion_empresa[]                          @relation("configuracion_empresa_actualizado_por")
+  registro_actividad                                                          registro_actividad[]                             @relation("registro_actividad_usuario")
   id                                                                          String                                       @id @db.Uuid
   nombre                                                                      String                                       @db.VarChar(255)
   correo                                                                      String                                       @unique @db.VarChar(255)
@@ -5775,4 +5777,52 @@ model viatico_gasto_empresa {
   @@index([vehiculo_id])
   @@index([conductor_id])
   @@index([tercero_id])
+}
+
+// ============================================================================
+// REGISTRO DE ACTIVIDAD — «qué hizo quién» para el panel de inicio.
+//
+// Lo escribe un hook global del backend (`modules/actividad`) con cada
+// POST/PUT/PATCH/DELETE que termina bien. Se guarda una foto del nombre y las
+// áreas del usuario en el momento, para que el historial no cambie si lo
+// mueven de área o lo desactivan, y para filtrar «lo de mi área» sin joins.
+// ============================================================================
+
+model registro_actividad {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuario_id     String?   @db.Uuid
+  usuario_nombre String    @db.VarChar(255)
+  usuario_areas  String[]  @default([])
+  /// Módulo del panel (clave de ROUTE_PERMISSIONS) o «otros».
+  modulo         String    @db.VarChar(60)
+  /// crear · editar · eliminar · restaurar · estado · otro
+  accion         String    @db.VarChar(20)
+  metodo         String    @db.VarChar(8)
+  /// Patrón de la ruta («/api/servicios/:id»), no la URL con ids.
+  ruta           String    @db.VarChar(255)
+  recurso_id     String?   @db.VarChar(80)
+  /// Consecutivo, placa o nombre: lo que identifica el recurso para una persona.
+  recurso_ref    String?   @db.VarChar(255)
+  descripcion    String
+  detalle        Json?
+  ip             String?   @db.VarChar(64)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+
+  usuario usuarios? @relation("registro_actividad_usuario", fields: [usuario_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_registro_actividad_fecha")
+  @@index([usuario_id, created_at(sort: Desc)], map: "idx_registro_actividad_usuario")
+  @@index([modulo, created_at(sort: Desc)], map: "idx_registro_actividad_modulo")
+  @@index([usuario_areas], type: Gin, map: "idx_registro_actividad_areas")
+}
+
+/// Ajustes de la empresa que no pertenecen a ningún módulo en particular
+/// (seguridad social por defecto, etc.). Una fila por clave, el valor en JSON.
+model configuracion_empresa {
+  clave              String   @id @db.VarChar(80)
+  valor              Json
+  actualizado_por_id String?  @db.Uuid
+  updated_at         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  actualizado_por usuarios? @relation("configuracion_empresa_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
 }
