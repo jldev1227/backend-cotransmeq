@@ -364,7 +364,8 @@ async function main() {
       await usarCatalogo('ORIGEN_DESTINO', origen, usos)
     }
     if (escribir) {
-      const LOTE = 100
+      /// Lotes cortos y timeout largo: contra prod por túnel cada consulta tarda ~40 ms.
+      const LOTE = 25
       for (let i = 0; i < pendientes.length; i += LOTE) {
         const lote = pendientes.slice(i, i + LOTE)
         await prisma.$transaction(async (tx) => {
@@ -378,7 +379,7 @@ async function main() {
               })
             }
           }
-        })
+        }, { timeout: 120_000, maxWait: 20_000 })
         process.stdout.write(`\r  historial: ${Math.min(i + LOTE, pendientes.length)}/${pendientes.length}`)
       }
       if (pendientes.length) process.stdout.write('\n')
