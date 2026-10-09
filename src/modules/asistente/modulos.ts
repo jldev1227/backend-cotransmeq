@@ -29,6 +29,7 @@ export const MODULOS_APP: readonly ModuloApp[] = [
   { id: 'recargos', etiqueta: 'Recargos', ruta: '/dashboard/recargos', alias: ['planillas'] },
   { id: 'clientes', etiqueta: 'Clientes', ruta: '/dashboard/clientes', alias: ['empresas'] },
   { id: 'sarlaft', etiqueta: 'SARLAFT / PTEE', ruta: '/dashboard/sarlaft', alias: ['ptee', 'cumplimiento'] },
+  { id: 'solicitudes', etiqueta: 'Solicitudes web', ruta: '/dashboard/solicitudes', alias: ['bandeja de entrada', 'cotizaciones web', 'solicitudes de la página', 'formulario de contacto'] },
   { id: 'asistencias', etiqueta: 'Asistencias', ruta: '/dashboard/asistencias' },
   {
     id: 'acciones-correctivas',

@@ -171,7 +171,10 @@ const envSchema = z.object({
   // URL pública de ESTE backend, usada para construir el enlace de descarga
   // que viaja en el correo. Si falta, se cae a http://localhost:PORT, que solo
   // sirve en desarrollo.
-  SARLAFT_PUBLIC_API_URL: z.string().optional()
+  SARLAFT_PUBLIC_API_URL: z.string().optional(),
+  // Buzones (separados por coma) que reciben un correo por cada solicitud del
+  // formulario público de la landing. Vacío = solo notificación en el panel.
+  SOLICITUDES_WEB_EMAIL_TO: z.string().optional()
 })
 
 export const env = envSchema.parse(process.env)

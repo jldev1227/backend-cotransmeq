@@ -88,6 +88,7 @@ const PREFIJO_MODULO: Record<string, string> = {
   'acciones-correctivas': 'acciones-correctivas',
   sarlaft: 'sarlaft',
   'formularios-sarlaft': 'sarlaft',
+  solicitudes: 'solicitudes',
   'certificados-tributarios': 'certificados',
   contabilidad: 'contabilidad',
   'app-usuarios': 'perfil',
@@ -117,6 +118,7 @@ const RECURSO: Record<string, string> = {
   'salidas-nc': 'la salida no conforme',
   'acciones-correctivas': 'la acción correctiva',
   sarlaft: 'el formulario SARLAFT',
+  solicitudes: 'la solicitud web',
   certificados: 'los certificados tributarios',
   contabilidad: 'contabilidad',
   perfil: 'su acceso a la app',
@@ -131,6 +133,7 @@ export type AccionActividad = 'crear' | 'editar' | 'eliminar' | 'restaurar' | 'e
  * `{ref}` se sustituye por el consecutivo, placa o nombre si se conoce.
  */
 const FRASES: Array<{ patron: RegExp; metodo?: string; accion: AccionActividad; frase: string }> = [
+  { patron: /^\/api\/solicitudes\/:id$/, metodo: 'PATCH', accion: 'estado', frase: 'gestionó la solicitud web {ref}' },
   { patron: /^\/api\/facturacion-liquidaciones$/, metodo: 'POST', accion: 'crear', frase: 'registró la factura {ref}' },
   { patron: /^\/api\/facturacion-liquidaciones\/:id\/anular$/, accion: 'estado', frase: 'anuló la factura {ref}' },
   { patron: /^\/api\/facturacion-liquidaciones\/:id\/items$/, accion: 'editar', frase: 'agregó liquidaciones a la factura {ref}' },
@@ -213,7 +216,7 @@ const FRASES: Array<{ patron: RegExp; metodo?: string; accion: AccionActividad; 
   { patron: /^\/api\/app-usuarios\/enlace$/, metodo: 'DELETE', accion: 'eliminar', frase: 'revocó su enlace de la app móvil' },
 ]
 
-const REF_CLAVES = ['consecutivo', 'numero_factura', 'placa', 'numero_planilla', 'tematica', 'nombre_completo', 'nombre', 'titulo', 'title', 'codigo', 'code']
+const REF_CLAVES = ['consecutivo', 'radicado', 'numero_factura', 'placa', 'numero_planilla', 'tematica', 'nombre_completo', 'nombre', 'titulo', 'title', 'codigo', 'code']
 
 interface ContextoRegistro {
   patron: string
@@ -251,7 +254,7 @@ function primeroDe(obj: unknown, claves: string[]): string | null {
 
 /** Qué identifica al recurso para una persona: primero la respuesta, luego el body, luego el id. */
 function referencia(ctx: ContextoRegistro): { id: string | null; ref: string | null } {
-  const datos = (ctx.payload as any)?.data ?? ctx.payload
+  const datos = (ctx.payload as any)?.data ?? (ctx.payload as any)?.solicitud ?? ctx.payload
   const ref = primeroDe(datos, REF_CLAVES) ?? primeroDe(ctx.body, REF_CLAVES)
   const idParam = ctx.params.id ?? ctx.params.formId ?? ctx.params.liquidacion_id ?? ctx.params.consecutivo
   const id = typeof idParam === 'string' ? idParam : typeof (datos as any)?.id === 'string' ? (datos as any).id : null

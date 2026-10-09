@@ -77,6 +77,7 @@ import { viaticosRoutes } from './modules/viaticos/viaticos.routes'
 import { appUsuariosRoutes } from './modules/app-usuarios/app-usuarios.routes'
 import { misCapacitacionesRoutes } from './modules/mis-capacitaciones/mis-capacitaciones.routes'
 import { mapsRoutes } from './modules/maps/maps.routes'
+import { solicitudesWebPublicRoutes, solicitudesWebRoutes } from './modules/solicitudes-web/solicitudes-web.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -257,6 +258,8 @@ export function buildApp() {
     app.register(appUsuariosRoutes, { prefix: '/api' })
     app.register(misCapacitacionesRoutes, { prefix: '/api' })
     app.register(mapsRoutes, { prefix: '/api' })
+    app.register(solicitudesWebPublicRoutes, { prefix: '/api' })
+    app.register(solicitudesWebRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

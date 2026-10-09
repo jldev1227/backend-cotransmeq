@@ -672,6 +672,7 @@ model clientes {
   pesv_siniestros_cliente pesv_incident[]      @relation("pesv_siniestro_cliente")
   contratos_transporte    transport_contract[] @relation("contrato_cliente")
   fuec_contratantes       fuec_contratante[]
+  solicitudes_web         solicitud_web[]
 
   @@map("empresas")
 }
@@ -1414,6 +1415,7 @@ model usuarios {
   enlaces_app                                                                 usuario_enlace_app[]
   notificaciones                                                              notificacion[]
   formularios_sarlaft_evaluados                                               formulario_sarlaft_ptee[]                    @relation("formularios_sarlaft_evaluador")
+  solicitudes_web_asignadas                                                   solicitud_web[]                                  @relation("solicitud_web_asignado_a")
   sarlaft_documentos_generados                                                formulario_sarlaft_ptee_documento_generado[] @relation("sarlaft_documentos_generados_por")
   form_definitions_creadas                                                    form_definition[]                            @relation("form_definition_created_by")
   form_definitions_actualizadas                                               form_definition[]                            @relation("form_definition_updated_by")
@@ -5892,4 +5894,61 @@ model configuracion_empresa {
   updated_at         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   actualizado_por usuarios? @relation("configuracion_empresa_actualizado_por", fields: [actualizado_por_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+}
+
+/// Solicitudes del formulario público de la landing (cotización, servicio,
+/// información). Entran en la bandeja del panel para clasificarlas y verificar
+/// su procedencia antes de atenderlas. Ver `modules/solicitudes-web`.
+model solicitud_web {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  radicado          String    @unique @db.VarChar(30)
+  tipo              String    @db.VarChar(20)
+  estado            String    @default("nueva") @db.VarChar(20)
+  prioridad         String    @default("media") @db.VarChar(10)
+
+  nombre            String    @db.VarChar(120)
+  empresa           String?   @db.VarChar(160)
+  documento         String?   @db.VarChar(30)
+  cargo             String?   @db.VarChar(80)
+  correo            String    @db.VarChar(160)
+  telefono          String    @db.VarChar(30)
+
+  origen            String?   @db.VarChar(160)
+  destino           String?   @db.VarChar(160)
+  fecha_servicio    DateTime? @db.Date
+  pasajeros         Int?
+  tipo_vehiculo     String?   @db.VarChar(60)
+  modalidad         String?   @db.VarChar(20)
+  mensaje           String
+
+  urgente           Boolean   @default(false)
+  riesgo_nivel      String    @default("bajo") @db.VarChar(10)
+  riesgo_puntaje    Int       @default(0)
+  /// [{clave, texto, peso}] — señales que explican el puntaje de riesgo.
+  senales           Json      @default("[]")
+  cliente_id        String?   @db.Uuid
+
+  origen_sitio      String?   @db.VarChar(80)
+  ip_origen         String?   @db.VarChar(64)
+  user_agent        String?
+  referer           String?
+  tiempo_llenado_ms Int?
+
+  asignado_a_id     String?   @db.Uuid
+  /// [{en, por_id, por, accion, detalle}] — cambios de estado y notas internas.
+  historial         Json      @default("[]")
+  atendida_at       DateTime? @db.Timestamptz(6)
+
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  cliente    clientes? @relation(fields: [cliente_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  asignado_a usuarios? @relation("solicitud_web_asignado_a", fields: [asignado_a_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([estado])
+  @@index([created_at(sort: Desc)])
+  @@index([telefono])
+  @@index([correo])
+  @@index([ip_origen])
+  @@map("solicitud_web")
 }
