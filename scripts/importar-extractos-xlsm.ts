@@ -113,7 +113,9 @@ async function main() {
 
   // ── CONTRATANTE → fuec_contratante ─────────────────────────────────
   const contratantePorNombre = new Map(contratantesDb.map((c) => [normalizar(c.nombre), c]))
-  const contratanteIdPorNombre = new Map<string, string>()
+  /// Arranca con los que ya existen (incluidos los creados por una corrida anterior
+  /// a partir del historial): si no, se volverían a crear.
+  const contratanteIdPorNombre = new Map<string, string>(contratantesDb.map((c) => [normalizar(c.nombre), c.id]))
   const contratoPorNombre = new Map<string, string | null>()
   for (const f of tabla(hoja(libro, 'CONTRATANTE'), 0)) {
     const nombre = texto(f.NOMBRE_CONT)
