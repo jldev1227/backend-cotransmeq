@@ -21,7 +21,7 @@ import {
 import { randomUUID } from "crypto";
 import { emitSheetReverted } from "../../sockets/sheet.gateway";
 
-const ESTADOS_BLOQUEADOS = ["APROBADA", "FACTURADA", "ANULADA"];
+const ESTADOS_BLOQUEADOS = ["APROBADA", "PAGADA", "FACTURADA", "ANULADA"];
 
 export interface AdicionalPeriodoSnapshotPayload {
   periodo: { anio: number; mes: number };

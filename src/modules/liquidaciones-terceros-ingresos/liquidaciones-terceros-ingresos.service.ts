@@ -243,7 +243,7 @@ function serializeAdicional(a: any): IngresoTerceroRow {
  * pasa la mayor parte del mes— igual que un servicio entra en cuanto está
  * facturado, sin esperar a que su cierre se apruebe.
  */
-const ESTADOS_CIERRE_VIVO = ["BORRADOR", "LIQUIDADA", "APROBADA", "FACTURADA"];
+const ESTADOS_CIERRE_VIVO = ["BORRADOR", "LIQUIDADA", "APROBADA", "PAGADA", "FACTURADA"];
 
 const INCLUDE_ADICIONAL = {
   cierre: {

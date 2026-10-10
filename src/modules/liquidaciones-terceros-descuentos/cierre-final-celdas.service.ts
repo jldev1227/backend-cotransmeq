@@ -44,7 +44,7 @@ import {
 import { filasGastosFaltantes } from "./sembrar-gastos.service";
 import { ConfigGastosPeriodoService } from "./config-gastos-periodo.service";
 
-const ESTADOS_BLOQUEADOS = ["APROBADA", "FACTURADA", "ANULADA", "REEMPLAZADA"];
+const ESTADOS_BLOQUEADOS = ["APROBADA", "PAGADA", "FACTURADA", "ANULADA", "REEMPLAZADA"];
 
 export interface FilaConcepto {
   id: string;

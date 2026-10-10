@@ -348,8 +348,8 @@ export const LiquidacionesSnapshotsService = {
     const payload = snapshot.payload as SnapshotPayload;
 
     // Verificar que no se revierta un cierre APROBADA o FACTURADA
-    if (['APROBADA', 'FACTURADA'].includes(cierre.estado || '')) {
-      throw new Error('No se puede revertir una liquidación APROBADA o FACTURADA. Anúlala primero.');
+    if (['APROBADA', 'PAGADA', 'FACTURADA'].includes(cierre.estado || '')) {
+      throw new Error('No se puede revertir una liquidación APROBADA o PAGADA. Anúlala primero.');
     }
 
     // Items del snapshot que hoy están TRASLADADOS fuera del cierre: no se

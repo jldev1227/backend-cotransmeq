@@ -89,7 +89,8 @@ export class LiquidacionesTercerosOcasionalSnapshotsController {
   static async capturarHorario(request: FastifyRequest, reply: FastifyReply) {
     try {
       const expected = process.env.CRON_SECRET;
-      if (expected && request.headers["x-cron-secret"] !== expected) {
+      /// Sin `CRON_SECRET` configurado esto dejaba pasar a cualquiera.
+      if (!expected || request.headers["x-cron-secret"] !== expected) {
         return reply.status(401).send({ error: "Unauthorized" });
       }
       const result = await LiquidacionesTercerosOcasionalSnapshotsService.capturarHorario();

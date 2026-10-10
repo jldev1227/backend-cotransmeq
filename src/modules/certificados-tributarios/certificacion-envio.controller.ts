@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../../config/prisma'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import * as service from './certificacion-envio.service'
+import { whereTercerosConCertificados } from './certificado-archivo.service'
 
 export async function certificacionEnvioRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
@@ -26,17 +27,42 @@ export async function certificacionEnvioRoutes(app: FastifyInstance) {
   app.post('/certificados-tributarios/enviar-masivo', async (request, reply) => {
     try {
       const body = request.body as any
-      const { tercero_ids, mensaje_personalizado } = body
+      const { mensaje_personalizado, filtros } = body
+      let tercero_ids: string[] = body.tercero_ids
+
+      /// Con `filtros` el servidor resuelve a quién enviar: son los mismos
+      /// terceros que el listado muestra con esos filtros, todas las páginas.
+      /// Antes la pantalla mandaba los ids de la página visible y «enviar a
+      /// todos» solo le llegaba a diez.
+      if (filtros && typeof filtros === 'object') {
+        const where = whereTercerosConCertificados({
+          search: filtros.search || undefined,
+          anio: parseInt(filtros.anio) || undefined,
+          tipo: filtros.tipo || undefined,
+          correo: 'con'
+        })
+        const filas = await prisma.terceros.findMany({ where, select: { id: true } })
+        tercero_ids = filas.map((t) => t.id)
+        if (tercero_ids.length === 0) {
+          return reply.status(400).send({ error: 'Ningún tercero con correo coincide con los filtros' })
+        }
+      }
 
       if (!Array.isArray(tercero_ids) || tercero_ids.length === 0) {
-        return reply.status(400).send({ error: 'tercero_ids es requerido y debe ser un array' })
+        return reply.status(400).send({ error: 'tercero_ids o filtros es requerido' })
       }
 
       const resultados = []
       for (const terceroId of tercero_ids) {
         try {
+          /// Con filtro de año o tipo se mandan solo esos certificados.
           const archivos = await prisma.certificado_archivo.findMany({
-            where: { deleted_at: null, tercero_id: terceroId }
+            where: {
+              deleted_at: null,
+              tercero_id: terceroId,
+              ...(parseInt(filtros?.anio) ? { anio: parseInt(filtros.anio) } : {}),
+              ...(filtros?.tipo ? { tipo: filtros.tipo } : {})
+            }
           })
           const tercero = await prisma.terceros.findUnique({ where: { id: terceroId } })
 

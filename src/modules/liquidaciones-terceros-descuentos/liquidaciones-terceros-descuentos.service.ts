@@ -1523,7 +1523,7 @@ export const LiquidacionesTercerosDescuentosService = {
           (${terceroIdParam}::uuid IS NULL AND tercero_id IS NULL)
           OR tercero_id = ${terceroIdParam}::uuid
         )
-        AND estado IN ('APROBADA', 'FACTURADA')
+        AND estado IN ('APROBADA', 'PAGADA', 'FACTURADA')
         AND deleted_at IS NULL
       ORDER BY created_at DESC
       LIMIT 1
@@ -1557,7 +1557,7 @@ export const LiquidacionesTercerosDescuentosService = {
         throw new Error('Liquidación final a actualizar no encontrada');
       }
 
-      if (['APROBADA', 'FACTURADA', 'ANULADA'].includes(existing.estado)) {
+      if (['APROBADA', 'PAGADA', 'FACTURADA', 'ANULADA'].includes(existing.estado)) {
         throw new Error(
           `No se puede modificar una liquidación en estado ${existing.estado}`,
         );
@@ -3916,7 +3916,7 @@ export const LiquidacionesTercerosDescuentosService = {
       throw new Error('Liquidación final de tercero no encontrada o ya eliminada');
     }
 
-    const bloqueados = ['APROBADA', 'FACTURADA'];
+    const bloqueados = ['APROBADA', 'PAGADA', 'FACTURADA'];
     if (bloqueados.includes(current.estado || '')) {
       throw new Error(
         `No se puede eliminar una liquidación en estado ${current.estado}. Primero anúlala.`,

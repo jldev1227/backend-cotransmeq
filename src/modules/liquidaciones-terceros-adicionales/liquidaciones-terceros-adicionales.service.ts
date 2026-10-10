@@ -40,7 +40,7 @@ export interface AdicionalListado {
   version: number;
 }
 
-const ESTADOS_BLOQUEADOS = ["APROBADA", "FACTURADA", "ANULADA"];
+const ESTADOS_BLOQUEADOS = ["APROBADA", "PAGADA", "FACTURADA", "ANULADA"];
 
 /// Campos que el canvas puede editar celda a celda. Es la lista blanca del
 /// servidor y espeja `EDITABLE_FIELDS` de `cell-permission-adicionales.ts`.

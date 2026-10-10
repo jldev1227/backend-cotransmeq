@@ -51,7 +51,9 @@ export class LiquidacionesSnapshotsController {
   static async cronHora(request: FastifyRequest, reply: FastifyReply) {
     try {
       const cronSecret = request.headers['x-cron-secret'] as string;
-      if (cronSecret !== process.env.CRON_SECRET) {
+      /// Sin `CRON_SECRET` configurado, `undefined !== undefined` dejaba pasar
+      /// cualquier petición sin cabecera.
+      if (!process.env.CRON_SECRET || cronSecret !== process.env.CRON_SECRET) {
         return reply.status(403).send({ error: 'No autorizado' });
       }
       const result = await LiquidacionesSnapshotsService.capturarHorario();

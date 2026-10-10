@@ -15,7 +15,8 @@
  * incompletos (sin NIT/cédula, sin teléfono ni correo).
  *
  * «Previstas para pagar»: cierres finales APROBADOS por mes. El estado que
- * sigue es FACTURADA («Marcar facturada»: ya se pagó al tercero). El enlace
+ * sigue es PAGADA («Marcar pagada»: ya se le pagó al tercero; antes se
+ * llamaba FACTURADA y se suman las dos mientras queden filas sin migrar). El enlace
  * abre el canvas de ese mes con `spotlight=estado`, que resalta el botón de
  * estado de la hoja.
  */
@@ -79,10 +80,10 @@ async function bloqueTerceros(periodo: Periodo) {
       n: filas.filter((r) => r.estado !== 'ANULADA').reduce((a, r) => a + r.n, 0),
       borrador: de('BORRADOR')?.valor ?? 0,
       aprobada: de('APROBADA')?.valor ?? 0,
-      facturada: de('FACTURADA')?.valor ?? 0,
+      pagada: (de('PAGADA')?.valor ?? 0) + (de('FACTURADA')?.valor ?? 0),
       n_borrador: de('BORRADOR')?.n ?? 0,
       n_aprobada: de('APROBADA')?.n ?? 0,
-      n_facturada: de('FACTURADA')?.n ?? 0,
+      n_pagada: (de('PAGADA')?.n ?? 0) + (de('FACTURADA')?.n ?? 0),
     }
   })
 

@@ -1305,8 +1305,12 @@ export const LiquidacionesServiciosService = {
   },
 
   async listar(filtros: FiltrosLiquidacionServicios) {
-    const page = Number(filtros.page) || 1;
-    const limit = Number(filtros.limit) || 10;
+    /// `limit=0` es «Todas»: una sola página sin `take`. El tope evita que
+    /// un número enorme en la URL tumbe el servidor; «Todas» no lo necesita
+    /// porque sin `include_items` cada fila es liviana.
+    const todas = String(filtros.limit) === "0";
+    const page = todas ? 1 : Number(filtros.page) || 1;
+    const limit = todas ? 0 : Math.min(Number(filtros.limit) || 10, 500);
     const skip = (page - 1) * limit;
     const conItems =
       filtros.include_items === true || filtros.include_items === "true";
@@ -1357,6 +1361,10 @@ export const LiquidacionesServiciosService = {
       total: "total",
       items: "total", // will sort by _count below
       fecha: "created_at",
+      tercero: "tercero_liquidado",
+      /// El número de factura vive en otra tabla (relación de muchos) y
+      /// Prisma no ordena por ahí: se resuelve aparte, más abajo.
+      factura: "factura",
     };
     let orderBy: any = { created_at: "desc" };
     if (filtros.sortBy && sortableFields[filtros.sortBy]) {
@@ -1366,6 +1374,10 @@ export const LiquidacionesServiciosService = {
         orderBy = { cliente: { nombre: dir } };
       } else if (field === "periodo") {
         orderBy = [{ anio: dir }, { mes: dir }];
+      } else if (field === "tercero") {
+        orderBy = [{ tercero_liquidado: dir }, { created_at: "desc" }];
+      } else if (field === "factura") {
+        orderBy = { created_at: "desc" };
       } else {
         orderBy = { [sortableFields[field]]: dir };
       }
@@ -1477,12 +1489,49 @@ export const LiquidacionesServiciosService = {
       return base;
     }
 
-    const globalWhere = {
-      deleted_at: null as null,
-      ...filtroVisibilidad(filtros),
-      ...(filtros.mes ? { mes: parseMes(filtros.mes) } : {}),
-      ...(filtros.anio ? { anio: Number(filtros.anio) } : {}),
-    };
+    /// Cabecera (monto y conteos por estado) con TODOS los filtros —búsqueda,
+    /// cliente, placa, columnas— menos el de estado: así los conteos siguen
+    /// diciendo cuántas hay de cada estado y el monto se recorta abajo a los
+    /// estados elegidos. Antes solo miraba mes y año, y con un cliente filtrado
+    /// la cabecera seguía mostrando el total de todos.
+    const globalWhere = whereExcluding("estados");
+    delete globalWhere.estado;
+    const estadosElegidos = new Set<string>([
+      ...(filtros.estado ? [filtros.estado] : []),
+      ...(filtros.estados ? filtros.estados.split(",").filter(Boolean) : []),
+    ]);
+
+    /// Orden por N° de factura: se traen id y número de TODAS las filas del
+    /// filtro (son livianas), se ordenan aquí con orden natural («FE-99»
+    /// antes que «FE-100») y la consulta de la página pide solo esos ids.
+    /// Las que no tienen factura van al final en los dos sentidos.
+    let idsPorFactura: string[] | null = null;
+    if (filtros.sortBy === "factura") {
+      const sentido = filtros.sortDir === "asc" ? 1 : -1;
+      const filas = await prisma.liquidacion_servicio.findMany({
+        where,
+        select: {
+          id: true,
+          created_at: true,
+          factura_items: {
+            where: { factura: { estado: "ACTIVA", deleted_at: null } },
+            select: { factura: { select: { numero_factura: true } } },
+          },
+        },
+      });
+      const numero = (f: (typeof filas)[number]) =>
+        f.factura_items[0]?.factura.numero_factura ?? null;
+      filas.sort((a, b) => {
+        const x = numero(a);
+        const y = numero(b);
+        if (x === y) return b.created_at.getTime() - a.created_at.getTime();
+        if (x === null) return 1;
+        if (y === null) return -1;
+        return sentido * x.localeCompare(y, "es", { numeric: true });
+      });
+      const ids = filas.map((f) => f.id);
+      idsPorFactura = todas ? ids : ids.slice(skip, skip + limit);
+    }
 
     const [
       liquidaciones,
@@ -1497,7 +1546,7 @@ export const LiquidacionesServiciosService = {
       uniquePlacas,
     ] = await Promise.all([
       prisma.liquidacion_servicio.findMany({
-        where,
+        where: idsPorFactura ? { id: { in: idsPorFactura } } : where,
         include: {
           cliente: { select: { id: true, nombre: true, nit: true } },
           creado_por: { select: { id: true, nombre: true, correo: true } },
@@ -1524,9 +1573,9 @@ export const LiquidacionesServiciosService = {
             },
           },
         },
-        orderBy,
-        skip,
-        take: limit,
+        orderBy: idsPorFactura ? undefined : orderBy,
+        skip: idsPorFactura ? undefined : skip,
+        take: idsPorFactura || todas ? undefined : limit,
       }),
       prisma.liquidacion_servicio.count({ where }),
       // Global metadata (only filtered by mes/anio for stats cards)
@@ -1592,11 +1641,14 @@ export const LiquidacionesServiciosService = {
     ]);
 
     // Build metadata summary
-    const globalTotal = metadata.reduce(
+    const delFiltro = metadata.filter(
+      (g) => estadosElegidos.size === 0 || estadosElegidos.has(g.estado),
+    );
+    const globalTotal = delFiltro.reduce(
       (s, g) => s + Number(g._sum.total || 0),
       0,
     );
-    const globalCount = metadata.reduce((s, g) => s + g._count.id, 0);
+    const globalCount = delFiltro.reduce((s, g) => s + g._count.id, 0);
     const estadoCounts: Record<string, number> = {};
     for (const g of metadata) {
       estadoCounts[g.estado] = g._count.id;
@@ -1607,8 +1659,16 @@ export const LiquidacionesServiciosService = {
       .map((l) => l.liquidado_por)
       .filter(Boolean);
 
+    /// `id IN (...)` no respeta el orden de la lista: se reordena aquí.
+    const pos = idsPorFactura
+      ? new Map(idsPorFactura.map((id, k) => [id, k]))
+      : null;
+    const filasPagina = pos
+      ? [...liquidaciones].sort((a, b) => pos.get(a.id)! - pos.get(b.id)!)
+      : liquidaciones;
+
     return {
-      liquidaciones: liquidaciones.map((l) => ({
+      liquidaciones: filasPagina.map((l) => ({
         ...l,
         valor_servicios: Number(l.valor_servicios),
         valor_recargos: Number(l.valor_recargos),
@@ -1639,7 +1699,7 @@ export const LiquidacionesServiciosService = {
           : undefined,
       })),
       total,
-      totalPages: Math.ceil(total / limit),
+      totalPages: todas ? 1 : Math.ceil(total / limit),
       page,
       metadata: {
         globalTotal,

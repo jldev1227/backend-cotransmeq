@@ -9,7 +9,7 @@
  *
  * 1. **El guard es de ENTRADA, no de salida.** Antes solo se comprobaba
  *    que fueras administración para *sacar* un cierre de APROBADA; entrar
- *    en APROBADA o FACTURADA lo podía hacer cualquiera. Es decir, el
+ *    en APROBADA o PAGADA lo podía hacer cualquiera. Es decir, el
  *    permiso de aprobación no existía.
  *
  * 2. **Concurrencia optimista.** El header del canvas muestra el estado de
@@ -24,19 +24,31 @@
 import { prisma } from "../../config/prisma";
 import { emitSheetEstadoChanged } from "../../sockets/sheet.gateway";
 
+/**
+ * PAGADA reemplaza a FACTURADA (oct-2026). Con terceros quien factura es el
+ * propietario; la empresa le PAGA. «Marcar facturada» se usaba ya con el
+ * sentido de «ya se le pagó» (ver `dashboard/seccion-facturacion.ts`), así
+ * que el nombre mentía. Mismo trato que el PAGADA de nómina.
+ *
+ * FACTURADA sigue en el tipo SOLO como estado heredado: una fila que no se
+ * haya migrado se sigue leyendo, queda bloqueada y se puede anular, pero ya
+ * no es destino de ninguna transición.
+ */
 export type EstadoCierre =
   | "BORRADOR"
   | "LIQUIDADA"
   | "APROBADA"
+  | "PAGADA"
   | "FACTURADA"
   | "ANULADA"
   | "REEMPLAZADA";
 
+/** Destinos que se pueden FIJAR. FACTURADA ya no está: ver arriba. */
 export const ESTADOS_VALIDOS: EstadoCierre[] = [
   "BORRADOR",
   "LIQUIDADA",
   "APROBADA",
-  "FACTURADA",
+  "PAGADA",
   "ANULADA",
 ];
 
@@ -48,7 +60,9 @@ export const ESTADOS_VALIDOS: EstadoCierre[] = [
 export const TRANSICIONES: Record<string, EstadoCierre[]> = {
   BORRADOR: ["LIQUIDADA", "ANULADA"],
   LIQUIDADA: ["APROBADA", "BORRADOR", "ANULADA"],
-  APROBADA: ["LIQUIDADA", "ANULADA", "FACTURADA"],
+  APROBADA: ["LIQUIDADA", "ANULADA", "PAGADA"],
+  PAGADA: ["ANULADA"],
+  /// Heredado: solo se puede anular. Las filas se migran a PAGADA.
   FACTURADA: ["ANULADA"],
   ANULADA: [],
   REEMPLAZADA: ["BORRADOR"],
@@ -57,15 +71,37 @@ export const TRANSICIONES: Record<string, EstadoCierre[]> = {
 /**
  * Estados a los que solo puede llevar administración.
  *
- * APROBADA y FACTURADA son los que congelan el documento de cara a
+ * APROBADA y PAGADA son los que congelan el documento de cara a
  * contabilidad; que los pudiera fijar cualquiera vaciaba de sentido la
  * cadena de aprobación.
  */
-export const ESTADOS_QUE_EXIGEN_ADMIN: EstadoCierre[] = ["APROBADA", "FACTURADA"];
+export const ESTADOS_QUE_EXIGEN_ADMIN: EstadoCierre[] = ["APROBADA", "PAGADA"];
+
+/**
+ * Puerta de atrás de Administración, igual que en nómina: PAGADA no tenía
+ * vuelta —su única salida era ANULADA— y una hoja se marca pagada por error
+ * como cualquier otra cosa. Va aparte de `TRANSICIONES` para que la matriz
+ * base siga describiendo el flujo NORMAL.
+ */
+export const TRANSICIONES_ADMIN: Record<string, EstadoCierre[]> = {
+  PAGADA: ["APROBADA"],
+};
+
+/** Salir de estos estados también es de Administración. */
+export const ESTADOS_SALIDA_ADMIN: string[] = ["APROBADA", "PAGADA", "FACTURADA"];
+
+/** Destinos que existen desde `estadoActual`, con o sin la puerta de atrás. */
+export function destinosPosibles(estadoActual: string, admin: boolean): EstadoCierre[] {
+  const base = TRANSICIONES[estadoActual] ?? [];
+  if (!admin) return base;
+  const extra = (TRANSICIONES_ADMIN[estadoActual] ?? []).filter((e) => !base.includes(e));
+  return [...base, ...extra];
+}
 
 /** Estados en los que el canvas deja la hoja en solo lectura. */
 export const ESTADOS_BLOQUEADOS: string[] = [
   "APROBADA",
+  "PAGADA",
   "FACTURADA",
   "ANULADA",
   "REEMPLAZADA",
@@ -104,7 +140,7 @@ export function esAdmin(actor: Actor | null | undefined): boolean {
  * Transiciones que este actor puede ejecutar desde `estadoActual`.
  *
  * Refleja los DOS guards que aplica `cambiar()`: el de entrada a
- * APROBADA/FACTURADA y el de salida de APROBADA. Si no reflejara ambos,
+ * APROBADA/PAGADA y el de salida de APROBADA/PAGADA. Si no reflejara ambos,
  * la lista diría que se puede hacer algo que luego el servidor rechaza.
  *
  * Espejo de `ingreso-svelte/src/lib/editor/builders/cierres-finales-estado.ts`.
@@ -114,8 +150,8 @@ export function transicionesPermitidas(
   actor: Actor | null | undefined,
 ): EstadoCierre[] {
   const admin = esAdmin(actor);
-  if (estadoActual === "APROBADA" && !admin) return [];
-  const posibles = TRANSICIONES[estadoActual] ?? [];
+  if (ESTADOS_SALIDA_ADMIN.includes(estadoActual) && !admin) return [];
+  const posibles = destinosPosibles(estadoActual, admin);
   return admin ? posibles : posibles.filter((e) => !ESTADOS_QUE_EXIGEN_ADMIN.includes(e));
 }
 
@@ -176,11 +212,12 @@ export const CierreEstadoService = {
     }
 
     const estadoActual = actual.estado || "BORRADOR";
+    const destinos = destinosPosibles(estadoActual, esAdmin(actor));
 
-    if (!(TRANSICIONES[estadoActual] ?? []).includes(estado as EstadoCierre)) {
+    if (!destinos.includes(estado as EstadoCierre)) {
       throw new ErrorEstado(
         `Transición no válida de ${estadoActual} a ${estado}. Permitidas: ${
-          TRANSICIONES[estadoActual]?.join(", ") || "ninguna"
+          destinos.join(", ") || "ninguna"
         }`,
         409,
         "TRANSICION_INVALIDA",
@@ -200,10 +237,10 @@ export const CierreEstadoService = {
       );
     }
 
-    // Guard de SALIDA: sacar algo de APROBADA sigue siendo de administración.
-    if (estadoActual === "APROBADA" && !esAdmin(actor)) {
+    // Guard de SALIDA: sacar algo de APROBADA o PAGADA es de administración.
+    if (ESTADOS_SALIDA_ADMIN.includes(estadoActual) && !esAdmin(actor)) {
       throw new ErrorEstado(
-        "La liquidación está aprobada. Solo Administración puede modificar su estado.",
+        `La liquidación está ${estadoActual}. Solo Administración puede modificar su estado.`,
         403,
         "SIN_PERMISO",
       );
@@ -296,11 +333,17 @@ export const CierreEstadoService = {
    * en el último revertiría los 79 anteriores y el usuario no sabría
    * cuál falló. Se procesan de uno en uno y se devuelve el parte de
    * resultados.
+   *
+   * Con `ids` se mueven SOLO esas hojas (las que el usuario marcó en el
+   * canvas), cada una desde su estado actual: `desde` deja de hacer falta
+   * y cada transición la valida `cambiar`, igual que el botón de una hoja.
+   * Las que no pueden ir a `hacia` salen en `fallidos` con el motivo.
    */
   async cambiarLote(params: {
     anio: number;
     mes: number;
-    desde: string;
+    desde?: string | null;
+    ids?: string[] | null;
     hacia: string;
     motivo?: string | null;
     actor: Actor;
@@ -310,8 +353,15 @@ export const CierreEstadoService = {
     fallidos: { id: string; placa: string | null; error: string }[];
   }> {
     const { anio, mes, desde, hacia, motivo, actor } = params;
+    const ids = (params.ids ?? []).filter(Boolean);
 
-    if (!(TRANSICIONES[desde] ?? []).includes(hacia as EstadoCierre)) {
+    if (!ESTADOS_VALIDOS.includes(hacia as EstadoCierre)) {
+      throw new ErrorEstado(`Estado destino no válido: ${hacia}`, 400, "ESTADO_INVALIDO");
+    }
+    if (!ids.length && !desde) {
+      throw new ErrorEstado("Indica las hojas (ids) o el estado de origen (desde).", 400, "ESTADO_INVALIDO");
+    }
+    if (desde && !destinosPosibles(desde, esAdmin(actor)).includes(hacia as EstadoCierre)) {
       throw new ErrorEstado(
         `Transición no válida de ${desde} a ${hacia}`,
         409,
@@ -330,7 +380,13 @@ export const CierreEstadoService = {
     }
 
     const candidatos = await prisma.liquidacion_tercero_final.findMany({
-      where: { anio, mes, estado: desde, deleted_at: null },
+      where: {
+        anio,
+        mes,
+        deleted_at: null,
+        ...(ids.length ? { id: { in: ids } } : {}),
+        ...(desde ? { estado: desde } : {}),
+      },
       select: { id: true, placa: true, version: true },
       orderBy: [{ placa: "asc" }, { consecutivo: "asc" }],
     });

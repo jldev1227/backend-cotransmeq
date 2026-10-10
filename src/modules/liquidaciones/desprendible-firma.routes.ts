@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma'
 import { uploadToS3, getS3SignedUrl } from '../../config/aws'
 import { randomUUID, randomBytes } from 'crypto'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
+import { authMiddleware } from '../../middlewares/auth.middleware'
 
 /**
  * Rutas públicas para firma de desprendibles de nómina.
@@ -334,10 +335,11 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
   })
 
   // ================================================================
-  // POST /api/desprendible-firma/generar — Generar tokens para liquidaciones (autenticado)
+  // POST /api/desprendible-firma/generar — Generar tokens para liquidaciones (autenticado;
+  // hasta oct-2026 el comentario lo decía pero la ruta no pedía token)
   // Se llama desde el admin para generar el link que se envía al conductor
   // ================================================================
-  app.post('/desprendible-firma/generar', async (
+  app.post('/desprendible-firma/generar', { preHandler: authMiddleware }, async (
     request: FastifyRequest<{ Body: { liquidacion_ids: string[], expires_days?: number } }>,
     reply: FastifyReply
   ) => {

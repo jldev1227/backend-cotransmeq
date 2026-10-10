@@ -187,30 +187,56 @@ export async function getAllCertificados({
   return { archivos: withUrls, total, page, totalPages: Math.ceil(total / limit) }
 }
 
-export async function getTercerosWithCertificados({
-  search,
-  page,
-  limit
-}: {
+export interface FiltrosTercerosCertificados {
   search?: string
-  page: number
-  limit: number
-}) {
+  anio?: number
+  tipo?: string
+  /** 'con' | 'sin': terceros con o sin correo registrado. */
+  correo?: string
+}
+
+/**
+ * Filtro de terceros con certificados vigentes. Lo comparten el listado y el
+ * envío masivo: «enviar a todos» manda exactamente a los que el usuario ve
+ * filtrados, no solo a la página en pantalla (antes eran los diez visibles).
+ */
+export function whereTercerosConCertificados(f: FiltrosTercerosCertificados) {
+  const archivo: any = { deleted_at: null }
+  if (f.anio) archivo.anio = f.anio
+  if (f.tipo) archivo.tipo = f.tipo
+
   const where: any = {
     deleted_at: null,
     activo: true,
-    certificados_archivo: { some: {} }
+    certificados_archivo: { some: archivo }
   }
-
-  if (search) {
-    where.OR = [
-      { nombre_completo: { contains: search, mode: 'insensitive' } },
-      { identificacion: { contains: search, mode: 'insensitive' } },
-      { correo: { contains: search, mode: 'insensitive' } }
-    ]
+  const and: any[] = []
+  if (f.search) {
+    and.push({
+      OR: [
+        { nombre_completo: { contains: f.search, mode: 'insensitive' } },
+        { identificacion: { contains: f.search, mode: 'insensitive' } },
+        { correo: { contains: f.search, mode: 'insensitive' } }
+      ]
+    })
   }
+  if (f.correo === 'con') and.push({ correo: { not: null } }, { NOT: { correo: '' } })
+  if (f.correo === 'sin') and.push({ OR: [{ correo: null }, { correo: '' }] })
+  if (and.length) where.AND = and
+  return where
+}
 
-  const [terceros, total] = await Promise.all([
+export async function getTercerosWithCertificados({
+  page,
+  limit,
+  ...filtros
+}: FiltrosTercerosCertificados & { page: number; limit: number }) {
+  const where = whereTercerosConCertificados(filtros)
+  /// Los conteos de la cabecera ignoran el filtro de correo: son justo los
+  /// botones que lo activan, y con él puesto uno de los dos marcaría cero.
+  const whereSinCorreo = whereTercerosConCertificados({ ...filtros, correo: undefined })
+
+  const [terceros, total, todos, sinCorreo, certificados, anios, tipos] = await Promise.all([
     prisma.terceros.findMany({
       where,
       select: {
@@ -221,7 +247,9 @@ export async function getTercerosWithCertificados({
         telefono: true,
         tipo_persona: true,
         activo: true,
+        /// Solo los vigentes: antes se contaban también los retirados.
         certificados_archivo: {
+          where: { deleted_at: null },
           select: {
             id: true,
             nit: true,
@@ -231,20 +259,57 @@ export async function getTercerosWithCertificados({
             s3_key: true,
             tipo_certificado: true
           },
-          orderBy: { created_at: 'desc' }
+          orderBy: [{ anio: 'desc' }, { tipo: 'asc' }]
         },
-        _count: {
-          select: { certificados_archivo: true }
+        certificaciones_envio: {
+          where: { deleted_at: null },
+          select: { emitido_at: true, email_destino: true, tipo_envio: true },
+          orderBy: { emitido_at: 'desc' },
+          take: 1
         }
       },
       orderBy: { nombre_completo: 'asc' },
       skip: (page - 1) * limit,
       take: limit
     }),
-    prisma.terceros.count({ where })
+    prisma.terceros.count({ where }),
+    prisma.terceros.count({ where: whereSinCorreo }),
+    prisma.terceros.count({ where: whereTercerosConCertificados({ ...filtros, correo: 'sin' }) }),
+    prisma.certificado_archivo.count({
+      where: {
+        deleted_at: null,
+        ...(filtros.anio ? { anio: filtros.anio } : {}),
+        ...(filtros.tipo ? { tipo: filtros.tipo } : {}),
+        tercero: whereSinCorreo
+      }
+    }),
+    prisma.certificado_archivo.findMany({
+      where: { deleted_at: null },
+      distinct: ['anio'],
+      select: { anio: true },
+      orderBy: { anio: 'desc' }
+    }),
+    prisma.certificado_archivo.findMany({
+      where: { deleted_at: null },
+      distinct: ['tipo'],
+      select: { tipo: true },
+      orderBy: { tipo: 'asc' }
+    })
   ])
 
-  return { terceros, total, page, totalPages: Math.ceil(total / limit) }
+  return {
+    terceros: terceros.map(({ certificaciones_envio, ...t }) => ({
+      ...t,
+      _count: { certificados_archivo: t.certificados_archivo.length },
+      ultimo_envio: certificaciones_envio[0] ?? null
+    })),
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+    conteos: { terceros: todos, con_correo: todos - sinCorreo, sin_correo: sinCorreo, certificados },
+    anios: anios.map((a) => a.anio),
+    tipos: tipos.map((t) => t.tipo)
+  }
 }
 
 export async function linkCertificadoToTercero(certificadoId: string, terceroId: string) {

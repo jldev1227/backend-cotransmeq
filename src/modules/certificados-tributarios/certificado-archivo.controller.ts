@@ -66,9 +66,12 @@ export async function certificadoArchivoRoutes(app: FastifyInstance) {
     try {
       const query = request.query as any
       const result = await service.getTercerosWithCertificados({
-        search: query.search,
-        page: parseInt(query.page || '1'),
-        limit: parseInt(query.limit || '10')
+        search: query.search || undefined,
+        anio: parseInt(query.anio) || undefined,
+        tipo: query.tipo || undefined,
+        correo: query.correo === 'con' || query.correo === 'sin' ? query.correo : undefined,
+        page: Math.max(1, parseInt(query.page || '1') || 1),
+        limit: Math.min(100, Math.max(1, parseInt(query.limit || '10') || 10))
       })
       return reply.send({ success: true, ...result })
     } catch (err: any) {

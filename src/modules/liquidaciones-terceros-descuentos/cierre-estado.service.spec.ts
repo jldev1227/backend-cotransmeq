@@ -3,7 +3,7 @@
  *
  * Lo que se protege aquí es el hallazgo H8: hasta ahora el único control
  * era de SALIDA de APROBADA, así que cualquier usuario autenticado podía
- * *entrar* en APROBADA o FACTURADA. La cadena de aprobación no existía.
+ * *entrar* en APROBADA o FACTURADA (hoy PAGADA). La cadena de aprobación no existía.
  *
  * Además comprueba la paridad de la matriz con su espejo del frontend
  * (`ingreso-svelte/src/lib/editor/builders/cierres-finales-estado.ts`),
@@ -41,17 +41,33 @@ describe("esAdmin", () => {
   });
 });
 
-describe("guard de ENTRADA a APROBADA / FACTURADA", () => {
+describe("guard de ENTRADA a APROBADA / PAGADA", () => {
   it("un no-administrador nunca ve APROBADA como destino", () => {
     // Es el estado desde el que se aprueba: si el guard fallara, aparecería.
     expect(transicionesPermitidas("LIQUIDADA", OPERACIONES)).not.toContain("APROBADA");
     expect(transicionesPermitidas("LIQUIDADA", ADMIN)).toContain("APROBADA");
   });
 
-  it("FACTURADA solo es alcanzable por administración", () => {
+  it("PAGADA solo es alcanzable por administración", () => {
     // Desde APROBADA, y un no-admin ni siquiera puede salir de APROBADA.
-    expect(transicionesPermitidas("APROBADA", ADMIN)).toContain("FACTURADA");
+    expect(transicionesPermitidas("APROBADA", ADMIN)).toContain("PAGADA");
     expect(transicionesPermitidas("APROBADA", OPERACIONES)).toEqual([]);
+  });
+
+  it("FACTURADA ya no es destino: la reemplaza PAGADA", () => {
+    for (const estado of Object.keys(TRANSICIONES)) {
+      expect(transicionesPermitidas(estado, ADMIN), `desde ${estado}`).not.toContain("FACTURADA");
+    }
+  });
+
+  it("de PAGADA solo sale Administración: a ANULADA o de vuelta a APROBADA", () => {
+    expect(transicionesPermitidas("PAGADA", ADMIN)).toEqual(["ANULADA", "APROBADA"]);
+    expect(transicionesPermitidas("PAGADA", OPERACIONES)).toEqual([]);
+  });
+
+  it("una fila heredada en FACTURADA queda bloqueada y solo se puede anular", () => {
+    expect(transicionesPermitidas("FACTURADA", ADMIN)).toEqual(["ANULADA"]);
+    expect(transicionesPermitidas("FACTURADA", OPERACIONES)).toEqual([]);
   });
 
   it("ningún estado ofrece a un no-admin un destino restringido", () => {

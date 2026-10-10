@@ -1,6 +1,7 @@
 import { CronJob } from 'cron'
 import { prisma } from '../config/prisma'
 import { NotificacionesService } from '../modules/notificaciones/notificaciones.service'
+import { emitNotificacion } from '../sockets'
 import { logger } from '../utils/logger'
 
 const INTERVALO_SEGUIMIENTO_DIAS = 15
@@ -171,7 +172,7 @@ export async function ejecutarCronAccionesCorrectivasRecordatorios() {
       })
       if (existe) continue
 
-      await NotificacionesService.crear({
+      const notificacion = await NotificacionesService.crear({
         usuario_id,
         tipo: 'ACCION_CORRECTIVA_RECORDATORIO',
         titulo: 'Recordatorio de seguimiento (Acción correctiva)',
@@ -179,6 +180,9 @@ export async function ejecutarCronAccionesCorrectivasRecordatorios() {
         referencia_id: accion.id,
         referencia_tipo: 'ACCION_CORRECTIVA'
       })
+      /// Sin esto el recordatorio solo se veía al abrir la campana: ni socket
+      /// ni aviso del sistema.
+      emitNotificacion(notificacion)
       notified++
     }
   }

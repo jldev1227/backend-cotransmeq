@@ -17,4 +17,17 @@ export async function notificacionesRoutes(app: FastifyInstance) {
 
   // PATCH /notificaciones/:id/leida
   app.patch('/notificaciones/:id/leida', NotificacionesController.marcarLeida)
+
+  // ── Web Push: avisos del sistema operativo ──────────────────────────
+  // GET /notificaciones/web-push/clave — clave pública VAPID (null si está apagado)
+  app.get('/notificaciones/web-push/clave', NotificacionesController.clavePush)
+
+  // POST /notificaciones/web-push/suscripcion — registra este navegador
+  app.post('/notificaciones/web-push/suscripcion', NotificacionesController.suscribirPush)
+
+  // POST /notificaciones/web-push/desuscribir — este navegador deja de recibir
+  app.post('/notificaciones/web-push/desuscribir', NotificacionesController.desuscribirPush)
+
+  // POST /notificaciones/web-push/prueba — reenvía mi última notificación como aviso
+  app.post('/notificaciones/web-push/prueba', NotificacionesController.probarPush)
 }

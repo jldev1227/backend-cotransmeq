@@ -15,7 +15,9 @@ export default defineConfig({
     // module»: 8 fallos que no eran de nadie, porque el test de verdad ya
     // corre desde `src/`. Se excluyen para que un `npm run build` previo no
     // ensucie el resultado de la suite.
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    // `*.push.spec.ts` manda avisos reales a un navegador con la base del
+    // `.env`: solo se corre a mano con `npm run test:web-push`.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.push.spec.ts'],
     // Los archivos de test comparten UNA sola base y varios hacen
     // `deleteMany()` sin filtro en su `beforeAll`. Corriendo en paralelo se
     // borraban los datos entre ellos y el número de fallos cambiaba en cada

@@ -19,7 +19,7 @@ function statusDeError(error: any): number {
   if (error instanceof ConflictoVersionError) return 409;
   const msg = String(error?.message || "");
   if (/no encontrad/i.test(msg)) return 404;
-  if (/APROBADA|FACTURADA|ANULADA/i.test(msg)) return 409;
+  if (/APROBADA|PAGADA|FACTURADA|ANULADA/i.test(msg)) return 409;
   if (/no editable|pertenece a/i.test(msg)) return 400;
   return 500;
 }

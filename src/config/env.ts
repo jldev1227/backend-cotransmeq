@@ -30,6 +30,14 @@ const envSchema = z.object({
   MOBILE_PORTAL_URL: z.string().optional().default('cotransmeq://portal'),
   // Autocompletado de sitios (HERE) para la app móvil; la web usa su propio proxy con la misma clave.
   HERE_MAPS_API_KEY: z.string().optional(),
+  // Web Push (notificaciones del navegador). Par VAPID generado con
+  // `npx web-push generate-vapid-keys`; la pública también la pide el front por
+  // `/api/notificaciones/web-push/clave`. Sin el par, el push web se apaga y la
+  // campana sigue funcionando igual. El subject es un `mailto:` de contacto que
+  // los servicios de push usan si algo sale mal.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
   // Clave de `localStorage` con la que el portal web del conductor guarda su
   // sesión. La lee el impresor de recibos: Chromium navega la página del
   // portal y tiene que sembrar la sesión con la MISMA clave que usa

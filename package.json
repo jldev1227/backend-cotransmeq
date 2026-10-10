@@ -34,6 +34,7 @@
     "test:declaracion-transporte": "vitest run --config vitest.declaracion.config.ts",
     "test:formularios": "vitest run --config vitest.formularios.config.ts",
     "test:nomina": "vitest run --config vitest.nomina.config.ts",
+    "test:web-push": "vitest run --config vitest.web-push.config.mts",
     "nomina:contraste": "tsx scripts/nomina-contraste-excel.ts"
   },
   "dependencies": {
@@ -81,6 +82,7 @@
     "puppeteer-core": "^24.43.1",
     "resend": "^6.10.0",
     "socket.io": "^4.0.0",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
     "zod": "^3.0.0"
   },
@@ -97,6 +99,7 @@
     "@types/pdfmake": "^0.3.3",
     "@types/socket.io": "^3.0.0",
     "@types/supertest": "^6.0.3",
+    "@types/web-push": "^3.6.4",
     "@vitest/ui": "^4.0.16",
     "pdf-parse": "^1.1.4",
     "socket.io-client": "^4.8.3",

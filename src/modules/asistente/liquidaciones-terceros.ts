@@ -151,13 +151,13 @@ export const buscarLiquidacionesTerceros: Herramienta = {
 export const cierresTerceros: Herramienta = {
   nombre: 'cierres_terceros',
   descripcion:
-    'Lista los cierres finales de terceros (propietarios) por periodo (mes/año), tercero, placa o estado (BORRADOR, APROBADA, ANULADA): consecutivo, tercero, placa, liquidación de servicios de origen, valor a liquidar, costos laborales, gastos operativos, impuestos, descuentos y total a pagar, con los totales del conjunto y el enlace al canvas. Úsala para «¿cuánto se le paga a X este mes?», «¿qué cierres están en borrador?», «total pagado a terceros en septiembre».',
+    'Lista los cierres finales de terceros (propietarios) por periodo (mes/año), tercero, placa o estado (BORRADOR, LIQUIDADA, APROBADA, PAGADA, ANULADA): consecutivo, tercero, placa, liquidación de servicios de origen, valor a liquidar, costos laborales, gastos operativos, impuestos, descuentos y total a pagar, con los totales del conjunto y el enlace al canvas. Úsala para «¿cuánto se le paga a X este mes?», «¿qué cierres están en borrador?», «total pagado a terceros en septiembre».',
   parametros: {
     type: 'object',
     properties: {
       tercero: { type: 'string', description: 'Nombre o identificación del propietario' },
       placa: { type: 'string' },
-      estado: { type: 'string', enum: ['BORRADOR', 'APROBADA', 'ANULADA'] },
+      estado: { type: 'string', enum: ['BORRADOR', 'LIQUIDADA', 'APROBADA', 'PAGADA', 'ANULADA'] },
       mes: { type: 'integer', minimum: 1, maximum: 12 },
       anio: { type: 'integer', minimum: 2020, maximum: 2100 },
       limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO, description: 'Hasta 500' },
@@ -169,7 +169,7 @@ export const cierresTerceros: Herramienta = {
   async ejecutar(args) {
     const tercero = textoOpcional(args.tercero, 120)
     const placa = textoOpcional(args.placa, 20)?.replace(/[\s-]/g, '')
-    const estado = typeof args.estado === 'string' && ['BORRADOR', 'APROBADA', 'ANULADA'].includes(args.estado.toUpperCase()) ? args.estado.toUpperCase() : undefined
+    const estado = typeof args.estado === 'string' && ['BORRADOR', 'LIQUIDADA', 'APROBADA', 'PAGADA', 'ANULADA'].includes(args.estado.toUpperCase()) ? args.estado.toUpperCase() : undefined
     const mes = enteroOpcional(args.mes, 1, 12)
     const anio = enteroOpcional(args.anio, 2020, 2100)
     const limite = enteroEntre(args.limite, 1, LIMITE_MAXIMO, 50)

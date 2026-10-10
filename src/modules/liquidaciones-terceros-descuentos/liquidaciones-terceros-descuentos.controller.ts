@@ -769,19 +769,21 @@ export class LiquidacionesTercerosDescuentosController {
    */
   static async cambiarEstadoLote(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { anio, mes, desde, hacia, motivo } = (request.body as any) || {};
+      const { anio, mes, desde, hacia, motivo, ids } = (request.body as any) || {};
       const user = (request as any).user;
+      const listaIds = Array.isArray(ids) ? ids.map(String).slice(0, 1000) : [];
 
-      if (!anio || !mes || !desde || !hacia) {
+      if (!anio || !mes || !hacia || (!desde && !listaIds.length)) {
         return reply
           .status(400)
-          .send({ error: 'Se requieren anio, mes, desde y hacia' });
+          .send({ error: 'Se requieren anio, mes, hacia y desde o ids' });
       }
 
       const result = await CierreEstadoService.cambiarLote({
         anio: Number(anio),
         mes: Number(mes),
-        desde: String(desde),
+        desde: desde ? String(desde) : null,
+        ids: listaIds,
         hacia: String(hacia),
         motivo: motivo ?? null,
         actor: {

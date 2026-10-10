@@ -161,7 +161,7 @@ export async function getAllEnvios({ page, limit }: { page: number; limit: numbe
       skip: (page - 1) * limit,
       take: limit
     }),
-    prisma.certificacion_envio.count()
+    prisma.certificacion_envio.count({ where: { deleted_at: null } })
   ])
 
   return { envios, total, page, totalPages: Math.ceil(total / limit) }

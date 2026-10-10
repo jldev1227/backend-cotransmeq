@@ -1438,6 +1438,7 @@ model usuarios {
   custom_places_creado_por                         custom_places[]                                  @relation("custom_places_creado_por")
   servicios_creados                                servicio[]                                       @relation("servicio_creado_por")
   dispositivos_push                                usuario_push_device[]
+  suscripciones_web_push                           usuario_web_push[]
   fondo_viaticos                                   viatico_fondo_movimiento[]                       @relation("viatico_fondo_usuario")
   fondo_viaticos_registrados                       viatico_fondo_movimiento[]                       @relation("viatico_fondo_creado_por")
   gastos_empresa_creados                           viatico_gasto_empresa[]                          @relation("viatico_gasto_empresa_creado_por")
@@ -5951,4 +5952,24 @@ model solicitud_web {
   @@index([correo])
   @@index([ip_origen])
   @@map("solicitud_web")
+}
+
+/// Suscripción Web Push de un navegador (Chrome, Edge, Firefox…) para recibir
+/// las notificaciones de la campana como avisos del sistema operativo.
+/// `endpoint` identifica el navegador de forma única; si otro usuario inicia
+/// sesión en el mismo equipo, la fila se reasigna en lugar de duplicarse.
+model usuario_web_push {
+  id           String   @id @default(uuid()) @db.Uuid
+  usuario_id   String   @db.Uuid
+  endpoint     String   @unique
+  p256dh       String   @db.VarChar(255)
+  auth         String   @db.VarChar(255)
+  user_agent   String?  @db.VarChar(500)
+  activo       Boolean  @default(true)
+  last_seen_at DateTime @default(now()) @db.Timestamptz(6)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @updatedAt @db.Timestamptz(6)
+  usuario      usuarios @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@index([usuario_id, activo])
 }

@@ -11,6 +11,7 @@ import { borradorNominaQueueService } from '../queue/borrador-nomina-queue.servi
 import { envioNominaQueueService } from '../queue/envio-nomina-queue.service'
 import { installSocketAuth, corsOrigins, resolveActor, getSocketUser } from './auth'
 import { registerSheetGateway } from './sheet.gateway'
+import { enviarWebPush } from '../modules/notificaciones/web-push.service'
 import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
 
 let io: IOServer | null = null
@@ -370,6 +371,10 @@ export function emitLiquidacionTercero(
  * `usuario_id`.
  */
 export function emitNotificacion(data: any) {
+  /// El aviso del sistema operativo (Web Push) sale aunque no haya socket: es
+  /// justo para quien no tiene la app abierta. Nunca lanza.
+  void enviarWebPush(data)
+
   if (!io) return
 
   const destinatario = data?.usuario_id
