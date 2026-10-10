@@ -51,7 +51,7 @@ const envSchema = z.object({
   // siempre) o 'nuevo' (la aprobada en septiembre de 2026). Por defecto
   // 'clasico', para que un entorno sin la variable siga imprimiendo lo
   // mismo que ayer. Ver `nomina-canvas/desprendible.render.ts`.
-  DESPRENDIBLE_LAYOUT: z.enum(['clasico', 'nuevo']).optional().default('clasico'),
+  DESPRENDIBLE_LAYOUT: z.enum(['clasico', 'nuevo']).optional().default('nuevo'),
 
   // AWS S3 — Certificados Tributarios
   AWS_REGION: z.string().optional(),

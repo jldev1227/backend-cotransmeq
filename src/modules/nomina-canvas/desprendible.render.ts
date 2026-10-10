@@ -8,11 +8,14 @@
  * despliegue el código, así que la decisión es una variable de entorno y no
  * un `git revert`.
  *
- *     DESPRENDIBLE_LAYOUT=clasico   ← por defecto: la de siempre
- *     DESPRENDIBLE_LAYOUT=nuevo     ← la aprobada
+ *     DESPRENDIBLE_LAYOUT=nuevo     ← por defecto desde oct-2026: la aprobada
+ *     DESPRENDIBLE_LAYOUT=clasico   ← la anterior, por si hay que volver
  *
- * El valor por defecto es `clasico` a propósito: un entorno al que nadie le
- * haya puesto la variable tiene que seguir imprimiendo lo que imprimía ayer.
+ * Desde el 10-oct-2026 el diseño nuevo es el principal también en el
+ * generador del navegador (`pdfDesprendible.ts` + `pdfDesprendibleDiseno.ts`),
+ * que es el que reciben canvas, dashboard, portal, enlace firmado y app
+ * móvil. Esta plantilla solo la usan la descarga individual por API, el ZIP
+ * masivo y el PDF del enlace de firma pública.
  *
  * La elección no es solo de forma. `LiquidacionesService.datosDesprendible()`
  * también la consulta, porque la maquetación nueva trae sus propios
@@ -21,7 +24,7 @@
  * Por eso el layout se lee de aquí y no de `env` directamente: un solo sitio
  * decide, y los dos lados no pueden desincronizarse.
  *
- * PARA VOLVER A LA NUEVA: `DESPRENDIBLE_LAYOUT=nuevo` en el entorno del
+ * PARA VOLVER A LA CLÁSICA: `DESPRENDIBLE_LAYOUT=clasico` en el entorno del
  * backend y reiniciar. No hay que tocar código.
  */
 
@@ -37,7 +40,7 @@ export type LayoutDesprendible = 'clasico' | 'nuevo';
 
 /** La maquetación vigente. Se resuelve una vez, al cargar el módulo. */
 export const LAYOUT_DESPRENDIBLE: LayoutDesprendible =
-  String(env.DESPRENDIBLE_LAYOUT ?? '').trim().toLowerCase() === 'nuevo' ? 'nuevo' : 'clasico';
+  String(env.DESPRENDIBLE_LAYOUT ?? '').trim().toLowerCase() === 'clasico' ? 'clasico' : 'nuevo';
 
 /** Renderiza el desprendible con la maquetación vigente. */
 export function renderDesprendibleHtml(
