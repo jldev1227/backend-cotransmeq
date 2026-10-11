@@ -14,6 +14,7 @@ import { instalarRegistroActividad } from './modules/actividad/registro-activida
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes'
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes'
 import { vehiculosRoutes } from './modules/vehiculos/vehiculos.routes'
+import { vehiculosDocumentosRoutes } from './modules/vehiculos-documentos/vehiculos-documentos.routes'
 import { serviciosRoutes } from './modules/servicios/servicios.routes'
 import { clientesRoutes } from './modules/clientes/clientes.routes'
 import { municipiosRoutes } from './modules/municipios/municipios.routes'
@@ -163,6 +164,7 @@ export function buildApp() {
     app.register(actividadRoutes, { prefix: '/api' })
     app.register(dashboardRoutes, { prefix: '/api' })
     app.register(vehiculosRoutes, { prefix: '/api' })
+    app.register(vehiculosDocumentosRoutes, { prefix: '/api' })
     app.register(serviciosRoutes, { prefix: '/api' })
     app.register(clientesRoutes, { prefix: '/api' })
     app.register(municipiosRoutes, { prefix: '/api' })

@@ -121,12 +121,13 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
     prisma.$queryRaw<Array<{ id: string; vehiculo_id: string; placa: string; categoria: string; vence: Date; dias: number }>>(Prisma.sql`
       WITH ultimo AS (
         SELECT DISTINCT ON (doc.vehiculo_id, doc.categoria) doc.id, doc.vehiculo_id, doc.categoria,
-               coalesce(doc.fecha_vencimiento, doc.fecha_vigencia::date) AS vence
+               -- La carga de 2025 guardó fecha_vigencia un día corrida; la buena quedó en metadata.
+               coalesce(doc.fecha_vencimiento, (doc.metadata->>'fechaVigenciaOriginal')::date, doc.fecha_vigencia::date) AS vence
         FROM documento doc
         WHERE doc.deleted_at IS NULL AND doc.estado = 'vigente' AND doc.vehiculo_id IS NOT NULL
           AND doc.categoria IN (${Prisma.join(CATEGORIAS_VENCEN)})
           AND coalesce(doc.fecha_vencimiento, doc.fecha_vigencia::date) IS NOT NULL
-        ORDER BY doc.vehiculo_id, doc.categoria, coalesce(doc.fecha_vencimiento, doc.fecha_vigencia::date) DESC
+        ORDER BY doc.vehiculo_id, doc.categoria, coalesce(doc.fecha_vencimiento, (doc.metadata->>'fechaVigenciaOriginal')::date, doc.fecha_vigencia::date) DESC
       )
       SELECT u.id, ve.id AS vehiculo_id, ve.placa, u.categoria, u.vence, (u.vence - current_date)::int AS dias
       FROM ultimo u JOIN vehiculos ve ON ve.id = u.vehiculo_id AND ve.deleted_at IS NULL AND ve.oculto = false
