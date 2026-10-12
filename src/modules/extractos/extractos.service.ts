@@ -16,6 +16,7 @@ import { prisma } from '../../config/prisma'
 import { hoyBogota } from '../dashboard/periodo'
 import { FUEC } from './fuec.config'
 import { firmaValida, firmarSnapshot, huella, nuevoCodigoVerificacion, type SnapshotFuec } from './fuec-firma'
+import { notificarFuecEmitido, notificarOperacionesFuecEmitido } from './extractos-notificaciones.service'
 
 export class ExtractosError extends Error {
   constructor(message: string, public status = 400, public code?: string) {
@@ -549,7 +550,9 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
     return creado.id
   })
 
-  return obtenerExtracto(id)
+  const extracto = await obtenerExtracto(id)
+  await Promise.all([notificarFuecEmitido(extracto), notificarOperacionesFuecEmitido(extracto)])
+  return extracto
 }
 
 export async function anularExtracto(usuarioId: string, id: string, motivo: string): Promise<ExtractoDTO> {

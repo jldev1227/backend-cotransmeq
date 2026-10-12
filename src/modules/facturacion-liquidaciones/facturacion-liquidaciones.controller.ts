@@ -70,6 +70,9 @@ export class FacturacionLiquidacionesController {
             titulo: `Factura ${factura.numero_factura} creada`,
             mensaje: `${userName} facturó las liquidaciones ${consecutivos} con la factura ${factura.numero_factura}.`,
             referencia_id: factura.id,
+            /// La web abre la pestaña Facturas buscando por número (la lista no
+            /// filtra por id); el prefijo lo reconoce `rutaDeNotificacion`.
+            referencia_tipo: `factura:${factura.numero_factura}`,
           }))
           await NotificacionesService.crearMasivas(notifData)
           for (const nd of notifData) {
@@ -182,6 +185,9 @@ export class FacturacionLiquidacionesController {
             titulo: `Factura ${factura.numero_factura} anulada`,
             mensaje: `${userName} anuló la factura ${factura.numero_factura}. ${motivo ? 'Motivo: ' + motivo : ''}`,
             referencia_id: factura.id,
+            /// La web abre la pestaña Facturas buscando por número (la lista no
+            /// filtra por id); el prefijo lo reconoce `rutaDeNotificacion`.
+            referencia_tipo: `factura:${factura.numero_factura}`,
           }))
           await NotificacionesService.crearMasivas(notifData)
           for (const nd of notifData) {

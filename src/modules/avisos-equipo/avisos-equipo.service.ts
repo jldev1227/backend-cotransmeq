@@ -12,15 +12,17 @@ import { logger } from '../../utils/logger'
  * - `servicio_creado`: a todos los que pueden ver Servicios, menos a quien lo creó.
  * - `preoperacional`: operaciones, HSEQ y administración.
  * - `dias_laborados`: operaciones, talento humano y administración.
+ * - `fuec_creado`: operaciones con acceso a Extractos, incluido quien lo emitió.
  *
  * Nunca lanza: el aviso es un efecto secundario y no debe tumbar lo que lo provocó.
  */
 
-export type EventoEquipo = 'servicio_creado' | 'preoperacional' | 'dias_laborados'
+export type EventoEquipo = 'servicio_creado' | 'preoperacional' | 'dias_laborados' | 'fuec_creado'
 
 const AREAS: Record<Exclude<EventoEquipo, 'servicio_creado'>, string[]> = {
   preoperacional: ['operaciones', 'hseq', 'administracion'],
   dias_laborados: ['operaciones', 'talento_humano', 'administracion'],
+  fuec_creado: ['operaciones'],
 }
 
 async function destinatarios(evento: EventoEquipo, excluir?: string | null): Promise<string[]> {
@@ -31,6 +33,11 @@ async function destinatarios(evento: EventoEquipo, excluir?: string | null): Pro
   if (evento === 'servicio_creado') {
     return usuarios
       .filter((u) => Boolean(getAccessibleModules(u.role, (u.area ?? []) as Area[], normalizarRutasOverride(u.permisos_rutas)).servicios))
+      .map((u) => u.id)
+  }
+  if (evento === 'fuec_creado') {
+    return usuarios
+      .filter((u) => (u.area ?? []).includes('operaciones') && Boolean(getAccessibleModules(u.role, (u.area ?? []) as Area[], normalizarRutasOverride(u.permisos_rutas)).extractos))
       .map((u) => u.id)
   }
   const areas = AREAS[evento]

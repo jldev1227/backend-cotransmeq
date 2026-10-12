@@ -29,6 +29,15 @@ Reglas que un integrador necesita saber:
   la afecta. El servidor no sabe qué pestaña tiene el foco: decidir si se muestra
   el aviso es cosa del service worker.
 
+Huellas de `referencia_tipo` que escribe el backend: `servicio`, `extracto` (FUEC), `preoperacional`,
+`preop_malo`, `mant:<estado>:<km>:<fecha>`, `dias_laborados:<fecha>`,
+`nomina_desprendible_firmado:<año>:<mes>:<desde>`, `docveh:…`, `doccond:…`,
+`solicitud_web`, `incidente`, `incidente_investigacion_pendiente`, `viatico_anticipo`,
+`viatico_solicitud`, `viatico_fondo`, `ACCION_CORRECTIVA` y, desde el 11-oct-2026,
+`factura:<número>` en `LIQUIDACION_FACTURADA` y `FACTURA_ANULADA` (la web filtra la
+pestaña Facturas por número). Las `LIQUIDACION_*` llevan la liquidación de servicios
+en `referencia_id` sin huella.
+
 ## Acceso
 
 | Operación | Guarda |

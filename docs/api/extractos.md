@@ -36,6 +36,17 @@ Reglas que un integrador necesita saber:
   vigencia de la licencia y la cédula si faltaba y nadie más la tiene.
 - El convenio se imprime `N/A` si viene vacío o es la propia empresa
   (variantes en `FUEC.afiliacion_propia`).
+- Al emitir, cada conductor vinculado por `conductor_id` recibe un aviso
+  `FUEC_EMITIDO` en `conductor_notification` y un intento de push por el canal
+  Android `extractos`. El aviso abre `/extractos/:id` en la app del conductor.
+  El buzón se guarda antes del push; si no hay dispositivo, queda pendiente
+  para la siguiente sincronización. Conductores sin ficha vinculada no pueden
+  recibirlo. Una falla de avisos no revierte el documento firmado.
+- Cada usuario activo del área Operaciones con acceso a Extractos, incluido el
+  creador si pertenece al área, recibe un aviso `GENERAL` en `notificacion` con
+  `referencia_tipo: 'extracto'`, el id del FUEC, el nombre de quien lo emitió y
+  el consecutivo. Se entrega por `nueva-notificacion` a su campana y abre el
+  detalle del FUEC en la app móvil o el dashboard web.
 
 ## Acceso
 
@@ -212,10 +223,11 @@ formato (8 a 24 de `A-Z`, `2-9`) o no existe; **429** al pasar el límite (ver
 
 ## Efectos
 
-Ninguno fuera de la base: no emite eventos de socket, notificaciones ni
-correos. Emitir escribe en el extracto, el contratante, los catálogos y,
+Emitir escribe en el extracto, el contratante, los catálogos y,
 salvo `actualizar_fichas: false`, en las fichas del vehículo y los conductores;
-con `reemplaza_a_id`, anula el reemplazado en la misma transacción.
+con `reemplaza_a_id`, anula el reemplazado en la misma transacción. Después
+crea los avisos a conductores y a Operaciones descritos arriba; un fallo de
+notificaciones no revierte la emisión.
 
 ## Observaciones
 
