@@ -1,4 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
+import { cronAutorizado } from '../../lib/cron-secreto'
 import { RecorridosSnapshotsService } from './recorridos-snapshots.service'
 
 function periodo(request: FastifyRequest) {
@@ -78,10 +79,7 @@ export class RecorridosSnapshotsController {
    * cabecera igual que los demás crons del proyecto.
    */
   static async cronHora(request: FastifyRequest, reply: FastifyReply) {
-    /// Sin `CRON_SECRET` configurado, `undefined !== undefined` dejaba pasar
-    /// cualquier petición sin cabecera.
-    const secreto = process.env.CRON_SECRET
-    if (!secreto || request.headers['x-cron-secret'] !== secreto) {
+    if (!cronAutorizado(request)) {
       return reply.status(403).send({ error: 'Prohibido' })
     }
     return reply.send(await RecorridosSnapshotsService.capturarHorario())

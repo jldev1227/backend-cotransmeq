@@ -1,5 +1,9 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import { LiquidacionesServiciosService } from "./liquidaciones-servicios.service";
+import {
+  LiquidacionNoEncontradaError,
+  LiquidacionesServiciosService,
+  type TarifaInput,
+} from "./liquidaciones-servicios.service";
 import {
   emitLiquidacionServicio,
   emitNotificacion,
@@ -10,6 +14,45 @@ import {
 import { NotificacionesService } from "../notificaciones/notificaciones.service";
 import { FacturacionLiquidacionesService } from "../facturacion-liquidaciones/facturacion-liquidaciones.service";
 import { enviarPushUsuarios } from "../usuario-push/usuario-push.service";
+import { ZodError } from "zod";
+import {
+  actualizarTarifaSchema,
+  crearTarifaSchema,
+  esUuid,
+} from "./tarifas.schema";
+import {
+  ErrorEstadoLiquidacion,
+  esEstadoLiquidacionServicio,
+  validarTransicionLiquidacion,
+} from "./estado-transiciones";
+
+/**
+ * Errores del CRUD de tarifas, en el `{ error }` que ya usa este controlador.
+ * Antes todo salía como 500 con el volcado de Prisma; un año repetido o una
+ * tarifa inexistente son errores del usuario, no del servidor.
+ */
+function errorTarifa(reply: FastifyReply, error: any) {
+  if (error instanceof ZodError) {
+    return reply.status(400).send({
+      error: error.errors[0]?.message ?? "Datos inválidos",
+      details: error.errors.map(
+        (e) => `${e.path.join(".") || "campo"}: ${e.message}`,
+      ),
+    });
+  }
+  if (error?.code === "P2002") {
+    return reply.status(409).send({
+      error: "Este cliente ya tiene una tarifa para ese año. Edita la existente.",
+    });
+  }
+  if (error?.code === "P2025") {
+    return reply.status(404).send({ error: "Tarifa no encontrada" });
+  }
+  if (error?.statusCode) {
+    return reply.status(error.statusCode).send({ error: error.message });
+  }
+  return reply.status(500).send({ error: "No se pudo guardar la tarifa" });
+}
 
 /**
  * Traduce un choque de UNIQUE en un 409 legible, o devuelve `null` si el error
@@ -86,11 +129,18 @@ export class LiquidacionesServiciosController {
 
   static async obtenerTarifas(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { operadora, anio } = request.query as any;
+      const { operadora, anio, cliente_id, incluir_inactivas } =
+        request.query as any;
+      /// Antes el `cliente_id` se ignoraba (se pasaba `undefined`) y la ficha
+      /// de un cliente habría visto las tarifas de todos.
+      if (cliente_id && !esUuid(cliente_id)) {
+        return reply.status(400).send({ error: "Cliente inválido" });
+      }
       const tarifas = await LiquidacionesServiciosService.obtenerTarifas(
-        undefined,
+        cliente_id || undefined,
         operadora,
         anio ? Number(anio) : undefined,
+        incluir_inactivas === "1" || incluir_inactivas === "true",
       );
       return reply.send(tarifas);
     } catch (error: any) {
@@ -101,39 +151,38 @@ export class LiquidacionesServiciosController {
   static async crearTarifa(request: FastifyRequest, reply: FastifyReply) {
     try {
       const tarifa = await LiquidacionesServiciosService.crearTarifa(
-        request.body as any,
+        /// `as`: con `strictNullChecks` apagado zod infiere todo opcional,
+        /// aunque el esquema exige cada campo.
+        crearTarifaSchema.parse(request.body ?? {}) as TarifaInput,
       );
       return reply.status(201).send(tarifa);
     } catch (error: any) {
-      if (error.code === "P2002") {
-        return reply
-          .status(409)
-          .send({ error: "Ya existe una tarifa para esta operadora y año" });
-      }
-      return reply.status(500).send({ error: error.message });
+      return errorTarifa(reply, error);
     }
   }
 
   static async actualizarTarifa(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
+      if (!esUuid(id)) return reply.status(400).send({ error: "Tarifa inválida" });
       const tarifa = await LiquidacionesServiciosService.actualizarTarifa(
         id,
-        request.body as any,
+        actualizarTarifaSchema.parse(request.body ?? {}),
       );
       return reply.send(tarifa);
     } catch (error: any) {
-      return reply.status(500).send({ error: error.message });
+      return errorTarifa(reply, error);
     }
   }
 
   static async eliminarTarifa(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
+      if (!esUuid(id)) return reply.status(400).send({ error: "Tarifa inválida" });
       const result = await LiquidacionesServiciosService.eliminarTarifa(id);
       return reply.send(result);
     } catch (error: any) {
-      return reply.status(500).send({ error: error.message });
+      return errorTarifa(reply, error);
     }
   }
 
@@ -541,6 +590,15 @@ export class LiquidacionesServiciosController {
         (a: string) => a.toUpperCase(),
       );
 
+      /// Un valor fuera del enum llegaba a Prisma y salía como 500 con su
+      /// volcado. Se rechaza antes de leer nada.
+      if (!esEstadoLiquidacionServicio(estado)) {
+        return reply.status(400).send({
+          code: "ESTADO_INVALIDO",
+          error: `Estado inválido: ${String(estado ?? "(vacío)")}. Válidos: BORRADOR, LIQUIDADA, APROBADA, FACTURADA, ANULADA.`,
+        });
+      }
+
       const liqActual = await LiquidacionesServiciosService.obtenerPorId(id);
       const estadoActual: string = liqActual.estado;
 
@@ -584,9 +642,24 @@ export class LiquidacionesServiciosController {
        * `aprobado_por_id`. El botón no le aparecía en pantalla
        * (`canAprobar = isAdmin`), pero la ruta no es la pantalla.
        */
+      /// Tabla de transiciones (`estado-transiciones.ts`): FACTURADA no es
+      /// destino de esta ruta y ANULADA solo vuelve a BORRADOR. Va DESPUÉS del
+      /// 409 de factura activa para que una FACTURADA con factura siga
+      /// recibiendo la factura y la pantalla ofrezca anularla.
+      validarTransicionLiquidacion(estadoActual, estado, motivo_anulacion);
+
       if (estado === "APROBADA" && !esAdministracion) {
         return reply.status(403).send({
           error: `Solo Administración puede aprobar una liquidación.`,
+        });
+      }
+
+      /// Reactivar una anulada es de Administración: es lo único que ofrece la
+      /// pantalla (`isAdmin && estado === 'ANULADA'`) y es coherente con
+      /// `actualizar`, que tampoco deja a otras áreas tocar una anulada.
+      if (estadoActual === "ANULADA" && !esAdministracion) {
+        return reply.status(403).send({
+          error: `La liquidación está anulada. Solo Administración puede reactivarla.`,
         });
       }
 
@@ -747,6 +820,16 @@ export class LiquidacionesServiciosController {
 
       return reply.send(result);
     } catch (error: any) {
+      if (error instanceof ErrorEstadoLiquidacion) {
+        return reply
+          .status(error.statusCode)
+          .send({ code: error.codigo, error: error.message });
+      }
+      /// `obtenerPorId` lanza un Error suelto; una inexistente o eliminada
+      /// no es un fallo del servidor.
+      if (/no encontrada/i.test(error?.message ?? "")) {
+        return reply.status(404).send({ error: "Liquidación no encontrada" });
+      }
       return reply.status(500).send({ error: error.message });
     }
   }
@@ -809,6 +892,9 @@ export class LiquidacionesServiciosController {
   static async obtenerCSV(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
+      if (!/^[0-9a-f-]{36}$/i.test(String(id ?? ""))) {
+        return reply.status(400).send({ error: "Id de liquidación inválido" });
+      }
       const { buffer, filename } =
         await LiquidacionesServiciosService.obtenerCSV(id);
 
@@ -817,10 +903,17 @@ export class LiquidacionesServiciosController {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+      /// Sin esto el navegador no deja leer el nombre del archivo en una
+      /// petición entre orígenes, y el front tendría que inventarlo.
+      reply.header("Access-Control-Expose-Headers", "Content-Disposition");
 
       return reply.send(buffer);
     } catch (error: any) {
-      return reply.status(500).send({ error: error.message });
+      if (error instanceof LiquidacionNoEncontradaError) {
+        return reply.status(404).send({ error: error.message });
+      }
+      request.log.error({ err: error }, "[liquidaciones-servicios] Excel");
+      return reply.status(500).send({ error: "No se pudo generar el Excel de la liquidación" });
     }
   }
 
@@ -859,24 +952,47 @@ export class LiquidacionesServiciosController {
   static async restaurar(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as { id: string };
-      const result = await LiquidacionesServiciosService.restaurar(id);
+      const userId = (request as any).user?.id ?? null;
+      const userName = (request as any).user?.nombre || "Usuario";
+      /// El motivo es opcional y va solo a la auditoría; se recorta para que
+      /// un cuerpo arbitrario no acabe entero en `auditoria.eliminaciones`.
+      const motivoCrudo = (request.body as { motivo?: unknown } | undefined)
+        ?.motivo;
+      const motivo =
+        typeof motivoCrudo === "string"
+          ? motivoCrudo.trim().slice(0, 500) || null
+          : null;
+      const result = await LiquidacionesServiciosService.restaurar(
+        id,
+        userId,
+        motivo,
+      );
+
+      /// El evento lleva la liquidación ya restaurada, no el `{ message,
+      /// relacionadas }` del servicio. Antes se emitía eso: sin `id`, el
+      /// listado y el canvas descartaban el evento (la fila no reaparecía en
+      /// ningún otro navegador) y la etiqueta del feed salía `undefined`.
+      /// Es `created` y no `updated` porque para quien tiene la lista abierta
+      /// la fila no existe, y `updated` solo parchea filas presentes.
+      const liquidacion = await LiquidacionesServiciosService.obtenerPorId(id);
       emitLiquidacionServicio(
         "liquidacion-servicio-created",
-        result,
+        liquidacion,
         eventoMeta({
           tipo: "created",
           scope: "liquidaciones",
-          actor: {
-            id: (request as any).user?.id ?? null,
-            nombre: (request as any).user?.nombre || "Usuario",
-          },
-          etiqueta: result.consecutivo,
+          actor: { id: userId, nombre: userName },
+          etiqueta: liquidacion.consecutivo,
         }),
       );
-      return reply.send(result);
+      return reply.send({ ...result, liquidacion });
     } catch (error: any) {
       if (error.message.includes("no encontrada"))
         return reply.status(404).send({ error: error.message });
+      /// Restaurar una que no está en la papelera es un conflicto de estado,
+      /// no un fallo del servidor.
+      if (error.message.includes("no está eliminada"))
+        return reply.status(409).send({ error: error.message });
       return reply.status(500).send({ error: error.message });
     }
   }

@@ -1,9 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 import * as service from './tipo-certificado.service'
 
 export async function tipoCertificadoRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `certificados`.
+  app.addHook('preHandler', permisoPorMetodo('certificados'))
 
   app.get('/tipos-certificado', async (_request, reply) => {
     try {

@@ -15,11 +15,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
   /// admin en una petición) y se reemplazaban firmas. Leer pide sesión;
   /// cambiar permisos, estado o firma, además, ser admin, igual que el PUT.
   app.post('/usuarios', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.create)
-  app.get('/usuarios', { preHandler: authMiddleware }, UsuariosController.list)
+  /// Listar y leer usuarios exponía a todo el equipo correos, teléfonos, áreas,
+  /// permisos y firmas de todos. Solo lo usa la pantalla de Usuarios (admin).
+  app.get('/usuarios', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.list)
   app.get('/usuarios/firmantes', { preHandler: authMiddleware }, UsuariosController.firmantes)
   app.get('/usuarios/presencia', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.listConPresencia)
   app.get('/usuarios/online-ids', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.getOnlineIds)
-  app.get('/usuarios/:id', { preHandler: authMiddleware }, UsuariosController.getById)
+  app.get('/usuarios/:id', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.getById)
   app.put('/usuarios/:id', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.update)
   app.patch('/usuarios/:id/activo', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.toggleActivo)
   app.patch('/usuarios/:id/permisos', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.updatePermisos)

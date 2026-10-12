@@ -1,0 +1,11 @@
+[Unit]
+Description=Limpieza de imágenes y caché de build de Docker (>72 h)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/docker-limpieza-72h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

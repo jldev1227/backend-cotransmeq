@@ -1,9 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { ConciliacionTercerosController } from './conciliacion-terceros.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 
 export async function contabilidadRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `contabilidad`.
+  app.addHook('preHandler', permisoPorMetodo('contabilidad'))
 
   // Conciliación de facturas con terceros - procesar y devolver JSON
   app.post('/contabilidad/conciliacion-terceros', {

@@ -1,8 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { InduccionesController } from './inducciones.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 
 export async function induccionesRoutes(app: FastifyInstance) {
+  /// Las inducciones se gestionan desde la pantalla de Asistencias (HSEQ) y solo
+  /// pedían sesión. Ahora exigen el módulo `asistencias`; el registro del
+  /// visitante (`POST /inducciones`, sin sesión) sigue abierto.
+  app.addHook('preHandler', permisoPorMetodo('asistencias', {}, { excepto: (patron, metodo) => patron === '/inducciones' && metodo === 'POST' }))
+
   // ============================================
   // RUTA PÚBLICA — crear inducción (visitante)
   // ============================================

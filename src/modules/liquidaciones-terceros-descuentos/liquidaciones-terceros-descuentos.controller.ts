@@ -728,7 +728,7 @@ export class LiquidacionesTercerosDescuentosController {
   static async cambiarEstado(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
-      const { estado, motivo_anulacion, base_version } = request.body as any;
+      const { estado, motivo_anulacion, base_version, pago } = request.body as any;
       const user = (request as any).user;
 
       if (!estado) {
@@ -747,6 +747,9 @@ export class LiquidacionesTercerosDescuentosController {
           areas: user?.area ?? null,
           userName: user?.nombre ?? user?.correo ?? null,
           base_version: base_version == null ? null : Number(base_version),
+          /// Obligatorio al pasar a PAGADA (fecha y medio); lo valida
+          /// `CierreEstadoService`.
+          pago: pago ?? null,
         },
       );
       return reply.send(result);
@@ -769,7 +772,7 @@ export class LiquidacionesTercerosDescuentosController {
    */
   static async cambiarEstadoLote(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { anio, mes, desde, hacia, motivo, ids } = (request.body as any) || {};
+      const { anio, mes, desde, hacia, motivo, ids, pago } = (request.body as any) || {};
       const user = (request as any).user;
       const listaIds = Array.isArray(ids) ? ids.map(String).slice(0, 1000) : [];
 
@@ -786,6 +789,7 @@ export class LiquidacionesTercerosDescuentosController {
         ids: listaIds,
         hacia: String(hacia),
         motivo: motivo ?? null,
+        pago: pago ?? null,
         actor: {
           id: user?.id ?? null,
           name: user?.nombre ?? user?.correo ?? null,

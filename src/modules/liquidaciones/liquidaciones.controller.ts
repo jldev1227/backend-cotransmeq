@@ -707,8 +707,11 @@ export const LiquidacionesController = {
         message: 'Method Not Allowed. Please use POST.',
       });
     }
+    // Fuera del `try`: el `catch` usa `socketId` para avisar del fallo, y
+    // declarado dentro era un `ReferenceError` que tapaba el error real (el
+    // `// @ts-nocheck` del archivo lo escondía).
+    const { liquidationIds, socketId } = (request.body ?? {}) as { liquidationIds: string[], socketId?: string };
     try {
-      const { liquidationIds, socketId } = request.body as { liquidationIds: string[], socketId?: string };
 
       	if (!liquidationIds || !Array.isArray(liquidationIds) || liquidationIds.length === 0) {
       		return reply.status(400).send({

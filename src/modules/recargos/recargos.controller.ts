@@ -1,4 +1,6 @@
 import { FastifyReply, FastifyRequest } from "fastify";
+import { getIo } from "../../sockets";
+import { sinCredenciales } from "../../lib/sin-credenciales";
 import { generarPDFReporteServicios, RecargosService } from "./recargos.service";
 import { RecargosImportarTransmeraldaService } from "./recargosImportarTransmeralda.service";
 import { requireTransmeraldaConfigured } from "../../config/prismaTransmeralda";
@@ -33,6 +35,25 @@ function responderValidacion(reply: FastifyReply, error: z.ZodError) {
   });
 }
 
+
+/**
+ * Avisa por socket a todos los conectados.
+ *
+ * Antes se leía `(request.server as any).io`, que nadie decoraba: era
+ * `undefined` y ningún evento de recargos salía nunca, aunque la página de
+ * recargos y el formulario de nómina los escuchaban. Se usa `getIo()`, como el
+ * resto de módulos. El payload va sin credenciales, y el fallo se traga a
+ * propósito: un aviso por socket no debe deshacer una operación ya guardada
+ * (`getIo()` lanza si Socket.IO no está montado, como en los tests).
+ */
+export function avisarRecargos(evento: string, datos: unknown): void {
+  try {
+    getIo().emit(evento, sinCredenciales(datos));
+  } catch {
+    /* Socket.IO no disponible: la operación ya está hecha. */
+  }
+}
+
 export const RecargosController = {
   async crear(request: FastifyRequest, reply: FastifyReply) {
     try {
@@ -49,14 +70,10 @@ export const RecargosController = {
       const valorPagar = await RecargosService.calcularValorAPagar(recargo.id);
 
       // Emitir evento socket para notificar recargo creado
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargo-creado", {
-          recargoId: recargo.id,
-          recargo: recargo,
-          valor_pagar: valorPagar,
-        });
-      }
+      avisarRecargos("recargo-creado", {
+        recargoId: recargo.id,
+        valor_pagar: valorPagar,
+      });
 
       reply.status(201).send({
         success: true,
@@ -202,14 +219,10 @@ export const RecargosController = {
       const valorPagar = await RecargosService.calcularValorAPagar(recargo.id);
 
       // Emitir evento socket para notificar recargo actualizado
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargo-actualizado", {
-          recargoId: recargo.id,
-          recargo: recargo,
-          valor_pagar: valorPagar,
-        });
-      }
+      avisarRecargos("recargo-actualizado", {
+        recargoId: recargo.id,
+        valor_pagar: valorPagar,
+      });
 
       reply.send({
         success: true,
@@ -241,12 +254,9 @@ export const RecargosController = {
       const result = await RecargosService.softDelete(id, userId);
 
       // Emitir evento socket para notificar recargo eliminado
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargo-eliminado", {
-          recargoId: id,
-        });
-      }
+      avisarRecargos("recargo-eliminado", {
+        recargoId: id,
+      });
 
       reply.send({
         success: true,
@@ -279,13 +289,10 @@ export const RecargosController = {
       const result = await RecargosService.softDeleteMany(ids, userId);
 
       // Emitir evento socket para notificar recargos eliminados
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargos-eliminados", {
-          recargoIds: ids,
-          cantidad: result.eliminados,
-        });
-      }
+      avisarRecargos("recargos-eliminados", {
+        recargoIds: ids,
+        cantidad: result.eliminados,
+      });
 
       reply.send({
         success: true,
@@ -316,12 +323,9 @@ export const RecargosController = {
 
       const result = await RecargosService.restored(id, userId);
 
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargo-restaurado", {
-          recargoId: id,
-        });
-      }
+      avisarRecargos("recargo-restaurado", {
+        recargoId: id,
+      });
 
       reply.send({
         success: true,
@@ -353,13 +357,10 @@ export const RecargosController = {
 
       const result = await RecargosService.restoredMany(ids, userId);
 
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargos-restaurados", {
-          recargoIds: ids,
-          cantidad: result.restaurados, // ✅ era result.eliminados
-        });
-      }
+      avisarRecargos("recargos-restaurados", {
+        recargoIds: ids,
+        cantidad: result.restaurados, // ✅ era result.eliminados
+      });
 
       reply.send({
         success: true,
@@ -463,19 +464,16 @@ export const RecargosController = {
       // abierto para esta planilla recargue el preview y vea los nuevos
       // valores (config vigente por día) sin tener que recargar la página.
       // Patrón: igual que `recargo-creado` / `recargo-actualizado`.
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargo-recalculado", {
-          recargoId: recargo.planilla.id,
-          conductorId: recargo.planilla.conductor_id,
-          empresaId: recargo.planilla.empresa_id,
-          mes: recargo.planilla.mes,
-          año: recargo.planilla.a_o,
-          recargo,
-          valor_pagar: valorPagar,
-          timestamp: new Date().toISOString(),
-        });
-      }
+      avisarRecargos("recargo-recalculado", {
+        recargoId: recargo.planilla.id,
+        conductorId: recargo.planilla.conductor_id,
+        empresaId: recargo.planilla.empresa_id,
+        mes: recargo.planilla.mes,
+        año: recargo.planilla.a_o,
+        recargo,
+        valor_pagar: valorPagar,
+        timestamp: new Date().toISOString(),
+      });
 
       reply.send({
         success: true,
@@ -601,14 +599,11 @@ export const RecargosController = {
       );
 
       // Emitir evento socket para notificar cambio de estado masivo
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargos-estado-actualizado", {
-          recargoIds: data.ids,
-          estado: data.estado,
-          cantidad: result.actualizados,
-        });
-      }
+      avisarRecargos("recargos-estado-actualizado", {
+        recargoIds: data.ids,
+        estado: data.estado,
+        cantidad: result.actualizados,
+      });
 
       reply.send({
         success: true,
@@ -878,14 +873,11 @@ export const RecargosController = {
         );
 
       // Notificar a clientes conectados para que refresquen el canvas
-      const io = (request.server as any).io;
-      if (io) {
-        io.emit("recargos-importados-transmeralda", {
-          importadas: resultado.importadas,
-          omitidas: resultado.omitidas,
-          errores: resultado.errores
-        });
-      }
+      avisarRecargos("recargos-importados-transmeralda", {
+        importadas: resultado.importadas,
+        omitidas: resultado.omitidas,
+        errores: resultado.errores
+      });
 
       // Si la importación creó planillas, el service devuelve el
       // `recalculoBatchId` del job bulk que está corriendo en background

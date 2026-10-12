@@ -14,6 +14,7 @@ import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
 import { randomUUID } from 'node:crypto'
 import { env } from '../../src/config/env'
+import { registrarSesion } from './sesion-prueba'
 
 const prisma = new PrismaClient()
 
@@ -35,7 +36,7 @@ function firmarToken(u: { id: string; nombre: string; correo: string }): string 
 			nombre: u.nombre,
 			name: u.nombre,
 			correo: u.correo,
-			area: ['Administración'],
+			area: ['administracion'],
 			role: 'admin'
 		},
 		env.JWT_SECRET,
@@ -56,13 +57,15 @@ export async function sembrarUsuario(etiqueta: string): Promise<UsuarioSembrado>
 			correo,
 			password: 'no-se-usa-en-tests',
 			role: 'admin',
-			area: ['Administración'],
+			area: ['administracion'],
 			created_at: new Date(),
 			updated_at: new Date()
 		}
 	})
 
-	return { id, nombre, correo, token: firmarToken({ id, nombre, correo }) }
+	const token = firmarToken({ id, nombre, correo })
+	await registrarSesion(id, token)
+	return { id, nombre, correo, token }
 }
 
 /** Borra SOLO los usuarios sembrados por estos tests. */

@@ -1,6 +1,8 @@
 import { Server as IOServer, Socket } from 'socket.io'
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env'
+import { hashToken, TIPOS_DEL_EQUIPO, usuarioDeSesion } from '../middlewares/auth.middleware'
+import { sesionAppVigente } from '../modules/app-usuarios/app-usuarios.service'
 
 /**
  * Usuario autenticado de un socket. Vive en `socket.data.user`.
@@ -14,7 +16,8 @@ export interface SocketUser {
   id: string
   name: string
   correo?: string | null
-  area?: string | null
+  /** Áreas del usuario (arreglo); los tokens viejos podían traer un string. */
+  area?: string | string[] | null
   role?: string | null
 }
 
@@ -68,6 +71,45 @@ export function corsOrigins(): string[] | '*' {
   return list.length ? list : '*'
 }
 
+/**
+ * Identidad que da un token en el handshake.
+ *
+ *  - Token del equipo (dashboard o `app_usuario`) con su sesión abierta → el
+ *    usuario, con rol, áreas, nombre y correo leídos de la base, igual que
+ *    `authMiddleware`.
+ *  - Token del portal del conductor → `'portal'`: conecta, pero sin identidad
+ *    de equipo. El gateway de formularios lo verifica por su cuenta.
+ *  - Cualquier otro (sesión cerrada, enlace revocado, tokens de impresión o de
+ *    días laborados) → `null`, como un token inválido.
+ *
+ * Hasta oct-2026 bastaba con que el JWT estuviera bien firmado: un token del
+ * portal o uno de una sesión ya cerrada conectaba como persona del equipo, y
+ * los gateways que solo piden identidad (`sheet:patch` de nómina y cierres,
+ * chat) lo daban por bueno.
+ */
+async function identidadDelToken(token: string): Promise<SocketUser | 'portal' | null> {
+  let payload: any
+  try {
+    payload = jwt.verify(token, env.JWT_SECRET)
+  } catch {
+    return null
+  }
+  if (payload?.tipo === 'conductor_portal') return 'portal'
+  if (!TIPOS_DEL_EQUIPO.has(payload?.tipo)) return null
+
+  const usuario = await usuarioDeSesion(hashToken(token))
+  if (!usuario) return null
+  if (payload.tipo === 'app_usuario' && !(await sesionAppVigente(payload.enlace, token))) return null
+
+  return {
+    id: usuario.id,
+    name: usuario.nombre || usuario.correo || 'Usuario',
+    correo: usuario.correo,
+    area: usuario.area,
+    role: usuario.role,
+  }
+}
+
 let sinTokenContador = 0
 
 /**
@@ -101,25 +143,22 @@ export function installSocketAuth(io: IOServer): void {
       return next()
     }
 
-    try {
-      const payload = jwt.verify(token, env.JWT_SECRET) as any
-      socket.data.user = {
-        id: payload.sub || payload.id,
-        name: payload.nombre || payload.name || payload.correo || 'Usuario',
-        correo: payload.correo ?? null,
-        area: payload.area ?? null,
-        role: payload.role ?? null,
-      } satisfies SocketUser
-      return next()
-    } catch {
-      if (modo === 'enforce') {
-        return next(new Error('unauthorized: token inválido'))
-      }
-      console.warn(
-        `[sockets][auth] token INVÁLIDO (permissive) socket=${socket.id}`,
+    identidadDelToken(token)
+      .then((identidad) => {
+        if (identidad === 'portal') return next()
+        if (identidad) {
+          socket.data.user = identidad
+          return next()
+        }
+        if (modo === 'enforce') return next(new Error('unauthorized: token inválido'))
+        console.warn(`[sockets][auth] token INVÁLIDO (permissive) socket=${socket.id}`)
+        return next()
+      })
+      .catch(() =>
+        /// Un fallo de la base no debe dejar entrar como alguien en `enforce`, ni
+        /// tumbar la conexión en `permissive`.
+        modo === 'enforce' ? next(new Error('unauthorized: no se pudo verificar la sesión')) : next(),
       )
-      return next()
-    }
   })
 
   console.log(`🔐 [sockets] auth instalada en modo "${modo}"`)

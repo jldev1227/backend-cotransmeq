@@ -105,6 +105,10 @@ export async function reconciliarItems(
   )
 
   const vistos = new Set<string>()
+  /// Claves ya puestas en este guardado: el índice único parcial
+  /// `(liquidacion_id, client_key)` rechazaría una segunda fila activa con la
+  /// misma.
+  const clavesUsadas = new Set<string>()
   let actualizados = 0
   let creados = 0
   let restaurados = 0
@@ -113,12 +117,20 @@ export async function reconciliarItems(
     const { id, client_key, ...campos } = entrante
 
     /// Por id, y si no por client_key. La posición NO participa.
-    const existente =
+    const candidato =
       (id ? porId.get(id) : undefined) ??
       (client_key ? porClientKey.get(client_key) : undefined)
+    /// Una fila del servidor no se empareja dos veces en el mismo guardado. Si
+    /// llegaran dos entradas con el mismo id o la misma clave (una fila copiada
+    /// con sus identificadores), la segunda pisaría a la primera y se perdería
+    /// un ítem: la copia entra como ítem nuevo.
+    const existente = candidato && !vistos.has(candidato.id) ? candidato : undefined
+    const claveLibre = client_key && !clavesUsadas.has(client_key) ? client_key : null
 
     if (existente) {
       vistos.add(existente.id)
+      if (existente.client_key) clavesUsadas.add(existente.client_key)
+      else if (claveLibre) clavesUsadas.add(claveLibre)
       const revive = existente.deleted_at !== null
 
       await tx.liquidacion_servicio_item.update({
@@ -129,7 +141,7 @@ export async function reconciliarItems(
           /// Si el ítem estaba marcado y vuelve a llegar, se restaura en vez de
           /// crear un duplicado que dejaría dos filas con los mismos datos.
           ...(revive ? { deleted_at: null } : {}),
-          ...(client_key && !existente.client_key ? { client_key } : {}),
+          ...(claveLibre && !existente.client_key ? { client_key: claveLibre } : {}),
         },
       })
 
@@ -143,11 +155,12 @@ export async function reconciliarItems(
         ...(campos as Prisma.liquidacion_servicio_itemUncheckedCreateInput),
         liquidacion_id: liquidacionId,
         orden: posicion,
-        client_key: client_key ?? null,
+        client_key: claveLibre,
       },
       select: { id: true },
     })
     vistos.add(creado.id)
+    if (claveLibre) clavesUsadas.add(claveLibre)
     creados++
   }
 

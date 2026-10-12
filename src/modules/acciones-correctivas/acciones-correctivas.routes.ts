@@ -28,6 +28,10 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
       schema: {
         tags: ['Acciones Correctivas'],
         description: 'Crear nueva acción correctiva/preventiva',
+        // `additionalProperties: true` se queda para no romper clientes que
+        // mandan campos de más (el formulario envía `replanteo_correccion`,
+        // que no es columna): lo que se escribe lo decide la lista blanca
+        // `CAMPOS_EDITABLES_ACCION` del servicio, no este esquema.
         body: {
           type: 'object',
           required: ['accion_numero'],
@@ -135,7 +139,10 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
             sortBy: { type: 'string' },
             sortOrder: { type: 'string', enum: ['asc', 'desc'] },
             ultimos_90_dias: { type: 'boolean' },
-            incluir_eliminados: { type: 'boolean' }
+            incluir_eliminados: { type: 'boolean' },
+            // Panel de revisión del tablero: se calcula por fila en el servidor
+            // (ver `acciones-correctivas.revision.ts`).
+            revision: { type: 'string', enum: ['vencidas', 'proximas'] }
           }
         }
       }
@@ -214,7 +221,8 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
             accion_numero: { type: 'string' },
             lugar_sede: { type: 'string' },
             proceso_origen_hallazgo: { type: 'string' },
-            // ... (resto de campos similares al POST)
+            // El resto no se declara aquí: el servicio aplica la lista blanca
+            // `CAMPOS_EDITABLES_ACCION` y descarta lo demás.
           }
         }
       }
@@ -666,7 +674,8 @@ export async function accionesCorrectivasRoutes(fastify: FastifyInstance) {
           required: ['estado_global'],
           properties: {
             estado_global: { type: 'string', enum: ['EN_PROCESO', 'VENCIDA', 'CUMPLIDA', 'REPLANTEADA'] },
-            registrado_por_id: { type: 'string', format: 'uuid' },
+            // `registrado_por_id` ya no se declara: quien registra es el
+            // usuario del token. Si llega, el controlador lo ignora.
             observaciones: { type: 'string' }
           }
         }

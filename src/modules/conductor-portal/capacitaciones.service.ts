@@ -19,7 +19,8 @@ import { sopaParaPublico, type ConfigSopa } from '../evaluaciones/sopa-letras'
  */
 
 export class CapacitacionesError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** `YA_REGISTRADA`: la persona ya firmó o respondió (409 por duplicado, no por otro conflicto). */
+  constructor(message: string, readonly status: number, readonly codigo?: 'YA_REGISTRADA') {
     super(message)
   }
 }
@@ -46,6 +47,14 @@ export interface Persona {
   huella: string
   nombre_completo: string
   numero_documento: string | null
+  /**
+   * Si la cédula la puso la empresa (conductores: `numero_identificacion`) y no
+   * la propia persona. Con `false` (usuarios del dashboard, que la declaran en
+   * la app) las filas que coinciden SOLO por cédula cuentan para «ya firmó» y
+   * para el historial, pero no se devuelve su imagen de firma ni sus
+   * respuestas: eso solo sale de las filas con su huella. Ver `esPropia`.
+   */
+  documento_verificado: boolean
   cargo: string
   telefono: string
   correo: string
@@ -72,6 +81,7 @@ export async function personaConductor(conductorId: string): Promise<Persona> {
     huella: `portal-conductor:${c.id}`,
     nombre_completo: `${c.nombre} ${c.apellido}`.trim(),
     numero_documento: c.numero_identificacion || null,
+    documento_verificado: true,
     cargo: c.cargo || 'CONDUCTOR',
     telefono: c.telefono ?? '',
     correo: c.email ?? '',
@@ -89,6 +99,8 @@ export async function personaUsuario(usuarioId: string): Promise<Persona> {
     huella: `app-usuario:${u.id}`,
     nombre_completo: u.nombre.trim(),
     numero_documento: u.numero_documento || null,
+    /// La declaró el propio usuario en la app (`mis-capacitaciones.routes.ts`): no es verificada.
+    documento_verificado: false,
     /// Sin cargo registrado, el área: la lista de asistencia no debe quedar con el cargo vacío.
     cargo: u.cargo || (u.area ?? []).filter(Boolean).map((a) => a.replace(/_/g, ' ').toUpperCase()).join(', '),
     telefono: u.telefono ?? '',
@@ -116,6 +128,19 @@ function dePersona(p: Persona) {
   ]
   if (p.numero_documento) condiciones.push({ numero_documento: p.numero_documento })
   return { OR: condiciones }
+}
+
+/**
+ * Si una fila (firma o resultado) se puede mostrar en detalle a esta persona.
+ *
+ * La cédula de un usuario del dashboard la declara él mismo, así que casar por
+ * cédula no prueba que la fila sea suya: quien declarara la de otro veía la
+ * imagen de su firma y lo que respondió. Con cédula no verificada, el detalle
+ * solo sale de las filas hechas desde su propia cuenta (su huella); las demás
+ * siguen contando como firmadas/respondidas para que no se dupliquen.
+ */
+export function esPropia(persona: Pick<Persona, 'huella' | 'documento_verificado'>, huellaFila: string | null | undefined) {
+  return persona.documento_verificado || huellaFila === persona.huella
 }
 
 /** Fecha del día (YYYY-MM-DD) en Colombia desplazada `dias`, como Date UTC para columnas `@db.Date`. */
@@ -300,19 +325,36 @@ async function formularioPorToken(token: string) {
 async function firmaDePersona(formularioId: string, persona: Persona, conImagen = false) {
   return prisma.respuestas_asistencia.findFirst({
     where: { formulario_id: formularioId, ...dePersona(persona) },
-    select: { created_at: true, firma: conImagen },
+    select: { created_at: true, device_fingerprint: true, firma: conImagen },
     orderBy: { created_at: 'desc' }
   })
 }
 
+/**
+ * La firma que se le muestra: primero la suya (huella); si no hay, la que casa
+ * por cédula, con imagen solo si la cédula es verificada (ver `esPropia`).
+ */
+async function firmaVisible(formularioId: string, persona: Persona) {
+  if (persona.documento_verificado) return firmaDePersona(formularioId, persona, true)
+  const propia = await prisma.respuestas_asistencia.findFirst({
+    where: { formulario_id: formularioId, device_fingerprint: persona.huella },
+    select: { created_at: true, device_fingerprint: true, firma: true },
+    orderBy: { created_at: 'desc' }
+  })
+  if (propia) return propia
+  const otra = await firmaDePersona(formularioId, persona)
+  return otra ? { created_at: otra.created_at, device_fingerprint: otra.device_fingerprint, firma: null } : null
+}
+
 export async function obtenerAsistencia(token: string, persona: Persona) {
   const formulario = await formularioPorToken(token)
-  const firma = await firmaDePersona(formulario.id, persona, true)
+  const firma = await firmaVisible(formulario.id, persona)
   return {
     asistencia: { ...resumenAsistencia(formulario), activo: formulario.activo },
     firmada_en: firma ? firma.created_at.toISOString() : null,
-    /// La firma que dejó, para que la vea en la asistencia firmada.
-    firma: firma?.firma ?? null,
+    /// La firma que dejó, para que la vea en la asistencia firmada. `null` si la
+    /// fila solo casa por una cédula no verificada.
+    firma: firma && esPropia(persona, firma.device_fingerprint) ? (firma.firma ?? null) : null,
     conductor: datosPersona(persona)
   }
 }
@@ -328,7 +370,7 @@ export async function firmarAsistencia(
     throw new CapacitacionesError('Esta asistencia ya no está disponible', 403)
   }
   if (await firmaDePersona(formulario.id, persona)) {
-    throw new CapacitacionesError('Ya firmaste esta asistencia', 409)
+    throw new CapacitacionesError('Ya firmaste esta asistencia', 409, 'YA_REGISTRADA')
   }
 
   const firma = (body as { firma?: unknown } | null)?.firma
@@ -358,7 +400,7 @@ export async function firmarAsistencia(
     })
   } catch (err: any) {
     // Dos envíos simultáneos: la llave única (formulario, huella) deja pasar solo uno
-    if (err?.code === 'P2002') throw new CapacitacionesError('Ya firmaste esta asistencia', 409)
+    if (err?.code === 'P2002') throw new CapacitacionesError('Ya firmaste esta asistencia', 409, 'YA_REGISTRADA')
     throw err
   }
 
@@ -403,9 +445,20 @@ const respuestaSelect = {
 async function resultadoDePersona(evaluacionId: string, persona: Persona) {
   return prisma.resultado.findFirst({
     where: { evaluacionId, ...dePersona(persona) },
-    select: { puntaje_total: true, created_at: true, respuestas: { select: respuestaSelect } },
+    select: { puntaje_total: true, created_at: true, device_fingerprint: true, respuestas: { select: respuestaSelect } },
     orderBy: { created_at: 'desc' }
   })
+}
+
+/** Como `firmaVisible`: primero el resultado con su huella; si no, el que casa por cédula. */
+async function resultadoVisible(evaluacionId: string, persona: Persona) {
+  if (persona.documento_verificado) return resultadoDePersona(evaluacionId, persona)
+  const propio = await prisma.resultado.findFirst({
+    where: { evaluacionId, device_fingerprint: persona.huella },
+    select: { puntaje_total: true, created_at: true, device_fingerprint: true, respuestas: { select: respuestaSelect } },
+    orderBy: { created_at: 'desc' }
+  })
+  return propio ?? resultadoDePersona(evaluacionId, persona)
 }
 
 type RespuestaGuardada = {
@@ -444,7 +497,7 @@ function detalleDeRespuestas(
 export async function obtenerEvaluacion(id: string, persona: Persona) {
   const evaluacion = await evaluacionVigente(id)
   const maximo = puntajeMaximo(evaluacion.preguntas)
-  const resultado = await resultadoDePersona(evaluacion.id, persona)
+  const resultado = await resultadoVisible(evaluacion.id, persona)
 
   return {
     evaluacion: {
@@ -474,7 +527,10 @@ export async function obtenerEvaluacion(id: string, persona: Persona) {
           puntaje_total: resultado.puntaje_total,
           puntaje_maximo: maximo,
           respondida_en: resultado.created_at.toISOString(),
-          respuestas: detalleDeRespuestas(evaluacion.preguntas, resultado.respuestas)
+          /// Vacío si el resultado solo casa por una cédula no verificada (`esPropia`).
+          respuestas: esPropia(persona, resultado.device_fingerprint)
+            ? detalleDeRespuestas(evaluacion.preguntas, resultado.respuestas)
+            : []
         }
       : null,
     conductor: datosPersona(persona)
@@ -494,7 +550,7 @@ export async function responderEvaluacion(
 ) {
   const evaluacion = await evaluacionVigente(id)
   if (await resultadoDePersona(evaluacion.id, persona)) {
-    throw new CapacitacionesError('Ya respondiste esta evaluación', 409)
+    throw new CapacitacionesError('Ya respondiste esta evaluación', 409, 'YA_REGISTRADA')
   }
 
   const parsed = responderEvaluacionSchema.safeParse(body)

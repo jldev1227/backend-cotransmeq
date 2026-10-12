@@ -233,8 +233,11 @@ function getFirmas(formulario: FormularioLite, respuestas: Record<string, any>):
       const esFirma = p.tipo_respuesta ? p.tipo_respuesta === 'firma' : !!meta
       if (!esFirma) continue
       const v = respuestas?.[p.id]
+      /// Base64 hasta el final, no solo el prefijo: el valor viene del
+      /// formulario público y se escribe dentro de `<img src="…">`. Con solo
+      /// el prefijo, `…;base64,AAAA"><h1>…` metía marcado en el PDF.
       const dataUrl =
-        typeof v === 'string' && /^data:image\/(png|jpe?g|webp);base64,/i.test(v) ? v : null
+        typeof v === 'string' && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(v) ? v : null
       const nombre = meta ? respuestas?.[meta.nombreId] : null
       firmas.push({
         label: meta?.label ?? 'FIRMA DE QUIEN AUTORIZA',

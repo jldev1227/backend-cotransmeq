@@ -3842,13 +3842,19 @@ export const LiquidacionesTercerosDescuentosService = {
     estado: string,
     userId: string,
     motivo_anulacion?: string,
-    opts?: { areas?: string[] | string | null; userName?: string | null; base_version?: number | null },
+    opts?: {
+      areas?: string[] | string | null;
+      userName?: string | null;
+      base_version?: number | null;
+      pago?: unknown;
+    },
   ) {
     const cambio = await CierreEstadoService.cambiar({
       id: liquidacionTerceroFinalId,
       estado,
       motivo: motivo_anulacion ?? null,
       base_version: opts?.base_version ?? null,
+      pago: opts?.pago ?? null,
       actor: { id: userId || null, name: opts?.userName ?? null, areas: opts?.areas ?? null },
     });
 

@@ -62,7 +62,7 @@ Si prefieres no abrir el firewall de Azure:
 2. **Actualizar Variable de Entorno**
    ```bash
    # En Railway, variables de entorno:
-   DATABASE_URL=postgresql://postgres:password@railway-host:5432/railway
+   DATABASE_URL=postgresql://USUARIO:CLAVE@HOST:5432/BASE
    ```
 
 3. **Migrar Datos** (si es necesario)
@@ -82,7 +82,7 @@ Si prefieres no abrir el firewall de Azure:
 
 ```bash
 # Test de conexión con psql
-psql "postgresql://Cotrans900:MEQ900%2A%2A@cotransmeq.postgres.database.azure.com:5432/postgres?sslmode=require"
+psql "postgresql://USUARIO:CLAVE@HOST:5432/BASE?sslmode=require"
 
 # Test de conexión con telnet
 telnet cotransmeq.postgres.database.azure.com 5432
@@ -109,7 +109,7 @@ PORT=4000
 NODE_ENV=production
 
 # Database - Azure PostgreSQL
-DATABASE_URL=postgresql://USER:PASSWORD@host.postgres.database.azure.com:5432/postgres?schema=public&sslmode=require
+DATABASE_URL=postgresql://USUARIO:CLAVE@HOST:5432/BASE?schema=public&sslmode=require
 
 # JWT
 JWT_SECRET=your_jwt_secret_here
@@ -117,7 +117,7 @@ JWT_EXPIRY=30d
 
 # AWS S3
 AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXX
-AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AWS_SECRET_ACCESS_KEY=<AWS_SECRET_ACCESS_KEY>
 AWS_REGION=us-east-2
 AWS_S3_BUCKET_NAME=your-bucket-name
 

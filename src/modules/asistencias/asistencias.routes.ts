@@ -1,8 +1,20 @@
 import type { FastifyInstance } from 'fastify'
 import { AsistenciasController } from './asistencias.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
+import { crearLimitador, MINUTO, preHandlerLimite } from '../../utils/limitador'
+
+/// `verificar` es abierta y responde con el nombre de quien firmó: se limita
+/// por IP para que no sirva de oráculo. Holgado, porque en una charla el salón
+/// entero abre el QR desde el wifi de la sede, que sale por una sola IP.
+const limiteVerificar = { porIp: crearLimitador({ max: 120, ventanaMs: 15 * MINUTO }) }
 
 export async function asistenciasRoutes(app: FastifyInstance) {
+  /// Las rutas del equipo solo pedían sesión: cualquiera borraba respuestas de
+  /// asistencia (`DELETE /asistencias/respuestas`). Ahora exigen el módulo
+  /// `asistencias`; las públicas del QR (`/public/...`) siguen abiertas.
+  app.addHook('preHandler', permisoPorMetodo('asistencias', {}, { excepto: (patron) => patron.startsWith('/public/') }))
+
   // ============================================
   // RUTAS PROTEGIDAS (requieren autenticación)
   // ============================================
@@ -361,8 +373,9 @@ export async function asistenciasRoutes(app: FastifyInstance) {
     }
   }, AsistenciasController.obtenerPorToken)
 
-  // Verificar si ya respondí (público)
+  // Verificar si ya respondí (público): solo si firmó, el nombre y la fecha
   app.get('/public/asistencias/:token/verificar', {
+    preHandler: preHandlerLimite(limiteVerificar),
     schema: {
       description: 'Verificar si un dispositivo ya respondió el formulario',
       tags: ['asistencias-public'],
@@ -383,9 +396,16 @@ export async function asistenciasRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             success: { type: 'boolean' },
-            data: { 
+            /// Declarado campo por campo: el serializador descarta lo que no
+            /// esté aquí, así que un cambio en el controlador no vuelve a
+            /// filtrar documento, firma o IP por esta ruta abierta.
+            data: {
               type: 'object',
-              additionalProperties: true
+              properties: {
+                respondido: { type: 'boolean' },
+                nombre: { type: ['string', 'null'] },
+                fecha: { type: ['string', 'null'] }
+              }
             }
           }
         }

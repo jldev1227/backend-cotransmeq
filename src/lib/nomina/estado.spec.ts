@@ -71,10 +71,18 @@ describe('matriz de transiciones', () => {
   });
 
   it('todos los estados son alcanzables desde BORRADOR', () => {
+    // FIRMADA no está en la matriz a propósito: la pone la firma del
+    // conductor en el portal, y solo sobre una PAGADA
+    // (`conductor-portal.routes.ts`). Esa arista se añade aquí; si mañana
+    // aparece otro estado que nadie alcanza, este test vuelve a fallar.
+    const conFirma: Record<string, string[]> = {
+      ...TRANSICIONES,
+      PAGADA: [...(TRANSICIONES.PAGADA ?? []), 'FIRMADA'],
+    };
     const vistos = new Set<string>(['BORRADOR']);
     const cola: string[] = ['BORRADOR'];
     while (cola.length) {
-      for (const d of TRANSICIONES[cola.pop()!] ?? []) {
+      for (const d of conFirma[cola.pop()!] ?? []) {
         if (!vistos.has(d)) {
           vistos.add(d);
           cola.push(d);
@@ -82,6 +90,12 @@ describe('matriz de transiciones', () => {
       }
     }
     expect([...vistos].sort()).toEqual([...ESTADOS_VALIDOS].sort());
+  });
+
+  it('la matriz base no lleva a FIRMADA: solo la firma del conductor', () => {
+    for (const destinos of Object.values(TRANSICIONES)) {
+      expect(destinos).not.toContain('FIRMADA');
+    }
   });
 });
 

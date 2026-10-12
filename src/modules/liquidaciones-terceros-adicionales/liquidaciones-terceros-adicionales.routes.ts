@@ -13,7 +13,9 @@ export async function liquidacionesTercerosAdicionalesRoutes(app: FastifyInstanc
   const puedeLeer = { preHandler: requirePermission(MODULO, "limited") };
   // Escritura: exige `full` (administración y operaciones). Hasta ahora
   // cualquier usuario autenticado podía escribir aquí.
-  const puedeEscribir = { preHandler: requirePermission(MODULO, "full") };
+  /// `limited` y no `full`: facturación y contabilidad también editan cierres
+  /// (ver `liquidaciones-terceros-descuentos.routes.ts`).
+  const puedeEscribir = { preHandler: requirePermission(MODULO, "limited") };
 
   /// Los 12 meses de un año en una sola petición (canvas anual).
   /// Se declara ANTES que la ruta raíz para que no haya ambigüedad.

@@ -10,9 +10,13 @@ import {
   estaEliminada,
 } from "../../lib/soft-delete/liquidacion-servicio";
 import { randomUUID } from "crypto";
-import ExcelJS from "exceljs";
+import { generarExcelLiquidacion } from "./excel-liquidacion";
+import { marcaExcelLiquidacion } from "./excel-marca";
 import { LiquidacionesTercerosService } from "../liquidaciones-terceros/liquidaciones-terceros.service";
-import { resolverLogoCotransmeq } from "../../lib/branding";
+import {
+  ErrorEstadoLiquidacion,
+  validarTransicionLiquidacion,
+} from "./estado-transiciones";
 
 const MES_NOMBRE_A_NUM: Record<string, number> = {
   ENERO: 1, FEBRERO: 2, MARZO: 3, ABRIL: 4, MAYO: 5, JUNIO: 6,
@@ -56,6 +60,9 @@ export type EstadoLiquidacionServicio =
 export type Operadora = "PAREX" | "GEOPARK";
 
 export interface TarifaInput {
+  /// La tarifa es de un cliente y un año (`@@unique([cliente_id, anio])`); la
+  /// operadora solo dice qué tabla de precios es.
+  cliente_id: string;
   operadora: Operadora;
   anio: number;
   valor_24h: number;
@@ -67,6 +74,10 @@ export interface TarifaInput {
 }
 
 export interface ItemLiquidacionInput {
+  /** Id de servidor de un ítem ya guardado (lo manda el editor como `server_id`). */
+  id?: string | null;
+  /** Clave que el editor pone a cada fila; empareja las que aún no tienen id. */
+  client_key?: string | null;
   servicio_id?: string;
   recargo_planilla_id?: string;
   placa: string;
@@ -156,6 +167,18 @@ export interface FiltrosLiquidacionServicios {
  * Devuelve números planos; envolver en `Decimal` es cosa de cada llamante,
  * porque `crear` y `actualizar` no coinciden en cuáles envuelven.
  */
+/**
+ * Los ítems de una liquidación NUEVA, sin el `id` que mande el cliente.
+ *
+ * Una liquidación que se crea no tiene ítems propios todavía: un `id` que
+ * llegue es de otra (al duplicar, por ejemplo) y chocaría con su clave
+ * primaria. El `client_key` sí se conserva: es lo que empareja las filas en
+ * el siguiente guardado.
+ */
+function sinIdDeCliente<T extends { id?: string | null }>(items: T[]): Omit<T, 'id'>[] {
+  return items.map(({ id: _id, ...item }) => item);
+}
+
 function construirItemsYTotales(data: CrearLiquidacionInput) {
   let valorServicios = 0;
 
@@ -166,7 +189,14 @@ function construirItemsYTotales(data: CrearLiquidacionInput) {
     valorServicios += valorFinal;
 
     return {
-      id: randomUUID(),
+      /// El `id` de servidor y el `client_key` del editor son lo que usa
+      /// `reconciliarItems` para saber qué fila es cuál. Aquí se ponía un
+      /// `randomUUID()` y se tiraba el `client_key`, así que no emparejaba
+      /// nunca: cada guardado y cada autoguardado recreaba todos los ítems y
+      /// marcaba los anteriores, y sus ids cambiaban cada vez. Las altas, que
+      /// no reconcilian, los quitan con `sinIdDeCliente`.
+      id: item.id ?? undefined,
+      client_key: item.client_key ?? undefined,
       placa: item.placa,
       fecha_inicial: new Date(item.fecha_inicial),
       fecha_final: new Date(item.fecha_final),
@@ -327,6 +357,13 @@ async function resolverOperadora(data: any): Promise<{
   }
 }
 
+/** La liquidación no existe o está en la papelera: el controlador responde 404, no 500. */
+export class LiquidacionNoEncontradaError extends Error {
+  constructor() {
+    super("Liquidación no encontrada");
+  }
+}
+
 export const LiquidacionesServiciosService = {
   // ── Helper: crear snapshot de una liquidación ──
   async _crearSnapshot(
@@ -419,11 +456,21 @@ export const LiquidacionesServiciosService = {
 
   // ── TARIFAS CRUD ──
 
-  async obtenerTarifas(clienteId?: string, operadora?: string, anio?: number) {
+  /**
+   * Sin filtros devuelve todas (activas e inactivas); con alguno, solo las
+   * activas, salvo `incluirInactivas`: la ficha del cliente las necesita para
+   * ofrecer reactivar la de un año en vez de chocar con el único.
+   */
+  async obtenerTarifas(
+    clienteId?: string,
+    operadora?: string,
+    anio?: number,
+    incluirInactivas = false,
+  ) {
     const where: any = {};
 
     if (clienteId || operadora || anio) {
-      where.activo = true;
+      if (!incluirInactivas) where.activo = true;
       if (clienteId) where.cliente_id = clienteId;
       if (operadora) where.operadora = operadora;
       if (anio) where.anio = anio;
@@ -431,30 +478,66 @@ export const LiquidacionesServiciosService = {
 
     return await prisma.tarifas_servicios.findMany({
       where,
-      include: { empresas: true },
-      orderBy: [{ operadora: "asc" }, { anio: "desc" }],
+      include: { empresas: { select: { id: true, nombre: true, nit: true } } },
+      orderBy: [{ anio: "desc" }, { operadora: "asc" }],
     });
   },
 
+  /**
+   * Crea la tarifa del cliente para ese año. Si existe una DESACTIVADA, la
+   * reactiva con los valores nuevos: «eliminar» solo pone `activo = false` y
+   * la fila sigue ocupando `(cliente_id, anio)`, así que crear de nuevo el
+   * mismo año chocaba con el único y no había forma de salir de ahí.
+   */
   async crearTarifa(data: TarifaInput) {
-    return await prisma.tarifas_servicios.create({
-      data: {
-        operadora: data.operadora,
-        anio: data.anio,
-        valor_24h: data.valor_24h,
-        valor_12h: data.valor_12h,
-        valor_hora: data.valor_hora,
-        valor_km: data.valor_km,
-        km_dia: data.km_dia || 150,
-        valor_pernocte: data.valor_pernocte || 0,
+    const cliente = await prisma.clientes.findUnique({
+      where: { id: data.cliente_id },
+      select: { id: true },
+    });
+    if (!cliente) {
+      throw Object.assign(new Error("Cliente no encontrado"), {
+        statusCode: 404,
+      });
+    }
+    const valores = {
+      operadora: data.operadora,
+      anio: data.anio,
+      valor_24h: data.valor_24h,
+      valor_12h: data.valor_12h,
+      valor_hora: data.valor_hora,
+      valor_km: data.valor_km,
+      km_dia: data.km_dia ?? 150,
+      valor_pernocte: data.valor_pernocte ?? 0,
+    };
+    const existente = await prisma.tarifas_servicios.findUnique({
+      where: {
+        cliente_id_anio: { cliente_id: data.cliente_id, anio: data.anio },
       },
+      select: { id: true, activo: true },
+    });
+    if (existente && !existente.activo) {
+      return await prisma.tarifas_servicios.update({
+        where: { id: existente.id },
+        data: { ...valores, activo: true },
+      });
+    }
+    /// Si ya hay una activa, el `create` falla con P2002 y el controlador
+    /// responde 409: lo correcto es editar la existente.
+    return await prisma.tarifas_servicios.create({
+      data: { cliente_id: data.cliente_id, ...valores },
     });
   },
 
-  async actualizarTarifa(id: string, data: Partial<TarifaInput>) {
+  async actualizarTarifa(
+    id: string,
+    data: Partial<Omit<TarifaInput, "cliente_id">> & { activo?: boolean },
+  ) {
     return await prisma.tarifas_servicios.update({
       where: { id },
       data: {
+        ...(data.operadora !== undefined && { operadora: data.operadora }),
+        ...(data.anio !== undefined && { anio: data.anio }),
+        ...(data.activo !== undefined && { activo: data.activo }),
         ...(data.valor_24h !== undefined && { valor_24h: data.valor_24h }),
         ...(data.valor_12h !== undefined && { valor_12h: data.valor_12h }),
         ...(data.valor_hora !== undefined && { valor_hora: data.valor_hora }),
@@ -1048,7 +1131,7 @@ export const LiquidacionesServiciosService = {
             cliente_key: data.cliente_key || null,
             /// La marca de «todavía nadie la guardó a propósito».
             confirmada_at: null,
-            items: { createMany: { data: itemsData } },
+            items: { createMany: { data: sinIdDeCliente(itemsData) } },
           },
         });
 
@@ -1263,7 +1346,7 @@ export const LiquidacionesServiciosService = {
         operadora_id: operadoraResuelta.operadora_id,
         creado_por_id: userId,
         items: {
-          createMany: { data: itemsData },
+          createMany: { data: sinIdDeCliente(itemsData) },
         },
       },
       include: {
@@ -2040,6 +2123,14 @@ export const LiquidacionesServiciosService = {
       await reconciliarItems(tx, id, itemsData as ItemEntrante[]);
     });
 
+    /// La cabecera se leyó ANTES de reconciliar: sus ítems son los de antes del
+    /// guardado. Se releen para que la respuesta y el enlace de terceros
+    /// (`src_index` → posición) usen los ítems que quedaron.
+    liquidacion.items = await prisma.liquidacion_servicio_item.findMany({
+      where: { liquidacion_id: id, deleted_at: null },
+      orderBy: { orden: "asc" },
+    });
+
     // Crear snapshot de edición
     await this._crearSnapshot(
       liquidacion.id,
@@ -2074,12 +2165,26 @@ export const LiquidacionesServiciosService = {
     motivo_anulacion?: string,
   ) {
     // Fetch current state for historial
-    const current = await prisma.liquidacion_servicio.findUnique({
-      where: { id },
+    /// Una liquidación en la papelera no cambia de estado: antes se podía
+    /// aprobar o anular una eliminada y el cambio quedaba en una fila que
+    /// nadie ve.
+    const current = await prisma.liquidacion_servicio.findFirst({
+      where: { id, deleted_at: null },
       select: { estado: true },
     });
-    if (!current) throw new Error("Liquidación no encontrada");
+    if (!current) {
+      throw new ErrorEstadoLiquidacion(
+        "Liquidación no encontrada",
+        404,
+        "LIQUIDACION_NO_ENCONTRADA",
+      );
+    }
     const estadoAnterior = current.estado;
+
+    /// Valor, transición y motivo (ver `estado-transiciones.ts`). Va aquí y
+    /// no solo en el controlador para que cualquier llamador —asistente,
+    /// pruebas, otro módulo— pase por la misma tabla.
+    validarTransicionLiquidacion(estadoAnterior, estado, motivo_anulacion);
 
     const data: any = {
       estado: estado as any,
@@ -2098,23 +2203,38 @@ export const LiquidacionesServiciosService = {
       data.aprobado_por_id = null;
       data.fecha_aprobacion = null;
     }
-    if (estado === "ANULADA" && motivo_anulacion) {
-      data.motivo_anulacion = motivo_anulacion;
-    } else if (estado !== "ANULADA") {
+    if (estado === "ANULADA") {
+      data.motivo_anulacion = String(motivo_anulacion).trim();
+    } else {
       data.motivo_anulacion = null;
     }
 
-    // Transaction: update estado
-    const result = await prisma.liquidacion_servicio.update({
-      where: { id },
-      data,
-      include: {
-        cliente: { select: { id: true, nombre: true, nit: true } },
-        liquidado_por: { select: { id: true, nombre: true, correo: true } },
-        aprobado_por: { select: { id: true, nombre: true, correo: true } },
-        creado_por: { select: { id: true, nombre: true, correo: true } },
-      },
-    });
+    /// Compare-and-swap sobre el estado leído: la transición se validó contra
+    /// `estadoAnterior`, y si otro usuario la movió entretanto (dos pestañas,
+    /// el lote del canvas) el UPDATE no casa y se responde 409 en vez de
+    /// aplicar una transición que ya no es la que se validó.
+    let result;
+    try {
+      result = await prisma.liquidacion_servicio.update({
+        where: { id, estado: estadoAnterior, deleted_at: null },
+        data,
+        include: {
+          cliente: { select: { id: true, nombre: true, nit: true } },
+          liquidado_por: { select: { id: true, nombre: true, correo: true } },
+          aprobado_por: { select: { id: true, nombre: true, correo: true } },
+          creado_por: { select: { id: true, nombre: true, correo: true } },
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === "P2025") {
+        throw new ErrorEstadoLiquidacion(
+          "Otro usuario cambió el estado de la liquidación mientras tanto. Recarga y vuelve a intentarlo.",
+          409,
+          "ESTADO_CAMBIADO",
+        );
+      }
+      throw error;
+    }
 
     // Crear snapshot con el nuevo estado
     await this._crearSnapshot(
@@ -2140,161 +2260,79 @@ export const LiquidacionesServiciosService = {
     });
   },
 
-  // ── Documento Excel de liquidacion - Hoja 1 ──
+  // ── Excel de la liquidación (descarga de la vista previa) ──
+  /// Se llama `obtenerCSV` por la ruta `/csv`, que se conserva para no romper
+  /// enlaces; desde 2025 devuelve un .xlsx. Ver `excel-liquidacion.ts`.
   async obtenerCSV(liquidacionId: string) {
-    const liq = await prisma.liquidacion_servicio.findUnique({
-      where: { id: liquidacionId },
+    const liq = await prisma.liquidacion_servicio.findFirst({
+      where: { id: liquidacionId, deleted_at: null },
       include: {
         cliente: { select: { nombre: true, nit: true } },
         items: { where: { deleted_at: null }, orderBy: { orden: "asc" } },
+        liquidado_por: { select: { nombre: true } },
+        aprobado_por: { select: { nombre: true } },
+        operadora_rel: { select: { nombre: true } },
+        historial_estados: {
+          orderBy: { created_at: "asc" },
+          include: { usuario: { select: { nombre: true } } },
+        },
       },
     });
 
-    if (!liq) throw new Error("Liquidación no encontrada");
+    if (!liq) throw new LiquidacionNoEncontradaError();
 
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Items Liquidación");
-
-    // 1. Agregar Logo
-    // `transmeralda-logo.png` sigue en el repo pero es la marca de la otra
-    // empresa: el Excel salía con el logotipo de Transmeralda.
-    const logoPath = resolverLogoCotransmeq();
-    if (logoPath) {
-      const logo = workbook.addImage({
-        filename: logoPath,
-        extension: "png",
-      });
-      // 94x60 y no 150x50: el logotipo es 177x113 y ExcelJS no respeta la
-      // relación de aspecto por su cuenta.
-      worksheet.addImage(logo, {
-        tl: { col: 0, row: 0 },
-        ext: { width: 94, height: 60 },
-      });
-    }
-
-    // 2. Información de Encabezado (empezando en fila 4 para dejar espacio al logo)
-    worksheet.mergeCells("A1:K3"); // Espacio para logo si se desea centrar o algo mas
-
-    const headerStartRow = 5;
-    worksheet.getCell(`A${headerStartRow}`).value = "CLIENTE:";
-    worksheet.getCell(`B${headerStartRow}`).value = liq.cliente.nombre;
-    worksheet.getCell(`A${headerStartRow + 1}`).value = "NIT:";
-    worksheet.getCell(`B${headerStartRow + 1}`).value = liq.cliente.nit;
-    worksheet.getCell(`A${headerStartRow + 2}`).value = "CONSECUTIVO:";
-    worksheet.getCell(`B${headerStartRow + 2}`).value = liq.consecutivo;
-    worksheet.getCell(`A${headerStartRow + 3}`).value = "PERIODO:";
-    worksheet.getCell(`B${headerStartRow + 3}`).value = `${liq.mes}/${liq.anio}`;
-
-    // Estilo negrita para etiquetas de encabezado
-    ["A5", "A6", "A7", "A8"].forEach((cell) => {
-      worksheet.getCell(cell).font = { bold: true };
-    });
-
-    // 3. Tabla de Items
-    const tableHeaderRow = 10;
-    const columns = [
-      { header: "PLACA", key: "placa", width: 12 },
-      { header: "FECHA INICIAL", key: "fecha_ini", width: 15 },
-      { header: "FECHA FINAL", key: "fecha_fin", width: 15 },
-      { header: "RECORRIDO", key: "recorrido", width: 45 },
-      { header: "TIPO SERVICIO", key: "tipo", width: 15 },
-      { header: "CANTIDAD", key: "cantidad", width: 10 },
-      { header: "VALOR UNITARIO", key: "v_unit", width: 18 },
-      { header: "SUBTOTAL", key: "subtotal", width: 18 },
-      { header: "DESC (%)", key: "desc", width: 10 },
-      { header: "VALOR FINAL", key: "v_final", width: 18 },
-      { header: "NRO. PLANILLA", key: "planilla", width: 15 },
-    ];
-
-    const headerRow = worksheet.getRow(tableHeaderRow);
-    columns.forEach((col, idx) => {
-      const cell = headerRow.getCell(idx + 1);
-      cell.value = col.header;
-      worksheet.getColumn(idx + 1).width = col.width;
-
-      // Estilo Emerald con texto blanco
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF059669" }, // Emerald 600
-      };
-      cell.font = {
-        color: { argb: "FFFFFFFF" },
-        bold: true,
-      };
-      cell.alignment = { vertical: "middle", horizontal: "center" };
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-    });
-
-    // 4. Datos
-    liq.items.forEach((item, idx) => {
-      const row = worksheet.getRow(tableHeaderRow + 1 + idx);
-      row.values = [
-        item.placa,
-        item.fecha_inicial.toISOString().split("T")[0],
-        item.fecha_final.toISOString().split("T")[0],
-        item.recorrido,
-        item.tipo_servicio.replace("_", " "),
-        Number(item.cantidad),
-        Number(item.valor_unitario),
-        Number(item.subtotal),
-        Number(item.porcentaje_descuento),
-        Number(item.valor_final),
-        item.numero_planilla || "",
-      ];
-
-      // Formato COP y bordes
-      [7, 8, 10].forEach((colIdx) => {
-        row.getCell(colIdx).numFmt = '"$"#,##0;[Red]"-"$#,##0';
-      });
-
-      row.eachCell((cell) => {
-        cell.border = {
-          top: { style: "thin" },
-          left: { style: "thin" },
-          bottom: { style: "thin" },
-          right: { style: "thin" },
-        };
-      });
-    });
-
-    // 5. Totales
-    const lastDataRow = tableHeaderRow + liq.items.length;
-    const totalsRow = worksheet.getRow(lastDataRow + 2);
-    totalsRow.getCell(1).value = "TOTALES";
-    totalsRow.getCell(1).font = { bold: true };
-
-    totalsRow.getCell(6).value = liq.items.reduce(
-      (sum, i) => sum + Number(i.cantidad),
-      0,
+    return generarExcelLiquidacion(
+      {
+        consecutivo: liq.consecutivo,
+        mes: liq.mes,
+        anio: liq.anio,
+        estado: liq.estado,
+        fecha_liquidacion: liq.fecha_liquidacion,
+        fecha_aprobacion: liq.fecha_aprobacion,
+        fecha_facturacion: liq.fecha_facturacion,
+        osi: liq.osi,
+        operadora: liq.operadora_rel?.nombre ?? liq.operadora,
+        observaciones: liq.observaciones,
+        valor_servicios: Number(liq.valor_servicios),
+        valor_recargos: Number(liq.valor_recargos),
+        valor_transporte_adicional: Number(liq.valor_transporte_adicional),
+        valor_administracion_ta: Number(liq.valor_administracion_ta),
+        valor_pernoctes: Number(liq.valor_pernoctes),
+        subtotal: Number(liq.subtotal),
+        porcentaje_iva: Number(liq.porcentaje_iva),
+        valor_iva: Number(liq.valor_iva),
+        total: Number(liq.total),
+        cliente: { nombre: liq.cliente?.nombre ?? null, nit: liq.cliente?.nit ?? null },
+        liquidado_por: liq.liquidado_por,
+        aprobado_por: liq.aprobado_por,
+        items: liq.items.map((it) => ({
+          placa: it.placa,
+          fecha_inicial: it.fecha_inicial,
+          fecha_final: it.fecha_final,
+          recorrido: it.recorrido,
+          tipo_servicio: String(it.tipo_servicio),
+          cantidad: Number(it.cantidad),
+          valor_unitario: Number(it.valor_unitario),
+          subtotal: Number(it.subtotal),
+          porcentaje_descuento: Number(it.porcentaje_descuento),
+          valor_final: Number(it.valor_final),
+          numero_planilla: it.numero_planilla,
+          cantidad_pernoctes: it.cantidad_pernoctes,
+          valor_pernoctes_total: Number(it.valor_pernoctes_total),
+        })),
+        recargos_data: liq.recargos_data,
+        historial: liq.historial_estados.map((h) => ({
+          created_at: h.created_at,
+          accion: h.accion,
+          estado_anterior: h.estado_anterior,
+          estado_nuevo: h.estado_nuevo,
+          motivo: h.motivo,
+          usuario: h.usuario,
+          snapshot: h.snapshot,
+        })),
+      },
+      marcaExcelLiquidacion(),
     );
-    totalsRow.getCell(8).value = liq.items.reduce(
-      (sum, i) => sum + Number(i.subtotal),
-      0,
-    );
-    totalsRow.getCell(10).value = liq.items.reduce(
-      (sum, i) => sum + Number(i.valor_final),
-      0,
-    );
-
-    [6, 8, 10].forEach((colIdx) => {
-      totalsRow.getCell(colIdx).font = { bold: true };
-      if (colIdx >= 8) {
-        totalsRow.getCell(colIdx).numFmt = '"$"#,##0;[Red]"-"$#,##0';
-      }
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-
-    return {
-      buffer,
-      filename: `Liquidacion_${liq.consecutivo}.xlsx`,
-    };
   },
 
   // ── Estadísticas ──

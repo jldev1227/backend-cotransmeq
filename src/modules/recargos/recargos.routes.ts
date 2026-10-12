@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { RecargosController } from './recargos.controller'
+import { avisarRecargos, RecargosController } from './recargos.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { prisma } from '../../config/prisma'
@@ -108,9 +108,12 @@ export async function recargosRoutes(fastify: FastifyInstance) {
     RecargosController.previewImportarTransmeralda,
   )
   // Mismo endpoint accesible por GET (conveniencia para el botón del page
-  // que podría querer disparar el preview también por query string).
+  // que podría querer disparar el preview también por query string). Con la
+  // misma guarda que el POST: solo pedía sesión, y el preview trae cédulas y
+  // placas de la base de Transmeralda.
   fastify.get(
     '/recargos/importar-desde-transmeralda/preview',
+    puedeEscribir,
     RecargosController.previewImportarTransmeralda,
   )
 
@@ -219,10 +222,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
       })
 
       // Emitir socket
-      const io = (request.server as any).io
-      if (io) {
-        io.emit('config-salario-creada', { configId: config.id, config })
-      }
+      avisarRecargos('config-salario-creada', { configId: config.id, config })
 
       reply.status(201).send({ success: true, message: 'Configuración creada', data: config })
     } catch (err: any) {
@@ -271,10 +271,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
       })
 
       // Emitir socket
-      const io = (request.server as any).io
-      if (io) {
-        io.emit('config-salario-actualizada', { configId: config.id, config })
-      }
+      avisarRecargos('config-salario-actualizada', { configId: config.id, config })
 
       reply.send({ success: true, message: 'Configuración actualizada', data: config })
     } catch (err: any) {
@@ -299,10 +296,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
       })
 
       // Emitir socket
-      const io = (request.server as any).io
-      if (io) {
-        io.emit('config-salario-eliminada', { configId: id })
-      }
+      avisarRecargos('config-salario-eliminada', { configId: id })
 
       reply.send({ success: true, message: 'Configuración eliminada' })
     } catch (err: any) {

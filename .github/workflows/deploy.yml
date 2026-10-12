@@ -15,7 +15,90 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Antes de desplegar: tipos y tests puros. Corre en un runner de GitHub, no en
+  # el self-hosted del servidor, para no competir por CPU y RAM con producción.
+  # Si falla, `deploy` no arranca y el contenedor vivo no se toca.
+  verificar:
+    name: Tipos y tests puros
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          # La misma major que la imagen (`node:20-alpine`).
+          node-version: 20
+          cache: npm
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Cliente de Prisma
+        run: npx prisma generate
+
+      - name: Tipos
+        run: npm run typecheck
+
+      # Las tres suites que no abren base (sin `tests/setup.ts`). Cargan
+      # `.env.test`, versionado, así que no dependen de ningún secreto.
+      - name: Tests de nómina (puros)
+        run: npx vitest run --config vitest.nomina.config.ts
+      - name: Tests de formularios dinámicos (puros)
+        run: npx vitest run --config vitest.formularios.config.ts
+      - name: Tests de la declaración de transporte (puros)
+        run: npx vitest run --config vitest.declaracion.config.ts
+
+  # La suite completa contra un Postgres desechable del propio runner.
+  # INFORMATIVA de momento (`continue-on-error` y fuera de `needs`): hoy arrastra
+  # fallos viejos de suites ajenas a lo que se despliega (asistencias,
+  # recargos-vigencias, días laborados, sockets de servicios…). Cuando esté en
+  # verde, se quita `continue-on-error` y se añade a `needs` de `deploy`.
+  suite-con-base:
+    name: Suite con base (informativa)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    services:
+      postgres:
+        # Misma major que producción, como `docker-compose.test.yml`.
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cotransmeq_test
+        # El puerto de `.env.test`: la suite se conecta igual que en local.
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cotransmeq_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Preparar la base de pruebas
+        # Sin Docker: la base es el `service` de arriba (ver scripts/test-setup.sh).
+        env:
+          TEST_DB_SIN_DOCKER: '1'
+        run: npm run test:setup
+
+      - name: Suite
+        env:
+          LOG_LEVEL: warn
+        run: npx vitest run
+
   deploy:
+    needs: verificar
     runs-on: [self-hosted, linux, x64, cotransmeq-ct123, backend-cotransmeq]
     timeout-minutes: 90
     environment: production

@@ -295,6 +295,33 @@ describe('3 y 4 · Reconciliación al editar', () => {
     ).toBe(1)
   })
 
+  it('dos entradas con el mismo id o la misma clave son dos ítems, no uno pisado', async () => {
+    // Una fila copiada en el cliente con sus identificadores no debe fundirse
+    // con la original (se perdería un ítem) ni chocar con el índice único
+    // parcial `(liquidacion_id, client_key)`.
+    const { id, itemIds } = await crearLiquidacion(1)
+    const clave = randomUUID()
+
+    const r = await prisma.$transaction((tx) =>
+      reconciliarItems(tx, id, [
+        { id: itemIds[0], ...itemBase('ABC000') },
+        { id: itemIds[0], ...itemBase('COPIA1') },
+        { client_key: clave, ...itemBase('NUEVA1') },
+        { client_key: clave, ...itemBase('COPIA2') },
+      ]),
+    )
+
+    expect(r).toMatchObject({ actualizados: 1, creados: 3, eliminados: 0 })
+    const vivos = await prisma.liquidacion_servicio_item.findMany({
+      where: { liquidacion_id: id, deleted_at: null },
+      orderBy: { orden: 'asc' },
+      select: { id: true, placa: true, client_key: true },
+    })
+    expect(vivos.map((v) => v.placa)).toEqual(['ABC000', 'COPIA1', 'NUEVA1', 'COPIA2'])
+    expect(vivos[0].id).toBe(itemIds[0])
+    expect(vivos.filter((v) => v.client_key === clave)).toHaveLength(1)
+  })
+
   it('11 · convive con filas históricas sin client_key', async () => {
     // Las 1112 filas anteriores a la migración tienen `client_key = NULL`; se
     // correlacionan por id, que es lo que el frontend manda para lo guardado.

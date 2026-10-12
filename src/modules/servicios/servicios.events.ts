@@ -21,6 +21,7 @@
  */
 
 import { getIo } from '../../sockets'
+import { sinCredenciales } from '../../lib/sin-credenciales'
 
 /** Estos son los literales que escucha `stores/servicios.ts`. */
 export const EVENTOS_SERVICIO = {
@@ -43,7 +44,8 @@ export const EVENTOS_SERVICIO = {
  */
 function emitir(evento: string, datos: unknown): void {
 	try {
-		getIo().emit(evento, datos)
+		/// Va a todos los conectados: nunca con un hash de contraseña dentro.
+		getIo().emit(evento, sinCredenciales(datos))
 	} catch {
 		/* Socket.IO no disponible: la operación de negocio ya está hecha. */
 	}

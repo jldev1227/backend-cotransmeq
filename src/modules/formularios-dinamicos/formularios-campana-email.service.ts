@@ -151,7 +151,29 @@ export async function listarAudiencia(periodo?: string): Promise<{ periodo: Peri
   return { periodo: rango, origen, destinatarios }
 }
 
-export function renderizarGuia(params: { nombre: string; portalLink: string }): string {
+/**
+ * Destinatario del correo de prueba: siempre el usuario que la pide.
+ *
+ * Antes la prueba iba a la dirección `to` que mandara el cliente y llevaba un
+ * magic link real del conductor: cualquiera con `formularios:full` podía
+ * mandarse a sí mismo (o a un tercero) 30 días de acceso al portal de
+ * cualquier conductor. `to` se acepta solo por compatibilidad con quien lo
+ * siga mandando, y tiene que ser el mismo correo de la sesión.
+ */
+export function correoDePrueba(correoUsuario: string | null | undefined, to?: unknown): string {
+  const propio = typeof correoUsuario === 'string' ? correoUsuario.trim() : ''
+  if (!EMAIL_RE.test(propio)) {
+    throw new Error('Tu usuario no tiene un correo válido para recibir la prueba.')
+  }
+  if (to !== undefined && to !== null && to !== '') {
+    if (typeof to !== 'string' || to.trim().toLowerCase() !== propio.toLowerCase()) {
+      throw new Error('La prueba solo se envía a tu propio correo.')
+    }
+  }
+  return propio
+}
+
+export function renderizarGuia(params: { nombre: string; portalLink: string; prueba?: boolean }): string {
   const nombre = escapar(params.nombre.trim() || 'Conductor')
   // Las capturas de cada paso siguen viajando como adjuntos `cid:`: son
   // imágenes propias de esta guía, no recursos públicos de la web.
@@ -177,7 +199,13 @@ export function renderizarGuia(params: { nombre: string; portalLink: string }): 
         '<strong>Cambio de aplicación desde hoy, 21 de agosto.</strong> A partir de hoy, 21 de agosto, la aplicación que se venía utilizando, <strong>Kobo Collect</strong>, quedará inhabilitada. Desde hoy deberá utilizar esta alternativa propia de Cotransmeq para diligenciar sus formularios y consultar la información disponible en el Portal del Conductor.'
     }),
     boton: { texto: 'Abrir mi Portal del Conductor', url: params.portalLink },
-    notas: [{ tono: 'neutro', html: 'Este botón es personal. No comparta ni reenvíe este correo.' }],
+    notas: params.prueba
+      ? [{
+          tono: 'alerta',
+          html:
+            '<strong>Correo de prueba.</strong> Así lo recibirá el conductor, pero este botón no lleva su enlace personal: abre la pantalla de acceso al portal, sin sesión.'
+        }]
+      : [{ tono: 'neutro', html: 'Este botón es personal. No comparta ni reenvíe este correo.' }],
     html:
       pasos +
       bloqueNota({
@@ -204,7 +232,9 @@ async function adjuntosGuia(): Promise<EmailAttachment[]> {
   })))
 }
 
-export async function enviarGuia(destinatario: AudienciaCampana, overrideTo?: string) {
+/// Sin parámetro para cambiar el destinatario a propósito: el único correo que
+/// lleva un token real del conductor va al correo del propio conductor.
+export async function enviarGuia(destinatario: AudienciaCampana) {
   const token = await emitirTokenPortal({
     id: destinatario.conductorId,
     numero_identificacion: destinatario.numeroIdentificacion,
@@ -213,9 +243,24 @@ export async function enviarGuia(destinatario: AudienciaCampana, overrideTo?: st
   })
   const portalLink = `${frontendUrl()}/public/portal?token=${encodeURIComponent(token)}`
   return EmailService.sendEmail({
-    to: [overrideTo || destinatario.email],
+    to: [destinatario.email],
     subject: 'Guía para usar el Portal del Conductor — Cotransmeq',
     html: renderizarGuia({ nombre: `${destinatario.nombre} ${destinatario.apellido}`, portalLink }),
+    attachments: await adjuntosGuia()
+  })
+}
+
+/**
+ * La guía de un conductor tal como la recibiría, enviada al usuario que la
+ * pide para revisarla. NO emite token: el botón va a la entrada del portal sin
+ * sesión, así que el correo no abre el portal de nadie aunque se reenvíe.
+ */
+export async function enviarGuiaDePrueba(destinatario: AudienciaCampana, correoSolicitante: string) {
+  const portalLink = `${frontendUrl()}/public/portal`
+  return EmailService.sendEmail({
+    to: [correoSolicitante],
+    subject: '[PRUEBA] Guía para usar el Portal del Conductor — Cotransmeq',
+    html: renderizarGuia({ nombre: `${destinatario.nombre} ${destinatario.apellido}`, portalLink, prueba: true }),
     attachments: await adjuntosGuia()
   })
 }

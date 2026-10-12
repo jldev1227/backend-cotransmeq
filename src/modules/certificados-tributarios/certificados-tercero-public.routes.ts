@@ -1,9 +1,15 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../../config/prisma'
 import * as service from './certificacion-envio.service'
+import { crearLimitador, limitesEnvioDeEnlace, MINUTO, preHandlerLimite } from '../../utils/limitador'
+
+/// Pedir el enlace manda un correo y revela si la identificación es de un
+/// tercero: sin tope servía para recorrer cédulas y para llenar buzones.
+const limiteSolicitud = limitesEnvioDeEnlace()
+const limiteVerificacion = { porIp: crearLimitador({ max: 60, ventanaMs: 15 * MINUTO }) }
 
 export async function certificadosTerceroPublicRoutes(app: FastifyInstance) {
-  app.get('/public/certificados-tercero/verificar-token', async (request, reply) => {
+  app.get('/public/certificados-tercero/verificar-token', { preHandler: preHandlerLimite(limiteVerificacion) }, async (request, reply) => {
     try {
       const { token } = request.query as any
       if (!token) {
@@ -37,7 +43,10 @@ export async function certificadosTerceroPublicRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post('/public/certificados-tercero/solicitar-acceso', async (request, reply) => {
+  app.post(
+    '/public/certificados-tercero/solicitar-acceso',
+    { preHandler: preHandlerLimite(limiteSolicitud, (r) => String((r.body as any)?.identificacion ?? '')) },
+    async (request, reply) => {
     try {
       const { identificacion } = request.body as any
       if (!identificacion) {

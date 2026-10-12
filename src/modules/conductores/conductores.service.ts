@@ -8,6 +8,7 @@ import {
   normalizarTipoSangre,
 } from "./conductores.enums";
 import { normalizarNombresEnPayload } from "./nombre-persona";
+import { olvidarTokensPortalEnCache } from "../conductor-portal/portal-token.service";
 
 export const ConductoresService = {
   // Listado LIVIANO para alimentar <select> del modal admin
@@ -364,6 +365,11 @@ export const ConductoresService = {
       }
     }
 
+    /// Fuera a propósito: `password` y `permisos` (con `permisos.google_play_review`
+    /// y una contraseña propia, cualquiera del equipo podía entrar al portal de
+    /// cualquier conductor: `conductores` es `general`) y `oculto`, que tiene su
+    /// propia ruta con control de área (`PATCH …/ocultar`). La interfaz no envía
+    /// ninguno de los tres por aquí.
     const allowedFields = [
       "nombre",
       "apellido",
@@ -383,17 +389,14 @@ export const ConductoresService = {
       "fecha_terminacion",
       "licencia_conduccion",
       "ultimo_acceso",
-      "permisos",
       "cargo",
       "categoria_licencia",
       "foto_url",
-      "password",
       "tipo_contrato",
       "vencimiento_licencia",
       "estado",
       "sede_trabajo",
       "tipo_sangre",
-      "oculto",
     ];
 
     const cleanData: any = {};
@@ -826,6 +829,10 @@ export const ConductoresService = {
       });
 
       return tx.conductores.delete({ where: { id } });
+    }).finally(() => {
+      /// Sus tokens del portal acaban de borrarse: que dejen de abrirlo ya,
+      /// no cuando venza la caché de `tokenPortalRegistrado`.
+      olvidarTokensPortalEnCache();
     });
   },
 

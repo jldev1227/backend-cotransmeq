@@ -8,13 +8,28 @@ import bcrypt from 'bcrypt'
 import { prisma } from '../../config/prisma'
 import { uploadToS3, deleteFromS3, getS3SignedUrl } from '../../config/aws'
 import { getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
+import { crearLimitador, ipCliente, MINUTO, responderLimite } from '../../utils/limitador'
+
+/// Solo cuentan los intentos FALLIDOS: quien entra bien no gasta cupo. Cinco
+/// por correo frenan a quien prueba contraseñas contra una cuenta; treinta por
+/// IP, a quien prueba una contraseña contra muchas cuentas (sin bloquear a
+/// toda una oficina que sale por la misma IP porque uno se equivocó).
+const fallosPorCorreo = crearLimitador({ max: 5, ventanaMs: 15 * MINUTO })
+const fallosPorIp = crearLimitador({ max: 30, ventanaMs: 15 * MINUTO })
 
 export const AuthController = {
   async login(request: FastifyRequest, reply: FastifyReply) {
-    const data = loginSchema.parse(request.body)
+    /// `parse` lanzaba con un correo o una contraseña con forma inválida y,
+    /// sin manejador de errores, el login respondía 500 en vez de 400.
+    const parsed = loginSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: 'Correo o contraseña con formato inválido' })
+    const data = parsed.data
     
-    // Extraer IP y user agent
-    const ip = request.headers['x-forwarded-for'] as string || request.ip || null
+    const ip = ipCliente(request)
+    const correo = data.correo.trim().toLowerCase()
+    const espera = Math.max(fallosPorCorreo.bloqueado(correo), fallosPorIp.bloqueado(ip))
+    if (espera > 0) return responderLimite(reply, espera)
+
     const userAgent = request.headers['user-agent'] || null
     const rememberMe = (request.body as any)?.rememberMe ?? false
 
@@ -23,7 +38,12 @@ export const AuthController = {
       userAgent,
       rememberMe
     })
-    if (!result) return reply.status(401).send({ error: 'Invalid credentials' })
+    if (!result) {
+      fallosPorCorreo.consumir(correo)
+      fallosPorIp.consumir(ip)
+      return reply.status(401).send({ error: 'Invalid credentials' })
+    }
+    fallosPorCorreo.reiniciar(correo)
     if ('disabled' in result) return reply.status(403).send({ error: 'Tu cuenta está deshabilitada. Contacta al administrador.', disabled: true })
     reply.send(result)
   },

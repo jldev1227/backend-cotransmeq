@@ -1,6 +1,11 @@
 import { prisma } from "../../config/prisma";
 import { randomUUID } from "crypto";
 import { getIo } from "../../sockets";
+import {
+  ErrorEstadoOcasional,
+  esAdministracion,
+  validarCambioEstadoOcasional,
+} from "./estado-ocasional";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -2183,28 +2188,57 @@ export const LiquidacionesTercerosOcasionalService = {
 
   // ─────────── ESTADO ───────────
 
+  /**
+   * Valor, transición, área y motivo los decide `estado-ocasional.ts`. Antes
+   * se escribía lo que llegara, también sobre cabeceras eliminadas.
+   * `areas` son las del usuario del token.
+   */
   async cambiarEstado(
     id: string,
     estado: string,
     userId: string,
     motivo?: string,
+    areas?: string[] | string | null,
   ) {
-    const cabecera = await prisma.liquidacion_tercero_ocasional.findUnique({
-      where: { id },
+    const cabecera = await prisma.liquidacion_tercero_ocasional.findFirst({
+      where: { id, deleted_at: null },
     });
-    if (!cabecera) throw new Error("Liquidación ocasional no encontrada");
+    if (!cabecera) {
+      throw new ErrorEstadoOcasional(
+        "Liquidación ocasional no encontrada",
+        404,
+        "NO_ENCONTRADO",
+      );
+    }
 
-    const updated = await prisma.liquidacion_tercero_ocasional.update({
-      where: { id },
+    const hacia = validarCambioEstadoOcasional(cabecera.estado, estado, {
+      admin: esAdministracion(areas),
+      motivo,
+    });
+
+    /// Compare-and-swap sobre el estado leído: si otro usuario lo cambió
+    /// entretanto, la transición validada ya no es la real.
+    const gano = await prisma.liquidacion_tercero_ocasional.updateMany({
+      where: { id, deleted_at: null, estado: cabecera.estado },
       data: {
-        estado,
+        estado: hacia,
         motivo_anulacion:
-          estado === "ANULADA" ? motivo || null : cabecera.motivo_anulacion,
+          hacia === "ANULADA" ? String(motivo).trim() : cabecera.motivo_anulacion,
         actualizado_por_id: userId,
         updated_at: new Date(),
       },
     });
-    emitRowUpdated({ id, changes: { estado }, userId });
+    if (gano.count === 0) {
+      throw new ErrorEstadoOcasional(
+        "Otro usuario cambió el estado mientras tanto. Recarga y vuelve a intentarlo.",
+        409,
+        "ESTADO_CAMBIADO",
+      );
+    }
+    const updated = await prisma.liquidacion_tercero_ocasional.findUniqueOrThrow({
+      where: { id },
+    });
+    emitRowUpdated({ id, changes: { estado: hacia }, userId });
     return updated;
   },
 

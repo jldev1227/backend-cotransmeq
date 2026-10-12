@@ -1,5 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
+import { cronAutorizado } from "../../lib/cron-secreto";
 import { LiquidacionesTercerosOcasionalSnapshotsService } from "./liquidaciones-terceros-ocasional-snapshots.service";
+import { ErrorEstadoOcasional } from "../liquidaciones-terceros-ocasional/estado-ocasional";
 
 export class LiquidacionesTercerosOcasionalSnapshotsController {
   static async listar(request: FastifyRequest, reply: FastifyReply) {
@@ -59,11 +61,14 @@ export class LiquidacionesTercerosOcasionalSnapshotsController {
       );
       return reply.send(result);
     } catch (error: any) {
-      const status = /no encontrad/i.test(error.message)
-        ? 404
-        : /APROBADA|FACTURADA/i.test(error.message)
-          ? 409
-          : 500;
+      /// 404 sin snapshot o sin cabecera viva; 409 si no es editable o cambió
+      /// de estado durante la reversión. El resto, 500.
+      const status =
+        error instanceof ErrorEstadoOcasional
+          ? error.statusCode
+          : /no encontrad/i.test(error.message)
+            ? 404
+            : 500;
       return reply.status(status).send({ error: error.message });
     }
   }
@@ -88,9 +93,7 @@ export class LiquidacionesTercerosOcasionalSnapshotsController {
    */
   static async capturarHorario(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const expected = process.env.CRON_SECRET;
-      /// Sin `CRON_SECRET` configurado esto dejaba pasar a cualquiera.
-      if (!expected || request.headers["x-cron-secret"] !== expected) {
+      if (!cronAutorizado(request)) {
         return reply.status(401).send({ error: "Unauthorized" });
       }
       const result = await LiquidacionesTercerosOcasionalSnapshotsService.capturarHorario();

@@ -8,6 +8,8 @@ import * as path from 'path'
 import { env } from './config/env'
 import { prisma } from './config/prisma'
 import { logger } from './utils/logger'
+import { instalarSentry } from './lib/sentry'
+import { sinCredenciales } from './lib/sin-credenciales'
 import { authRoutes } from './modules/auth/auth.routes'
 import { actividadRoutes } from './modules/actividad/actividad.routes'
 import { instalarRegistroActividad } from './modules/actividad/registro-actividad.service'
@@ -15,10 +17,13 @@ import { dashboardRoutes } from './modules/dashboard/dashboard.routes'
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes'
 import { vehiculosRoutes } from './modules/vehiculos/vehiculos.routes'
 import { vehiculosDocumentosRoutes } from './modules/vehiculos-documentos/vehiculos-documentos.routes'
+import { incidentesRoutes } from './modules/incidentes/incidentes.routes'
+import { combustibleRoutes } from './modules/combustible/combustible.routes'
 import { serviciosRoutes } from './modules/servicios/servicios.routes'
 import { clientesRoutes } from './modules/clientes/clientes.routes'
 import { municipiosRoutes } from './modules/municipios/municipios.routes'
 import { conductoresRoutes } from './modules/conductores/conductores.routes'
+import { conductoresDocumentosRoutes } from './modules/conductores-documentos/conductores-documentos.routes'
 import { asistenciasRoutes } from './modules/asistencias/asistencias.routes'
 import { accionesCorrectivasRoutes } from './modules/acciones-correctivas/acciones-correctivas.routes'
 import { recargosRoutes } from './modules/recargos/recargos.routes'
@@ -39,12 +44,13 @@ import { conductorPortalRoutes } from './modules/conductor-portal/conductor-port
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes'
 import { contabilidadRoutes } from './modules/contabilidad/contabilidad.routes'
 import { certificadosTributariosRoutes } from './modules/certificados-tributarios/certificados.routes'
-import { certificadosPublicosRoutes } from './modules/certificados-tributarios/certificados-public.routes'
 import { tipoCertificadoRoutes } from './modules/certificados-tributarios/tipo-certificado.controller'
 import { certificadoArchivoRoutes } from './modules/certificados-tributarios/certificado-archivo.controller'
 import { certificacionEnvioRoutes } from './modules/certificados-tributarios/certificacion-envio.controller'
 import { certificadosTerceroPublicRoutes } from './modules/certificados-tributarios/certificados-tercero-public.routes'
 import { facturacionLiquidacionesRoutes } from './modules/facturacion-liquidaciones/facturacion-liquidaciones.routes'
+import { carteraRoutes } from './modules/cartera/cartera.routes'
+import { liquidacionesTercerosPagosRoutes } from './modules/liquidaciones-terceros-pagos/liquidaciones-terceros-pagos.routes'
 import { tercerosRoutes } from './modules/terceros/terceros.routes'
 import { sesionesRoutes } from './modules/sesiones/sesiones.routes'
 import { liquidacionesTercerosRoutes } from './modules/liquidaciones-terceros/liquidaciones-terceros.routes'
@@ -79,9 +85,14 @@ import { appUsuariosRoutes } from './modules/app-usuarios/app-usuarios.routes'
 import { misCapacitacionesRoutes } from './modules/mis-capacitaciones/mis-capacitaciones.routes'
 import { mapsRoutes } from './modules/maps/maps.routes'
 import { solicitudesWebPublicRoutes, solicitudesWebRoutes } from './modules/solicitudes-web/solicitudes-web.routes'
+import { mantenimientoRoutes } from './modules/mantenimiento/mantenimiento.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
+
+    // Rastreo de errores opcional (solo con SENTRY_DSN). Antes de cualquier
+    // ruta: sus hooks solo alcanzan a lo que se registra después.
+    instalarSentry(app)
 
     app.register(helmet as any)
     app.register(multipart as any, {
@@ -152,6 +163,15 @@ export function buildApp() {
         (request as any).prisma = prisma
     })
 
+    // Ninguna respuesta JSON lleva un `password`, venga de donde venga: red de
+    // seguridad para los `include` que traen filas enteras de conductores o
+    // usuarios (ver lib/sin-credenciales.ts). Con callback y no `async`: un
+    // hook asíncrono difiere la serialización un turno, y una ruta que escribe
+    // la respuesta por su cuenta en ese hueco choca con «headers already sent».
+    app.addHook('preSerialization', (_request, _reply, payload, done) => {
+        done(null, sinCredenciales(payload))
+    })
+
     // «Qué hizo quién»: cada escritura que termina bien deja una fila legible
     // en registro_actividad (ver modules/actividad).
     instalarRegistroActividad(app)
@@ -165,10 +185,13 @@ export function buildApp() {
     app.register(dashboardRoutes, { prefix: '/api' })
     app.register(vehiculosRoutes, { prefix: '/api' })
     app.register(vehiculosDocumentosRoutes, { prefix: '/api' })
+    app.register(incidentesRoutes, { prefix: '/api' })
+    app.register(combustibleRoutes, { prefix: '/api' })
     app.register(serviciosRoutes, { prefix: '/api' })
     app.register(clientesRoutes, { prefix: '/api' })
     app.register(municipiosRoutes, { prefix: '/api' })
     app.register(conductoresRoutes, { prefix: '/api' })
+    app.register(conductoresDocumentosRoutes, { prefix: '/api' })
     app.register(asistenciasRoutes, { prefix: '/api' })
     app.register(induccionesRoutes, { prefix: '/api' })
     app.register(accionesCorrectivasRoutes, { prefix: '/api' })
@@ -187,6 +210,8 @@ export function buildApp() {
     app.register(contabilidadRoutes, { prefix: '/api' })
     app.register(certificadosTributariosRoutes, { prefix: '/api' })
     app.register(facturacionLiquidacionesRoutes, { prefix: '/api' })
+    app.register(carteraRoutes, { prefix: '/api' })
+    app.register(liquidacionesTercerosPagosRoutes, { prefix: '/api' })
     app.register(tercerosRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosRoutes, { prefix: '/api' })
     app.register(pdfRoutes, { prefix: '/api' })
@@ -215,8 +240,10 @@ export function buildApp() {
     // Portal del conductor (auth por magic link, acceso a desprendibles + días laborados)
     app.register(conductorPortalRoutes, { prefix: '/api' })
 
-    // Portal público de certificados tributarios (sin auth)
-    app.register(certificadosPublicosRoutes, { prefix: '/api' })
+    /// El portal público de certificados por NIT (`/public/certificados-tributarios/:nit`)
+    /// se retiró en oct-2026: devolvía los certificados de CUALQUIER NIT o cédula sin
+    /// verificar nada, y ninguna pantalla lo usaba. Los terceros entran con el enlace
+    /// que les llega al correo (`certificados-tercero-public.routes.ts`).
 
     // Tipos de certificado CRUD
     app.register(tipoCertificadoRoutes, { prefix: '/api' })
@@ -262,6 +289,7 @@ export function buildApp() {
     app.register(mapsRoutes, { prefix: '/api' })
     app.register(solicitudesWebPublicRoutes, { prefix: '/api' })
     app.register(solicitudesWebRoutes, { prefix: '/api' })
+    app.register(mantenimientoRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

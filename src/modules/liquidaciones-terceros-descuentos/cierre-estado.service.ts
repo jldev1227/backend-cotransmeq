@@ -23,6 +23,8 @@
 
 import { prisma } from "../../config/prisma";
 import { emitSheetEstadoChanged } from "../../sockets/sheet.gateway";
+import { LiquidacionesTercerosPagosService } from "../liquidaciones-terceros-pagos/liquidaciones-terceros-pagos.service";
+import { validarPagoCierre, type DatosPagoCierre } from "../liquidaciones-terceros-pagos/pago-cierre";
 
 /**
  * PAGADA reemplaza a FACTURADA (oct-2026). Con terceros quien factura es el
@@ -123,7 +125,8 @@ export class ErrorEstado extends Error {
       | "SIN_PERMISO"
       | "VERSION_CONFLICT"
       | "NO_ENCONTRADO"
-      | "FALTA_MOTIVO",
+      | "FALTA_MOTIVO"
+      | "FALTA_PAGO",
     readonly detalle?: Record<string, any>,
   ) {
     super(message);
@@ -181,6 +184,12 @@ export const CierreEstadoService = {
     motivo?: string | null;
     base_version?: number | null;
     actor: Actor;
+    /**
+     * Fecha, medio, referencia y comprobante del pago. Obligatorio al pasar a
+     * PAGADA (fecha y medio): el estado solo decía «se pagó», sin cuándo ni
+     * cómo, y contabilidad tenía que reconstruirlo del extracto del banco.
+     */
+    pago?: unknown;
   }): Promise<ResultadoCambioEstado> {
     const { id, estado, motivo, base_version, actor } = params;
 
@@ -201,6 +210,7 @@ export const CierreEstadoService = {
         anio: true,
         mes: true,
         placa: true,
+        total_pagar: true,
       },
     });
     if (!actual) {
@@ -254,6 +264,13 @@ export const CierreEstadoService = {
       );
     }
 
+    let pago: DatosPagoCierre | null = null;
+    if (estado === "PAGADA") {
+      const v = validarPagoCierre(params.pago);
+      if (!v.pago) throw new ErrorEstado(v.motivo ?? "Faltan los datos del pago", 400, "FALTA_PAGO");
+      pago = v.pago;
+    }
+
     const resultado = await prisma.$transaction(async (tx) => {
       const gano = await tx.liquidacion_tercero_final.updateMany({
         where: {
@@ -292,6 +309,28 @@ export const CierreEstadoService = {
           motivo: motivo ?? null,
         },
       });
+
+      /// El pago va en la MISMA transacción que el estado: un cierre PAGADA
+      /// sin su fila de pago (o al revés) sería justo el hueco que esto cierra.
+      if (pago) {
+        await LiquidacionesTercerosPagosService.registrarEnTx(
+          tx,
+          id,
+          pago,
+          actor.id || null,
+          actual.total_pagar,
+        );
+      } else if (estadoActual === "PAGADA" && estado === "APROBADA") {
+        /// Puerta de atrás de Administración: se marcó pagada por error. El
+        /// pago se archiva, no se borra, para que quede qué se había anotado.
+        /// A ANULADA no se archiva: anular no deshace un pago que sí salió.
+        await LiquidacionesTercerosPagosService.archivarEnTx(
+          tx,
+          id,
+          actor.id || null,
+          motivo ? `Devuelta a APROBADA: ${motivo}` : "Devuelta a APROBADA",
+        );
+      }
 
       const fresco = await tx.liquidacion_tercero_final.findUnique({
         where: { id },
@@ -347,6 +386,8 @@ export const CierreEstadoService = {
     hacia: string;
     motivo?: string | null;
     actor: Actor;
+    /** Mismo pago para todas las hojas (una transferencia que paga el lote). */
+    pago?: unknown;
   }): Promise<{
     total: number;
     cambiados: ResultadoCambioEstado[];
@@ -378,6 +419,12 @@ export const CierreEstadoService = {
         "SIN_PERMISO",
       );
     }
+    /// Antes de tocar ninguna hoja: sin esto, un lote a PAGADA sin datos
+    /// devolvía 80 fallidos con el mismo motivo en vez de un solo error.
+    if (hacia === "PAGADA") {
+      const v = validarPagoCierre(params.pago);
+      if (!v.pago) throw new ErrorEstado(v.motivo ?? "Faltan los datos del pago", 400, "FALTA_PAGO");
+    }
 
     const candidatos = await prisma.liquidacion_tercero_final.findMany({
       where: {
@@ -403,6 +450,7 @@ export const CierreEstadoService = {
             motivo,
             base_version: c.version,
             actor,
+            pago: params.pago,
           }),
         );
       } catch (e: any) {

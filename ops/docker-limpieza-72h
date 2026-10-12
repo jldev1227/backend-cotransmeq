@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Limpieza diaria de Docker: imágenes sin uso y caché de build con más de 72 h.
+# Toma el mismo lock global que los deploys (deploy-*), así nunca corre en medio
+# de un build ni de un rollback (que necesita la imagen anterior aún presente).
+set -Eeuo pipefail
+
+readonly GLOBAL_LOCK_DIR="/mnt/proxmox-deploy-lock"
+readonly GLOBAL_LOCK="${GLOBAL_LOCK_DIR}/production-build.lock"
+readonly ANTIGUEDAD="${ANTIGUEDAD:-72h}"
+
+if ! mountpoint -q "${GLOBAL_LOCK_DIR}"; then
+	echo "El lock global de Proxmox no está montado en ${GLOBAL_LOCK_DIR}; no se limpia." >&2
+	exit 78
+fi
+
+exec 9>"${GLOBAL_LOCK}"
+if ! flock -w 1800 9; then
+	echo "Hubo un deploy en curso durante 30 minutos; se reintenta mañana." >&2
+	exit 75
+fi
+
+echo "== Antes"
+docker system df
+
+echo "== Imágenes sin contenedor y creadas hace más de ${ANTIGUEDAD}"
+docker image prune --all --force --filter "until=${ANTIGUEDAD}"
+
+echo "== Caché de build sin uso desde hace más de ${ANTIGUEDAD}"
+docker builder prune --force --filter "until=${ANTIGUEDAD}"
+
+echo "== Después"
+docker system df
+df -h / | tail -1

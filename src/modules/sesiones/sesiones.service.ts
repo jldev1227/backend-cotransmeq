@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma'
 import crypto from 'crypto'
+import { olvidarSesionesEnCache } from '../../middlewares/cache-sesiones'
 
 export const SesionesService = {
   /**
@@ -47,26 +48,32 @@ export const SesionesService = {
    * Cerrar sesión (marcar como inactiva)
    */
   async cerrar(tokenHash: string) {
-    return prisma.sesiones.updateMany({
+    const resultado = await prisma.sesiones.updateMany({
       where: { token_hash: tokenHash, is_active: true },
       data: {
         is_active: false,
         closed_at: new Date()
       }
     })
+    /// Sin esto la sesión cerrada seguiría entrando hasta 30 s (la caché del middleware).
+    olvidarSesionesEnCache()
+    return resultado
   },
 
   /**
    * Cerrar todas las sesiones de un usuario
    */
   async cerrarTodas(usuarioId: string) {
-    return prisma.sesiones.updateMany({
+    const resultado = await prisma.sesiones.updateMany({
       where: { usuario_id: usuarioId, is_active: true },
       data: {
         is_active: false,
         closed_at: new Date()
       }
     })
+    /// Sin esto la sesión cerrada seguiría entrando hasta 30 s (la caché del middleware).
+    olvidarSesionesEnCache()
+    return resultado
   },
 
   /**
@@ -132,7 +139,7 @@ export const SesionesService = {
    * Cerrar sesiones expiradas
    */
   async cerrarExpiradas() {
-    return prisma.sesiones.updateMany({
+    const resultado = await prisma.sesiones.updateMany({
       where: {
         is_active: true,
         token_expiry: { lt: new Date() }
@@ -142,6 +149,9 @@ export const SesionesService = {
         closed_at: new Date()
       }
     })
+    /// Sin esto la sesión cerrada seguiría entrando hasta 30 s (la caché del middleware).
+    olvidarSesionesEnCache()
+    return resultado
   },
 
   /**

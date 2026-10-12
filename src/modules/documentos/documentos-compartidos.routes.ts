@@ -3,12 +3,19 @@ import { prisma } from '../../config/prisma'
 import { uploadToS3, getS3SignedUrl } from '../../config/aws'
 import { randomUUID } from 'crypto'
 
+/// Lo único del conductor que pinta la página pública del documento. Antes iba
+/// la fila entera (`conductores: true`) a cualquiera con el enlace: hash de su
+/// contraseña, salario, EPS y permisos incluidos.
+const CONDUCTOR_PUBLICO = {
+  select: { id: true, nombre: true, apellido: true, numero_identificacion: true }
+} as const
+
 export async function documentosCompartidosRoutes(app: FastifyInstance) {
 
   app.get('/desprendible/compartido/:token', async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
     try {
       const { token } = request.params
-      const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: true } })
+      const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: CONDUCTOR_PUBLICO } })
       if (!doc) return reply.status(404).send({ success: false, message: 'Enlace inválido' })
 
       if (doc.expires_at && new Date(doc.expires_at) < new Date()) {
@@ -46,7 +53,7 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
 
       const now = new Date()
 
-      const updated = await prisma.documentos_compartidos.update({ where: { token }, data: { signed: true, signature_s3_key: s3Key, signature_url: firmaUrl, ip_address: ipAddress, user_agent: userAgent, updated_at: now }, include: { conductores: true } })
+      const updated = await prisma.documentos_compartidos.update({ where: { token }, data: { signed: true, signature_s3_key: s3Key, signature_url: firmaUrl, ip_address: ipAddress, user_agent: userAgent, updated_at: now }, include: { conductores: CONDUCTOR_PUBLICO } })
 
       return reply.send({ success: true, data: { document: updated, signature: { s3_key: s3Key, presignedUrl: firmaUrl } } })
     } catch (error: any) {
@@ -58,7 +65,7 @@ export async function documentosCompartidosRoutes(app: FastifyInstance) {
   app.get('/desprendible/compartido/:token/datos', async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
     try {
       const { token } = request.params
-      const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: true } })
+      const doc = await prisma.documentos_compartidos.findUnique({ where: { token }, include: { conductores: CONDUCTOR_PUBLICO } })
       if (!doc) return reply.status(404).send({ success: false, message: 'Enlace inválido' })
       if (!doc.signed) return reply.status(403).send({ success: false, message: 'Debe firmar primero para acceder al documento' })
 

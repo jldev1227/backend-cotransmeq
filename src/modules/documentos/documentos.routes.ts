@@ -1,11 +1,28 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { documentosService } from './documentos.service';
 import { authMiddleware } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/permissions.middleware';
+
+/// Su único cliente es el visor de planillas de Recargos. Firmar CUALQUIER key
+/// le daba a cualquiera del equipo nóminas, firmas o formularios SARLAFT del
+/// bucket; ahora solo planillas y solo con el módulo `recargos`.
+const PREFIJOS_PERMITIDOS = ['planillas/'];
+
+function keyPermitida(key: unknown): boolean {
+  return typeof key === 'string' && !key.includes('..') && PREFIJOS_PERMITIDOS.some((p) => key.startsWith(p));
+}
 
 export async function documentosRoutes(app: FastifyInstance) {
   /// Las dos rutas entregan cualquier objeto del bucket a quien conozca su key,
   /// y hasta oct-2026 no pedían sesión. El único cliente es el dashboard.
   app.addHook('onRequest', authMiddleware);
+  app.addHook('preHandler', requirePermission('recargos', 'read'));
+  app.addHook('preHandler', async (request, reply) => {
+    const key = (request.params as any)?.['*'] ?? (request.query as any)?.key;
+    if (!keyPermitida(key)) {
+      return reply.status(403).send({ success: false, message: 'Ese documento no se puede consultar por aquí.' });
+    }
+  });
 
   // Ver documento (stream directo para visualización en navegador)
   app.get('/documentos/ver/*', async (request: FastifyRequest<{

@@ -25,6 +25,10 @@
 
 import { prisma } from "../../config/prisma";
 import {
+  ErrorEstadoOcasional,
+  ESTADOS_OCASIONAL_NO_EDITABLES,
+} from "../liquidaciones-terceros-ocasional/estado-ocasional";
+import {
   reservarVersionSnapshot,
   hashSnapshotPayload,
   inicioVentanaAntirrebote,
@@ -363,20 +367,31 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
    * `epoch` del periodo para invalidar los patches que estuvieran en vuelo.
    * Sin eso, el `ack` de un patch anterior reintroduciría un valor de antes
    * de revertir.
+   *
+   * **Restaura datos, no el estado.** Hasta oct-2026 copiaba `estado` y
+   * `motivo_anulacion` del snapshot sin validar la transición ni el área: con
+   * nivel `limited` una ANULADA volvía a BORRADOR o una LIQUIDADA a APROBADA.
+   * El estado se cambia por `PATCH /:id/estado`, que pasa por
+   * `estado-ocasional.ts`. Y solo se revierte una cabecera viva y editable
+   * (`ESTADOS_OCASIONAL_NO_EDITABLES`: antes ANULADA y REEMPLAZADA se colaban).
    */
   async revertir(cabeceraId: string, snapshotId: string, usuarioId: string) {
     const snapshot = await prisma.liquidacion_tercero_ocasional_snapshot.findFirst({
       where: { id: snapshotId, liquidacion_ocasional_id: cabeceraId },
     });
-    if (!snapshot) throw new Error("Snapshot no encontrado");
+    if (!snapshot) throw new ErrorEstadoOcasional("Snapshot no encontrado", 404, "NO_ENCONTRADO");
 
-    const cabecera = await prisma.liquidacion_tercero_ocasional.findUnique({
-      where: { id: cabeceraId },
+    const cabecera = await prisma.liquidacion_tercero_ocasional.findFirst({
+      where: { id: cabeceraId, deleted_at: null },
     });
-    if (!cabecera) throw new Error("Liquidación ocasional no encontrada");
-    if (["APROBADA", "FACTURADA"].includes(cabecera.estado || "")) {
-      throw new Error(
-        "No se puede revertir una liquidación APROBADA o FACTURADA. Anúlala primero.",
+    if (!cabecera) {
+      throw new ErrorEstadoOcasional("Liquidación ocasional no encontrada", 404, "NO_ENCONTRADO");
+    }
+    if (ESTADOS_OCASIONAL_NO_EDITABLES.includes(cabecera.estado || "")) {
+      throw new ErrorEstadoOcasional(
+        `No se puede revertir una liquidación ${cabecera.estado}: solo se revierten en BORRADOR o LIQUIDADA.`,
+        409,
+        "TRANSICION_INVALIDA",
       );
     }
 
@@ -548,11 +563,11 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
         });
       }
 
-      await tx.liquidacion_tercero_ocasional.update({
-        where: { id: cabeceraId },
+      /// Compare-and-swap sobre el estado leído: si otro usuario la aprobó o
+      /// anuló mientras tanto, no se reescribe y se deshace todo lo de arriba.
+      const gano = await tx.liquidacion_tercero_ocasional.updateMany({
+        where: { id: cabeceraId, deleted_at: null, estado: cabecera.estado },
         data: {
-          estado: payload.estado,
-          motivo_anulacion: payload.motivo_anulacion,
           observaciones: payload.observaciones,
           actualizado_por_id: usuarioId,
           updated_at: new Date(),
@@ -567,6 +582,13 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
           total_pagar: payload.totales.total_pagar,
         },
       });
+      if (gano.count === 0) {
+        throw new ErrorEstadoOcasional(
+          "Otro usuario cambió el estado de la liquidación mientras tanto. Recarga y vuelve a intentarlo.",
+          409,
+          "ESTADO_CAMBIADO",
+        );
+      }
     });
 
     const revertSnapshot = await this.capturar(cabeceraId, {
@@ -607,7 +629,13 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
       by: { id: usuarioId, name: usuario?.nombre || "Usuario" },
     });
 
-    return revertSnapshot;
+    /// Los datos volvieron; el estado se quedó como estaba. La pantalla puede
+    /// avisar si la versión restaurada era de otro estado.
+    return {
+      ...revertSnapshot,
+      estado_conservado: cabecera.estado,
+      estado_del_snapshot: payload.estado ?? null,
+    };
   },
 
   /** Captura horaria de todas las cabeceras activas. Lo llama el cron. */

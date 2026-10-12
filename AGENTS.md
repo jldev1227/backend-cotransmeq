@@ -52,12 +52,52 @@ npm run prisma:generate
 npm run prisma:deploy
 ```
 
-`tsc --noEmit` arrastra errores preexistentes en `liquidaciones.service.ts` y en
-generación de PDF. Filtra por los archivos que tocaste:
+`tsc --noEmit` está en **cero errores** (11-oct-2026) y tiene que seguir así:
+`npm run build` ya no lleva `|| true`, el `Dockerfile` corre ese build, y el job
+`verificar` del workflow (`npm run typecheck` + tests puros) va antes del
+despliegue. Un error de tipos ya no llega a producción: frena el deploy.
 
-```bash
-npx tsc --noEmit 2>&1 | grep -i "<tu-archivo>"
-```
+## Documentación
+
+La documentación técnica vive en `docs/` (índice en `docs/README.md`):
+arquitectura, autenticación, middlewares, permisos, tiempo real, crons,
+integraciones, base de datos, variables, pruebas, despliegue y la referencia de
+la API, con un documento por módulo en `docs/api/<modulo>.md`.
+
+**Un cambio de comportamiento lleva su cambio de documento en el mismo commit**,
+y en los dos repos. Si tocas rutas, `npm run docs:verificar` falla cuando una
+ruta del código no está en el doc de su módulo o un doc nombra una ruta que ya
+no existe; `npm run docs:inventario` regenera `docs/api/inventario.md`.
+
+## Operación
+
+**CI antes de desplegar** (`.github/workflows/deploy.yml`). `verificar` corre en
+`ubuntu-latest` —no en el runner del servidor, para no quitarle RAM a
+producción—: `npm ci`, `prisma generate`, `npm run typecheck` y las suites puras
+(`vitest.nomina`, `vitest.formularios`, `vitest.declaracion`). `deploy` lleva
+`needs: verificar`. `suite-con-base` corre la suite completa contra un Postgres
+del propio runner (`TEST_DB_SIN_DOCKER=1 npm run test:setup`), pero es
+**informativa** (`continue-on-error`) mientras arrastre fallos viejos; cuando
+esté en verde, va a `needs`.
+
+**Apagado ordenado** (`src/lib/apagado.ts`). Docker manda SIGTERM en cada
+despliegue; el proceso deja de aceptar peticiones, cierra sockets, espera a que
+termine la ejecución en curso de cada cron y cierra Prisma, con un tope de 25 s
+(`LIMITE_APAGADO_MS`) por debajo del `stop_grace_period: 30s` del compose. **Todo
+cron nuevo se arranca dentro de `registrarCron('nombre', startXCron())`** en
+`server.ts`; uno suelto sigue funcionando, pero el apagado no lo espera.
+
+**Logs** (`src/utils/logger.ts`). Con `NODE_ENV=production`, JSON de una línea a
+nivel `info`; en desarrollo, `pino-pretty` a nivel `debug`. `LOG_LEVEL` manda en
+los dos.
+
+**Rastreo de errores (Sentry), opcional.** Solo con `SENTRY_DSN`; sin él no se
+carga ni el SDK (`src/lib/sentry.ts`). Opcionales: `SENTRY_ENVIRONMENT` (por
+defecto `NODE_ENV`), `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE` (sin ella no
+hay trazas). Captura excepciones sin atrapar, errores que llegan a Fastify y las
+respuestas 5xx que arman los controladores a mano. No envía cuerpos, cabeceras,
+cookies ni query (llevan el JWT y datos personales), y recorta los mensajes a
+su primera línea (los de Prisma vuelcan los argumentos debajo).
 
 ## Formularios dinámicos
 

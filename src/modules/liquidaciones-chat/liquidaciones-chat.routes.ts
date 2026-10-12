@@ -1,9 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import { LiquidacionesChatController } from './liquidaciones-chat.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 
 export async function liquidacionesChatRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `liquidaciones-terceros`.
+  /// El chat y los recordatorios del cierre: los usan todas las áreas del módulo.
+  app.addHook('preHandler', permisoPorMetodo('liquidaciones-terceros', { lectura: 'limited', escritura: 'limited' }))
 
   // ── Chat de liquidaciones ──
   app.get('/liquidaciones-terceros/:id/chat/mensajes', LiquidacionesChatController.listarMensajes)

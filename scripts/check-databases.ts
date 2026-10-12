@@ -1,22 +1,25 @@
 import { Client } from 'pg';
 
+/// Las credenciales salen del entorno, nunca del código: este archivo está
+/// versionado y las que tenía escritas quedaron en el historial de git.
+function conexion(variable: string): string {
+  const url = process.env[variable]
+  if (!url) {
+    console.error(`Falta ${variable}: la cadena de conexión postgresql://… de esa base.`)
+    process.exit(1)
+  }
+  return url
+}
+
 // Base de datos ORIGEN (la actual)
 const sourceDb = new Client({
-  host: '100.106.115.11',
-  port: 5432,
-  user: 'postgres',
-  password: 'Transmeralda2025',
-  database: 'postgres',
+  connectionString: conexion('MIGRACION_ORIGEN_URL'),
   ssl: false
 });
 
 // Base de datos DESTINO (Azure)
 const targetDb = new Client({
-  host: 'cotransmeq.postgres.database.azure.com',
-  port: 5432,
-  user: 'admintransmeralda',
-  password: 'SASesmeralda2025',
-  database: 'postgres',
+  connectionString: conexion('MIGRACION_DESTINO_URL'),
   ssl: {
     rejectUnauthorized: false
   }

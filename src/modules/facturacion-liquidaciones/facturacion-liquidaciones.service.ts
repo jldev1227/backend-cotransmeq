@@ -1,5 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
+import { aFechaDb, hoyColombia, isoDia } from "../../lib/pagos/medios";
+import { situacionFactura } from "../cartera/cartera.calculo";
+import {
+  ErrorCartera,
+  PLAZO_POR_DEFECTO,
+  resolverCondiciones,
+} from "../cartera/cartera.condiciones";
 
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
@@ -9,6 +16,12 @@ export interface CrearFacturaInput {
   numero_factura: string;
   liquidacion_ids: string[];
   observaciones?: string;
+  /// Condiciones de cobro (cartera). Todas opcionales: sin ellas la factura
+  /// vale la suma de sus liquidaciones, se emite hoy y vence a 30 días.
+  valor_total?: number | string | null;
+  fecha_emision?: string | null;
+  plazo_dias?: number | string | null;
+  fecha_vencimiento?: string | null;
 }
 
 export interface FiltrosFacturas {
@@ -50,7 +63,7 @@ export const FacturacionLiquidacionesService = {
     // Verificar que todas las liquidaciones existan y estén en estado LIQUIDADA o APROBADA
     const liquidaciones = await prisma.liquidacion_servicio.findMany({
       where: { id: { in: liquidacion_ids } },
-      select: { id: true, consecutivo: true, estado: true, total: true },
+      select: { id: true, consecutivo: true, estado: true, total: true, cliente_id: true },
     });
 
     if (liquidaciones.length !== liquidacion_ids.length) {
@@ -101,6 +114,25 @@ export const FacturacionLiquidacionesService = {
       0,
     );
 
+    /// Valor, emisión y vencimiento de la factura electrónica. Se validan
+    /// ANTES de tomar las liquidaciones: un plazo mal digitado no debe dejar
+    /// nada a medias.
+    const condiciones = resolverCondiciones(
+      {
+        valor_total: data.valor_total,
+        fecha_emision: data.fecha_emision,
+        plazo_dias: data.plazo_dias,
+        fecha_vencimiento: data.fecha_vencimiento,
+      },
+      {
+        suma: valorTotal,
+        fecha_emision: hoyColombia(),
+        plazo_dias: PLAZO_POR_DEFECTO,
+        ajuste_valor: 0,
+      },
+    );
+    const clienteId = clienteDeLiquidaciones(liquidaciones);
+
     // Crear factura + items + cambiar estado de liquidaciones en transacción
     const factura = await prisma.$transaction(async (tx) => {
       // ── Toma de posesión de las liquidaciones ──
@@ -136,7 +168,12 @@ export const FacturacionLiquidacionesService = {
         data: {
           numero_factura: numero_factura.trim(),
           observaciones: observaciones || null,
-          valor_total: valorTotal,
+          valor_total: condiciones.valor_total,
+          ajuste_valor: condiciones.ajuste_valor,
+          fecha_emision: aFechaDb(condiciones.fecha_emision),
+          plazo_dias: condiciones.plazo_dias,
+          fecha_vencimiento: aFechaDb(condiciones.fecha_vencimiento),
+          cliente_id: clienteId,
           facturado_por_id: userId,
           items: {
             create: liquidaciones.map((l) => ({
@@ -177,20 +214,7 @@ export const FacturacionLiquidacionesService = {
       return fac;
     });
 
-    return {
-      ...factura,
-      valor_total: Number(factura.valor_total),
-      items: factura.items.map((i) => ({
-        ...i,
-        valor_liquidacion: Number(i.valor_liquidacion),
-        liquidacion: i.liquidacion
-          ? {
-              ...i.liquidacion,
-              total: Number(i.liquidacion.total),
-            }
-          : null,
-      })),
-    };
+    return mapFactura(factura);
   },
 
   /**
@@ -239,29 +263,11 @@ export const FacturacionLiquidacionesService = {
     const [facturas, total, metadata] = await Promise.all([
       prisma.factura_liquidacion_servicio.findMany({
         where,
-        include: {
-          facturado_por: { select: { id: true, nombre: true, correo: true } },
-          anulado_por: { select: { id: true, nombre: true, correo: true } },
-          /// `quitarLiquidaciones` marca el pivote con `deleted_at` en vez de
-          /// borrarlo. Sin filtrar, la factura seguía mostrando —y contando—
-          /// liquidaciones que ya no le pertenecen.
-          _count: { select: { items: { where: { deleted_at: null } } } },
-          items: {
-            where: { deleted_at: null },
-            include: {
-              liquidacion: {
-                select: {
-                  id: true,
-                  consecutivo: true,
-                  total: true,
-                  mes: true,
-                  anio: true,
-                  cliente: { select: { id: true, nombre: true, nit: true } },
-                },
-              },
-            },
-          },
-        },
+        /// Misma forma que tras asociar/desasociar (`facturaIncludeCompleto`),
+        /// con los pivotes y los abonos vivos únicamente: `quitarLiquidaciones`
+        /// marca el pivote con `deleted_at`, y sin filtrar la factura seguía
+        /// mostrando —y contando— liquidaciones que ya no le pertenecen.
+        include: facturaIncludeCompleto(),
         orderBy: { created_at: "desc" },
         skip,
         take: limit,
@@ -270,22 +276,9 @@ export const FacturacionLiquidacionesService = {
       metadataFacturas(where),
     ]);
 
+    const hoy = hoyColombia();
     return {
-      facturas: facturas.map((f) => ({
-        ...f,
-        valor_total: Number(f.valor_total),
-        total_liquidaciones: f._count.items,
-        items: f.items.map((i) => ({
-          ...i,
-          valor_liquidacion: Number(i.valor_liquidacion),
-          liquidacion: i.liquidacion
-            ? {
-                ...i.liquidacion,
-                total: Number(i.liquidacion.total),
-              }
-            : null,
-        })),
-      })),
+      facturas: facturas.map((f) => mapFactura(f, hoy)),
       total,
       totalPages: Math.ceil(total / limit),
       page,
@@ -302,6 +295,8 @@ export const FacturacionLiquidacionesService = {
       include: {
         facturado_por: { select: { id: true, nombre: true, correo: true } },
         anulado_por: { select: { id: true, nombre: true, correo: true } },
+        cliente: { select: { id: true, nombre: true, nit: true } },
+        abonos: { where: { deleted_at: null }, select: MONTOS_ABONO },
         items: {
           where: { deleted_at: null },
           include: {
@@ -318,9 +313,13 @@ export const FacturacionLiquidacionesService = {
 
     if (!factura) throw new Error("Factura no encontrada");
 
+    /// Los montos de los abonos solo sirven para el saldo: se resumen en
+    /// `cartera` y no viajan crudos (el detalle de abonos es de /cartera).
+    const { abonos: _montosAbonos, ...resto } = factura;
     return {
-      ...factura,
-      valor_total: Number(factura.valor_total),
+      ...resto,
+      ...condicionesSerializadas(factura),
+      cartera: carteraDe(factura),
       items: factura.items.map((i) => ({
         ...i,
         valor_liquidacion: Number(i.valor_liquidacion),
@@ -359,6 +358,20 @@ export const FacturacionLiquidacionesService = {
     if (!factura) throw new Error("Factura no encontrada");
     if (factura.estado === "ANULADA")
       throw new Error("La factura ya está anulada");
+
+    /// Una factura con abonos vivos no se anula: la cartera solo mira las
+    /// activas, así que el dinero recibido desaparecería de los informes sin
+    /// rastro. Primero se retiran (o se trasladan) los abonos en Cartera.
+    const abonosVivos = await prisma.factura_liquidacion_abono.count({
+      where: { factura_id: id, deleted_at: null },
+    });
+    if (abonosVivos > 0) {
+      throw new ErrorCartera(
+        `La factura ${factura.numero_factura} tiene ${abonosVivos} abono(s) registrado(s). Retíralos en Cartera antes de anularla.`,
+        409,
+        "TIENE_ABONOS",
+      );
+    }
 
     const liquidacionIds = factura.items.map((i) => i.liquidacion_id);
     /// La liquidación que se está devolviendo a APROBADA desde su ficha: el
@@ -430,7 +443,8 @@ export const FacturacionLiquidacionesService = {
 
     return {
       ...result,
-      valor_total: Number(result.valor_total),
+      ...condicionesSerializadas(result),
+      cartera: null,
       /// Estado en que quedó cada liquidación, para que los sockets no tengan
       /// que suponer que todas volvieron a LIQUIDADA.
       estados_resultantes: Object.fromEntries(
@@ -499,12 +513,27 @@ export const FacturacionLiquidacionesService = {
     if (!factura) throw new Error("Factura no encontrada");
     if (!factura.deleted_at) throw new Error("La factura no está eliminada");
 
+    /// `eliminar` le añade `_ELIMINADA` al número para liberarlo (sin eso no se
+    /// podía volver a emitir una factura con el mismo número). Restaurar tiene
+    /// que deshacerlo: antes volvía como «FE-123_ELIMINADA» y así se quedaba en
+    /// la lista y en la cartera.
+    const numeroOriginal = factura.numero_factura.replace(/_ELIMINADA$/, "");
+    const ocupado = await prisma.factura_liquidacion_servicio.findFirst({
+      where: { numero_factura: numeroOriginal, deleted_at: null, id: { not: id } },
+      select: { id: true },
+    });
+    if (ocupado) {
+      throw new Error(
+        `No se puede restaurar: ya existe una factura con el número "${numeroOriginal}"`,
+      );
+    }
+
     await prisma.factura_liquidacion_servicio.update({
       where: { id },
-      data: { deleted_at: null },
+      data: { deleted_at: null, numero_factura: numeroOriginal },
     });
     return {
-      message: `Factura ${factura.numero_factura} restaurada exitosamente`,
+      message: `Factura ${numeroOriginal} restaurada exitosamente`,
     };
   },
 
@@ -552,7 +581,7 @@ export const FacturacionLiquidacionesService = {
 
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id: facturaId },
-      select: { id: true, numero_factura: true, estado: true, deleted_at: true },
+      select: { id: true, numero_factura: true, estado: true, deleted_at: true, cliente_id: true },
     });
     if (!factura || factura.deleted_at) throw new Error("Factura no encontrada");
     if (factura.estado !== "ACTIVA") {
@@ -563,7 +592,7 @@ export const FacturacionLiquidacionesService = {
 
     const liquidaciones = await prisma.liquidacion_servicio.findMany({
       where: { id: { in: liquidacionIds }, deleted_at: null },
-      select: { id: true, consecutivo: true, estado: true, total: true },
+      select: { id: true, consecutivo: true, estado: true, total: true, cliente_id: true },
     });
     if (liquidaciones.length !== liquidacionIds.length) {
       throw new Error("Algunas liquidaciones no fueron encontradas");
@@ -652,7 +681,14 @@ export const FacturacionLiquidacionesService = {
 
       return tx.factura_liquidacion_servicio.update({
         where: { id: facturaId },
-        data: { valor_total: Number(agg._sum.valor_liquidacion ?? 0) },
+        data: {
+          valor_total: await totalConAjuste(tx, facturaId, agg._sum.valor_liquidacion),
+          /// Una factura registrada antes de cartera, o a la que se le
+          /// quitaron todas, toma el cliente de lo que se le asocia.
+          ...(factura.cliente_id
+            ? {}
+            : { cliente_id: clienteDeLiquidaciones(liquidaciones) }),
+        },
         include: facturaIncludeCompleto(),
       });
     });
@@ -759,7 +795,7 @@ export const FacturacionLiquidacionesService = {
 
       return tx.factura_liquidacion_servicio.update({
         where: { id: facturaId },
-        data: { valor_total: Number(agg._sum.valor_liquidacion ?? 0) },
+        data: { valor_total: await totalConAjuste(tx, facturaId, agg._sum.valor_liquidacion) },
         include: facturaIncludeCompleto(),
       });
     });
@@ -814,7 +850,7 @@ export const FacturacionLiquidacionesService = {
         where: { factura_id: item.factura_id, deleted_at: null },
         _sum: { valor_liquidacion: true },
       });
-      const totalFactura = Number(agg._sum.valor_liquidacion ?? 0);
+      const totalFactura = await totalConAjuste(tx, item.factura_id, agg._sum.valor_liquidacion);
       await tx.factura_liquidacion_servicio.update({
         where: { id: item.factura_id },
         data: { valor_total: totalFactura },
@@ -827,6 +863,18 @@ export const FacturacionLiquidacionesService = {
         valor_nuevo: totalFactura,
       };
     });
+  },
+
+  /**
+   * La factura con la misma forma que una fila de `listar`. Es lo que viaja en
+   * `facturacion-updated` cuando cartera cambia su saldo o sus condiciones.
+   */
+  async obtenerCompleta(id: string) {
+    const f = await prisma.factura_liquidacion_servicio.findFirst({
+      where: { id, deleted_at: null },
+      include: facturaIncludeCompleto(),
+    });
+    return f ? mapFactura(f) : null;
   },
 
   /**
@@ -899,6 +947,10 @@ function facturaIncludeCompleto() {
   return {
     facturado_por: { select: { id: true, nombre: true, correo: true } },
     anulado_por: { select: { id: true, nombre: true, correo: true } },
+    cliente: { select: { id: true, nombre: true, nit: true } },
+    /// Solo los montos de los abonos vivos: `mapFactura` los resume en
+    /// `cartera` (saldo y estado de cobro) y no los devuelve crudos.
+    abonos: { where: { deleted_at: null }, select: MONTOS_ABONO },
     _count: { select: { items: { where: { deleted_at: null } } } },
     items: {
       where: { deleted_at: null },
@@ -918,11 +970,104 @@ function facturaIncludeCompleto() {
   } as const;
 }
 
-/** Decimal → number, y `total_liquidaciones` derivado, como en `listar`. */
-function mapFactura(f: any) {
+const MONTOS_ABONO = {
+  valor: true,
+  retefuente: true,
+  reteica: true,
+  reteiva: true,
+  otros_descuentos: true,
+} as const;
+
+/**
+ * Condiciones de cobro listas para JSON: fechas `@db.Date` como `YYYY-MM-DD`
+ * (como `Date` viajaban con hora UTC y el navegador, en UTC-5, las pintaba
+ * un día antes) y Decimal como número.
+ */
+function condicionesSerializadas(f: any) {
   return {
-    ...f,
     valor_total: Number(f.valor_total),
+    ajuste_valor: Number(f.ajuste_valor ?? 0),
+    fecha_emision: isoDia(f.fecha_emision),
+    plazo_dias: f.plazo_dias ?? PLAZO_POR_DEFECTO,
+    fecha_vencimiento: isoDia(f.fecha_vencimiento),
+  };
+}
+
+/**
+ * Saldo y estado de cobro de la factura, con las mismas reglas que la página
+ * de cartera (`situacionFactura`). `null` si está anulada o eliminada: esa
+ * factura no se cobra. Sin `abonos` cargados se asume que no tiene ninguno
+ * (es el caso de una recién creada).
+ */
+function carteraDe(f: any, hoy: string = hoyColombia()) {
+  if (f.estado !== "ACTIVA" || f.deleted_at) return null;
+  const abonos = f.abonos ?? [];
+  const s = situacionFactura(
+    {
+      valor_total: f.valor_total,
+      fecha_vencimiento: isoDia(f.fecha_vencimiento) ?? hoy,
+      abonos,
+    },
+    hoy,
+  );
+  return {
+    saldo: s.saldo,
+    aplicado: s.aplicado,
+    estado: s.estado,
+    dias_vencida: s.dias_vencida,
+    abonos: abonos.length,
+  };
+}
+
+/**
+ * Total de la factura = suma de sus liquidaciones vivas + el ajuste que se le
+ * haya puesto a mano. Se lee el ajuste dentro de la misma transacción que
+ * recalcula la suma para no pisar una corrección hecha a la vez.
+ */
+async function totalConAjuste(
+  tx: Prisma.TransactionClient,
+  facturaId: string,
+  suma: Prisma.Decimal | number | null,
+): Promise<number> {
+  const f = await tx.factura_liquidacion_servicio.findUniqueOrThrow({
+    where: { id: facturaId },
+    select: { ajuste_valor: true },
+  });
+  return (
+    (Math.round(Number(suma ?? 0) * 100) + Math.round(Number(f.ajuste_valor) * 100)) /
+    100
+  );
+}
+
+/**
+ * Cliente al que se le cobra: el de las liquidaciones. Si vinieran de varios
+ * (hoy no pasa), el de mayor valor.
+ */
+function clienteDeLiquidaciones(
+  liquidaciones: Array<{ cliente_id: string | null; total: Prisma.Decimal | number }>,
+): string | null {
+  const porCliente = new Map<string, number>();
+  for (const l of liquidaciones) {
+    if (!l.cliente_id) continue;
+    porCliente.set(l.cliente_id, (porCliente.get(l.cliente_id) ?? 0) + Number(l.total));
+  }
+  let mejor: string | null = null;
+  for (const [id, total] of porCliente) {
+    if (mejor === null || total > (porCliente.get(mejor) ?? 0)) mejor = id;
+  }
+  return mejor;
+}
+
+/**
+ * Decimal → number, `total_liquidaciones` derivado y la situación de cobro
+ * (`cartera`), como en `listar`.
+ */
+function mapFactura(f: any, hoy: string = hoyColombia()) {
+  const { abonos: _montosAbonos, ...resto } = f;
+  return {
+    ...resto,
+    ...condicionesSerializadas(f),
+    cartera: carteraDe(f, hoy),
     total_liquidaciones: f._count?.items ?? f.items?.length ?? 0,
     items: (f.items ?? []).map((i: any) => ({
       ...i,

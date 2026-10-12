@@ -3,9 +3,23 @@ import { LiquidacionesTercerosPdfService } from './liquidaciones-terceros-pdf.se
 import { CanvasPdfService } from './canvas-pdf.service'
 import { CanvasZipService } from './canvas-zip.service';
 import { authMiddleware } from '../../middlewares/auth.middleware';
+import { permisoPorMetodo, requireAlgunPermiso } from '../../middlewares/permissions.middleware';
 
 export async function liquidacionesTercerosPdfRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware);
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `liquidaciones-terceros`.
+  /// Escritura con limited: facturación y contabilidad también editan cierres (ver cierres-finales-estado.ts).
+  app.addHook(
+    'preHandler',
+    permisoPorMetodo('liquidaciones-terceros', { lectura: 'limited', escritura: 'limited' }, {
+      excepto: (patron) => patron.startsWith('/liquidaciones-terceros/canvas/'),
+    }),
+  );
+
+  /// El PDF de un canvas también lo exporta el canvas de RECORRIDOS (que lee casi
+  /// todo el equipo), no solo el de cierres: basta cualquiera de los dos permisos.
+  const puedeExportarCanvas = requireAlgunPermiso(['recorridos', 'read'], ['liquidaciones-terceros', 'limited']);
 
   // PDF nativo de la liquidación, renderizado en el backend con
   // Puppeteer + Chromium. Reemplaza al `/api/pdf/from-html` para este
@@ -26,7 +40,7 @@ export async function liquidacionesTercerosPdfRoutes(app: FastifyInstance) {
   // como un 413 genérico antes de tocar el handler.
   app.post(
     '/liquidaciones-terceros/canvas/pdf',
-    { bodyLimit: 8 * 1024 * 1024 },
+    { bodyLimit: 8 * 1024 * 1024, preHandler: puedeExportarCanvas },
     CanvasPdfService.renderizar,
   );
 
@@ -34,7 +48,7 @@ export async function liquidacionesTercerosPdfRoutes(app: FastifyInstance) {
   // porque aquí viajan las cuarenta hojas de un mes en una sola petición.
   app.post(
     '/liquidaciones-terceros/canvas/pdf-zip',
-    { bodyLimit: 40 * 1024 * 1024 },
+    { bodyLimit: 40 * 1024 * 1024, preHandler: puedeExportarCanvas },
     CanvasZipService.renderizar,
   );
 }

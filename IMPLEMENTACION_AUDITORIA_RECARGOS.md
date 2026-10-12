@@ -135,7 +135,7 @@ Este script asigna automáticamente el primer usuario activo como creador de los
 
 **Ejecución:**
 ```bash
-PGPASSWORD="MEQ900**" psql -h cotransmeq.postgres.database.azure.com \
+PGPASSWORD="<CLAVE>" psql -h cotransmeq.postgres.database.azure.com \
   -U Cotrans900 -d postgres -p 5432 -f fix-creado-por-id.sql
 ```
 

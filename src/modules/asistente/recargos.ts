@@ -426,7 +426,9 @@ export const crearRecargo: Herramienta = {
     const creada = await crear(data, usuario.id, { userId: usuario.id, motivo: 'Creada desde el asistente' })
     const valorPagar = await RecargosService.calcularValorAPagar(creada.id).catch(() => null)
     try {
-      getIO()?.emit('recargo-creado', { recargoId: creada.id, recargo: creada, valor_pagar: valorPagar })
+      /// Mismo payload que `avisarRecargos` del controlador: el front solo lee el id
+      /// y el valor, y la planilla entera llevaba al conductor con su contraseña.
+      getIO()?.emit('recargo-creado', { recargoId: creada.id, valor_pagar: valorPagar })
     } catch {
       // el socket es opcional
     }

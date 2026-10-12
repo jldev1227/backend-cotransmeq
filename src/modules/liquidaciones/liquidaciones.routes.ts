@@ -1,17 +1,26 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesController } from "./liquidaciones.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
+import { permisoPorMetodo, requirePermission } from "../../middlewares/permissions.middleware";
 import { prisma } from "../../config/prisma";
 import { env } from "../../config/env";
 import { EmailService } from "../../services/email.service";
-import jwt from "jsonwebtoken";
+import { tokenPortalVigente } from "../conductor-portal/portal-token.service";
 import { getS3SignedUrl } from "../../config/aws";
-
-const TOKEN_VALIDITY_DAYS = 30;
 
 export async function liquidacionesRoutes(app: FastifyInstance) {
   // Todas las rutas de liquidaciones requieren autenticación
   app.addHook("onRequest", authMiddleware);
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `nomina`.
+  app.addHook(
+    "preHandler",
+    permisoPorMetodo("nomina", {}, {
+      /// La valoración de recargos la usa la pantalla de Recargos (operaciones
+      /// y hseq, sin nómina): se protege aparte con el módulo `recargos`.
+      excepto: (patron) => patron === "/liquidaciones/preview-recargos",
+    }),
+  );
 
   // GET /api/liquidaciones - Obtener todas las liquidaciones
   app.get("/liquidaciones", LiquidacionesController.obtenerTodas);
@@ -19,6 +28,7 @@ export async function liquidacionesRoutes(app: FastifyInstance) {
   // GET /api/liquidaciones/preview-recargos - Preview de recargos desde planillas
   app.get(
     "/liquidaciones/preview-recargos",
+    { preHandler: requirePermission("recargos", "read") },
     LiquidacionesController.previewRecargos,
   );
 
@@ -230,46 +240,16 @@ export async function liquidacionesRoutes(app: FastifyInstance) {
           }
 
           try {
-            // 2. Generar o reutilizar token JWT para el conductor
-            const existingToken = await prisma.conductor_token.findFirst({
-              where: {
-                conductor_id: conductor.id,
-                expires_at: { gt: new Date() },
-              },
-              orderBy: { expires_at: "desc" },
+            // 2. Reutilizar el token del portal vigente o generar uno (30 días).
+            /// `tokenPortalVigente` y no una búsqueda propia: esta copia tomaba el
+            /// token más largo sin mirar el tipo, y podía mandar el del reporte
+            /// de días laborados, que el portal rechaza.
+            const portalToken = await tokenPortalVigente({
+              id: conductor.id,
+              numero_identificacion: conductor.numero_identificacion,
+              nombre: conductor.nombre,
+              apellido: conductor.apellido || "",
             });
-
-            let portalToken: string;
-
-            if (existingToken) {
-              // Reutilizar token válido
-              portalToken = existingToken.token;
-            } else {
-              // Crear nuevo token
-              const expiresAt = new Date();
-              expiresAt.setDate(expiresAt.getDate() + TOKEN_VALIDITY_DAYS);
-
-              portalToken = jwt.sign(
-                {
-                  sub: conductor.id,
-                  cedula: conductor.numero_identificacion,
-                  nombre:
-                    `${conductor.nombre} ${conductor.apellido || ""}`.trim(),
-                  tipo: "conductor_portal",
-                },
-                env.JWT_SECRET,
-                { expiresIn: `${TOKEN_VALIDITY_DAYS}d` },
-              );
-
-              await prisma.conductor_token.create({
-                data: {
-                  id: require("crypto").randomUUID(),
-                  conductor_id: conductor.id,
-                  token: portalToken,
-                  expires_at: expiresAt,
-                },
-              });
-            }
 
             // 3. Construir link con token y desprendible_id
             const portalLink = `${frontendUrl}/public/portal?token=${encodeURIComponent(portalToken)}&desprendible=${liq.id}&tab=desprendibles`;

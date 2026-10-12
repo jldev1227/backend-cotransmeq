@@ -8,18 +8,19 @@ const MODULO = 'liquidaciones-terceros';
 export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware);
 
-  // ⚠️ Hasta ahora este módulo NO comprobaba permisos: bastaba con estar
-  // autenticado para escribir cualquier cosa, incluido aprobar cierres.
+  // Lectura y escritura con `limited`: las cuatro áreas del módulo
+  // (administración, operaciones, facturación y contabilidad).
   //
-  // Se estrena en modo `warn` (PERMISSIONS_MODE=warn): los rechazos se
-  // registran pero pasan. `facturacion` y `contabilidad` solo tienen
-  // `limited` sobre este módulo, así que sus escrituras aparecerán en el
-  // log; hay que revisarlas ANTES de pasar a `enforce`.
-  //
-  // Lectura: `limited` basta — facturación y contabilidad consultan.
+  // La escritura se estrenó exigiendo `full` en modo `warn`, para leer los
+  // rechazos antes de apretar. Al pasar a `enforce` (oct-2026) se vio que
+  // facturación y contabilidad SÍ editan cierres: la interfaz se lo permite y
+  // `cierres-finales-estado.ts` les deja pasar de BORRADOR a LIQUIDADA. Con
+  // `full` se habrían quedado fuera de su trabajo. Lo fino —aprobar, marcar
+  // pagada— lo decide la máquina de estados; lo que queda en `full` es borrar
+  // el cierre entero, que la interfaz también reserva a esas dos áreas.
   const puedeLeer = { preHandler: requirePermission(MODULO, 'limited') };
-  // Escritura: exige `full` — administración y operaciones.
-  const puedeEscribir = { preHandler: requirePermission(MODULO, 'full') };
+  const puedeEscribir = { preHandler: requirePermission(MODULO, 'limited') };
+  const puedeBorrarCierre = { preHandler: requirePermission(MODULO, 'full') };
 
   // ── Configuración de descuentos ──
   app.get('/configuracion-descuentos-tercero', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerConfiguracion);
@@ -118,7 +119,7 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   app.patch('/liquidaciones-terceros/:id/color-hoja', puedeEscribir, LiquidacionesTercerosDescuentosController.fijarColorHoja);
 
   // Soft delete del cierre (cabeza + items + conceptos)
-  app.delete('/liquidaciones-terceros/:id', puedeEscribir, LiquidacionesTercerosDescuentosController.softDelete);
+  app.delete('/liquidaciones-terceros/:id', puedeBorrarCierre, LiquidacionesTercerosDescuentosController.softDelete);
 
   // ── BULK SAVE (async, con cola + socket) ──
   app.post('/liquidaciones-terceros/guardar-borrador-bulk-async', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarBorradorBulkAsync);

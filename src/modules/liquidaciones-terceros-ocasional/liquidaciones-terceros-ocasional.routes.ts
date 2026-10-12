@@ -1,9 +1,14 @@
 import { FastifyInstance } from "fastify";
 import { LiquidacionesTercerosOcasionalController } from "./liquidaciones-terceros-ocasional.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
+import { permisoPorMetodo } from "../../middlewares/permissions.middleware";
 
 export async function liquidacionesTercerosOcasionalRoutes(app: FastifyInstance) {
   app.addHook("onRequest", authMiddleware);
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `liquidaciones-terceros`.
+  /// Escritura con limited: facturación y contabilidad también editan cierres (ver cierres-finales-estado.ts).
+  app.addHook("preHandler", permisoPorMetodo("liquidaciones-terceros", { lectura: "limited", escritura: "limited" }));
 
   // ── Modal selector (sin crear cabecera) ──
   app.post(

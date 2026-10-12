@@ -1,0 +1,12 @@
+[Unit]
+Description=Limpieza diaria de Docker (>72 h)
+
+[Timer]
+# 04:00 UTC = 23:00 Bogotá; el backup corre a las 02:15 UTC y ya terminó.
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=docker-limpieza-72h.service
+
+[Install]
+WantedBy=timers.target

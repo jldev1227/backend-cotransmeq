@@ -109,7 +109,7 @@ AWS_SECRET_ACCESS_KEY=<tu_secret_access_key>
 
 <!-- ❌ INCORRECTO -->
 AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXX
-AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AWS_SECRET_ACCESS_KEY=<AWS_SECRET_ACCESS_KEY>
 ```
 
 ### 3. Verificar Antes de Commit

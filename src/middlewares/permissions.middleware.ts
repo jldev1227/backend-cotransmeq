@@ -5,8 +5,9 @@ import { obtenerPermisosRutas } from '../services/permisos-rutas.service'
 /**
  * Modo de aplicación de permisos, por variable de entorno.
  *
- *   enforce → rechaza con 403 (comportamiento normal)
- *   warn    → NO rechaza; registra en consola quién habría sido rechazado
+ *   enforce → rechaza con 403. Es el default desde oct-2026.
+ *   warn    → NO rechaza; registra en consola quién habría sido rechazado.
+ *             Solo como salida de emergencia, puesto a mano en el .env.
  *
  * El modo `warn` existe porque aplicar `requirePermission` de golpe a un
  * módulo que hasta ahora no lo tenía puede tumbar a roles reales que
@@ -24,7 +25,7 @@ export function permissionsMode(): PermissionsMode {
   // Se lee de `process.env` y no de `config/env`, para que los tests puedan
   // alternarlo sin reimportar el módulo de configuración. El default aquí
   // debe coincidir con el de `env.ts`.
-  return process.env.PERMISSIONS_MODE === 'enforce' ? 'enforce' : 'warn'
+  return process.env.PERMISSIONS_MODE === 'warn' ? 'warn' : 'enforce'
 }
 
 /** Un rechazo que el modo `warn` dejó pasar. Útil para tests y auditoría. */
@@ -131,7 +132,74 @@ export function requirePermission(moduleId: string, requiredLevel: AccessLevel =
 }
 
 /**
- * Middleware que requiere acceso al módulo de sesiones (área administracion)
+ * Guarda de un archivo de rutas entero, por método: `lectura` para GET/HEAD y
+ * `escritura` para lo demás.
+ *
+ * Se registra con `app.addHook('preHandler', permisoPorMetodo('nomina'))` en
+ * plugins que ya autentican con `app.addHook('onRequest', authMiddleware)`. Va
+ * a nivel de plugin y no ruta por ruta porque así quedaron los huecos de
+ * oct-2026: nómina, primas, facturación y liquidaciones solo pedían sesión, y
+ * cualquier usuario del equipo —o un conductor con su enlace— podía leerlas y
+ * borrarlas. Una ruta nueva en el archivo nace protegida.
+ *
+ * `excepto` deja fuera rutas concretas del plugin (las públicas que comparten
+ * archivo); recibe el patrón de la ruta (`/public/asistencias/:token`), no la
+ * URL, y el método (el registro público de visitantes es `POST /inducciones`,
+ * mismo patrón que el listado privado).
+ */
+export function permisoPorMetodo(
+  moduleId: string,
+  niveles: { lectura?: AccessLevel; escritura?: AccessLevel } = {},
+  opciones: { excepto?: (patron: string, metodo: string) => boolean } = {}
+) {
+  const leer = requirePermission(moduleId, niveles.lectura ?? 'read')
+  const escribir = requirePermission(moduleId, niveles.escritura ?? 'full')
+  return async function (this: { prefix?: string } | undefined, request: FastifyRequest, reply: FastifyReply) {
+    /// `routeOptions.url` trae el prefijo con que se registró el plugin (`/api`);
+    /// se quita para que `excepto` compare contra la ruta tal como se escribe
+    /// en el archivo. `this` es la instancia del plugin donde vive el hook.
+    const completo = request.routeOptions?.url ?? request.url
+    const prefijo = this?.prefix ?? ''
+    const patron = prefijo && completo.startsWith(prefijo) ? completo.slice(prefijo.length) || '/' : completo
+    if (opciones.excepto?.(patron, request.method)) return
+    const esLectura = request.method === 'GET' || request.method === 'HEAD'
+    return (esLectura ? leer : escribir)(request, reply)
+  }
+}
+
+/**
+ * Pasa si el usuario tiene AL MENOS UNO de los permisos dados.
+ *
+ * Para rutas que sirven a dos pantallas de módulos distintos: el PDF del canvas
+ * se exporta desde el canvas de recorridos (`recorridos`, que lee casi todo el
+ * equipo) y desde el de cierres de terceros (`liquidaciones-terceros`). Pedir
+ * solo uno de los dos rompía la otra pantalla.
+ */
+export function requireAlgunPermiso(...permisos: Array<[moduleId: string, nivel: AccessLevel]>) {
+  const guardas = permisos.map(([m, n]) => requirePermission(m, n))
+  return async function (request: FastifyRequest, reply: FastifyReply) {
+    const user = (request as any).user
+    if (!user) return reply.status(401).send({ error: 'No autenticado' })
+    const rutasOverride = await obtenerPermisosRutas(user.id)
+    const jerarquia: AccessLevel[] = ['limited', 'read', 'full']
+    const alguno = permisos.some(([m, n]) => {
+      const { allowed, level } = checkAccess(user.role, user.area, m, rutasOverride)
+      return allowed && jerarquia.indexOf(level!) >= jerarquia.indexOf(n)
+    })
+    if (alguno) return
+    /// Sin ninguno: se delega en la primera guarda, que sabe responder 403 (o
+    /// dejar pasar con aviso en modo `warn`) con el mismo formato de siempre.
+    return guardas[0](request, reply)
+  }
+}
+
+/**
+ * Middleware que requiere nivel `full` en el módulo de sesiones (área
+ * administracion). Protege la gestión de usuarios, sesiones e invitaciones.
+ *
+ * Hasta oct-2026 bastaba con tener acceso, de cualquier nivel: un
+ * `{"sesiones": "read"}` en la lista blanca de alguien le daba poder para
+ * cambiar áreas, rol y permisos de cualquiera, los suyos incluidos.
  */
 export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   const user = (request as any).user
@@ -139,8 +207,8 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
     return reply.status(401).send({ error: 'No autenticado' })
   }
   const rutasOverride = await obtenerPermisosRutas(user.id)
-  const { allowed } = checkAccess(user.role, user.area, 'sesiones', rutasOverride)
-  if (!allowed) {
+  const { allowed, level } = checkAccess(user.role, user.area, 'sesiones', rutasOverride)
+  if (!allowed || level !== 'full') {
     return reply.status(403).send({ error: 'Sin permisos para esta acción' })
   }
 }

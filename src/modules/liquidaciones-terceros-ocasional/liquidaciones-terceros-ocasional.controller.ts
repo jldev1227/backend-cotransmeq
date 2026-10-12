@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesTercerosOcasionalService } from "./liquidaciones-terceros-ocasional.service";
+import { ErrorEstadoOcasional } from "./estado-ocasional";
 
 export class LiquidacionesTercerosOcasionalController {
   // ── LIST / DETAIL ──
@@ -310,17 +311,26 @@ export class LiquidacionesTercerosOcasionalController {
   static async cambiarEstado(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
-      const { estado, motivo_anulacion } = request.body as any;
+      const { estado, motivo_anulacion } = (request.body as any) ?? {};
       const userId = (request as any).user?.id;
       if (!estado) return reply.status(400).send({ error: "Se requiere estado" });
       const result = await LiquidacionesTercerosOcasionalService.cambiarEstado(
         id,
         estado,
         userId,
-        motivo_anulacion
+        motivo_anulacion,
+        (request as any).user?.area,
       );
       return reply.send(result);
     } catch (error: any) {
+      /// Errores de la máquina de estados (`estado-ocasional.ts`): valor
+      /// inválido 400, sin área 403, inexistente/eliminada 404, transición o
+      /// carrera 409. Antes todo salía 500.
+      if (error instanceof ErrorEstadoOcasional) {
+        return reply
+          .status(error.statusCode)
+          .send({ code: error.codigo, error: error.message });
+      }
       return reply.status(500).send({ error: error.message });
     }
   }

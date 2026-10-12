@@ -1,4 +1,6 @@
 import { prisma } from '../../config/prisma'
+import { resumirListado, type FiltroRevision } from './acciones-correctivas.revision'
+import { camposEditablesAccion } from './acciones-correctivas.campos'
 
 export interface SeguimientoRegistroInput {
   fecha_seguimiento: Date | string
@@ -158,6 +160,8 @@ export interface FiltrosAccionesCorrectivas {
   sortOrder?: 'asc' | 'desc'
   ultimos_90_dias?: boolean
   incluir_eliminados?: boolean
+  /** Solo las acciones cuya próxima revisión cae en ese panel del tablero. */
+  revision?: FiltroRevision
 }
 
 const approvalFlow: Record<string, string[]> = {
@@ -234,15 +238,19 @@ export class AccionesCorrectivasService {
       seguimientos_correccion,
       ciclos_eficacia,
       evidencias_eficacia,
-      ...datosAccion
     } = data
 
-    const fechasConvertidas = this.convertirFechas(datosAccion)
+    /// Solo la lista blanca de `acciones-correctivas.campos.ts`: el body
+    /// entero dejaba escribir `estado_aprobacion`, `estado_global` o
+    /// `deleted_at` sin pasar por su ruta. `creado_por_id` lo pone el
+    /// llamador (el controlador lo toma del token), nunca el formulario.
+    const fechasConvertidas = this.convertirFechas(camposEditablesAccion(data as any))
 
     return await prisma.acciones_correctivas_preventivas.create({
       data: {
         ...fechasConvertidas,
-        created_at: datosAccion.created_at ? new Date(datosAccion.created_at) : new Date(),
+        creado_por_id: data.creado_por_id || undefined,
+        created_at: fechasConvertidas.created_at ?? new Date(),
         causas: causas?.length
           ? { create: causas.map((c) => this.buildCausaCreate(c)) }
           : undefined,
@@ -262,6 +270,11 @@ export class AccionesCorrectivasService {
   }
 
   // Listar acciones con filtros y paginación
+  //
+  // Devuelve, además de la página, el `resumen` con los conteos del tablero
+  // (estados, revisiones, causas, tipos) calculados sobre TODO el filtro y no
+  // sobre la página: el tablero pagina de 24 en 24 y antes contaba sobre las
+  // 50 filas que pedía, así que pasada la 50.ª acción los números mentían.
   async listar(filtros: FiltrosAccionesCorrectivas = {}) {
     const {
       ultimos_90_dias,
@@ -272,39 +285,43 @@ export class AccionesCorrectivasService {
       fecha_desde,
       fecha_hasta,
       busqueda,
-      page = 1,
-      limit = 20,
       sortBy = 'created_at',
       sortOrder = 'desc',
-      incluir_eliminados
+      incluir_eliminados,
+      revision
     } = filtros
 
-    const where: any = {}
+    /// Del querystring llegan ya convertidos por el esquema de Fastify, pero
+    /// el servicio también se llama desde código: un `'2'` daría un `skip`
+    /// de texto y Prisma lo rechaza.
+    const page = Math.max(1, Math.trunc(Number(filtros.page)) || 1)
+    const limit = Math.max(1, Math.trunc(Number(filtros.limit)) || 20)
+
+    /// `base` lleva todos los filtros MENOS el estado y la revisión: esos dos
+    /// son facetas del tablero y cada conteo se calcula sin el suyo (ver
+    /// `resumirListado`).
+    const base: any = {}
 
     // Filtro por defecto: excluir eliminados
     if (incluir_eliminados) {
-      where.deleted_at = { not: null }
+      base.deleted_at = { not: null }
     } else {
-      where.deleted_at = null
+      base.deleted_at = null
     }
 
     // Filtros específicos
     if (ultimos_90_dias) {
       const fecha90 = new Date()
       fecha90.setDate(fecha90.getDate() - 90)
-      where.created_at = { gte: fecha90 }
+      base.created_at = { gte: fecha90 }
     }
 
     if (tipo_accion_ejecutar) {
-      where.tipo_accion_ejecutar = tipo_accion_ejecutar
-    }
-
-    if (estado_global) {
-      where.estado_global = estado_global
+      base.tipo_accion_ejecutar = tipo_accion_ejecutar
     }
 
     if (estado_seguimiento) {
-      where.causas = {
+      base.causas = {
         some: {
           estado_seguimiento
         }
@@ -312,23 +329,23 @@ export class AccionesCorrectivasService {
     }
 
     if (valoracion_riesgo) {
-      where.valoracion_riesgo = valoracion_riesgo
+      base.valoracion_riesgo = valoracion_riesgo
     }
 
     // Filtro de rango de fechas
     if (fecha_desde || fecha_hasta) {
-      where.fecha_identificacion_hallazgo = {}
+      base.fecha_identificacion_hallazgo = {}
       if (fecha_desde) {
-        where.fecha_identificacion_hallazgo.gte = new Date(fecha_desde)
+        base.fecha_identificacion_hallazgo.gte = new Date(fecha_desde)
       }
       if (fecha_hasta) {
-        where.fecha_identificacion_hallazgo.lte = new Date(fecha_hasta)
+        base.fecha_identificacion_hallazgo.lte = new Date(fecha_hasta)
       }
     }
 
     // Búsqueda general
     if (busqueda) {
-      where.OR = [
+      base.OR = [
         { accion_numero: { contains: busqueda, mode: 'insensitive' } },
         { descripcion_hallazgo: { contains: busqueda, mode: 'insensitive' } },
         { lugar_sede: { contains: busqueda, mode: 'insensitive' } },
@@ -361,59 +378,101 @@ export class AccionesCorrectivasService {
     ]
     const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at'
     const safeSortOrder = sortOrder === 'asc' ? 'asc' : 'desc'
+    /// El `id` desempata: con OFFSET, dos filas con el mismo `created_at`
+    /// (las importadas en lote lo comparten) podían salir en las dos páginas
+    /// o en ninguna, según el plan que eligiera Postgres en cada consulta.
+    const orderBy = [{ [safeSortBy]: safeSortOrder }, { id: 'asc' as const }]
 
-    const [acciones, total] = await Promise.all([
-      prisma.acciones_correctivas_preventivas.findMany({
-        where,
-        include: {
-          causas: {
-            orderBy: { orden: 'asc' },
-            select: {
-              id: true,
-              orden: true,
-              analisis_causa: true,
-              estado_seguimiento: true,
-              fecha_limite_implementacion: true,
-              responsable_ejecucion: true,
-              evaluacion_cierre_eficaz: true,
-              fecha_cierre: true
-            }
-          },
-          seguimientos_correccion: {
-            orderBy: { fecha_seguimiento: 'desc' },
-            take: 3,
-            select: {
-              fecha_seguimiento: true,
-              estado_accion: true,
-              descripcion_observaciones: true
-            }
-          },
-          usuarios: {
-            select: {
-              id: true,
-              nombre: true,
-              correo: true
-            }
-          },
-          registrado_por: {
-            select: { id: true, nombre: true, correo: true, cargo: true }
-          }
-        },
-        orderBy: {
-          [safeSortBy]: safeSortOrder
-        },
-        skip,
-        take: limit
-      }),
-      prisma.acciones_correctivas_preventivas.count({ where })
-    ])
+    /// Consulta ligera sobre `base`: solo lo que piden los conteos y la
+    /// revisión, no el detalle de la tarjeta. Las causas y los seguimientos
+    /// de corrección no tienen `deleted_at` (se borran con la acción), así
+    /// que no llevan filtro de borrado lógico.
+    const filas = await prisma.acciones_correctivas_preventivas.findMany({
+      where: base,
+      orderBy,
+      select: {
+        id: true,
+        accion_numero: true,
+        responsable_ejecucion: true,
+        estado_global: true,
+        tipo_accion_ejecutar: true,
+        fecha_limite_cierre_accion: true,
+        evaluacion_cierre_eficaz: true,
+        fecha_cierre_definitivo: true,
+        fecha_seguimiento: true,
+        fecha_implementacion: true,
+        fecha_identificacion_hallazgo: true,
+        causas: { select: { fecha_seguimiento: true, estado_seguimiento: true } },
+        /// Solo cuenta la más reciente: es la que mueve la próxima revisión.
+        seguimientos_correccion: {
+          orderBy: { fecha_seguimiento: 'desc' },
+          take: 1,
+          select: { fecha_seguimiento: true }
+        }
+      }
+    })
+
+    const { ids, resumen } = resumirListado(filas, { estado_global, revision })
+    const total = ids.length
+
+    const where: any = { ...base }
+    if (estado_global) where.estado_global = estado_global
+    /// La revisión no es una columna: se calcula por fila. Por eso la página
+    /// se pide por los ids que ya pasaron el filtro.
+    if (revision) where.id = { in: ids }
+
+    const acciones =
+      total === 0
+        ? []
+        : await prisma.acciones_correctivas_preventivas.findMany({
+            where,
+            include: {
+              causas: {
+                orderBy: { orden: 'asc' },
+                select: {
+                  id: true,
+                  orden: true,
+                  analisis_causa: true,
+                  estado_seguimiento: true,
+                  fecha_seguimiento: true,
+                  fecha_limite_implementacion: true,
+                  responsable_ejecucion: true,
+                  evaluacion_cierre_eficaz: true,
+                  fecha_cierre: true
+                }
+              },
+              seguimientos_correccion: {
+                orderBy: { fecha_seguimiento: 'desc' },
+                take: 3,
+                select: {
+                  fecha_seguimiento: true,
+                  estado_accion: true,
+                  descripcion_observaciones: true
+                }
+              },
+              usuarios: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  correo: true
+                }
+              },
+              registrado_por: {
+                select: { id: true, nombre: true, correo: true, cargo: true }
+              }
+            },
+            orderBy,
+            skip,
+            take: limit
+          })
 
     return {
       acciones,
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
+      resumen
     }
   }
 
@@ -568,10 +627,11 @@ export class AccionesCorrectivasService {
       seguimientos_correccion,
       ciclos_eficacia,
       evidencias_eficacia,
-      ...datosAccion
     } = data
 
-    const fechasConvertidas = this.convertirFechas(datosAccion)
+    /// Misma lista blanca que `crear`: estado de aprobación, estado global,
+    /// autoría y papelera tienen cada uno su ruta y no se tocan desde aquí.
+    const fechasConvertidas = this.convertirFechas(camposEditablesAccion(data as any))
 
     const nestedUpdate: Record<string, unknown> = {}
 
@@ -604,7 +664,6 @@ export class AccionesCorrectivasService {
       where: { id },
       data: {
         ...fechasConvertidas,
-        created_at: datosAccion.created_at ? new Date(datosAccion.created_at) : undefined,
         ...nestedUpdate,
         updated_at: new Date()
       },
@@ -1030,19 +1089,23 @@ export class AccionesCorrectivasService {
   }
 
   // Actualizar manualmente el estado global (usado desde Step 5)
+  /**
+   * `registradoPorId` es el usuario del token. Antes salía del body
+   * (`registrado_por_id`), así que el estado podía quedar firmado a nombre
+   * de cualquiera; si el body aún lo trae, se ignora.
+   */
   async actualizarEstadoGlobal(accionId: string, data: {
     estado_global: string
-    registrado_por_id?: string
     observaciones?: string
-  }) {
-    const accion = await this.obtenerPorId(accionId)
+  }, registradoPorId: string) {
+    await this.obtenerPorId(accionId)
 
     const actualizada = await prisma.acciones_correctivas_preventivas.update({
       where: { id: accionId },
       data: {
         estado_global: data.estado_global as any,
         fecha_actualizacion_estado: new Date(),
-        registrado_por_id: data.registrado_por_id || undefined,
+        registrado_por_id: registradoPorId,
         observaciones: data.observaciones !== undefined ? data.observaciones : undefined,
       },
       include: includeAccionCompleta
@@ -1619,5 +1682,28 @@ export class AccionesCorrectivasService {
       estado_ubicacion: ev.estado_ubicacion || null,
       adjunto_url: ev.adjunto_url || null
     }
+  }
+}
+
+/**
+ * Siguiente número libre `AC-<año>-<nnn>` para una acción creada sin número.
+ *
+ * Lo usan el asistente y la investigación de incidentes: los dos crean
+ * acciones sin que nadie teclee el número, y con dos copias de esta regla
+ * cada uno acabaría numerando a su manera. Parte del conteo del año y avanza
+ * hasta un número libre, porque los números a mano (`AC-2026-007`) pueden
+ * haber ocupado alguno.
+ */
+export async function siguienteNumeroAccion(anio: string): Promise<string> {
+  const cuantas = await prisma.acciones_correctivas_preventivas.count({
+    where: { accion_numero: { startsWith: `AC-${anio}-` } }
+  })
+  for (let n = cuantas + 1; ; n++) {
+    const candidato = `AC-${anio}-${String(n).padStart(3, '0')}`
+    const ocupado = await prisma.acciones_correctivas_preventivas.findUnique({
+      where: { accion_numero: candidato },
+      select: { id: true }
+    })
+    if (!ocupado) return candidato
   }
 }

@@ -2,6 +2,10 @@ import { FastifyRequest, FastifyReply } from 'fastify'
 import { FacturacionLiquidacionesService } from './facturacion-liquidaciones.service'
 import { emitFacturacionLiquidacion, emitNotificacion, eventoMeta } from '../../sockets'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
+import { ErrorCartera } from '../cartera/cartera.condiciones'
+import { CarteraService } from '../cartera/cartera.service'
+import { condicionesSchema, UUID } from '../cartera/cartera.schema'
+import { ZodError } from 'zod'
 
 function esAdministracion(request: FastifyRequest): boolean {
   const areas: string[] = ((request as any).user?.area || []).map((a: string) => a.toUpperCase())
@@ -78,6 +82,10 @@ export class FacturacionLiquidacionesController {
 
       return reply.status(201).send(factura)
     } catch (error: any) {
+      /// Valor, emisión o plazo mal digitados (cartera): 400 con el motivo.
+      if (error instanceof ErrorCartera) {
+        return reply.status(error.statusCode).send({ error: error.message, code: error.code })
+      }
       if (error.message.includes('Ya existe')) {
         return reply.status(409).send({ error: error.message })
       }
@@ -186,8 +194,53 @@ export class FacturacionLiquidacionesController {
 
       return reply.send(factura)
     } catch (error: any) {
+      /// Tiene abonos registrados: 409 con el motivo, no un 500.
+      if (error instanceof ErrorCartera) {
+        return reply.status(error.statusCode).send({ error: error.message, code: error.code })
+      }
       if (error.message.includes('no encontrada')) {
         return reply.status(404).send({ error: error.message })
+      }
+      return reply.status(500).send({ error: error.message })
+    }
+  }
+
+  /**
+   * Corregir valor, emisión, plazo o vencimiento de una factura.
+   *
+   * Es la misma operación que `PATCH /cartera/facturas/:id/condiciones`, por
+   * la puerta de facturación: quien registra la factura (permiso de
+   * liquidaciones de servicios) corrige lo que digitó sin necesitar cartera.
+   */
+  static async actualizarCondiciones(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as any
+      if (!UUID.test(String(id))) return reply.status(400).send({ error: 'Identificador inválido' })
+      const entrada = condicionesSchema.parse(request.body ?? {})
+      await CarteraService.actualizarCondiciones(id, entrada)
+      const factura = await FacturacionLiquidacionesService.obtenerCompleta(id)
+      if (factura) {
+        emitFacturacionLiquidacion(
+          'facturacion-updated',
+          factura,
+          eventoMeta({
+            tipo: 'updated',
+            scope: 'facturas',
+            actor: {
+              id: (request as any).user?.id ?? null,
+              nombre: (request as any).user?.nombre || 'Usuario'
+            },
+            etiqueta: factura.numero_factura
+          })
+        )
+      }
+      return reply.send(factura)
+    } catch (error: any) {
+      if (error instanceof ZodError) {
+        return reply.status(400).send({ error: error.errors[0]?.message ?? 'Datos inválidos' })
+      }
+      if (error instanceof ErrorCartera) {
+        return reply.status(error.statusCode).send({ error: error.message, code: error.code })
       }
       return reply.status(500).send({ error: error.message })
     }
@@ -372,9 +425,15 @@ export class FacturacionLiquidacionesController {
     try {
       const { id } = request.params as any
       const result = await FacturacionLiquidacionesService.restaurar(id)
+      /// El evento lleva la factura restaurada, no el `{ message }` del
+      /// servicio: los listeners descartan todo payload sin `id`, así que la
+      /// factura no reaparecía en ningún otro navegador y la etiqueta del feed
+      /// caía al prefijo del id. Mismo fallo que el de liquidaciones de
+      /// servicios.
+      const factura = await FacturacionLiquidacionesService.obtenerPorId(id)
       emitFacturacionLiquidacion(
         'facturacion-created',
-        result,
+        factura,
         eventoMeta({
           tipo: 'created',
           scope: 'facturas',
@@ -382,13 +441,18 @@ export class FacturacionLiquidacionesController {
             id: (request as any).user?.id ?? null,
             nombre: (request as any).user?.nombre || 'Usuario'
           },
-          etiqueta: (result as any)?.numero_factura ?? id.slice(0, 8)
+          etiqueta: factura.numero_factura
         })
       )
-      return reply.send(result)
+      return reply.send({ ...result, factura })
     } catch (error: any) {
       if (error.message.includes('no encontrada')) {
         return reply.status(404).send({ error: error.message })
+      }
+      /// Estado que no admite restaurar (no está en la papelera, o su número ya
+      /// lo usa otra factura activa): conflicto, no fallo del servidor.
+      if (error.message.includes('no está eliminada') || error.message.includes('No se puede restaurar')) {
+        return reply.status(409).send({ error: error.message })
       }
       return reply.status(500).send({ error: error.message })
     }

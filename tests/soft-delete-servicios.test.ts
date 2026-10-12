@@ -55,7 +55,10 @@ beforeAll(async () => {
   await prisma.municipios.create({
     data: {
       id: municipioId, codigo_departamento: 85, nombre_departamento: 'CASANARE',
-      codigo_municipio: 85001, nombre_municipio: `${MARCA} Yopal`, tipo: 'Municipio',
+      /// Código fuera de la numeración DANE: con el de Yopal (85001) chocaba con
+      /// el municipio real que ya está en la base de pruebas, que la limpieza
+      /// por nombre no borra.
+      codigo_municipio: 999901, nombre_municipio: `${MARCA} Yopal`, tipo: 'Municipio',
       latitud: 5, longitud: -72, created_at: now, updated_at: now
     } as any
   })

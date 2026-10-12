@@ -57,19 +57,18 @@ export const AuthService = {
       { expiresIn }
     )
 
-    // Crear sesión
-    try {
-      await SesionesService.crear({
-        usuarioId: user.id,
-        ip: options?.ip || null,
-        userAgent: options?.userAgent || null,
-        rememberMe,
-        tokenExpiry,
-        token
-      })
-    } catch (err) {
-      console.error('Error al crear sesión:', err)
-    }
+    /// La sesión ya no es opcional: el middleware rechaza todo token sin su
+    /// fila activa en `sesiones` (es lo que permite cerrarla). Si no se pudo
+    /// guardar, entregar el token sería dar uno que falla en la primera
+    /// petición; mejor que el login falle aquí con un error claro.
+    await SesionesService.crear({
+      usuarioId: user.id,
+      ip: options?.ip || null,
+      userAgent: options?.userAgent || null,
+      rememberMe,
+      tokenExpiry,
+      token
+    })
 
     // Actualizar último acceso
     await prisma.usuarios.update({

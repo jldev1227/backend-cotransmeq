@@ -39,7 +39,7 @@
 -- ============================================================
 
 -- Conectar a base de destino:
--- psql "postgresql://admintransmeralda:SASesmeralda2025@cotransmeq.postgres.database.azure.com:5432/postgres?sslmode=require"
+-- psql "postgresql://USUARIO:CLAVE@HOST:5432/BASE?sslmode=require"
 
 -- Importar tipos_recargos
 \copy tipos_recargos FROM '/tmp/tipos_recargos.csv' WITH CSV HEADER;

@@ -3,7 +3,7 @@
 # Script de testing para funcionalidad "Ocultar Registros"
 # Fecha: 26-01-2026
 
-TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNjg4Mjc3OC01OTY1LTQxMmMtYWIwMi03YTYyZmZkMDU3NTAiLCJlbWFpbCI6IjEyMjdqbGRldkBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3Mzc4NTA5NTgsImV4cCI6MjcwNTU0NjQ5NTh9.z0Aq4MXHP3a6VU03eDr2qU4g3eVt-TH_9G_NLfNJj6Q"
+TOKEN="${TOKEN:?Falta TOKEN: un token de sesión del dashboard}"
 API_URL="http://localhost:4000/api"
 
 echo "========================================="

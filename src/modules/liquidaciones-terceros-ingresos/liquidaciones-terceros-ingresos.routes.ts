@@ -27,7 +27,9 @@ export async function liquidacionesTercerosIngresosRoutes(app: FastifyInstance) 
   const puedeLeer = { preHandler: requirePermission(MODULO, "limited") };
   // Escritura: `full`, el mismo nivel que exigen los otros canvas del módulo
   // para guardar. La capa de decisiones cambia lo que se le paga al tercero.
-  const puedeEditar = { preHandler: requirePermission(MODULO, "full") };
+  /// `limited` y no `full`: facturación y contabilidad también editan cierres
+  /// (ver `liquidaciones-terceros-descuentos.routes.ts`).
+  const puedeEditar = { preHandler: requirePermission(MODULO, "limited") };
 
   /// Los 12 meses de un año en una sola petición (canvas anual).
   /// Se declara ANTES que la ruta raíz para que no haya ambigüedad.

@@ -6,6 +6,11 @@ services:
       dockerfile: Dockerfile
     container_name: backend-cotransmeq-nest
     restart: always
+    # SIGTERM → el proceso deja de aceptar peticiones, espera a los crons en
+    # curso (como mucho 25 s, `LIMITE_APAGADO_MS` en src/lib/apagado.ts) y
+    # cierra la base. Los 10 s por defecto de Docker lo cortaban con SIGKILL a
+    # mitad de una captura de snapshots en cada despliegue.
+    stop_grace_period: 30s
     ports:
       - "3001:4000"
     env_file:

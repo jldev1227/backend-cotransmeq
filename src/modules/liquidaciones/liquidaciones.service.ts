@@ -2424,7 +2424,12 @@ export const LiquidacionesService = {
         const valor = n(c?.valor);
         if (valor !== 0) {
           devengos.push({
-            concepto: String(c?.nombre ?? "CONCEPTO ADICIONAL").toUpperCase(),
+            /// El rótulo vive en `observaciones` (así lo guardan el canvas y el
+            /// formulario); `nombre` no existe en los datos y con él todos
+            /// salían «CONCEPTO ADICIONAL», perdiendo el motivo del pago.
+            concepto: String(
+              c?.observaciones || c?.concepto || c?.nombre || "CONCEPTO ADICIONAL",
+            ).toUpperCase(),
             cantidad: null,
             valor,
             grupo: "novedad",

@@ -7,6 +7,22 @@ import { randomUUID } from 'crypto'
 import { aplicarEfectosColaterales, ServicioEstado } from './servicios.estados'
 import { ServiciosNotificacionesService } from './servicios-notificaciones.service'
 
+/// Lo que del conductor viaja con un servicio: lo mismo que pinta el detalle.
+/// Los cambios de estado incluían la fila entera (`conductores: true`), y esa
+/// entidad sale en la respuesta y en el evento de socket a todos los
+/// conectados: hash de la contraseña, salario, EPS, fecha de nacimiento…
+const CONDUCTOR_DE_SERVICIO = {
+  id: true,
+  nombre: true,
+  apellido: true,
+  telefono: true,
+  email: true,
+  estado: true,
+  tipo_identificacion: true,
+  numero_identificacion: true,
+  foto_url: true,
+} as const
+
 /**
  * Obtener fotos de conductores en batch (1 sola query para todos).
  * Retorna un Map<conductor_id, ruta_archivo>
@@ -29,10 +45,12 @@ async function obtenerFotosConductoresBatch(
       },
     })
 
-    // Inicializar mapa con fallback
+    // Inicializar mapa con fallback. Solo con una clave real: antes se
+    // guardaba '' para el conductor sin foto y `getS3SignedUrl('')` firmaba la
+    // RAÍZ del bucket, así que el front recibía una «foto» que no cargaba.
     for (const c of conductores) {
-      if (c.id) {
-        fotoMap.set(c.id, c.foto_url || '')
+      if (c.id && c.foto_url?.trim()) {
+        fotoMap.set(c.id, c.foto_url.trim())
       }
     }
 
@@ -57,8 +75,10 @@ async function obtenerFotosConductoresBatch(
     for (const foto of fotos) {
       if (
         foto.conductor_id &&
-        foto.ruta_archivo &&
-        fotoMap.get(foto.conductor_id) === ''
+        foto.ruta_archivo?.trim() &&
+        // Sin foto en la ficha del conductor: la de perfil más reciente
+        // (vienen ordenadas, así que la primera gana).
+        !fotoMap.has(foto.conductor_id)
       ) {
         fotoMap.set(foto.conductor_id, foto.ruta_archivo)
       }
@@ -110,7 +130,7 @@ async function transformarServiciosBatch(servicios: any[]): Promise<any[]> {
 
   // 3. Generar URLs firmadas en paralelo (sin queries a DB)
   const signedUrlMap = new Map<string, string>()
-  const urlEntries = Array.from(fotoMap.entries())
+  const urlEntries = Array.from(fotoMap.entries()).filter(([, ruta]) => Boolean(ruta?.trim()))
   if (urlEntries.length > 0) {
     const signedUrls = await Promise.all(
       urlEntries.map(([_, ruta]) => getS3SignedUrl(ruta, 3600).catch(() => null))
@@ -1121,7 +1141,7 @@ export const ServiciosService = {
         const current = await tx.servicio.findFirst({
           where: { id, deleted_at: null },
           include: {
-            conductores: true,
+            conductores: { select: CONDUCTOR_DE_SERVICIO },
             vehiculos: true,
             creado_por: { select: { id: true, nombre: true } },
             clientes: true,
@@ -1136,7 +1156,7 @@ export const ServiciosService = {
         where: { id },
         data: updateData,
         include: {
-          conductores: true,
+          conductores: { select: CONDUCTOR_DE_SERVICIO },
           vehiculos: true,
           creado_por: { select: { id: true, nombre: true } },
           clientes: true,
@@ -1184,7 +1204,7 @@ export const ServiciosService = {
           fecha_finalizacion: new Date()
         },
         include: {
-          conductores: true,
+          conductores: { select: CONDUCTOR_DE_SERVICIO },
           vehiculos: true,
           clientes: true,
           municipios_servicio_origen_idTomunicipios: true,
@@ -1227,7 +1247,7 @@ export const ServiciosService = {
         numero_planilla: data.numero_planilla
       },
       include: {
-        conductores: true,
+        conductores: { select: CONDUCTOR_DE_SERVICIO },
         vehiculos: true,
         clientes: true,
         municipios_servicio_origen_idTomunicipios: true,

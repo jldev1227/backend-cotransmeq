@@ -1,6 +1,7 @@
 import puppeteer, { Browser } from "puppeteer-core";
 import fs from "fs";
 import { execSync } from "child_process";
+import { blindarPagina } from "./pdf-red";
 
 /** Busca un binario de Chromium/Chrome en el sistema. Cubre:
     - Variable de entorno PUPPETEER_EXECUTABLE_PATH (estándar puppeteer)
@@ -145,6 +146,9 @@ export async function pdfFromHtml(opts: PdfFromHtmlOptions): Promise<Buffer> {
   } = opts;
   const browser = await getBrowser();
   const page = await browser.newPage();
+  /// El HTML puede venir del cliente: sin JavaScript y sin acceso a la red
+  /// interna (ver `pdf-red.ts`).
+  await blindarPagina(page);
 
   // Calcular dimensiones finales del PDF (en pulgadas) para configurar
   // el viewport antes de renderizar. Si el viewport no coincide con el

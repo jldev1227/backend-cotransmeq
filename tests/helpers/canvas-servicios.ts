@@ -30,6 +30,7 @@
 process.env.LOG_LEVEL ||= 'warn'
 
 import jwt from 'jsonwebtoken'
+import { registrarSesion } from './sesion-prueba'
 import { io as clienteIo, type Socket } from 'socket.io-client'
 import type { FastifyInstance } from 'fastify'
 import type { AddressInfo } from 'net'
@@ -119,18 +120,14 @@ export async function usuarioConAreas(areas: string[]): Promise<UsuarioPrueba | 
   })
   if (!halla) return null
   const suyas = Array.isArray(halla.area) ? (halla.area as string[]) : []
-  return {
+  const token = firmarToken({
     id: halla.id,
     nombre: halla.nombre,
     correo: halla.correo,
     areas: suyas,
-    token: firmarToken({
-      id: halla.id,
-      nombre: halla.nombre,
-      correo: halla.correo,
-      areas: suyas,
-    }),
-  }
+  })
+  await registrarSesion(halla.id, token)
+  return { id: halla.id, nombre: halla.nombre, correo: halla.correo, areas: suyas, token }
 }
 
 export async function abrirBanco(): Promise<Banco> {

@@ -1,6 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { FormulariosSarlaftController } from './formularios-sarlaft.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
+
+/// El panel de cumplimiento muestra cédulas, firmas y anexos de terceros: pide
+/// el módulo `sarlaft` (administración y talento humano). Hasta oct-2026 solo
+/// pedía sesión, y lo abría cualquier persona del equipo.
+const leerSarlaft = requirePermission('sarlaft', 'read')
+const escribirSarlaft = requirePermission('sarlaft', 'full')
 import { ESTADOS_ADMINISTRATIVOS } from './declaracion-transporte.validacion'
 
 /**
@@ -198,7 +205,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.get(
     '/formularios-sarlaft',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, leerSarlaft],
       schema: {
         description: 'Listado paginado de formularios SARLAFT recibidos (admin)',
         tags: ['formularios-sarlaft-admin'],
@@ -242,7 +249,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.get(
     '/formularios-sarlaft/:id',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, leerSarlaft],
       schema: {
         description: 'Detalle completo de un formulario con respuestas y documentos',
         tags: ['formularios-sarlaft-admin'],
@@ -260,7 +267,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.get(
     '/formularios-sarlaft/:id/documentos/:docId/url',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, leerSarlaft],
       schema: {
         description: 'Devuelve URL firmada (5 min) para descargar un documento',
         tags: ['formularios-sarlaft-admin'],
@@ -281,7 +288,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.patch(
     '/formularios-sarlaft/:id/evaluacion',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, escribirSarlaft],
       schema: {
         description: 'Actualiza el estado y concepto de evaluación interna',
         tags: ['formularios-sarlaft-admin'],
@@ -317,7 +324,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.get(
     '/formularios-sarlaft/:id/pdf',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, leerSarlaft],
       schema: {
         description: 'Descarga el PDF del formulario (respuestas + firma + adjuntos)',
         tags: ['formularios-sarlaft-admin'],
@@ -335,7 +342,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.get(
     '/formularios-sarlaft/:id/documentos-generados/:docId/pdf',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, leerSarlaft],
       schema: {
         description:
           'Descarga el binario archivado de una versión documental. Nunca se regenera: se sirve el mismo PDF que se entregó.',
@@ -357,7 +364,7 @@ export async function formulariosSarlaftRoutes(app: FastifyInstance) {
   app.get(
     '/formularios-sarlaft/:id/evidencia',
     {
-      preHandler: [authMiddleware],
+      preHandler: [authMiddleware, leerSarlaft],
       schema: {
         description: 'Descarga un ZIP con el PDF y todos los adjuntos del formulario',
         tags: ['formularios-sarlaft-admin'],

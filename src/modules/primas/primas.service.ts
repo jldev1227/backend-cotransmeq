@@ -194,8 +194,11 @@ export const PrimasService = {
 
   // Obtener una prima por ID
   async obtenerPorId(id: string) {
-    const prima = await prisma.primas.findUnique({
-      where: { id },
+    /// Una prima retirada no se abre: la lista y la firma ya la tratan como
+    /// inexistente, y sin este filtro `GET /primas/:id` la seguía devolviendo
+    /// con su valor y su estado.
+    const prima = await prisma.primas.findFirst({
+      where: { id, deleted_at: null },
       include: {
         conductores: {
           select: {
@@ -318,8 +321,9 @@ export const PrimasService = {
 
   // Actualizar una prima
   async actualizar(id: string, data: any, userId: string) {
-    const primaExistente = await prisma.primas.findUnique({
-      where: { id },
+    /// Ni editar ni marcar Pagada una prima retirada: nadie la ve en la lista.
+    const primaExistente = await prisma.primas.findFirst({
+      where: { id, deleted_at: null },
     });
 
     if (!primaExistente) {
@@ -380,8 +384,10 @@ export const PrimasService = {
 
   // Eliminar (soft delete) una prima
   async eliminar(id: string) {
-    const prima = await prisma.primas.findUnique({
-      where: { id },
+    /// Eliminar dos veces volvía a sellar `deleted_at` y borraba la fecha real
+    /// del retiro; una retirada se trata como inexistente.
+    const prima = await prisma.primas.findFirst({
+      where: { id, deleted_at: null },
     });
 
     if (!prima) {

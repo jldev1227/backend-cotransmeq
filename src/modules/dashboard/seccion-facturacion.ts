@@ -147,7 +147,9 @@ export async function seccionFacturacion(ctx: ContextoSeccion): Promise<Record<s
       facturado: facturado[0]?.valor ?? 0,
       facturas_anuladas: facturado[0]?.anuladas ?? 0,
     },
-    por_facturar: aprobadas.map((l) => ({ ...l, fecha_aprobacion: l.fecha_aprobacion ? l.fecha_aprobacion.toISOString().slice(0, 10) : null, enlace: `/dashboard/liquidaciones-servicios/${l.id}` })),
+    /// `?mode=view`: quien factura solo consulta la liquidación; en modo edición el
+    /// autoguardado intentaba escribir y la API (con `limited`) lo rechaza.
+    por_facturar: aprobadas.map((l) => ({ ...l, fecha_aprobacion: l.fecha_aprobacion ? l.fecha_aprobacion.toISOString().slice(0, 10) : null, enlace: `/dashboard/liquidaciones-servicios/${l.id}?mode=view` })),
     facturado_mes_a_mes: historico.map((m) => {
       const r = facturadoMes.find((x) => x.anio === m.anio && x.mes === m.mes)
       return { anio: m.anio, mes: m.mes, n: r?.n ?? 0, valor: r?.valor ?? 0 }

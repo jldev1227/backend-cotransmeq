@@ -1,10 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../../config/prisma'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 import * as service from './certificado-archivo.service'
 
 export async function certificadoArchivoRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `certificados`.
+  app.addHook('preHandler', permisoPorMetodo('certificados'))
 
   app.get('/certificados-tributarios/archivos', async (request, reply) => {
     try {

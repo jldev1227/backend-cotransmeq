@@ -4,9 +4,14 @@
  */
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { ExtractosError, verificarPublico } from './extractos.service'
+import { crearLimitador, MINUTO, preHandlerLimite } from '../../utils/limitador'
+
+/// Los códigos son aleatorios y no se pueden adivinar, pero sin tope cualquiera
+/// podía martillar la base. 120 por minuto sobra para un agente en la vía.
+const limiteValidacion = { porIp: crearLimitador({ max: 120, ventanaMs: MINUTO }) }
 
 export async function extractosPublicRoutes(app: FastifyInstance) {
-  app.get('/public/extractos/:codigo', async (request: FastifyRequest<{ Params: { codigo: string } }>, reply) => {
+  app.get('/public/extractos/:codigo', { preHandler: preHandlerLimite(limiteValidacion) }, async (request: FastifyRequest<{ Params: { codigo: string } }>, reply) => {
     try {
       return reply.send({ success: true, data: await verificarPublico(request.params.codigo) })
     } catch (err) {

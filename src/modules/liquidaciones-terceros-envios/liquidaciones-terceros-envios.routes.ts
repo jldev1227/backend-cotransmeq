@@ -9,7 +9,9 @@ export async function liquidacionesTercerosEnviosRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
 
   const puedeLeer = { preHandler: requirePermission(MODULO, 'limited') }
-  const puedeEscribir = { preHandler: requirePermission(MODULO, 'full') }
+  /// `limited` y no `full`: facturación y contabilidad también editan cierres
+  /// (ver `liquidaciones-terceros-descuentos.routes.ts`).
+  const puedeEscribir = { preHandler: requirePermission(MODULO, 'limited') }
 
   // Encolar un lote de envíos. `bodyLimit` como el del pdf-zip: viajan los
   // HTML de las hojas del periodo más los adjuntos extra en base64.

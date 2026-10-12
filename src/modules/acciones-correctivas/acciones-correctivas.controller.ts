@@ -13,7 +13,15 @@ import {
 } from "./ia-sugerencias.service";
 
 const service = new AccionesCorrectivasService();
-const iaService = new IAsugerenciasService();
+/// Se crea en la primera petición que lo usa, no al importar el módulo: el
+/// constructor lanza si faltan `MINISTRAL_API_KEY` o `MINISTRAL_ENDPOINT`, y al
+/// importar eso impedía arrancar el backend entero por una función opcional.
+/// Sin ellas, solo las sugerencias de IA responden error.
+let iaService: IAsugerenciasService | null = null;
+function servicioIA(): IAsugerenciasService {
+  iaService ??= new IAsugerenciasService();
+  return iaService;
+}
 
 export class AccionesCorrectivasController {
   // POST /api/acciones-correctivas - Crear nueva acción
@@ -22,9 +30,14 @@ export class AccionesCorrectivasController {
     reply: FastifyReply,
   ) {
     try {
-      // Obtener usuario autenticado
       const userId = (request as any).user?.id;
+      if (!userId) {
+        return reply.code(401).send({ success: false, message: "No autenticado" });
+      }
 
+      /// El autor es siempre el del token: se escribe DESPUÉS del body para
+      /// pisar un `creado_por_id` que viniera en él. El resto del body lo
+      /// filtra la lista blanca del servicio.
       const accion = await service.crear({
         ...request.body,
         creado_por_id: userId,
@@ -446,7 +459,7 @@ export class AccionesCorrectivasController {
     reply: FastifyReply,
   ) {
     try {
-      const sugerencias = await iaService.generarSugerenciasPlanAccion(
+      const sugerencias = await servicioIA().generarSugerenciasPlanAccion(
         request.body,
       );
 
@@ -531,7 +544,7 @@ export class AccionesCorrectivasController {
     reply: FastifyReply,
   ) {
     try {
-      const sugerencias = await iaService.generarSugerenciasSeguimiento(
+      const sugerencias = await servicioIA().generarSugerenciasSeguimiento(
         request.params.causa_id,
         request.body.plan_accion,
         request.body.estado_actual,
@@ -688,16 +701,22 @@ export class AccionesCorrectivasController {
       Params: { id: string }
       Body: {
         estado_global: string
-        registrado_por_id?: string
         observaciones?: string
       }
     }>,
     reply: FastifyReply,
   ) {
     try {
+      const userId = (request as any).user?.id
+      if (!userId) {
+        return reply.code(401).send({ success: false, message: "No autenticado" })
+      }
+      /// Quien registra el estado es el usuario del token, no un
+      /// `registrado_por_id` del body (se ignora si llega).
       const accion = await service.actualizarEstadoGlobal(
         request.params.id,
-        request.body,
+        { estado_global: request.body.estado_global, observaciones: request.body.observaciones },
+        userId,
       )
       return reply.code(200).send({
         success: true,

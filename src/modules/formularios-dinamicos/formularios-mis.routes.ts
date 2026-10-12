@@ -3,6 +3,7 @@ import { ZodError, type ZodSchema } from 'zod'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { logger } from '../../utils/logger'
+import { avisarNovedadesPreoperacional } from '../mantenimiento/aviso-preoperacional'
 import { isFormError, type FormActor, type SubmissionInput } from './domain'
 import { contextoDePeticion, medir, registrarEvento } from './formularios-dinamicos.observabilidad'
 import * as portal from './formularios-portal.service'
@@ -292,6 +293,11 @@ export async function formulariosMisRoutes(app: FastifyInstance) {
         respuestas: input.answers.length,
         adjuntos: input.attachments?.length ?? 0,
       })
+
+      /// Un preoperacional diligenciado desde el panel (un inspector de HSEQ,
+      /// por ejemplo) con ítems en «Malo» avisa a mantenimiento igual que el
+      /// del portal. Solo avisa; no bloquea nada.
+      if (!resultado.idempotentReplay) void avisarNovedadesPreoperacional(resultado.submissionId)
 
       /// `200` y no `201` en el replay: el recurso no se creó en esta petición.
       return reply.status(resultado.idempotentReplay ? 200 : 201).send({

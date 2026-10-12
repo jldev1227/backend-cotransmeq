@@ -74,6 +74,13 @@ pone él) para las filas nuevas. La reconciliación empareja **por `id`, luego p
 una fila, y emparejar por índice de array mezclaría los datos de dos ítems
 distintos sin que nada fallara.
 
+Una fila del servidor no se empareja dos veces en el mismo guardado. Si llegan
+dos entradas con el mismo `id` o la misma `client_key` (una fila copiada con
+sus identificadores), la segunda entra como ítem nuevo; y si su `client_key` ya
+se usó en ese guardado, se guarda con `client_key = NULL`, porque el índice
+único parcial `(liquidacion_id, client_key)` rechazaría una segunda fila activa
+con la misma.
+
 Las filas anteriores a la migración tienen `client_key = NULL` y se correlacionan
 por `id`. No hay que rellenarlas.
 

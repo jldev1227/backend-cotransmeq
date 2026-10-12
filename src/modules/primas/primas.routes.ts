@@ -1,12 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { PrimasController } from "./primas.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
+import { permisoPorMetodo } from "../../middlewares/permissions.middleware";
 import { prisma } from "../../config/prisma";
 import { env } from "../../config/env";
 import { EmailService } from "../../services/email.service";
-import jwt from "jsonwebtoken";
-
-const TOKEN_VALIDITY_DAYS = 30;
+import { tokenPortalVigente } from "../conductor-portal/portal-token.service";
 
 const MESES_NOMBRES = [
   '',
@@ -27,6 +26,9 @@ const MESES_NOMBRES = [
 export async function primasRoutes(app: FastifyInstance) {
   // Todas las rutas de primas requieren autenticación
   app.addHook("onRequest", authMiddleware);
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `nomina`.
+  app.addHook("preHandler", permisoPorMetodo("nomina"));
 
   // GET /api/primas - Obtener todas las primas
   app.get("/primas", PrimasController.obtenerTodas);
@@ -134,38 +136,16 @@ export async function primasRoutes(app: FastifyInstance) {
           }
 
           try {
-            // 1) Reutilizar token vigente o generar uno nuevo (30 días)
-            let portalToken: string | null = null;
-            const existingToken = await prisma.conductor_token.findFirst({
-              where: {
-                conductor_id: conductor!.id,
-                expires_at: { gt: new Date() }
-              }
+            // 1) Reutilizar el token del portal vigente o generar uno (30 días).
+            /// `tokenPortalVigente` y no una búsqueda propia: esta copia tomaba
+            /// cualquier token vigente sin mirar el tipo, y podía mandar el del
+            /// reporte de días laborados, que el portal rechaza.
+            const portalToken = await tokenPortalVigente({
+              id: conductor!.id,
+              numero_identificacion: conductor!.numero_identificacion,
+              nombre: conductor!.nombre,
+              apellido: conductor!.apellido || ""
             });
-            if (existingToken) {
-              portalToken = existingToken.token;
-            } else {
-              portalToken = jwt.sign(
-                {
-                  sub: conductor!.id,
-                  cedula: conductor!.numero_identificacion,
-                  nombre: conductor!.nombre,
-                  tipo: "conductor_portal"
-                },
-                env.JWT_SECRET,
-                { expiresIn: `${TOKEN_VALIDITY_DAYS}d` }
-              );
-              await prisma.conductor_token.create({
-                data: {
-                  id: require("crypto").randomUUID(),
-                  conductor_id: conductor!.id,
-                  token: portalToken,
-                  expires_at: new Date(
-                    Date.now() + TOKEN_VALIDITY_DAYS * 24 * 60 * 60 * 1000
-                  )
-                }
-              });
-            }
 
             const portalLink = `${frontendUrl}/public/portal?token=${encodeURIComponent(
               portalToken

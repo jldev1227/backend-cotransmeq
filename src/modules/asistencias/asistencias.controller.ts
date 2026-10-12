@@ -9,6 +9,7 @@ import { getIo } from '../../sockets'
 import * as XLSX from 'xlsx'
 import archiver from 'archiver'
 import { PDFGeneratorService } from './pdf-generator.service'
+import { confirmacionPublica } from './asistencia-publica'
 
 
 /** Nombre de la carpeta de cada mes en los ZIP de PDF. */
@@ -312,29 +313,24 @@ export class AsistenciasController {
   }
 
   /**
-   * Verificar si ya respondí (público)
+   * Verificar si ya respondí (público). Solo responde `confirmacionPublica`:
+   * si este dispositivo firmó, el nombre y la fecha.
    */
   static async verificarMiRespuesta(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { token } = request.params as { token: string }
-      const { device_fingerprint } = request.query as { device_fingerprint: string }
+      const { device_fingerprint } = request.query as { device_fingerprint?: unknown }
 
-      request.log.info('🔍 Verificando respuesta previa')
-      request.log.info(`   Token: ${token}`)
-      request.log.info(`   Device Fingerprint: ${device_fingerprint}`)
-
-      if (!device_fingerprint) {
-        request.log.warn('⚠️ Device fingerprint no proporcionado')
+      /// Sin registrar la huella ni el nombre en el log: es una ruta abierta y
+      /// el log no tiene por qué guardar datos personales de cada consulta.
+      if (typeof device_fingerprint !== 'string' || !device_fingerprint) {
         return reply.status(400).send({
           success: false,
           message: 'Device fingerprint es requerido'
         })
       }
 
-      // Obtener el formulario por token
       const formulario = await AsistenciasService.obtenerPorToken(token)
-      request.log.info(`📄 Formulario encontrado: ${formulario?.id || 'NO'}`)
-
       if (!formulario) {
         return reply.status(404).send({
           success: false,
@@ -342,52 +338,20 @@ export class AsistenciasController {
         })
       }
 
-      request.log.info(`🔎 Buscando respuesta para formularioId: ${formulario.id}`)
       const miRespuesta = await AsistenciasService.obtenerMiRespuesta(
         formulario.id,
         device_fingerprint
       )
 
-      request.log.info(`📊 Respuesta encontrada: ${miRespuesta ? 'SÍ' : 'NO'}`)
-      if (miRespuesta) {
-        request.log.info(`   ID: ${miRespuesta.id}`)
-        request.log.info(`   Nombre: ${miRespuesta.nombre_completo}`)
-        request.log.info(`   Fingerprint en DB: ${miRespuesta.device_fingerprint}`)
-      }
-
-      const yaRespondio = !!miRespuesta
-      request.log.info(`✅ Enviando respuesta: yaRespondio=${yaRespondio}`)
-
-      // Serializar la respuesta si existe
-      let respuestaSerializada = null
-      if (miRespuesta) {
-        respuestaSerializada = {
-          id: String(miRespuesta.id),
-          formulario_id: String(miRespuesta.formulario_id),
-          nombre_completo: String(miRespuesta.nombre_completo),
-          numero_documento: String(miRespuesta.numero_documento),
-          cargo: String(miRespuesta.cargo),
-          numero_telefono: String(miRespuesta.numero_telefono),
-          firma: String(miRespuesta.firma),
-          device_fingerprint: String(miRespuesta.device_fingerprint),
-          ip_address: String(miRespuesta.ip_address),
-          user_agent: String(miRespuesta.user_agent),
-          created_at: miRespuesta.created_at.toISOString()
-        }
-      }
-
       return reply.status(200).send({
         success: true,
-        data: {
-          yaRespondio,
-          respuesta: respuestaSerializada
-        }
+        data: confirmacionPublica(miRespuesta)
       })
     } catch (error: any) {
-      request.log.error(error, '❌ Error en verificarMiRespuesta')
+      request.log.error(error, 'Error en verificarMiRespuesta')
       return reply.status(500).send({
         success: false,
-        message: error.message || 'Error al verificar la respuesta'
+        message: 'Error al verificar la respuesta'
       })
     }
   }

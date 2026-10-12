@@ -5,6 +5,7 @@ import { uploadToS3, getS3SignedUrl } from '../../config/aws'
 import { randomUUID, randomBytes } from 'crypto'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 
 /**
  * Rutas públicas para firma de desprendibles de nómina.
@@ -339,7 +340,9 @@ export async function desprendibleFirmaRoutes(app: FastifyInstance) {
   // hasta oct-2026 el comentario lo decía pero la ruta no pedía token)
   // Se llama desde el admin para generar el link que se envía al conductor
   // ================================================================
-  app.post('/desprendible-firma/generar', { preHandler: authMiddleware }, async (
+  /// Genera un enlace PÚBLICO al desprendible de cualquier conductor: solo con
+  /// el módulo de nómina (antes bastaba cualquier sesión).
+  app.post('/desprendible-firma/generar', { preHandler: [authMiddleware, requirePermission('nomina', 'full')] }, async (
     request: FastifyRequest<{ Body: { liquidacion_ids: string[], expires_days?: number } }>,
     reply: FastifyReply
   ) => {

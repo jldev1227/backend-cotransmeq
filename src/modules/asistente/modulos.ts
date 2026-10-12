@@ -24,6 +24,15 @@ export const MODULOS_APP: readonly ModuloApp[] = [
   { id: 'dashboard', etiqueta: 'Inicio', ruta: '/dashboard', alias: ['panel', 'dashboard', 'inicio', 'resumen'] },
   { id: 'actividad', etiqueta: 'Actividad reciente', ruta: '/dashboard/actividad', alias: ['historial', 'bitácora', 'bitacora', 'auditoría', 'auditoria', 'qué hizo'] },
   { id: 'flota', etiqueta: 'Flota', ruta: '/dashboard/flota', alias: ['vehículos', 'vehiculos', 'carros', 'placas'] },
+  {
+    id: 'mantenimiento',
+    etiqueta: 'Mantenimiento',
+    ruta: '/dashboard/mantenimiento',
+    /// Sin «preventivo» ni «correctivo» sueltos: el tercer pase de
+    /// `buscarModulo` compara por subcadena y le robaría «correctiv…» a las
+    /// acciones correctivas.
+    alias: ['taller', 'órdenes de trabajo', 'ordenes de trabajo', 'cambio de aceite', 'planes de mantenimiento'],
+  },
   { id: 'conductores', etiqueta: 'Conductores', ruta: '/dashboard/conductores', alias: ['choferes'] },
   { id: 'servicios', etiqueta: 'Servicios', ruta: '/dashboard/servicios', alias: ['viajes', 'despachos'] },
   { id: 'recargos', etiqueta: 'Recargos', ruta: '/dashboard/recargos', alias: ['planillas'] },
@@ -37,9 +46,21 @@ export const MODULOS_APP: readonly ModuloApp[] = [
     ruta: '/dashboard/acciones-correctivas',
     alias: ['acciones correctivas', 'acciones preventivas', 'hallazgos'],
   },
+  {
+    id: 'incidentes',
+    etiqueta: 'Incidentes',
+    ruta: '/dashboard/incidentes',
+    alias: ['accidentes', 'accidentes de tránsito', 'siniestros', 'casi accidentes', 'investigación de accidentes', 'ipat'],
+  },
   { id: 'evaluaciones', etiqueta: 'Evaluaciones', ruta: '/dashboard/evaluaciones' },
   { id: 'salidas-nc', etiqueta: 'Salidas NC', ruta: '/dashboard/salidas-nc', alias: ['salidas no conformes', 'no conformidades'] },
   { id: 'viaticos', etiqueta: 'Viáticos', ruta: '/dashboard/viaticos', alias: ['viaticos', 'anticipos de viáticos', 'gastos de conductores'] },
+  {
+    id: 'combustible',
+    etiqueta: 'Combustible',
+    ruta: '/dashboard/combustible',
+    alias: ['tanqueos', 'tanqueo', 'gasolina', 'acpm', 'diésel', 'diesel', 'consumo de combustible', 'km por galón', 'rendimiento de combustible'],
+  },
   { id: 'extractos', etiqueta: 'Extractos', ruta: '/dashboard/extractos', alias: ['extractos de contrato', 'fuec', 'extracto'] },
   { id: 'formularios', etiqueta: 'Formularios', ruta: '/dashboard/formularios', alias: ['constructor de formularios'] },
   { id: 'mis-formularios', etiqueta: 'Mis formularios', ruta: '/dashboard/mis-formularios' },
@@ -49,6 +70,18 @@ export const MODULOS_APP: readonly ModuloApp[] = [
     etiqueta: 'Liq. Servicios',
     ruta: '/dashboard/liquidaciones-servicios',
     alias: ['liquidaciones de servicios', 'facturación de servicios'],
+  },
+  {
+    id: 'cartera',
+    etiqueta: 'Cartera',
+    ruta: '/dashboard/cartera',
+    alias: ['cuentas por cobrar', 'cobros', 'abonos', 'edades de cartera', 'facturas vencidas', 'saldo de clientes'],
+  },
+  {
+    id: 'cartera',
+    etiqueta: 'Cartera',
+    ruta: '/dashboard/cartera',
+    alias: ['cuentas por cobrar', 'cobros', 'abonos', 'edades de cartera', 'facturas vencidas', 'saldo de clientes'],
   },
   {
     id: 'liquidaciones-terceros',

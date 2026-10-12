@@ -663,6 +663,7 @@ model clientes {
   recargos_planillas            recargos_planillas[]
   servicio                      servicio[]
   tarifas_servicios             tarifas_servicios[]
+  facturas_liquidacion          factura_liquidacion_servicio[]
   liquidacion_servicio          liquidacion_servicio[]
   registro_dia_laboral_segmento registro_dia_laboral_segmento[]
 
@@ -988,6 +989,7 @@ model municipios {
   servicios_servicio_destino_idTomunicipios servicio[]      @relation("servicios_destino_idTomunicipios")
   servicios_servicio_origen_idTomunicipios  servicio[]      @relation("servicios_origen_idTomunicipios")
   custom_places                             custom_places[]
+  pesv_siniestros                           pesv_incident[] @relation("pesv_siniestro_municipio")
 }
 
 model pernotes {
@@ -1313,9 +1315,13 @@ model subsystems {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// Varias filas por `codigo`, una por vigencia (como en transmeralda): HED,
+/// RN… tienen tres cada uno en la base. El `@unique` que había aquí ya no
+/// existía en la base y solo aparecía al recrear el esquema (la base de tests),
+/// donde impedía sembrar dos vigencias del mismo código.
 model tipos_recargos {
   id                     String                        @id @db.Uuid
-  codigo                 String                        @unique(map: "idx_tipo_recargo_codigo") @db.VarChar(20)
+  codigo                 String                        @db.VarChar(20)
   nombre                 String                        @db.VarChar(100)
   descripcion            String?                       @db.VarChar(255)
   categoria              enum_tipos_recargos_categoria
@@ -1409,6 +1415,8 @@ model usuarios {
   liquidacion_servicio_drafts                                                 liquidacion_servicio_draft[]                 @relation("liq_svc_draft_usuario")
   historial_estado_liq                                                        historial_estado_liquidacion[]               @relation("historial_estado_liq_usuario")
   facturas_liq_facturado                                                      factura_liquidacion_servicio[]               @relation("factura_liq_facturado_por")
+  abonos_factura_creados                                                      factura_liquidacion_abono[]                  @relation("factura_abono_creado_por")
+  pagos_lt_final_registrados                                                  liquidacion_tercero_final_pago[]             @relation("lt_final_pago_registrado_por")
   facturas_liq_anulado                                                        factura_liquidacion_servicio[]               @relation("factura_liq_anulado_por")
   config_gastos_periodo_actualizados                                           configuracion_gastos_periodo[]               @relation("config_gastos_periodo_actualizado_por")
   sesiones                                                                    sesiones[]
@@ -1490,6 +1498,8 @@ model usuarios {
   pesv_programas_responsable       pesv_program[]              @relation("pesv_programa_responsable")
   pesv_programas_creados           pesv_program[]              @relation("pesv_programa_creado_por")
   pesv_siniestros_registrados      pesv_incident[]             @relation("pesv_siniestro_registrado_por")
+  incidentes_cerrados              pesv_incident[]             @relation("incidente_cerrado_por")
+  incidente_evidencias_subidas     incidente_evidencias[]      @relation("incidente_evidencia_subida_por")
   pesv_eventos_velocidad           pesv_speed_event[]          @relation("pesv_velocidad_registrado_por")
   pesv_formaciones_responsable     pesv_training_plan[]        @relation("pesv_formacion_responsable")
   pesv_formaciones_creadas         pesv_training_plan[]        @relation("pesv_formacion_creado_por")
@@ -1983,6 +1993,8 @@ model acciones_correctivas_preventivas {
   origen_pesv      Boolean         @default(false)
   pesv_ciclo       pesv_cycle?     @relation(fields: [pesv_cycle_id], references: [id], onDelete: SetNull)
   pesv_siniestros  pesv_incident[] @relation("pesv_siniestro_accion")
+  /// Incidentes cuya investigación generó o vinculó esta acción.
+  incidentes       incidente_acciones[]
 
   @@index([accion_numero])
   @@index([tipo_accion_ejecutar])
@@ -2412,11 +2424,28 @@ model factura_liquidacion_servicio {
   created_at        DateTime                @default(now()) @db.Timestamptz(6)
   updated_at        DateTime                @updatedAt @db.Timestamptz(6)
   deleted_at        DateTime?               @db.Timestamptz(6)
+  /// Cartera (migración 20261011120000). A quién se le cobra: se guarda para
+  /// que la factura siga siendo de su cliente aunque se le quiten todas las
+  /// liquidaciones.
+  cliente_id        String?                 @db.Uuid
+  /// Fecha de la factura electrónica. NO es `fecha_facturacion`, que es
+  /// cuándo se registró aquí.
+  fecha_emision     DateTime                @default(dbgenerated("CURRENT_DATE")) @db.Date
+  plazo_dias        Int                     @default(30)
+  fecha_vencimiento DateTime                @default(dbgenerated("(CURRENT_DATE + 30)")) @db.Date
+  /// Lo facturado menos la suma de las liquidaciones. `valor_total` vale
+  /// siempre suma + ajuste, así que asociar o quitar liquidaciones después de
+  /// corregir el valor a mano conserva la corrección.
+  ajuste_valor      Decimal                 @default(0) @db.Decimal(14, 2)
 
-  facturado_por usuarios                   @relation("factura_liq_facturado_por", fields: [facturado_por_id], references: [id])
-  anulado_por   usuarios?                  @relation("factura_liq_anulado_por", fields: [anulado_por_id], references: [id])
+  facturado_por usuarios                    @relation("factura_liq_facturado_por", fields: [facturado_por_id], references: [id])
+  anulado_por   usuarios?                   @relation("factura_liq_anulado_por", fields: [anulado_por_id], references: [id])
   items         factura_liquidacion_item[]
+  abonos        factura_liquidacion_abono[]
+  cliente       clientes?                   @relation(fields: [cliente_id], references: [id], onDelete: SetNull, map: "factura_liq_cliente_fkey")
 
+  @@index([cliente_id], map: "factura_liq_cliente_idx")
+  @@index([fecha_vencimiento], map: "factura_liq_vencimiento_idx")
   @@index([numero_factura])
   @@index([fecha_facturacion])
   @@index([estado])
@@ -2445,6 +2474,38 @@ model factura_liquidacion_item {
   @@unique([factura_id, liquidacion_id])
   @@index([factura_id])
   @@index([liquidacion_id])
+}
+
+/// Pago recibido de una factura (cartera). Saldo = valor_total − Σ(valor +
+/// retenciones) de los abonos vivos. Las retenciones van desglosadas porque
+/// contabilidad las cruza con los certificados que manda el cliente.
+/// `medio` lo restringe un CHECK de la migración 20261011120000.
+model factura_liquidacion_abono {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  factura_id         String                       @db.Uuid
+  fecha              DateTime                     @db.Date
+  valor              Decimal                      @default(0) @db.Decimal(14, 2)
+  retefuente         Decimal                      @default(0) @db.Decimal(14, 2)
+  reteica            Decimal                      @default(0) @db.Decimal(14, 2)
+  reteiva            Decimal                      @default(0) @db.Decimal(14, 2)
+  otros_descuentos   Decimal                      @default(0) @db.Decimal(14, 2)
+  medio              String                       @db.VarChar(20)
+  referencia         String?                      @db.VarChar(120)
+  comprobante_s3_key String?
+  comprobante_nombre String?                      @db.VarChar(255)
+  comprobante_mime   String?                      @db.VarChar(100)
+  observaciones      String?
+  creado_por_id      String?                      @db.Uuid
+  created_at         DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime                     @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime?                    @db.Timestamptz(6)
+  eliminado_por_id   String?                      @db.Uuid
+  motivo_eliminacion String?
+  factura            factura_liquidacion_servicio @relation(fields: [factura_id], references: [id], onDelete: Cascade)
+  creado_por         usuarios?                    @relation("factura_abono_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([factura_id], map: "factura_abono_factura_idx")
+  @@index([fecha], map: "factura_abono_fecha_idx")
 }
 
 enum estado_factura_liq_enum {
@@ -3575,6 +3636,7 @@ model liquidacion_tercero_final {
   snapshots                liquidacion_tercero_final_snapshot[]
   historial_estados        historial_estado_liquidacion_tercero_final[]
   envios                   liquidacion_tercero_envio[]
+  pagos                    liquidacion_tercero_final_pago[]
 
   @@index([liquidacion_servicio_id])
   @@index([tercero_id])
@@ -3604,6 +3666,36 @@ model historial_estado_liquidacion_tercero_final {
 
   @@index([liquidacion_tercero_final_id, created_at], map: "idx_hist_estado_lt_final_cierre")
   @@index([usuario_id], map: "idx_hist_estado_lt_final_usuario")
+}
+
+/// Pago al propietario de un cierre final (migración 20261011120100).
+///
+/// Cada paso a PAGADA crea una fila con fecha, medio y soporte. Si
+/// Administración devuelve el cierre a APROBADA, la fila se archiva
+/// (`deleted_at`) y no se borra. El índice parcial `lt_final_pago_activo_uniq`
+/// (solo en la migración: Prisma no declara índices parciales) impide dos
+/// pagos vivos para el mismo cierre. `medio` lo restringe un CHECK.
+model liquidacion_tercero_final_pago {
+  id                           String                    @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String                    @db.Uuid
+  fecha                        DateTime                  @db.Date
+  medio                        String                    @db.VarChar(20)
+  referencia                   String?                   @db.VarChar(120)
+  /// `total_pagar` del cierre cuando se registró el pago.
+  valor                        Decimal?                  @db.Decimal(12, 2)
+  comprobante_s3_key           String?
+  comprobante_nombre           String?                   @db.VarChar(255)
+  observaciones                String?
+  registrado_por_id            String?                   @db.Uuid
+  created_at                   DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at                   DateTime?                 @db.Timestamptz(6)
+  eliminado_por_id             String?                   @db.Uuid
+  motivo_eliminacion           String?
+  liquidacion_tercero_final    liquidacion_tercero_final @relation(fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  registrado_por               usuarios?                 @relation("lt_final_pago_registrado_por", fields: [registrado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([liquidacion_tercero_final_id], map: "lt_final_pago_cierre_idx")
 }
 
 model liquidacion_tercero_envio {
@@ -4792,6 +4884,21 @@ enum enum_pesv_severidad {
   SOLO_DANOS
 }
 
+/// Clase de evento del módulo de incidentes. `CASI_ACCIDENTE` es el evento sin
+/// lesiones ni daños que pudo serlo: se reporta igual porque es donde se
+/// previene el siguiente accidente.
+enum enum_incidente_tipo {
+  ACCIDENTE_TRANSITO
+  INCIDENTE
+  CASI_ACCIDENTE
+}
+
+enum enum_incidente_estado {
+  REPORTADO
+  EN_INVESTIGACION
+  CERRADO
+}
+
 /// Tipo de trayecto. `IN_ITINERE` (casa–trabajo) entra en el alcance del PESV
 /// y por eso es un valor propio y no una observación en texto libre.
 enum enum_pesv_trayecto {
@@ -4807,8 +4914,12 @@ enum enum_pesv_mantenimiento_tipo {
   PREDICTIVO
 }
 
+/// Estado de la orden de trabajo: abierta (PROGRAMADO) → en curso (EN_CURSO)
+/// → cerrada (EJECUTADO) o anulada (CANCELADO). Se conservan los nombres del
+/// PESV porque el indicador CPMVH cuenta EJECUTADO.
 enum enum_pesv_mantenimiento_estado {
   PROGRAMADO
+  EN_CURSO
   EJECUTADO
   CANCELADO
 }
@@ -5118,19 +5229,34 @@ model pesv_program_vehicle {
   @@index([deleted_at])
 }
 
-/// Siniestro o incidente vial estructurado (pasos 13 y 21).
+/// Siniestro o incidente vial estructurado (pasos 13 y 21), y desde oct-2026 la
+/// tabla del módulo de Incidentes (`src/modules/incidentes`).
 ///
 /// Sustituye al conteo suelto de `dias_laborales_planillas.siniestros`, que se
 /// conserva como serie histórica. Un conteo no permite investigar, ni clasificar
 /// por severidad, ni sumar costos.
+///
+/// Se REUTILIZA en vez de crear tablas nuevas porque al retirar el PESV quedó
+/// vacía (0 filas en las dos bases) y ya modelaba justo esto: fecha y hora,
+/// lugar, conductor, vehículo, servicio, cliente, lesionados, costos y causas,
+/// con sus llaves foráneas e índices. Una tabla nueva habría dejado dos
+/// «siniestros» con columnas casi iguales y un futuro indicador del PESV
+/// tendría que elegir entre ellas. Lo que no cabía se añadió aquí (tipo,
+/// estado, autoridad, IPAT, investigación) y en dos tablas hijas: evidencias y
+/// acciones vinculadas. `cycle_id` pasó a opcional: los reportes ya no cuelgan
+/// de un ciclo PESV. `excesos_velocidad` y `pesv_speed_event` no se tocan:
+/// son eventos de velocidad, no siniestros.
 model pesv_incident {
-  id           String              @id @default(uuid()) @db.Uuid
-  cycle_id     String              @db.Uuid
-  consecutivo  Int?
-  fecha        DateTime            @db.Date
-  hora         String?             @db.VarChar(5)
-  severidad    enum_pesv_severidad
-  trayecto     enum_pesv_trayecto  @default(LABORAL)
+  id           String               @id @default(uuid()) @db.Uuid
+  cycle_id     String?              @db.Uuid
+  /// Radicado del reporte (`INC-0007`). Secuencia propia: dos reportes
+  /// simultáneos no pueden quedar con el mismo número.
+  consecutivo  Int                  @default(autoincrement())
+  fecha        DateTime             @db.Date
+  hora         String?              @db.VarChar(5)
+  /// Nula en un casi-accidente: por definición no hubo daños ni lesiones.
+  severidad    enum_pesv_severidad?
+  trayecto     enum_pesv_trayecto   @default(LABORAL)
   /// `CHOQUE` | `VOLCAMIENTO` | `ATROPELLO` | `INCENDIO` | `CAIDA_OCUPANTE` | `OTRO`.
   tipo_evento  String?             @db.VarChar(60)
   lugar        String?             @db.VarChar(255)
@@ -5150,17 +5276,55 @@ model pesv_incident {
   costo_directo   Decimal? @db.Decimal(14, 2)
   costo_indirecto Decimal? @db.Decimal(14, 2)
 
+  /// `true` al cerrar: la investigación concluyó (Res. 1401/2007).
   investigacion_realizada Boolean   @default(false)
+  /// Conclusión del análisis de porqués: la causa raíz en una frase.
   causas_identificadas    String?
   fecha_investigacion     DateTime? @db.Date
+  /// Heredada del PESV (una sola acción). El módulo de incidentes usa
+  /// `incidente_acciones`, porque una investigación suele dejar varias.
   accion_correctiva_id    String?   @db.Uuid
+
+  // ── Módulo de incidentes (oct-2026) ──
+  tipo                      enum_incidente_tipo   @default(ACCIDENTE_TRANSITO)
+  /// REPORTADO → EN_INVESTIGACION → CERRADO; las transiciones válidas viven
+  /// en `incidentes.dominio.ts`.
+  estado                    enum_incidente_estado @default(REPORTADO)
+  /// Detalle de cada tercero: `[{ nombre, documento, placa, telefono, aseguradora, lesionado }]`.
+  /// `terceros_involucrados` guarda el total para los conteos.
+  terceros_detalle          Json?
+  /// Quién atendió (Policía de Tránsito, agente municipal, ninguna…).
+  autoridad                 String?               @db.VarChar(120)
+  /// Número del IPAT (informe policial de accidente de tránsito) o del informe.
+  numero_informe            String?               @db.VarChar(60)
+  /// `[{ nombre, cargo }]`. La Res. 1401 pide jefe inmediato, COPASST y SST.
+  equipo_investigador       Json?
+  /// Causas inmediatas: actos y condiciones subestándar.
+  actos_inseguros           String?
+  condiciones_inseguras     String?
+  /// Causas básicas: factores personales y del trabajo.
+  factores_personales       String?
+  factores_trabajo          String?
+  /// Los porqués en orden: `["porque 1", "porque 2", …]`.
+  analisis_porques          Json?
+  lecciones_aprendidas      String?
+  investigacion_iniciada_at DateTime?             @db.Timestamptz(6)
+  fecha_cierre              DateTime?             @db.Date
+  responsable_cierre        String?               @db.VarChar(255)
+  observaciones_cierre      String?
+  cerrado_por_id            String?               @db.Uuid
 
   registrado_por_id String?   @db.Uuid
   deleted_at        DateTime? @db.Timestamptz(6)
   created_at        DateTime  @default(now()) @db.Timestamptz(6)
   updated_at        DateTime  @updatedAt @db.Timestamptz(6)
 
-  ciclo             pesv_cycle                        @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  /// `SetNull` y no `Cascade`: borrar un ciclo PESV no puede llevarse reportes de accidentes.
+  ciclo             pesv_cycle?                       @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
+  municipio         municipios?                       @relation("pesv_siniestro_municipio", fields: [municipio_id], references: [id], onDelete: SetNull)
+  cerrado_por       usuarios?                         @relation("incidente_cerrado_por", fields: [cerrado_por_id], references: [id], onDelete: SetNull)
+  evidencias        incidente_evidencias[]
+  acciones          incidente_acciones[]
   conductor         conductores?                      @relation("pesv_siniestro_conductor", fields: [conductor_id], references: [id], onDelete: SetNull)
   vehiculo          vehiculos?                        @relation("pesv_siniestro_vehiculo", fields: [vehiculo_id], references: [id], onDelete: SetNull)
   servicio          servicio?                         @relation("pesv_siniestro_servicio", fields: [servicio_id], references: [id], onDelete: SetNull)
@@ -5173,6 +5337,46 @@ model pesv_incident {
   @@index([conductor_id])
   @@index([vehiculo_id])
   @@index([deleted_at])
+  @@index([estado, fecha])
+  @@index([tipo, fecha])
+}
+
+/// Evidencia de un incidente: fotos del sitio, croquis, el IPAT escaneado.
+/// El archivo vive en S3 (`incidentes/<id>/evidencias/…`); aquí la referencia.
+model incidente_evidencias {
+  id              String    @id @default(uuid()) @db.Uuid
+  incidente_id    String    @db.Uuid
+  s3_key          String    @db.VarChar(500)
+  nombre_original String    @db.VarChar(255)
+  mimetype        String    @db.VarChar(100)
+  tamano          Int       @default(0)
+  descripcion     String?   @db.VarChar(500)
+  subido_por_id   String?   @db.Uuid
+  deleted_at      DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  incidente  pesv_incident @relation(fields: [incidente_id], references: [id], onDelete: Cascade)
+  subido_por usuarios?     @relation("incidente_evidencia_subida_por", fields: [subido_por_id], references: [id], onDelete: SetNull)
+
+  @@index([incidente_id])
+  @@index([deleted_at])
+}
+
+/// Acciones correctivas que salieron de la investigación de un incidente.
+/// Unión N-M sin `deleted_at` (ver AGENTS.md): desvincular es borrar la fila;
+/// la acción en sí sigue en su módulo.
+model incidente_acciones {
+  incidente_id           String   @db.Uuid
+  accion_id              String   @db.Uuid
+  /// `true` si la acción se creó desde la investigación; `false` si ya existía y se vinculó.
+  creada_desde_incidente Boolean  @default(false)
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+
+  incidente pesv_incident                    @relation(fields: [incidente_id], references: [id], onDelete: Cascade)
+  accion    acciones_correctivas_preventivas @relation(fields: [accion_id], references: [id], onDelete: Cascade)
+
+  @@id([incidente_id, accion_id])
+  @@index([accion_id])
 }
 
 /// Un exceso de velocidad INDIVIDUAL, con instante, límite y velocidad.
@@ -5265,15 +5469,25 @@ model vehicle_maintenance_plan {
   id                     String                       @id @default(uuid()) @db.Uuid
   vehiculo_id            String                       @db.Uuid
   nombre                 String                       @db.VarChar(255)
+  /// Qué se hace (CAMBIO_ACEITE, FRENOS, LLANTAS…). El catálogo vive en
+  /// `modules/mantenimiento/catalogo.ts`; aquí va la clave.
+  categoria              String?                      @db.VarChar(40)
   tipo                   enum_pesv_mantenimiento_tipo @default(PREVENTIVO)
   /// Periodicidad por tiempo, por kilometraje, o ambas. Al menos una debe
-  /// venir informada; la validación vive en el servicio.
+  /// venir informada; la validación vive en el servicio. La pantalla escribe
+  /// meses («cada seis meses»); `periodicidad_dias` se sigue respetando si
+  /// alguien la llena, pero los meses mandan.
   periodicidad_dias      Int?
+  periodicidad_meses     Int?
   periodicidad_km        Int?
   ultima_ejecucion_fecha DateTime?                    @db.Date
   ultima_ejecucion_km    Int?
   proxima_fecha          DateTime?                    @db.Date
   proximo_km             Int?
+  /// Orden de trabajo que dejó el plan donde está. Sin relación de Prisma a
+  /// propósito: una segunda relación entre plan y orden obligaría a nombrar
+  /// también la que ya existe.
+  ultimo_evento_id       String?                      @db.Uuid
   activo                 Boolean                      @default(true)
   observaciones          String?
   deleted_at             DateTime?                    @db.Timestamptz(6)
@@ -5310,7 +5524,20 @@ model vehicle_maintenance_event {
   taller           String?                        @db.VarChar(255)
   responsable      String?                        @db.VarChar(255)
   repuestos        String?
+  /// Total de la orden = repuestos + mano de obra. Lo calcula el servicio.
   costo            Decimal?                       @db.Decimal(14, 2)
+  /// «OT 12»: el número con que la gente se refiere a la orden en el taller.
+  consecutivo      Int                            @unique @default(autoincrement())
+  numero_factura   String?                        @db.VarChar(60)
+  costo_repuestos  Decimal?                       @db.Decimal(14, 2)
+  costo_mano_obra  Decimal?                       @db.Decimal(14, 2)
+  /// `[{ descripcion, cantidad, valor_unitario }]`. Lista simple: no hay
+  /// inventario de repuestos que referenciar.
+  repuestos_detalle Json                          @default("[]")
+  iniciado_at      DateTime?                      @db.Timestamptz(6)
+  cerrado_at       DateTime?                      @db.Timestamptz(6)
+  anulado_at       DateTime?                      @db.Timestamptz(6)
+  motivo_anulacion String?
   /// Soporte del trabajo. Se guarda la clave S3 aquí y, si el paso 17 lo
   /// exige, además se vincula como `pesv_evidence` con origen `REGISTRO`.
   s3_key           String?                        @db.VarChar(500)
@@ -5326,10 +5553,36 @@ model vehicle_maintenance_event {
   ejecutado_por usuarios?                 @relation("mantenimiento_evento_ejecutado_por", fields: [ejecutado_por_id], references: [id], onDelete: SetNull)
   creado_por    usuarios?                 @relation("mantenimiento_evento_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
 
+  adjuntos vehicle_maintenance_attachment[]
+
   @@index([vehiculo_id, fecha_programada])
   @@index([estado])
   @@index([plan_id])
   @@index([deleted_at])
+  @@index([fecha_ejecucion])
+}
+
+/// Factura, fotos u otro soporte de una orden de trabajo, en S3.
+///
+/// Tabla aparte porque una orden suele llevar la factura del taller Y fotos
+/// del antes y el después; la columna `s3_key` de la orden admitía una sola.
+/// `creado_por_id` sin relación para no tocar el modelo `usuarios`.
+model vehicle_maintenance_attachment {
+  id            String    @id @default(uuid()) @db.Uuid
+  evento_id     String    @db.Uuid
+  /// `FACTURA` | `FOTO` | `OTRO`.
+  tipo          String    @default("OTRO") @db.VarChar(20)
+  nombre        String    @db.VarChar(255)
+  mimetype      String    @db.VarChar(100)
+  size          Int       @default(0)
+  s3_key        String    @db.VarChar(500)
+  deleted_at    DateTime? @db.Timestamptz(6)
+  creado_por_id String?   @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+
+  evento vehicle_maintenance_event @relation(fields: [evento_id], references: [id], onDelete: Cascade)
+
+  @@index([evento_id])
 }
 
 /// Contrato de transporte especial.
@@ -5847,6 +6100,50 @@ model viatico_gasto_empresa {
   @@index([vehiculo_id])
   @@index([conductor_id])
   @@index([tercero_id])
+}
+
+/// Tanqueo de combustible de un vehículo (módulo `combustible`).
+///
+/// El rendimiento (km/gal) no se guarda: se calcula al leer, de llenado a
+/// llenado (`modules/combustible/rendimiento.ts`). Guardado, cada edición o
+/// retiro de un tanqueo obligaría a recalcular los vecinos, y un tramo
+/// desactualizado daría alertas falsas. El precio por galón tampoco: sale de
+/// `valor_total / galones`.
+///
+/// Sin relaciones Prisma a propósito: las FK (vehículo, conductor, usuarios)
+/// viven en la migración y los nombres se resuelven por lote en el servicio.
+/// `vehiculos`, `conductores` y `usuarios` ya cargan decenas de relaciones
+/// inversas que este módulo no necesita.
+model combustible_tanqueo {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vehiculo_id        String    @db.Uuid
+  conductor_id       String?   @db.Uuid
+  fecha_hora         DateTime  @db.Timestamptz(6)
+  /// Lectura del odómetro al tanquear, en km.
+  kilometraje        Int
+  galones            Decimal   @db.Decimal(10, 3)
+  valor_total        Decimal   @db.Decimal(12, 2)
+  /// DIESEL | GASOLINA
+  tipo_combustible   String    @db.VarChar(20)
+  estacion           String?   @db.VarChar(255)
+  /// Solo entre dos tanqueos de tanque lleno se mide el rendimiento.
+  tanque_lleno       Boolean   @default(true)
+  /// EFECTIVO | TARJETA | TRANSFERENCIA | CREDITO_ESTACION | ANTICIPO
+  medio_pago         String?   @db.VarChar(30)
+  comprobante_key    String?
+  comprobante_mime   String?   @db.VarChar(100)
+  comprobante_nombre String?   @db.VarChar(255)
+  observaciones      String?
+  creado_por_id      String?   @db.Uuid
+  actualizado_por_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+
+  @@index([vehiculo_id, fecha_hora])
+  @@index([fecha_hora(sort: Desc)])
+  @@index([conductor_id])
+  @@map("combustible_tanqueos")
 }
 
 // ============================================================================

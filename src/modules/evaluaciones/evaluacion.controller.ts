@@ -8,19 +8,22 @@ import {
   OpcionDesconocidaError,
   registrarResultado,
   respuestaPreguntaSchema,
+  SELECT_RESULTADO_LIGERO,
   type TextosCalificados,
 } from "./registrar-resultado";
 import { getIo } from "../../sockets";
 import { generarSopa, mismaSopa, type ConfigSopa } from "./sopa-letras";
 import { Prisma } from "@prisma/client";
-import { evaluacionSinClave } from "./evaluacion-publica";
+import { evaluacionSinClave, resultadoPublico } from "./evaluacion-publica";
 import { EvaluacionPDFGeneratorService } from "./pdf-generator.service";
 import archiver from "archiver";
+import { ipCliente } from "../../utils/limitador";
 
 // Esquema para registro de respuestas
 const respuestaRegistroSchema = z.object({
   nombre_completo: z.string().min(1),
-  numero_documento: z.string().min(1),
+  /// Recortado: es la llave del control de duplicados cuando no llega huella.
+  numero_documento: z.string().trim().min(1),
   cargo: z.string().min(1),
   correo: z.string().email(),
   telefono: z.string().min(1),
@@ -145,8 +148,8 @@ export const EvaluacionesController = {
   /**
    * Evaluación para la página pública de respuesta, sin la clave de
    * respuestas. La ruta de arriba la devuelve completa y es solo para el
-   * dashboard; quien responde ve las correctas en el resultado de
-   * `responder` / `verificar`, después de enviar.
+   * dashboard. Quien responde tampoco la ve después: `responder` y
+   * `verificar` solo devuelven el resultado (`resultadoPublico`).
    */
   async findPublic(
     req: FastifyRequest<{ Params: { id: string } }>,
@@ -344,6 +347,11 @@ export const EvaluacionesController = {
     return res.send({ success: true });
   },
 
+  /**
+   * Respuesta desde la página pública. Devuelve solo el resultado
+   * (`resultadoPublico`: puntaje, aprobado, aciertos), nunca la clave ni los
+   * datos de quien respondió.
+   */
   async responder(
     req: FastifyRequest<{ Params: { id: string } }>,
     res: FastifyReply,
@@ -356,36 +364,58 @@ export const EvaluacionesController = {
         .send({ success: false, errors: parsed.error.errors });
     const data = parsed.data;
 
-    // VALIDACIÓN: Verificar si el dispositivo ya respondió esta evaluación
-    if (data.device_fingerprint) {
-      const respuestaExistente = await prisma.resultado.findFirst({
-        where: {
-          evaluacionId: id,
-          device_fingerprint: data.device_fingerprint,
-        },
-      });
-
-      if (respuestaExistente) {
-        return res.status(409).send({
-          success: false,
-          message:
-            "Este dispositivo ya ha enviado una respuesta para esta evaluación",
-        });
-      }
-    }
-
-    // Obtener evaluación y preguntas
-    const evaluacion = await prisma.evaluacion.findUnique({
-      where: { id },
-      include: { preguntas: { include: { opciones: true } } },
-    });
+    /// `findUnique` sin `deleted_at` dejaba responder una evaluación eliminada
+    /// aunque la vista pública ya diera 404; y un id que no es uuid hacía
+    /// fallar la consulta con 500.
+    const evaluacion = UUID_RE.test(id)
+      ? await prisma.evaluacion.findFirst({
+          where: { id, deleted_at: null },
+          include: { preguntas: { include: { opciones: true } } },
+        })
+      : null;
     if (!evaluacion)
       return res
         .status(404)
         .send({ success: false, message: "Evaluación no encontrada" });
-    // Capturar IP y User Agent del request
-    const ip_address =
-      (req.headers["x-forwarded-for"] as string) || req.ip || "unknown";
+
+    /// Una respuesta por dispositivo y, si el cliente no manda huella, una por
+    /// documento dentro de la misma evaluación: antes, sin huella no había
+    /// ningún control. La huella la genera el propio cliente, así que esto
+    /// frena el doble envío, no a quien se lo proponga; lo que protege la
+    /// clave es que la respuesta ya no la trae.
+    const duplicado = await prisma.resultado.findFirst({
+      where: {
+        evaluacionId: evaluacion.id,
+        ...(data.device_fingerprint
+          ? { device_fingerprint: data.device_fingerprint }
+          : { numero_documento: data.numero_documento }),
+      },
+      select: { id: true },
+    });
+    if (duplicado) {
+      return res.status(409).send({
+        success: false,
+        code: "YA_RESPONDIO",
+        message: data.device_fingerprint
+          ? "Este dispositivo ya ha enviado una respuesta para esta evaluación"
+          : "Ya hay una respuesta con este documento para esta evaluación",
+      });
+    }
+
+    /// `requiere_firma` solo lo hacía cumplir la página: por la API se podía
+    /// omitir. Igual que en el portal del conductor, una imagen en data URI.
+    const firma = data.firma?.trim() ? data.firma : undefined;
+    if (evaluacion.requiere_firma && !firma?.startsWith("data:image/")) {
+      return res.status(400).send({
+        success: false,
+        code: "FIRMA_REQUERIDA",
+        message: "Esta evaluación requiere tu firma",
+      });
+    }
+
+    /// La IP real viene en `CF-Connecting-IP`; `x-forwarded-for` puede traer
+    /// varias separadas por coma y desbordar la columna (`VarChar(45)`).
+    const ip_address = ipCliente(req).slice(0, 45);
     const user_agent = req.headers["user-agent"] || "unknown";
 
     let resultado;
@@ -396,7 +426,7 @@ export const EvaluacionesController = {
         cargo: data.cargo,
         correo: data.correo,
         telefono: data.telefono,
-        firma: data.firma,
+        firma,
         device_fingerprint: data.device_fingerprint,
         ip_address,
         user_agent,
@@ -412,7 +442,10 @@ export const EvaluacionesController = {
       throw error;
     }
 
-    return res.send({ success: true, data: resultado });
+    return res.send({
+      success: true,
+      data: resultadoPublico(evaluacion.preguntas, resultado),
+    });
   },
 
   /**
@@ -429,29 +462,8 @@ export const EvaluacionesController = {
     const { id } = req.params;
     const resultados = await prisma.resultado.findMany({
       where: { evaluacionId: id },
-      select: {
-        id: true,
-        evaluacionId: true,
-        nombre_completo: true,
-        numero_documento: true,
-        cargo: true,
-        correo: true,
-        telefono: true,
-        puntaje_total: true,
-        firma: true,
-        created_at: true,
-        respuestas: {
-          select: {
-            id: true,
-            preguntaId: true,
-            valor_texto: true,
-            valor_numero: true,
-            opcionesIds: true,
-            relacion: true,
-            puntaje: true,
-          },
-        },
-      },
+      /// La misma forma que el evento `nueva-respuesta`, que el panel mete en esta lista.
+      select: SELECT_RESULTADO_LIGERO,
       orderBy: { created_at: "desc" },
     });
     return res.send({
@@ -580,55 +592,54 @@ export const EvaluacionesController = {
     return res.send({ success: true, data: resultado });
   },
 
+  /**
+   * ¿Este dispositivo ya respondió? Lo pide la página pública al abrir el
+   * enlace. Sin sesión: responde solo `resultadoPublico` (nombre, fecha y
+   * resultado). Hasta oct-2026 devolvía el resultado completo —documento,
+   * correo, teléfono, firma, IP— con la evaluación y su clave.
+   */
   async verificarDispositivo(
     req: FastifyRequest<{
       Params: { id: string };
-      Querystring: { device_fingerprint: string };
+      Querystring: { device_fingerprint?: unknown };
     }>,
     res: FastifyReply,
   ) {
     const { id } = req.params;
     const { device_fingerprint } = req.query;
 
-    if (!device_fingerprint) {
+    if (typeof device_fingerprint !== "string" || !device_fingerprint) {
       return res
         .status(400)
         .send({ success: false, message: "device_fingerprint es requerido" });
     }
 
-    // Buscar si este dispositivo ya respondió esta evaluación
+    const evaluacion = UUID_RE.test(id)
+      ? await prisma.evaluacion.findFirst({
+          where: { id, deleted_at: null },
+          select: { preguntas: { select: { id: true, puntaje: true } } },
+        })
+      : null;
+    if (!evaluacion)
+      return res
+        .status(404)
+        .send({ success: false, message: "Evaluación no encontrada" });
+
     const resultado = await prisma.resultado.findFirst({
-      where: {
-        evaluacionId: id,
-        device_fingerprint,
+      where: { evaluacionId: id, device_fingerprint },
+      select: {
+        nombre_completo: true,
+        puntaje_total: true,
+        created_at: true,
+        respuestas: { select: { preguntaId: true, puntaje: true } },
       },
-      include: {
-        respuestas: {
-          include: {
-            pregunta: {
-              include: {
-                opciones: true,
-              },
-            },
-          },
-        },
-        evaluacion: {
-          include: {
-            preguntas: {
-              include: {
-                opciones: true,
-              },
-            },
-          },
-        },
-      },
+      orderBy: { created_at: "desc" },
     });
 
-    if (resultado) {
-      return res.send({ success: true, data: resultado });
-    }
-
-    return res.send({ success: true, data: null });
+    return res.send({
+      success: true,
+      data: resultado ? resultadoPublico(evaluacion.preguntas, resultado) : null,
+    });
   },
 
   async exportarPDF(

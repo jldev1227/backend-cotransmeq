@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 import {
 	assertS3Config,
 	listAllNits,
@@ -24,6 +25,9 @@ const tipoSchema = z.enum(TIPOS_VALIDOS as unknown as [string, ...string[]])
 
 export async function certificadosTributariosRoutes(app: FastifyInstance) {
 	app.addHook('onRequest', authMiddleware)
+	/// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+	/// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `certificados`.
+	app.addHook('preHandler', permisoPorMetodo('certificados'))
 
 	app.post('/certificados-tributarios/upload', {
 		schema: {

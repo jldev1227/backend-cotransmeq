@@ -20,6 +20,10 @@ import {
   revocarEnlaces
 } from './app-usuarios.service'
 import { desactivarDispositivoUsuario, registrarDispositivoUsuario } from '../usuario-push/usuario-push.service'
+import { crearLimitador, MINUTO, preHandlerLimite } from '../../utils/limitador'
+
+/// El canje recibe un código del enlace: con tope por IP para que no se pueda probar a ciegas.
+const limiteCanje = { porIp: crearLimitador({ max: 20, ventanaMs: 15 * MINUTO }) }
 
 const TOKEN_EXPO = /^Expo(nent)?PushToken\[[^\]]+\]$/
 
@@ -82,7 +86,7 @@ export async function appUsuariosRoutes(app: FastifyInstance) {
   const canjeSchema = z.object({ codigo: z.string().min(20).max(200) })
 
   /// Sin límite de intentos a propósito: el código tiene 256 bits, adivinarlo no es un riesgo real.
-  app.post('/app-usuarios/canjear', async (request, reply) => {
+  app.post('/app-usuarios/canjear', { preHandler: preHandlerLimite(limiteCanje) }, async (request, reply) => {
     const parsed = canjeSchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({

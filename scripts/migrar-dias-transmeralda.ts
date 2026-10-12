@@ -17,11 +17,22 @@
 import { Client } from 'pg'
 import { randomUUID } from 'crypto'
 
+/// Las credenciales salen del entorno, nunca del código: este archivo está
+/// versionado y las que tenía escritas quedaron en el historial de git.
+function conexion(variable: string): string {
+  const url = process.env[variable]
+  if (!url) {
+    console.error(`Falta ${variable}: la cadena de conexión postgresql://… de esa base.`)
+    process.exit(1)
+  }
+  return url
+}
+
 // ============================================================
 // CONFIGURACIÓN
 // ============================================================
-const COTRANSMEQ_URL = 'postgresql://Cotrans900:MEQ900**@cotransmeq.postgres.database.azure.com:5432/postgres?sslmode=require'
-const TRANSMERALDA_URL = 'postgresql://postgres:Transmeralda2025@100.106.115.11:5432/transmeralda_db_18_7_2025'
+const COTRANSMEQ_URL = conexion('DATABASE_URL')
+const TRANSMERALDA_URL = conexion('TRANSMERALDA_DATABASE_URL')
 
 const CONDUCTOR_IDS = [
   '889d93c7-24de-4038-b8cf-f7ef5c1573ee', // DAYRO RODRIGUEZ

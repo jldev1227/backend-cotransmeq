@@ -6,6 +6,17 @@ import {
   inicioVentanaAntirrebote,
 } from "../../utils/snapshot-version";
 import { randomUUID } from "crypto";
+import { ESTADOS_BLOQUEADOS } from "../liquidaciones-terceros-descuentos/cierre-estado.service";
+
+/**
+ * Error de `revertir` con su código HTTP. El controlador respondía 400 a todo,
+ * también a «no encontrado» y a los conflictos de estado.
+ */
+export class ErrorRevertirSnapshot extends Error {
+  constructor(message: string, readonly statusCode: 404 | 409) {
+    super(message);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
@@ -331,25 +342,42 @@ export const LiquidacionesSnapshotsService = {
   },
 
   /**
-   * Revierte el cierre a un snapshot anterior.
-   * Crea un nuevo snapshot con origen="revert" que contiene el estado restaurado.
+   * Revierte el cierre a un snapshot anterior: importes, adicionales, items
+   * del pivote, conceptos y color. Crea un nuevo snapshot con origen="revert".
+   *
+   * **El estado NO se restaura.** Hasta oct-2026 se copiaba `payload.estado`
+   * tal cual, sin pasar por la máquina de `cierre-estado.service.ts` ni por
+   * sus reglas de área: con nivel `limited` un ANULADA volvía a BORRADOR y un
+   * LIQUIDADA a APROBADA (el snapshot era de cuando estaba aprobado). El
+   * estado se cambia por su ruta, que valida transición, área y motivo.
+   *
+   * Y solo se revierte un cierre editable: los `ESTADOS_BLOQUEADOS` de esa
+   * máquina (APROBADA, PAGADA, FACTURADA, ANULADA, REEMPLAZADA) son los que
+   * el canvas deja en solo lectura, y revertir es editar. Antes ANULADA y
+   * REEMPLAZADA se colaban.
    */
   async revertir(liquidacionId: string, snapshotId: string, usuarioId: string) {
     const snapshot = await prisma.liquidacion_tercero_final_snapshot.findFirst({
       where: { id: snapshotId, liquidacion_tercero_final_id: liquidacionId },
     });
-    if (!snapshot) throw new Error('Snapshot no encontrado');
+    if (!snapshot) throw new ErrorRevertirSnapshot('Snapshot no encontrado', 404);
 
-    const cierre = await prisma.liquidacion_tercero_final.findUnique({
-      where: { id: liquidacionId },
+    /// Un cierre en la papelera no se revierte: los datos volverían a una
+    /// cabecera que nadie ve.
+    const cierre = await prisma.liquidacion_tercero_final.findFirst({
+      where: { id: liquidacionId, deleted_at: null },
     });
-    if (!cierre) throw new Error('Cierre no encontrado');
+    if (!cierre) throw new ErrorRevertirSnapshot('Cierre no encontrado', 404);
 
     const payload = snapshot.payload as SnapshotPayload;
 
-    // Verificar que no se revierta un cierre APROBADA o FACTURADA
-    if (['APROBADA', 'PAGADA', 'FACTURADA'].includes(cierre.estado || '')) {
-      throw new Error('No se puede revertir una liquidación APROBADA o PAGADA. Anúlala primero.');
+    const estadoActual = cierre.estado || 'BORRADOR';
+    if (ESTADOS_BLOQUEADOS.includes(estadoActual)) {
+      throw new ErrorRevertirSnapshot(
+        `No se puede revertir un cierre ${estadoActual}: solo se revierten cierres en BORRADOR o LIQUIDADA. ` +
+          'Cambia primero su estado desde la hoja, si la transición lo permite.',
+        409,
+      );
     }
 
     // Items del snapshot que hoy están TRASLADADOS fuera del cierre: no se
@@ -373,32 +401,13 @@ export const LiquidacionesSnapshotsService = {
       );
     }
 
-    // Restaurar el cierre al estado del snapshot
-    await prisma.$transaction([
-      // 0. Borrar de verdad las filas de los items que vuelven, vivas o
-      //    marcadas: el único `(cierre, item)` cuenta también las marcadas, y
-      //    marcar + reinsertar la misma clave revienta con P2002.
-      prisma.liquidacion_tercero_final_item.deleteMany({
-        where: {
-          liquidacion_tercero_final_id: liquidacionId,
-          liquidacion_tercero_id: {
-            in: itemsARestaurar.map((item: any) => item.liquidacion_tercero_id),
-          },
-        },
-      }),
-      // 1. Limpiar items pivote actuales
-      prisma.liquidacion_tercero_final_item.updateMany({
-        where: { liquidacion_tercero_final_id: liquidacionId, deleted_at: null },
-        data: { deleted_at: new Date() },
-      }),
-      // 2. Limpiar conceptos actuales
-      prisma.liquidacion_tercero_final_concepto.updateMany({
-        where: { liquidacion_tercero_final_id: liquidacionId, deleted_at: null },
-        data: { deleted_at: new Date() },
-      }),
-      // 3. Restaurar cabecera
-      prisma.liquidacion_tercero_final.update({
-        where: { id: liquidacionId },
+    // Restaurar los datos del cierre (no su estado: ver arriba)
+    await prisma.$transaction(async (tx) => {
+      // 0. Cabecera primero y con compare-and-swap sobre el estado leído: si
+      //    otro usuario lo aprobó o anuló entretanto, no se reescribe un
+      //    cierre que ya no es editable (y se deshace todo lo demás).
+      const gano = await tx.liquidacion_tercero_final.updateMany({
+        where: { id: liquidacionId, deleted_at: null, estado: cierre.estado },
         data: {
           valor_liquidar: payload.totales.valor_liquidar,
           total_costos_laborales: payload.totales.total_costos_laborales,
@@ -406,8 +415,6 @@ export const LiquidacionesSnapshotsService = {
           total_impuestos: payload.totales.total_impuestos,
           total_descuentos: payload.totales.total_descuentos,
           total_pagar: payload.totales.total_pagar,
-          estado: payload.estado,
-          motivo_anulacion: payload.motivo_anulacion,
           adicionales: payload.adicionales as any,
           // Los snapshots anteriores a esta versión no llevan `ui`; en esos
           // casos se deja el color actual en vez de borrarlo, que sería
@@ -415,17 +422,44 @@ export const LiquidacionesSnapshotsService = {
           ...(payload.ui ? { color_hoja: payload.ui.color_hoja } : {}),
           actualizado_por_id: usuarioId,
         },
-      }),
+      });
+      if (gano.count === 0) {
+        throw new ErrorRevertirSnapshot(
+          'Otro usuario cambió el estado del cierre mientras tanto. Recarga y vuelve a intentarlo.',
+          409,
+        );
+      }
+      // 1. Borrar de verdad las filas de los items que vuelven, vivas o
+      //    marcadas: el único `(cierre, item)` cuenta también las marcadas, y
+      //    marcar + reinsertar la misma clave revienta con P2002.
+      await tx.liquidacion_tercero_final_item.deleteMany({
+        where: {
+          liquidacion_tercero_final_id: liquidacionId,
+          liquidacion_tercero_id: {
+            in: itemsARestaurar.map((item: any) => item.liquidacion_tercero_id),
+          },
+        },
+      });
+      // 2. Limpiar items pivote actuales
+      await tx.liquidacion_tercero_final_item.updateMany({
+        where: { liquidacion_tercero_final_id: liquidacionId, deleted_at: null },
+        data: { deleted_at: new Date() },
+      });
+      // 3. Limpiar conceptos actuales
+      await tx.liquidacion_tercero_final_concepto.updateMany({
+        where: { liquidacion_tercero_final_id: liquidacionId, deleted_at: null },
+        data: { deleted_at: new Date() },
+      });
       // 4. Restaurar items pivote
-      prisma.liquidacion_tercero_final_item.createMany({
+      await tx.liquidacion_tercero_final_item.createMany({
         data: itemsARestaurar.map((item: any, idx: number) => ({
           liquidacion_tercero_final_id: liquidacionId,
           liquidacion_tercero_id: item.liquidacion_tercero_id,
           orden: item.orden ?? idx,
         })),
-      }),
+      });
       // 5. Restaurar conceptos
-      prisma.liquidacion_tercero_final_concepto.createMany({
+      await tx.liquidacion_tercero_final_concepto.createMany({
         data: payload.conceptos.map((c: any) => ({
           id: randomUUID(),
           liquidacion_tercero_final_id: liquidacionId,
@@ -441,15 +475,22 @@ export const LiquidacionesSnapshotsService = {
           observaciones: c.observaciones,
           orden: c.orden,
         })),
-      }),
-    ]);
+      });
+    });
 
     // 6. Crear snapshot de la reversión
-    return this.capturar(liquidacionId, {
+    const revert = await this.capturar(liquidacionId, {
       origen: 'revert',
       usuarioId: usuarioId,
       revertidoDeId: snapshotId,
     });
+    /// Para que la pantalla pueda avisar si la versión restaurada era de otro
+    /// estado: los datos volvieron, el estado se quedó como estaba.
+    return {
+      ...revert,
+      estado_conservado: estadoActual,
+      estado_del_snapshot: payload.estado ?? null,
+    };
   },
 
   /**

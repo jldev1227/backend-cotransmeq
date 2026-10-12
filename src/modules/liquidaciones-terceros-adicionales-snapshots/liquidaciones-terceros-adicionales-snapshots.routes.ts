@@ -24,7 +24,9 @@ export async function liquidacionesTercerosAdicionalesSnapshotsRoutes(app: Fasti
   app.addHook("onRequest", authMiddleware);
 
   const puedeLeer = { preHandler: requirePermission(MODULO, "limited") };
-  const puedeEscribir = { preHandler: requirePermission(MODULO, "full") };
+  /// `limited` y no `full`: facturación y contabilidad también editan cierres
+  /// (ver `liquidaciones-terceros-descuentos.routes.ts`).
+  const puedeEscribir = { preHandler: requirePermission(MODULO, "limited") };
 
   /// Historial de versiones de un periodo.
   app.get(

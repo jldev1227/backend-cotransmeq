@@ -4,6 +4,11 @@ import { env } from '../../config/env'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requireBonosPlanilla } from '../../middlewares/bonos.middleware'
 import { DiasLaboradosController } from './dias-laborados.controller'
+import { requireRecorridosEdicion } from '../recorridos-canvas/recorridos.middleware'
+import { limitesEnvioDeEnlace, preHandlerLimite } from '../../utils/limitador'
+
+/// Manda un enlace por correo a partir de una cédula: con tope por IP y por cédula.
+const limiteSolicitudAcceso = limitesEnvioDeEnlace()
 import { BonosController } from './bonos.controller'
 import { BonoConfigVisualController } from './bonos-config-visual.controller'
 
@@ -44,6 +49,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
 
   // Solicitar acceso: envía magic link por email
   app.post('/dias-laborados/solicitar-acceso', {
+    preHandler: preHandlerLimite(limiteSolicitudAcceso, (r) => (r.body as any)?.numero_identificacion),
     schema: {
       description: 'Solicitar acceso al reporte diario (envía email con magic link)',
       tags: ['dias-laborados'],
@@ -105,6 +111,8 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════
   app.post('/dias-laborados/admin/registros-masivos', {
     onRequest: authMiddleware,
+    /// Reescribe recorridos: mismo permiso que el canvas (Administración y Operaciones).
+    preHandler: requireRecorridosEdicion,
     schema: {
       description:
         'Guardar recorridos de un mes completo para un conductor, a partir de patrones (uno por tipo de día) y asignación de fechas',
@@ -333,6 +341,8 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════
   app.put('/dias-laborados/admin/segmento/:id', {
     onRequest: authMiddleware,
+    /// Reescribe recorridos: mismo permiso que el canvas (Administración y Operaciones).
+    preHandler: requireRecorridosEdicion,
     schema: {
       description: 'Editar un segmento (tramo) específico',
       tags: ['dias-laborados', 'admin'],
@@ -364,6 +374,8 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
 
   app.delete('/dias-laborados/admin/segmento/:id', {
     onRequest: authMiddleware,
+    /// Reescribe recorridos: mismo permiso que el canvas (Administración y Operaciones).
+    preHandler: requireRecorridosEdicion,
     schema: {
       description: 'Soft delete de un segmento (marca deleted_at)',
       tags: ['dias-laborados', 'admin'],
@@ -382,6 +394,8 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════
   app.put('/dias-laborados/admin/registro/:id', {
     onRequest: authMiddleware,
+    /// Reescribe recorridos: mismo permiso que el canvas (Administración y Operaciones).
+    preHandler: requireRecorridosEdicion,
     schema: {
       description: 'Editar metadata de un registro (tipo + observaciones + segmento opcional)',
       tags: ['dias-laborados', 'admin'],
@@ -428,6 +442,8 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
 
   app.delete('/dias-laborados/admin/registro/:id', {
     onRequest: authMiddleware,
+    /// Reescribe recorridos: mismo permiso que el canvas (Administración y Operaciones).
+    preHandler: requireRecorridosEdicion,
     schema: {
       description: 'Soft delete de un registro (día completo) — marca deleted_at en padre y segmentos',
       tags: ['dias-laborados', 'admin'],

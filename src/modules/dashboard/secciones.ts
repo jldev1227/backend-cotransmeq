@@ -42,9 +42,13 @@ export const SECCIONES: readonly Seccion[] = [
   {
     id: 'mantenimiento',
     titulo: 'Mantenimiento',
-    descripcion: 'Novedades de los preoperacionales, mantenimientos, kilometraje y vencimientos.',
+    descripcion: 'Planes vencidos, novedades de los preoperacionales, mantenimientos, kilometraje y vencimientos.',
     areas: ['mantenimiento', 'administracion'],
-    modulos: ['flota', 'formularios'],
+    /// Antes pedía `formularios`, que el área mantenimiento no tiene: nunca
+    /// veía su propia sección. Las novedades de los preoperacionales son el
+    /// estado del vehículo, que es asunto de mantenimiento; lo que sí es de
+    /// `formularios` —abrir el envío completo— se ofrece solo a quien lo tiene.
+    modulos: ['flota', 'mantenimiento'],
   },
   {
     id: 'talento_humano',

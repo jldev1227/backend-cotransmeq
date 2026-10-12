@@ -289,6 +289,33 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   },
 
   // Espejo EXACTO del frontend. Ver nota en `sarlaft`.
+  // Módulos de octubre de 2026. Cada uno con su propia llave para poder
+  // concederlo o quitarlo aparte; espejo EXACTO en el `config/permissions.ts`
+  // del frontend.
+  mantenimiento: {
+    full: ['administracion', 'mantenimiento'],
+    read: ['operaciones', 'hseq'],
+    description: 'Planes y órdenes de mantenimiento de la flota'
+  },
+
+  combustible: {
+    full: ['administracion', 'operaciones', 'mantenimiento'],
+    read: ['contabilidad', 'hseq'],
+    description: 'Tanqueos y rendimiento de combustible'
+  },
+
+  incidentes: {
+    full: ['administracion', 'hseq'],
+    read: ['operaciones', 'mantenimiento', 'talento_humano'],
+    description: 'Accidentes e incidentes con su investigación'
+  },
+
+  cartera: {
+    full: ['administracion', 'facturacion', 'contabilidad'],
+    read: ['operaciones'],
+    description: 'Cuentas por cobrar, abonos y edades de cartera'
+  },
+
   directorio: {
     full: ['administracion'],
     description: 'Directorio del equipo — presencia e invitaciones'

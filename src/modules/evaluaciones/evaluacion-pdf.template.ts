@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { MINIMO_APROBACION } from "./evaluacion-publica";
 
 /**
  * Documentos PDF de evaluaciones, en HTML, para renderizar con Puppeteer.
@@ -130,8 +131,8 @@ const assetDataUrl = (fileName: string, mimeType: string): string => {
 
 const LOGO_DATA_URL = assetDataUrl("desprendible/logo.png", "image/png");
 
-/** Umbral de aprobación: el mismo que usaba el documento anterior. */
-const MINIMO_APROBACION = 70;
+/// Umbral de aprobación (`MINIMO_APROBACION`): el mismo que usaba el documento
+/// anterior; viene de `evaluacion-publica.ts` para que la página pública diga lo mismo.
 
 const TIPO_ETIQUETA: Record<string, string> = {
   OPCION_UNICA: "Opción única",

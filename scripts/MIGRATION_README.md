@@ -28,7 +28,7 @@ const targetDb = new Client({
   host: 'cotransmeq.postgres.database.azure.com',
   port: 5432,
   user: 'admintransmeralda',
-  password: 'SASesmeralda2025',
+  password: '<CLAVE>',
   database: 'postgres',
   ssl: { rejectUnauthorized: false }
 });
@@ -228,7 +228,7 @@ const tablesToMigrate = [
 
 3. **Actualiza tu .env** si estás cambiando de base de datos:
    ```env
-   DATABASE_URL="postgresql://admintransmeralda:SASesmeralda2025@cotransmeq.postgres.database.azure.com:5432/postgres?schema=public&sslmode=require"
+   DATABASE_URL="postgresql://USUARIO:CLAVE@HOST:5432/BASE?schema=public&sslmode=require"
    ```
 
 4. **Reinicia tu aplicación**:

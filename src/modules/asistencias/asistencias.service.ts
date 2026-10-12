@@ -324,11 +324,9 @@ export class AsistenciasService {
    * Verificar si un dispositivo ya respondió este formulario
    */
   static async verificarRespuestaExistente(formularioId: string, deviceFingerprint: string) {
-    console.log('🔎 [Service] Verificando respuesta existente')
-    console.log(`   FormularioId: ${formularioId}`)
-    console.log(`   DeviceFingerprint: ${deviceFingerprint}`)
-    
-    const respuestaExistente = await prisma.respuestas_asistencia.findUnique({
+    /// Antes registraba en consola la huella y el nombre de quien firmó en cada
+    /// consulta de la ruta pública `verificar`: datos personales en los logs.
+    return prisma.respuestas_asistencia.findUnique({
       where: {
         formulario_id_device_fingerprint: {
           formulario_id: formularioId,
@@ -336,16 +334,6 @@ export class AsistenciasService {
         }
       }
     })
-
-    console.log(`   Resultado: ${respuestaExistente ? '✅ ENCONTRADA' : '❌ NO ENCONTRADA'}`)
-    if (respuestaExistente) {
-      console.log(`   ID Respuesta: ${respuestaExistente.id}`)
-      console.log(`   Nombre: ${respuestaExistente.nombre_completo}`)
-      console.log(`   Fingerprint en DB: ${respuestaExistente.device_fingerprint}`)
-      console.log(`   Coincide: ${respuestaExistente.device_fingerprint === deviceFingerprint ? '✅ SÍ' : '❌ NO'}`)
-    }
-
-    return respuestaExistente
   }
 
   /**

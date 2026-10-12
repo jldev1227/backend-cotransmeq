@@ -12,6 +12,7 @@ import { requirePermission } from '../../middlewares/permissions.middleware'
 import { excedeLimite } from './limitador'
 import { crearSolicitudPublicaSchema, gestionarSolicitudSchema, listarSolicitudesSchema } from './solicitudes-web.schema'
 import { crearDesdeLanding, detalle, gestionar, listar, resumenPendientes, SolicitudesWebError } from './solicitudes-web.service'
+import { ipCliente } from '../../utils/limitador'
 
 type ConId = FastifyRequest<{ Params: { id: string } }>
 
@@ -30,10 +31,11 @@ function responderError(request: FastifyRequest, reply: FastifyReply, err: unkno
   return reply.status(500).send({ success: false, message: mensaje })
 }
 
+/// La primera IP de `X-Forwarded-For` la escribe el propio cliente: con ella
+/// el límite de envíos se saltaba cambiando la cabecera. `ipCliente` toma la
+/// que pone Cloudflare.
 function ipDe(request: FastifyRequest): string | null {
-  const xff = request.headers['x-forwarded-for']
-  const primera = Array.isArray(xff) ? xff[0] : xff?.split(',')[0]?.trim()
-  return primera || request.ip || null
+  return ipCliente(request)
 }
 
 export async function solicitudesWebPublicRoutes(app: FastifyInstance) {

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { avisarPreoperacional } from '../avisos-equipo/avisos-equipo.service'
+import { avisarNovedadesPreoperacional } from '../mantenimiento/aviso-preoperacional'
 import jwt from 'jsonwebtoken'
 import { ZodError, type ZodSchema } from 'zod'
 import { env } from '../../config/env'
@@ -24,6 +25,7 @@ import {
   listarEnviosPortalSchema,
   listarPapeleraPortalSchema,
 } from './formularios-dinamicos.schema'
+import { tokenPortalRegistrado } from '../conductor-portal/portal-token.service'
 
 /** Prefijo de todas las rutas de este módulo. Vive a nivel de archivo porque el
  *  middleware de autenticación —declarado fuera de la función— necesita
@@ -113,6 +115,15 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
           error: { code: 'FORBIDDEN', message: 'Token fuera de su alcance.' },
         })
       }
+    }
+
+    /// El token del enlace tiene que seguir registrado para poder revocarlo
+    /// (ver `tokenPortalRegistrado`). El de impresión no se guarda en la base.
+    if (!esImpresion && !(await tokenPortalRegistrado(parts[1]))) {
+      return reply.status(401).send({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Tu acceso al portal venció o fue revocado. Pide un enlace nuevo.' },
+      })
     }
 
     ;(request as any).portalActor = {
@@ -550,6 +561,9 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
       })
       /// Si es un preoperacional, operaciones y HSEQ se enteran (un reintento no vuelve a avisar).
       if (!resultado.idempotentReplay) void avisarPreoperacional(resultado.submissionId)
+      /// Y si trae ítems en «Malo», mantenimiento recibe su propio aviso. Solo
+      /// avisa: el servicio y la asignación del vehículo siguen permitidos.
+      if (!resultado.idempotentReplay) void avisarNovedadesPreoperacional(resultado.submissionId)
 
       /// `200` y no `201` en el replay: el recurso no se creó en esta petición,
       /// y la outbox lo trata como éxito en los dos casos.

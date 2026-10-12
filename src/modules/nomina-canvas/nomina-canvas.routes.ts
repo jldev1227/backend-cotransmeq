@@ -6,7 +6,7 @@ import { NominaBorradoresController } from './nomina-borradores.controller';
 import { NominaNotificacionesController } from './nomina-notificaciones.controller';
 import { NominaAnalisisController } from './nomina-analisis.controller';
 import { authMiddleware } from '../../middlewares/auth.middleware';
-import { requirePermission } from '../../middlewares/permissions.middleware';
+import { requirePermission, permisoPorMetodo } from '../../middlewares/permissions.middleware';
 
 /**
  * El canvas cuelga del módulo `nomina` que ya existe en el mapa de permisos
@@ -17,6 +17,9 @@ const MODULO = 'nomina';
 
 export async function nominaCanvasRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware);
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `nomina`.
+  app.addHook('preHandler', permisoPorMetodo('nomina'));
 
   const puedeLeer = { preHandler: requirePermission(MODULO, 'limited') };
   const puedeEscribir = { preHandler: requirePermission(MODULO, 'full') };

@@ -7,9 +7,10 @@ import { FormulariosController } from './formularios-dinamicos.controller'
 import { snapshotMetricas } from './formularios-dinamicos.observabilidad'
 import { FormulariosDocumentoPdfService } from './formularios-documento-pdf.service'
 import {
+  correoDePrueba,
   destinatarioPorId,
   enviarCampana,
-  enviarGuia,
+  enviarGuiaDePrueba,
   listarAudiencia
 } from './formularios-campana-email.service'
 
@@ -81,15 +82,24 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
     }
   })
 
+  /// La prueba va al correo de quien la pide y sin token del conductor (ver
+  /// `correoDePrueba` y `enviarGuiaDePrueba`). Antes emitía un magic link real
+  /// de 30 días y lo mandaba a cualquier `to`. Queda en `registro_actividad`.
   app.post('/formularios/campana-portal/test', puedeEditar, async (request, reply) => {
     try {
-      const { conductorId, to } = request.body as { conductorId?: string; to?: string }
-      if (!conductorId || !to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-        return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_INVALID', message: 'conductorId y to válido son obligatorios.' } })
+      const { conductorId, to } = (request.body ?? {}) as { conductorId?: string; to?: unknown }
+      let destino: string
+      try {
+        destino = correoDePrueba((request as any).user?.correo, to)
+      } catch (error) {
+        return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_INVALID', message: error instanceof Error ? error.message : 'Destinatario inválido.' } })
+      }
+      if (!conductorId || typeof conductorId !== 'string') {
+        return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_INVALID', message: 'conductorId es obligatorio.' } })
       }
       const destinatario = await destinatarioPorId(conductorId)
-      const result = await enviarGuia(destinatario, to)
-      return reply.send({ success: true, data: { id: result?.id ?? null, to, conductorId, test: true } })
+      const result = await enviarGuiaDePrueba(destinatario, destino)
+      return reply.send({ success: true, data: { id: result?.id ?? null, to: destino, conductorId, test: true } })
     } catch (error) {
       return reply.status(400).send({ success: false, error: { code: 'CAMPAIGN_SEND_FAILED', message: error instanceof Error ? error.message : 'No fue posible enviar la prueba.' } })
     }

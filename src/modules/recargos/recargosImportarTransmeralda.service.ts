@@ -162,7 +162,13 @@ export interface PreviewImportResult {
 export const RecargosImportarTransmeraldaService = {
   /**
    * En Transmeralda, marca `inactivo` a todos los conductores que NO tienen
-   * liquidaciones en 2026. Idempotente.
+   * liquidaciones en 2026, y devuelve a `activo` a los que sí tienen y esta
+   * misma sincronización había dejado en `inactivo`. Idempotente.
+   *
+   * OJO: escribe en la base de Transmeralda. La reactivación tocaba a todo
+   * conductor que no estuviera `activo`, así que pisaba estados puestos a
+   * propósito allí (desvinculado, retirado, vacaciones, programado…): ahora
+   * solo deshace su propio `inactivo`.
    */
   async sincronizarConductoresCotransmeq() {
     const tm = getPrismaTransmeralda()
@@ -198,7 +204,7 @@ export const RecargosImportarTransmeraldaService = {
     const reactivateResult = await tm.conductores.updateMany({
       where: {
         id: { in: Array.from(idsConLiq) },
-        estado: { not: 'activo' },
+        estado: 'inactivo',
         deleted_at: null
       },
       data: { estado: 'activo' }

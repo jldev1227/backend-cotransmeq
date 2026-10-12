@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { LiquidacionesSnapshotsService } from './liquidaciones-terceros-snapshots.service';
+import { cronAutorizado } from '../../lib/cron-secreto';
+import { ErrorRevertirSnapshot, LiquidacionesSnapshotsService } from './liquidaciones-terceros-snapshots.service';
 
 export class LiquidacionesSnapshotsController {
 
@@ -44,16 +45,18 @@ export class LiquidacionesSnapshotsController {
       const result = await LiquidacionesSnapshotsService.revertir(id, snapshotId, userId);
       return reply.send(result);
     } catch (error: any) {
+      /// 404 si no existe el snapshot o el cierre; 409 si el cierre no es
+      /// editable o cambió de estado durante la reversión.
+      if (error instanceof ErrorRevertirSnapshot) {
+        return reply.status(error.statusCode).send({ error: error.message });
+      }
       return reply.status(400).send({ error: error.message });
     }
   }
 
   static async cronHora(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const cronSecret = request.headers['x-cron-secret'] as string;
-      /// Sin `CRON_SECRET` configurado, `undefined !== undefined` dejaba pasar
-      /// cualquier petición sin cabecera.
-      if (!process.env.CRON_SECRET || cronSecret !== process.env.CRON_SECRET) {
+      if (!cronAutorizado(request)) {
         return reply.status(403).send({ error: 'No autorizado' });
       }
       const result = await LiquidacionesSnapshotsService.capturarHorario();

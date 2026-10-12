@@ -5,6 +5,14 @@ import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
 import { registrarViaticosPortal } from '../viaticos/viaticos-portal.routes'
+import { registrarExtractosPortal } from './extractos-portal.routes'
+import { crearLimitador, limitesEnvioDeEnlace, MINUTO, preHandlerLimite } from '../../utils/limitador'
+
+/// El enlace se pide con la cédula y se manda por correo: tope por IP y por cédula.
+const limiteSolicitudAcceso = limitesEnvioDeEnlace()
+/// El acceso de revisión de tiendas valida una contraseña: sin tope era
+/// adivinable a fuerza bruta.
+const limiteAccesoRevision = { porIp: crearLimitador({ max: 10, ventanaMs: 15 * MINUTO }) }
 import { condicionesViaDelServicio, CondicionesViaError } from './condiciones-via.service'
 import {
   CapacitacionesError,
@@ -43,7 +51,7 @@ import {
 } from '../dias-laborados/dias-adjuntos.service'
 import { getIO } from '../../sockets'
 import { getS3ObjectAsBase64, getS3SignedUrl, uploadToS3 } from '../../config/aws'
-import { emitirTokenPortal } from './portal-token.service'
+import { emitirTokenPortal, tokenPortalRegistrado } from './portal-token.service'
 import type { PortalAccessChannel } from '../../lib/portal-access-link'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { avisarDiaLaborado } from '../avisos-equipo/avisos-equipo.service'
@@ -101,6 +109,15 @@ async function portalAuthMiddleware(request: FastifyRequest, reply: FastifyReply
       if (!dentroDeAlcance) {
         return reply.status(403).send({ success: false, message: 'Token fuera de su alcance' })
       }
+    }
+
+    /// El token del enlace tiene que seguir registrado (ver
+    /// `tokenPortalRegistrado`): así se puede revocar. El de impresión no se
+    /// guarda en la base; su cerco es la ruta y los 180 s de vida.
+    if (!esImpresion && !(await tokenPortalRegistrado(parts[1]))) {
+      return reply
+        .status(401)
+        .send({ success: false, message: 'Tu acceso al portal venció o fue revocado. Pide un enlace nuevo.' })
     }
 
     ;(request as any).conductorPortal = {
@@ -183,6 +200,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
    * un conductor real nunca habilita por accidente este segundo acceso.
    */
   app.post('/conductor-portal/acceso-revision', {
+    preHandler: preHandlerLimite(limiteAccesoRevision),
     schema: {
       description: 'Acceso estable para revisión de la aplicación en tiendas',
       tags: ['conductor-portal'],
@@ -255,6 +273,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
   // Solicitar acceso: envía magic link por email
   app.post('/conductor-portal/solicitar-acceso', {
+    preHandler: preHandlerLimite(limiteSolicitudAcceso, (r) => (r.body as any)?.numero_identificacion),
     schema: {
       description: 'Solicitar acceso al portal del conductor (envía email con magic link)',
       tags: ['conductor-portal'],
@@ -2513,6 +2532,9 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
     // ─── Viáticos: anticipos, gastos y solicitudes del conductor ───
     registrarViaticosPortal(protectedApp)
+
+    // ─── Extractos (FUEC) y documentos del vehículo: lo que piden en vía ───
+    registrarExtractosPortal(protectedApp)
   })
 }
 

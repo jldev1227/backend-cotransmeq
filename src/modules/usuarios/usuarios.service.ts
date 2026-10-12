@@ -4,6 +4,8 @@ import argon2 from 'argon2'
 import crypto from 'crypto'
 import type { AccessLevel } from '../../config/permissions'
 import { invalidarPermisosRutas } from '../../services/permisos-rutas.service'
+import { olvidarSesionesEnCache } from '../../middlewares/cache-sesiones'
+import { SesionesService } from '../sesiones/sesiones.service'
 
 /**
  * Campos que se devuelven de un usuario. Nunca incluye `password`.
@@ -170,14 +172,23 @@ export const UsuariosService = {
     /// no se notaría hasta medio minuto después de guardarlo.
     if ('permisos_rutas' in data) invalidarPermisosRutas(id)
 
+    /// El middleware toma rol, áreas y estado de la sesión con una caché de
+    /// 30 s. Quitar un área o desactivar a alguien tiene que notarse ya.
+    if ('area' in data || 'role' in data || 'activo' in data) olvidarSesionesEnCache()
+    /// Desactivar cierra sus sesiones también por esta vía (no solo desde el
+    /// interruptor de la lista): sin sesión activa el middleware lo rechaza.
+    if (data.activo === false) await SesionesService.cerrarTodas(id)
+
     return actualizado
   },
   async updatePermisos(id: string, permisos: Record<string, boolean>) {
-    return prisma.usuarios.update({
+    const actualizado = await prisma.usuarios.update({
       where: { id },
       data: { permisos },
       select: USUARIO_SELECT,
     })
+    olvidarSesionesEnCache()
+    return actualizado
   },
 
   /**
@@ -218,6 +229,9 @@ export const UsuariosService = {
       })
     )
 
+    /// `bonos-planilla` lo lee `requireBonosPlanilla` de la sesión: que el cambio
+    /// aplique ya y no a los 30 s.
+    olvidarSesionesEnCache()
     return updates
   },
   async listConductoresBasicos() {

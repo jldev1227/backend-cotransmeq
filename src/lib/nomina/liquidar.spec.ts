@@ -407,7 +407,11 @@ describe('ajustes del 8 %', () => {
 });
 
 describe('vacaciones', () => {
-  it('el valor manual manda sobre las fechas', () => {
+  // La regla se invirtió a propósito (57d5f51): si alguien escribió desde y
+  // hasta, ESE es el dato que puede justificar, y antes un importe guardado
+  // ganaba y las fechas parecían no hacer nada. El test viejo seguía pidiendo
+  // lo contrario.
+  it('las fechas mandan sobre el valor manual', () => {
     const r = liquidarNomina(
       entrada({
         valorVacaciones: 500000,
@@ -416,6 +420,11 @@ describe('vacaciones', () => {
       }),
       PARAMS,
     );
+    expect(r.totalVacaciones).toBeCloseTo((1750905 / 30) * 15, 6);
+  });
+
+  it('sin fechas vale el valor manual', () => {
+    const r = liquidarNomina(entrada({ valorVacaciones: 500000 }), PARAMS);
     expect(r.totalVacaciones).toBe(500000);
   });
 

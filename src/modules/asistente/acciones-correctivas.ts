@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma'
-import { AccionesCorrectivasService, type CreateAccionCorrectivaInput } from '../acciones-correctivas/acciones-correctivas.service'
+import { AccionesCorrectivasService, siguienteNumeroAccion, type CreateAccionCorrectivaInput } from '../acciones-correctivas/acciones-correctivas.service'
 import type { Herramienta } from './asistente.types'
 import { enteroEntre, fechaCorta, fechaOpcional, textoOpcional } from './asistente.utils'
 
@@ -276,15 +276,7 @@ export const crearAccionCorrectiva: Herramienta = {
       const ocupado = await prisma.acciones_correctivas_preventivas.findUnique({ where: { accion_numero: numero }, select: { id: true } })
       if (ocupado) return { creado: false, error: `Ya existe una acción con el número ${numero}`, pista: 'Pregunta al usuario otro número o déjalo vacío para asignar uno' }
     } else {
-      const anio = hoy.slice(0, 4)
-      const cuantas = await prisma.acciones_correctivas_preventivas.count({ where: { accion_numero: { startsWith: `AC-${anio}-` } } })
-      for (let n = cuantas + 1; ; n++) {
-        const candidato = `AC-${anio}-${String(n).padStart(3, '0')}`
-        if (!(await prisma.acciones_correctivas_preventivas.findUnique({ where: { accion_numero: candidato }, select: { id: true } }))) {
-          numero = candidato
-          break
-        }
-      }
+      numero = await siguienteNumeroAccion(hoy.slice(0, 4))
     }
 
     const causasEntrada = Array.isArray(args.causas) ? (args.causas as Record<string, unknown>[]) : []

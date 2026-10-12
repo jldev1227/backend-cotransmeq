@@ -14,12 +14,23 @@
  * «Estado del vehículo» = el último preoperacional de cada placa (sin acotar
  * al periodo, porque lo que importa es cómo quedó la última vez que alguien
  * lo revisó): con novedades si tiene ítems en Malo.
+ *
+ *  - Planes de mantenimiento (`modules/mantenimiento`): vencidos y próximos con
+ *    el mismo cálculo de la pantalla y del aviso diario, órdenes abiertas y lo
+ *    gastado en el mes.
+ *
+ * Enlaces: la ficha de un vehículo se abre con `/dashboard/flota?vehiculo=<id>`
+ * (no existe `/dashboard/flota/<id>`; esos enlaces daban 404). El envío
+ * completo de un preoperacional vive en `formularios`, que el área
+ * mantenimiento no tiene: a quien no lo tiene se le lleva al resumen de
+ * novedades de la pantalla de Mantenimiento, que sí puede abrir.
  */
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { diasDelPeriodo } from './periodo'
 import { CODIGOS_PREOPERACIONAL } from './seccion-hseq'
+import { MantenimientoService } from '../mantenimiento/mantenimiento.service'
 
 const PROXIMOS_DIAS = 30
 /** Categorías de `documento` que vencen y que mantenimiento tiene que vigilar. */
@@ -41,6 +52,8 @@ const preopJoin = Prisma.sql`
 
 export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record<string, unknown>> {
   const { periodo } = ctx
+  const puedeFormularios = Boolean(ctx.modulos['formularios'])
+  const ficha = (id: string, tab?: string) => `/dashboard/flota?vehiculo=${id}${tab ? `&tab=${tab}` : ''}`
   const enviosPeriodo = Prisma.sql`s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.business_date >= ${periodo.desde}::date AND s.business_date <= ${periodo.hasta}::date`
 
   const [vehiculosEstado, itemsMalos, malosPorPlaca, novedades, mantenimientos, mantPorDia, kilometraje, vencimientos, preopPeriodo] = await Promise.all([
@@ -184,11 +197,17 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
     propension.set(placa, e)
   }
   const propensas = [...propension.values()]
-    .map((p) => ({ ...p, puntaje: p.novedades + p.mantenimientos * 3, enlace: p.vehiculo_id ? `/dashboard/flota/${p.vehiculo_id}` : null }))
+    .map((p) => ({ ...p, puntaje: p.novedades + p.mantenimientos * 3, enlace: p.vehiculo_id ? ficha(p.vehiculo_id) : null }))
     .sort((a, b) => b.puntaje - a.puntaje)
     .slice(0, 10)
 
   const cuenta = (estado: string) => vehiculosEstado.find((f) => f.estado === estado)?._count._all ?? 0
+
+  // ── Planes de mantenimiento: los que necesitan a alguien, por urgencia ──
+  const [resumenPlanes, planesAlerta] = await Promise.all([
+    MantenimientoService.resumen(),
+    MantenimientoService.listarPlanes({ estado: 'alerta', page: 1, limit: 8 }),
+  ])
 
   return {
     kpis: {
@@ -201,22 +220,49 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
       mantenimientos: mantenimientos.length,
       documentos_vencidos: vencidos.length,
       documentos_proximos: proximos.length,
+      planes_vencidos: resumenPlanes.planes.vencido,
+      planes_proximos: resumenPlanes.planes.proximo,
+      ordenes_abiertas: resumenPlanes.ordenes.abiertas,
     },
-    estado_vehiculos: conNovedades.slice(0, 20).map((v) => ({ ...v, enlace: `/dashboard/flota/${v.vehiculo_id}`, enlace_preoperacional: `/dashboard/formularios/envios/${v.submission_id}` })),
+    planes: {
+      total: resumenPlanes.planes.total,
+      vencidos: resumenPlanes.planes.vencido,
+      proximos: resumenPlanes.planes.proximo,
+      ordenes_abiertas: resumenPlanes.ordenes.abiertas,
+      costo_mes: resumenPlanes.costo_mes,
+      items: planesAlerta.items.map((p) => ({
+        id: p.id,
+        placa: p.vehiculo.placa,
+        nombre: p.nombre,
+        estado: p.estado,
+        km_restantes: p.km_restantes,
+        dias_restantes: p.dias_restantes,
+        motivo: p.motivo,
+        orden_abierta: p.orden_abierta,
+        enlace: `/dashboard/mantenimiento?plan=${p.id}`,
+      })),
+    },
+    /// Enlaces que dependen de otro módulo: `null` si quien mira no lo tiene.
+    enlaces: { envios: puedeFormularios ? '/dashboard/formularios?vista=envios' : null },
+    estado_vehiculos: conNovedades.slice(0, 20).map((v) => ({
+      ...v,
+      enlace: ficha(v.vehiculo_id, 'mantenimiento'),
+      enlace_preoperacional: puedeFormularios ? `/dashboard/formularios/envios/${v.submission_id}` : `/dashboard/mantenimiento?preoperacional=${v.submission_id}`,
+    })),
     items_malos: itemsMalos.map((i) => ({ ...i, label: i.label.replace(/\s*\(.*$/, '') })),
-    placas_con_novedades: malosPorPlaca.map((p) => ({ ...p, enlace: `/dashboard/flota/${p.vehiculo_id}` })),
+    placas_con_novedades: malosPorPlaca.map((p) => ({ ...p, enlace: ficha(p.vehiculo_id) })),
     propensas,
     mantenimientos: {
       total: mantenimientos.length,
-      por_placa: [...mantPorPlaca.values()].sort((a, b) => b.n - a.n).map((m) => ({ ...m, enlace: m.vehiculo_id ? `/dashboard/flota/${m.vehiculo_id}` : null })),
+      por_placa: [...mantPorPlaca.values()].sort((a, b) => b.n - a.n).map((m) => ({ ...m, enlace: m.vehiculo_id ? ficha(m.vehiculo_id) : null })),
       por_dia: [...mantDia.entries()].map(([fecha, n]) => ({ fecha, n })),
-      ultimos: mantenimientos.slice(0, 10).map((m) => ({ ...m, fecha: m.fecha.toISOString().slice(0, 10), enlace: m.vehiculo_id ? `/dashboard/flota/${m.vehiculo_id}` : null })),
+      ultimos: mantenimientos.slice(0, 10).map((m) => ({ ...m, fecha: m.fecha.toISOString().slice(0, 10), enlace: m.vehiculo_id ? ficha(m.vehiculo_id) : null })),
     },
-    kilometraje: kilometraje.map((k) => ({ ...k, fecha: k.fecha ? k.fecha.toISOString().slice(0, 10) : null, enlace: `/dashboard/flota/${k.vehiculo_id}` })),
+    kilometraje: kilometraje.map((k) => ({ ...k, fecha: k.fecha ? k.fecha.toISOString().slice(0, 10) : null, enlace: ficha(k.vehiculo_id) })),
     vencimientos: {
       proximos_dias: PROXIMOS_DIAS,
       por_categoria: porCategoria,
-      items: vencimientos.slice(0, 30).map((d) => ({ ...d, etiqueta: ETIQUETA_CATEGORIA[d.categoria] ?? d.categoria, vence: d.vence.toISOString().slice(0, 10), enlace: `/dashboard/flota/${d.vehiculo_id}` })),
+      items: vencimientos.slice(0, 30).map((d) => ({ ...d, etiqueta: ETIQUETA_CATEGORIA[d.categoria] ?? d.categoria, vence: d.vence.toISOString().slice(0, 10), enlace: ficha(d.vehiculo_id, 'documentos') })),
     },
   }
 }

@@ -225,8 +225,38 @@ export async function calificarRespuestas(
 }
 
 /**
+ * Un resultado sin firma, IP, user agent ni huella, y sin la pregunta anidada
+ * en cada respuesta: la forma de la lista del panel (`GET /:id/resultados`).
+ */
+export const SELECT_RESULTADO_LIGERO = {
+  id: true,
+  evaluacionId: true,
+  nombre_completo: true,
+  numero_documento: true,
+  cargo: true,
+  correo: true,
+  telefono: true,
+  puntaje_total: true,
+  firma: true,
+  created_at: true,
+  respuestas: {
+    select: {
+      id: true,
+      preguntaId: true,
+      valor_texto: true,
+      valor_numero: true,
+      opcionesIds: true,
+      relacion: true,
+      puntaje: true,
+    },
+  },
+} satisfies Prisma.ResultadoSelect;
+
+/**
  * Califica las respuestas, guarda el resultado y avisa por socket a quien esté
  * viendo la evaluación. Lo usan la web pública y el portal del conductor.
+ * Devuelve el resultado ligero (sin la firma, con `tiene_firma`); cada vía
+ * decide qué le enseña a quien respondió.
  */
 export async function registrarResultado(
   evaluacion: EvaluacionConPreguntas,
@@ -240,7 +270,7 @@ export async function registrarResultado(
   );
 
   // Guardar resultado y respuestas
-  const resultado = await prisma.resultado.create({
+  const { firma, ...resultado } = await prisma.resultado.create({
     data: {
       evaluacionId: id,
       nombre_completo: datos.nombre_completo,
@@ -257,38 +287,24 @@ export async function registrarResultado(
         create: respuestasDB,
       },
     },
-    include: {
-      respuestas: {
-        include: {
-          pregunta: {
-            include: {
-              opciones: true,
-            },
-          },
-        },
-      },
-      evaluacion: {
-        include: {
-          preguntas: {
-            include: {
-              opciones: true,
-            },
-          },
-        },
-      },
-    },
+    select: SELECT_RESULTADO_LIGERO,
   });
 
-  // Emitir evento socket para actualización en tiempo real
+  /// El evento lleva la misma forma que una fila de `GET /:id/resultados`, que es
+  /// donde el panel la mete (`resultados = [data, ...resultados]`). Antes viajaba
+  /// el resultado con la evaluación completa —`esCorrecta`, `respuestaCorrecta`
+  /// y la ubicación de las palabras de la sopa— y la firma en base64. Al abrir
+  /// el detalle, el panel ve que faltan `pregunta` y `firma` y lo pide aparte.
+  const fila = { ...resultado, tiene_firma: !!firma };
   try {
     const io = getIo();
     if (io) {
-      io.to(`evaluacion-${id}`).emit("nueva-respuesta", resultado);
+      io.to(`evaluacion-${id}`).emit("nueva-respuesta", fila);
       console.log(`✅ Socket emitido: nueva-respuesta para evaluación ${id}`);
     }
   } catch (error) {
     console.error("❌ Error emitiendo evento socket:", error);
   }
 
-  return resultado;
+  return fila;
 }

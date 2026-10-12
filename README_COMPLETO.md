@@ -124,7 +124,7 @@ END $$;
 
 **Ejecución:**
 ```bash
-PGPASSWORD="MEQ900**" psql \
+PGPASSWORD="<CLAVE>" psql \
   -h cotransmeq.postgres.database.azure.com \
   -U Cotrans900 -d postgres -p 5432 \
   -f fix-creado-por-id.sql

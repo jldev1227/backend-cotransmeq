@@ -1,9 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import { LiquidacionesServiciosController } from './liquidaciones-servicios.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 
 export async function liquidacionesServiciosRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `liquidaciones-servicios`.
+  /// Facturación (limited) solo consulta aquí; sus escrituras van por facturacion-liquidaciones.
+  app.addHook('preHandler', permisoPorMetodo('liquidaciones-servicios', { lectura: 'limited', escritura: 'full' }))
 
   // ── Tarifas (operadoras) ──
   app.get('/liquidaciones-servicios/tarifas', LiquidacionesServiciosController.obtenerTarifas)

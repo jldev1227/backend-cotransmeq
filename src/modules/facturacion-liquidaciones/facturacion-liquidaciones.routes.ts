@@ -1,9 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import { FacturacionLiquidacionesController } from './facturacion-liquidaciones.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { permisoPorMetodo } from '../../middlewares/permissions.middleware'
 
 export async function facturacionLiquidacionesRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
+  /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
+  /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `liquidaciones-servicios`.
+  /// Escritura con limited a propósito: registrar, asociar y anular facturas es justo lo que hace Facturación.
+  app.addHook('preHandler', permisoPorMetodo('liquidaciones-servicios', { lectura: 'limited', escritura: 'limited' }))
 
   // CRUD Facturas
   app.get('/facturacion-liquidaciones', FacturacionLiquidacionesController.listar)
@@ -18,6 +23,10 @@ export async function facturacionLiquidacionesRoutes(app: FastifyInstance) {
   // Los usa el carril del canvas de historial de liquidaciones de servicios.
   app.post('/facturacion-liquidaciones/:id/items', FacturacionLiquidacionesController.agregarLiquidaciones)
   app.delete('/facturacion-liquidaciones/:id/items/:liquidacionId', FacturacionLiquidacionesController.quitarLiquidacion)
+
+  // Condiciones de cobro (valor, emisión, plazo, vencimiento). Misma operación
+  // que `PATCH /cartera/facturas/:id/condiciones`, para quien registra facturas.
+  app.patch('/facturacion-liquidaciones/:id/condiciones', FacturacionLiquidacionesController.actualizarCondiciones)
 
   app.patch('/facturacion-liquidaciones/:id/anular', FacturacionLiquidacionesController.anular)
   app.delete('/facturacion-liquidaciones/:id', FacturacionLiquidacionesController.eliminar)

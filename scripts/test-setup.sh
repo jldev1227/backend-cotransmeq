@@ -11,50 +11,76 @@
 # migraciones de este proyecto está desalineado con la base real, y `deploy`
 # ofrece un reset que vacía tablas. Para una base efímera lo único que importa
 # es que la forma coincida con `schema.prisma`, que es justo lo que hace `push`.
+#
+# Con TEST_DB_SIN_DOCKER=1 no toca Docker: la base ya existe y se le habla por
+# `psql` en la misma URL. Es el modo del job de CI, donde Postgres lo levanta el
+# propio workflow como `service` en el mismo puerto.
 
 set -e
 
 COMPOSE_FILE="docker-compose.test.yml"
 CONTENEDOR="cotransmeq-postgres-test"
 URL_TEST="postgresql://postgres:postgres@localhost:55433/cotransmeq_test?schema=public"
+# psql no entiende el `?schema=` de Prisma.
+URL_PSQL="postgresql://postgres:postgres@localhost:55433/cotransmeq_test"
 
-if ! docker info >/dev/null 2>&1; then
-  echo ""
-  echo "  Docker no está corriendo."
-  echo "  Ábrelo (Docker Desktop) y vuelve a lanzar 'npm run test:setup'."
-  echo ""
-  exit 1
-fi
+if [ "${TEST_DB_SIN_DOCKER:-}" = "1" ]; then
+  ejecutar_sql() {
+    psql "$URL_PSQL" -q -v ON_ERROR_STOP=1 "$@"
+  }
 
-echo "→ Levantando Postgres de test…"
-docker compose -f "$COMPOSE_FILE" up -d
+  echo "→ Esperando a que la base acepte conexiones (sin Docker)…"
+  i=0
+  until pg_isready -d "$URL_PSQL" >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ $i -ge 60 ]; then
+      echo "  La base no respondió en 120s: $URL_PSQL"
+      exit 1
+    fi
+    sleep 2
+  done
+else
+  ejecutar_sql() {
+    docker exec -i "$CONTENEDOR" psql -U postgres -d cotransmeq_test -q -v ON_ERROR_STOP=1 "$@"
+  }
 
-echo "→ Esperando a que acepte conexiones…"
-i=0
-while [ $i -lt 60 ]; do
-  estado=$(docker inspect --format '{{.State.Health.Status}}' "$CONTENEDOR" 2>/dev/null || echo "ausente")
-  if [ "$estado" = "healthy" ]; then
-    break
-  fi
-  if [ "$estado" = "ausente" ]; then
-    echo "  El contenedor $CONTENEDOR no existe. Revisa $COMPOSE_FILE."
+  if ! docker info >/dev/null 2>&1; then
+    echo ""
+    echo "  Docker no está corriendo."
+    echo "  Ábrelo (Docker Desktop) y vuelve a lanzar 'npm run test:setup'."
+    echo ""
     exit 1
   fi
-  i=$((i + 1))
-  sleep 2
-done
 
-if [ "$estado" != "healthy" ]; then
-  echo "  El contenedor no llegó a 'healthy' en 120s. Logs:"
-  docker logs --tail 30 "$CONTENEDOR"
-  exit 1
+  echo "→ Levantando Postgres de test…"
+  docker compose -f "$COMPOSE_FILE" up -d
+
+  echo "→ Esperando a que acepte conexiones…"
+  i=0
+  while [ $i -lt 60 ]; do
+    estado=$(docker inspect --format '{{.State.Health.Status}}' "$CONTENEDOR" 2>/dev/null || echo "ausente")
+    if [ "$estado" = "healthy" ]; then
+      break
+    fi
+    if [ "$estado" = "ausente" ]; then
+      echo "  El contenedor $CONTENEDOR no existe. Revisa $COMPOSE_FILE."
+      exit 1
+    fi
+    i=$((i + 1))
+    sleep 2
+  done
+
+  if [ "$estado" != "healthy" ]; then
+    echo "  El contenedor no llegó a 'healthy' en 120s. Logs:"
+    docker logs --tail 30 "$CONTENEDOR"
+    exit 1
+  fi
 fi
 
 # Producción tiene pgcrypto instalada; si algún default de columna o alguna
 # consulta la usa, sin ella el test fallaría con un error que no dice nada.
 echo "→ Instalando extensiones…"
-docker exec "$CONTENEDOR" psql -U postgres -d cotransmeq_test \
-  -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null
+ejecutar_sql -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null
 
 echo "→ Aplicando schema…"
 DATABASE_URL="$URL_TEST" npx prisma db push --skip-generate --accept-data-loss
@@ -68,7 +94,7 @@ echo "→ Aplicando migraciones SQL que Prisma no cubre…"
 for sql in prisma/migrations/*/migration.sql; do
   case "$sql" in
     *_soft_delete_*|*_auditoria_*)
-      docker exec -i "$CONTENEDOR" psql -U postgres -d cotransmeq_test -q -v ON_ERROR_STOP=1 < "$sql" \
+      ejecutar_sql < "$sql" \
         && echo "   ✓ $(basename "$(dirname "$sql")")"
       ;;
   esac

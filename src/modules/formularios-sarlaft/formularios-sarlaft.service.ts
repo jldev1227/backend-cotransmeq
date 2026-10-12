@@ -67,7 +67,9 @@ export interface FirmaCapturada {
 
 function esDataUrlDeImagen(v: any): v is string {
   return (
-    typeof v === "string" && /^data:image\/(png|jpe?g|webp);base64,/i.test(v)
+    /// Base64 hasta el final: el valor viene del formulario público y acaba
+    /// dentro de un `<img src="…">`; con solo el prefijo admitía marcado.
+    typeof v === "string" && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(v)
   );
 }
 

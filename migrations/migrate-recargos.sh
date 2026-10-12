@@ -14,17 +14,17 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuración
-ORIGEN_HOST="100.106.115.11"
-ORIGEN_DB="transmeralda_db_18_7_2025"
-ORIGEN_USER="postgres"
+# Las credenciales salen del entorno, nunca del código: este archivo está
+# versionado y las que tenía escritas quedaron en el historial de git.
+ORIGEN_URL="${MIGRACION_ORIGEN_URL:?Falta MIGRACION_ORIGEN_URL}"
 
-DESTINO_URL="postgresql://admintransmeralda:SASesmeralda2025@cotransmeq.postgres.database.azure.com:5432/postgres?sslmode=require"
+DESTINO_URL="${MIGRACION_DESTINO_URL:?Falta MIGRACION_DESTINO_URL}"
 
 TEMP_DIR="/tmp/recargos_migration_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$TEMP_DIR"
 
 echo -e "${BLUE}🚀 Iniciando migración de recargos...${NC}\n"
-echo -e "${YELLOW}Origen: $ORIGEN_HOST/$ORIGEN_DB${NC}"
+echo -e "${YELLOW}Origen: ${ORIGEN_URL##*@}${NC}"
 echo -e "${YELLOW}Destino: Azure PostgreSQL${NC}"
 echo -e "${YELLOW}Temp Dir: $TEMP_DIR${NC}\n"
 
@@ -44,7 +44,7 @@ export_table() {
         query="$query ORDER BY $order_by"
     fi
     
-    PGPASSWORD=Transmeralda2025 psql -h "$ORIGEN_HOST" -U "$ORIGEN_USER" -d "$ORIGEN_DB" \
+    psql -d "$ORIGEN_URL" \
         -c "\copy ($query) TO '$TEMP_DIR/$table.csv' WITH CSV HEADER"
     
     local count=$(wc -l < "$TEMP_DIR/$table.csv")
@@ -106,7 +106,7 @@ export_table "recargos_planillas" "deleted_at IS NULL" "created_at"
 
 # Exportar solo dias_laborales con recargos válidos
 echo -e "${BLUE}📤 Exportando dias_laborales_planillas (solo con referencias válidas)...${NC}"
-PGPASSWORD=Transmeralda2025 psql -h "$ORIGEN_HOST" -U "$ORIGEN_USER" -d "$ORIGEN_DB" \
+psql -d "$ORIGEN_URL" \
     -c "\copy (SELECT dlp.* FROM dias_laborales_planillas dlp INNER JOIN recargos_planillas rp ON dlp.recargo_planilla_id = rp.id WHERE dlp.deleted_at IS NULL AND rp.deleted_at IS NULL ORDER BY dlp.created_at) TO '$TEMP_DIR/dias_laborales_planillas.csv' WITH CSV HEADER"
 count=$(wc -l < "$TEMP_DIR/dias_laborales_planillas.csv")
 count=$((count - 1))
@@ -114,7 +114,7 @@ echo -e "${GREEN}  ✅ $count registros exportados${NC}"
 
 # Exportar solo detalles con dias_laborales válidos
 echo -e "${BLUE}📤 Exportando detalles_recargos_dias (solo con referencias válidas)...${NC}"
-PGPASSWORD=Transmeralda2025 psql -h "$ORIGEN_HOST" -U "$ORIGEN_USER" -d "$ORIGEN_DB" \
+psql -d "$ORIGEN_URL" \
     -c "\copy (SELECT drd.* FROM detalles_recargos_dias drd INNER JOIN dias_laborales_planillas dlp ON drd.dia_laboral_id = dlp.id INNER JOIN recargos_planillas rp ON dlp.recargo_planilla_id = rp.id WHERE drd.deleted_at IS NULL AND dlp.deleted_at IS NULL AND rp.deleted_at IS NULL ORDER BY drd.created_at) TO '$TEMP_DIR/detalles_recargos_dias.csv' WITH CSV HEADER"
 count=$(wc -l < "$TEMP_DIR/detalles_recargos_dias.csv")
 count=$((count - 1))
@@ -124,7 +124,7 @@ export_table "historial_recargos_planillas" "" "fecha_accion"
 
 # Exportar solo snapshots con recargos válidos
 echo -e "${BLUE}📤 Exportando snapshots_recargos_planillas (solo con referencias válidas)...${NC}"
-PGPASSWORD=Transmeralda2025 psql -h "$ORIGEN_HOST" -U "$ORIGEN_USER" -d "$ORIGEN_DB" \
+psql -d "$ORIGEN_URL" \
     -c "\copy (SELECT srp.* FROM snapshots_recargos_planillas srp INNER JOIN recargos_planillas rp ON srp.recargo_planilla_id = rp.id WHERE rp.deleted_at IS NULL ORDER BY srp.created_at) TO '$TEMP_DIR/snapshots_recargos_planillas.csv' WITH CSV HEADER"
 count=$(wc -l < "$TEMP_DIR/snapshots_recargos_planillas.csv")
 count=$((count - 1))

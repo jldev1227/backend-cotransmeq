@@ -104,13 +104,20 @@ const envSchema = z.object({
   ENVIO_LIQ_MAX_QUEUE: z.string().transform(s => Number(s)).default('5'),
   ENVIO_LIQ_JOB_TTL_MS: z.string().transform(s => Number(s)).default('600000'),
 
-  // Modo del middleware de permisos por área.
-  //   'warn'    → deja pasar y deja rastro en logs de quién habría sido cortado.
-  //   'enforce' → rechaza con 403.
-  // El default es el permisivo A PROPÓSITO: pasar a 'enforce' tiene que ser una
-  // decisión explícita tomada después de mirar los logs, no algo que ocurre
-  // solo por desplegar. El 401 por falta de autenticación se aplica SIEMPRE.
-  PERMISSIONS_MODE: z.enum(['warn', 'enforce']).optional().default('warn'),
+  // Cómo aplica `requirePermission` (ver middlewares/permissions.middleware.ts).
+  //   'enforce' (default) → rechaza con 403.
+  //   'warn'              → registra en consola quién habría sido rechazado
+  //                         y deja pasar.
+  //
+  // Hasta oct-2026 el default era 'warn', para estrenar los permisos sin
+  // tumbar a nadie, y se quedó así: los permisos que existían solo avisaban.
+  // Ahora el default es el estricto y 'warn' queda como salida de emergencia
+  // explícita (ponerlo en el .env si un despliegue deja fuera a alguien que sí
+  // debía entrar, mientras se corrige el mapa de `config/permissions.ts`).
+  //
+  // Una lista blanca en `permisos_rutas` y el 401 por falta de sesión se
+  // aplican siempre, en los dos modos.
+  PERMISSIONS_MODE: z.enum(['warn', 'enforce']).optional().default('enforce'),
 
   // URL de la base de datos Transmeralda (mismo schema, instancia distinta).
   // Se usa para importar recargos desde Transmeralda hacia Cotransmeq.
@@ -134,20 +141,21 @@ const envSchema = z.object({
     .transform((v) => v !== 'false'),
 
   // ── Autenticación de Socket.IO ──────────────────────────────────────
-  // Hasta ahora los sockets NO verificaban nada: la identidad venía en el
-  // payload de cada evento. El gateway de formularios dinámicos SÍ la exige
-  // (`getSocketUser`), así que la verificación se instala en el handshake.
-  //
-  // Activar el rechazo de golpe tumbaría a la vez chat, colas de borrador y
-  // presencia del dashboard, así que se despliega en dos pasos:
-  //   'permissive' (default) → verifica el token si viene y deja pasar si no,
-  //                            dejando rastro en logs de quién falta migrar.
-  //   'enforce'              → rechaza el handshake sin token válido.
-  //   'off'                  → no instala nada (comportamiento anterior).
+  // La identidad de un socket sale del token del handshake, nunca del payload
+  // de los eventos (ver `sockets/auth.ts`).
+  //   'enforce' (default) → rechaza el handshake sin token válido. Un token
+  //                         del equipo tiene que tener su sesión abierta; uno
+  //                         del portal conecta sin identidad de equipo.
+  //   'permissive'        → verifica si viene token y deja pasar si no, con
+  //                         rastro en el log. Solo como salida de emergencia:
+  //                         un socket anónimo recibe todos los `io.emit`.
+  //   'off'               → no instala nada.
+  // Hasta oct-2026 el default era 'permissive', puesto para medir antes de
+  // apretar; los dos clientes del front ya mandan el token en cada intento.
   SOCKET_AUTH_MODE: z
     .enum(['off', 'permissive', 'enforce'])
     .optional()
-    .default('permissive'),
+    .default('enforce'),
 
   // Orígenes permitidos para Socket.IO, separados por coma. Vacío = '*'
   // (comportamiento anterior). Conviene fijarlo antes de pasar a 'enforce'.

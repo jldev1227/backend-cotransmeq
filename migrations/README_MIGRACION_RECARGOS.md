@@ -34,7 +34,7 @@ MYSQL_PASSWORD=tu_password
 MYSQL_DATABASE=transmeralda_db
 
 # PostgreSQL Azure (Destino) - Ya configurado
-DATABASE_URL="postgresql://admintransmeralda:SASesmeralda2025@cotransmeq.postgres.database.azure.com:5432/postgres?schema=public&sslmode=require"
+DATABASE_URL="postgresql://USUARIO:CLAVE@HOST:5432/BASE?schema=public&sslmode=require"
 ```
 
 ## Ejecución
@@ -126,7 +126,7 @@ Verifica la conectividad a ambas bases de datos:
 mysql -h localhost -u root -p transmeralda_db
 
 # PostgreSQL Azure
-psql "postgresql://admintransmeralda:SASesmeralda2025@cotransmeq.postgres.database.azure.com:5432/postgres?sslmode=require"
+psql "postgresql://USUARIO:CLAVE@HOST:5432/BASE?sslmode=require"
 ```
 
 ### Error: "tipos_recargos not found"
