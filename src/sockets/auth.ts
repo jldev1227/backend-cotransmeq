@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import { env } from '../config/env'
 import { hashToken, TIPOS_DEL_EQUIPO, usuarioDeSesion } from '../middlewares/auth.middleware'
 import { sesionAppVigente } from '../modules/app-usuarios/app-usuarios.service'
+import { tokenPortalRegistrado } from '../modules/conductor-portal/portal-token.service'
 
 /**
  * Usuario autenticado de un socket. Vive en `socket.data.user`.
@@ -19,6 +20,7 @@ export interface SocketUser {
   /** Áreas del usuario (arreglo); los tokens viejos podían traer un string. */
   area?: string | string[] | null
   role?: string | null
+  tokenType?: 'dashboard' | 'app_usuario'
 }
 
 export function getSocketUser(socket: Socket): SocketUser | null {
@@ -77,8 +79,8 @@ export function corsOrigins(): string[] | '*' {
  *  - Token del equipo (dashboard o `app_usuario`) con su sesión abierta → el
  *    usuario, con rol, áreas, nombre y correo leídos de la base, igual que
  *    `authMiddleware`.
- *  - Token del portal del conductor → `'portal'`: conecta, pero sin identidad
- *    de equipo. El gateway de formularios lo verifica por su cuenta.
+ *  - Token registrado del portal del conductor → identidad de conductor
+ *    separada de la del equipo. El gateway de formularios lo verifica por su cuenta.
  *  - Cualquier otro (sesión cerrada, enlace revocado, tokens de impresión o de
  *    días laborados) → `null`, como un token inválido.
  *
@@ -87,14 +89,18 @@ export function corsOrigins(): string[] | '*' {
  * los gateways que solo piden identidad (`sheet:patch` de nómina y cierres,
  * chat) lo daban por bueno.
  */
-async function identidadDelToken(token: string): Promise<SocketUser | 'portal' | null> {
+async function identidadDelToken(token: string): Promise<SocketUser | { portalConductorId: string } | null> {
   let payload: any
   try {
     payload = jwt.verify(token, env.JWT_SECRET)
   } catch {
     return null
   }
-  if (payload?.tipo === 'conductor_portal') return 'portal'
+  if (payload?.tipo === 'conductor_portal') {
+    return typeof payload.sub === 'string' && (await tokenPortalRegistrado(token))
+      ? { portalConductorId: payload.sub }
+      : null
+  }
   if (!TIPOS_DEL_EQUIPO.has(payload?.tipo)) return null
 
   const usuario = await usuarioDeSesion(hashToken(token))
@@ -107,6 +113,7 @@ async function identidadDelToken(token: string): Promise<SocketUser | 'portal' |
     correo: usuario.correo,
     area: usuario.area,
     role: usuario.role,
+    tokenType: payload.tipo === 'app_usuario' ? 'app_usuario' : 'dashboard',
   }
 }
 
@@ -145,7 +152,10 @@ export function installSocketAuth(io: IOServer): void {
 
     identidadDelToken(token)
       .then((identidad) => {
-        if (identidad === 'portal') return next()
+        if (identidad && 'portalConductorId' in identidad) {
+          socket.data.portalConductorId = identidad.portalConductorId
+          return next()
+        }
         if (identidad) {
           socket.data.user = identidad
           return next()

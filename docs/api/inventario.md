@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-764 rutas en 62 módulos, más `GET /` (salud) y las que
+765 rutas en 62 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -64,7 +64,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`recorridos-canvas`](./recorridos-canvas.md) | 11 |
 | [`salidas-nc`](./salidas-nc.md) | 8 |
 | [`servicios`](./servicios.md) | 19 |
-| [`sesiones`](./sesiones.md) | 5 |
+| [`sesiones`](./sesiones.md) | 6 |
 | [`solicitudes-web`](./solicitudes-web.md) | 5 |
 | [`terceros`](./terceros.md) | 7 |
 | [`usuarios`](./usuarios.md) | 13 |
@@ -1038,11 +1038,12 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/sesiones` | `src/modules/sesiones/sesiones.routes.ts:11` |
-| DELETE | `/api/sesiones/:id` | `src/modules/sesiones/sesiones.routes.ts:13` |
-| GET | `/api/sesiones/activas` | `src/modules/sesiones/sesiones.routes.ts:12` |
-| GET | `/api/sesiones/mis-sesiones` | `src/modules/sesiones/sesiones.routes.ts:17` |
-| DELETE | `/api/sesiones/usuario/:usuarioId` | `src/modules/sesiones/sesiones.routes.ts:14` |
+| GET | `/api/sesiones` | `src/modules/sesiones/sesiones.routes.ts:12` |
+| DELETE | `/api/sesiones/:id` | `src/modules/sesiones/sesiones.routes.ts:22` |
+| GET | `/api/sesiones/activas` | `src/modules/sesiones/sesiones.routes.ts:13` |
+| GET | `/api/sesiones/app-movil` | `src/modules/sesiones/sesiones.routes.ts:14` |
+| GET | `/api/sesiones/mis-sesiones` | `src/modules/sesiones/sesiones.routes.ts:26` |
+| DELETE | `/api/sesiones/usuario/:usuarioId` | `src/modules/sesiones/sesiones.routes.ts:23` |
 
 ## solicitudes-web
 

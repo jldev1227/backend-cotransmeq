@@ -1560,6 +1560,20 @@ model notificacion {
   @@index([created_at(sort: Desc)])
 }
 
+/// Último uso real de la app por persona; la presencia actual vive en Socket.IO.
+model mobile_app_activity {
+  id             String   @id @default(uuid()) @db.Uuid
+  principal_kind String   @db.VarChar(20)
+  principal_id   String   @db.Uuid
+  platform       String?  @db.VarChar(20)
+  first_seen_at  DateTime @default(now()) @db.Timestamptz(6)
+  last_seen_at   DateTime @default(now()) @db.Timestamptz(6)
+  sessions_count Int      @default(1)
+
+  @@unique([principal_kind, principal_id])
+  @@index([last_seen_at])
+}
+
 model usuario_enlace_app {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   usuario_id    String    @db.Uuid

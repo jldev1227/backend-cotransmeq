@@ -31,6 +31,7 @@ rechaza por `token_expiry` pero los listados las siguen mostrando como activas.
 |---|---|---|---|
 | GET | `/api/sesiones` | admin | Sesiones de todos, con filtros |
 | GET | `/api/sesiones/activas` | admin | Todas las sesiones con `is_active = true` |
+| GET | `/api/sesiones/app-movil` | rol admin | Accesos móviles por persona, con presencia en tiempo real |
 | DELETE | `/api/sesiones/:id` | admin | Cierra una sesión y avisa al usuario por socket |
 | DELETE | `/api/sesiones/usuario/:usuarioId` | admin | Cierra todas las sesiones de un usuario |
 | GET | `/api/sesiones/mis-sesiones` | sesión | Últimas 50 sesiones del usuario autenticado |
@@ -64,6 +65,17 @@ listados de administración.
 | `limit` | entero | 100 | Sin tope máximo; un valor no numérico vuelve a 100 |
 
 **Respuesta 200**: arreglo plano ordenado por `created_at` descendente.
+
+### `GET /api/sesiones/app-movil`
+
+Solo el rol `admin` puede consultar esta ruta; devuelve una fila por usuario de
+gestión o conductor que haya abierto la app. Cada fila incluye `kind`,
+`id`, `nombre`, `correo`, `area`, `platform`, `first_seen_at`,
+`last_seen_at`, `sessions_count` y `en_linea`. Este último valor se deriva
+de sockets móviles conectados en primer plano y cambia con
+`mobile-presence:changed`; el historial se conserva en
+`mobile_app_activity`. La migración rellena el historial inicial a partir de
+sesiones de `app_usuario` y dispositivos push de conductores.
 
 ### `GET /api/sesiones/activas`
 

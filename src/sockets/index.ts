@@ -13,6 +13,8 @@ import { installSocketAuth, corsOrigins, resolveActor, getSocketUser } from './a
 import { registerSheetGateway } from './sheet.gateway'
 import { enviarWebPush } from '../modules/notificaciones/web-push.service'
 import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
+import { registrarPresenciaMovil, retirarPresenciaMovil } from '../modules/sesiones/mobile-presence.service'
+import { EVENTOS_PRESENCIA_MOVIL } from '../modules/sesiones/mobile-presence.events'
 
 let io: IOServer | null = null
 
@@ -101,6 +103,23 @@ export function initSockets(server: HttpServer) {
 
     socket.on('ping', () => socket.emit('pong'))
 
+    /// El cliente solo declara la plataforma. La identidad sale del token ya
+    /// validado en el handshake; un dashboard web no puede hacerse pasar por app.
+    socket.on(EVENTOS_PRESENCIA_MOVIL.entrar, async (platform: unknown) => {
+      if (platform !== 'ios' && platform !== 'android') return
+      const mobilePlatform = platform as 'ios' | 'android'
+      const user = getSocketUser(socket)
+      const identidad = user?.tokenType === 'app_usuario'
+        ? { kind: 'usuario' as const, id: user.id, platform: mobilePlatform }
+        : typeof socket.data.portalConductorId === 'string'
+          ? { kind: 'conductor' as const, id: socket.data.portalConductorId, platform: mobilePlatform }
+          : null
+      if (identidad && await registrarPresenciaMovil(socket.id, identidad)) io!.emit(EVENTOS_PRESENCIA_MOVIL.cambio)
+    })
+    socket.on(EVENTOS_PRESENCIA_MOVIL.salir, () => {
+      if (retirarPresenciaMovil(socket.id)) io!.emit(EVENTOS_PRESENCIA_MOVIL.cambio)
+    })
+
     // Presencia: un usuario autenticado anuncia su userId al conectarse al dashboard.
     //
     // El id NO se toma del payload. `user-${id}` es un room privado: por él
@@ -153,6 +172,7 @@ export function initSockets(server: HttpServer) {
     })
 
     socket.on('disconnect', () => {
+      if (retirarPresenciaMovil(socket.id)) io!.emit(EVENTOS_PRESENCIA_MOVIL.cambio)
       if (socket.data.userId) {
         onlineUserIds.delete(socket.data.userId)
         io!.emit('usuarios-online', Array.from(onlineUserIds))

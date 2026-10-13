@@ -50,7 +50,7 @@ query `?token=` y lo resuelve con `identidadDelToken`:
 | Token | Resultado |
 |---|---|
 | Del equipo (sin `tipo` o `app_usuario`) con la sesión abierta | Identidad de equipo en `socket.data.user`: `id`, `name` (nombre, o el correo), `correo`, `area` (arreglo) y `role`, **leídos de la base** con la misma comprobación que `authMiddleware` (`usuarioDeSesion`, caché de 30 s). Un `app_usuario` necesita además su enlace vigente (`sesionAppVigente`) |
-| Del portal (`conductor_portal`) | Conecta sin identidad de equipo (`socket.data.user` vacío). El gateway de formularios lo verifica por su cuenta en `forms:join` |
+| Del portal (`conductor_portal`) registrado y vigente | Conecta sin identidad de equipo (`socket.data.user` vacío), con `socket.data.portalConductorId` para presencia móvil. El gateway de formularios lo verifica por su cuenta en `forms:join` |
 | Cualquier otro: sesión cerrada o vencida, usuario inactivo, enlace de la app revocado, tokens de impresión o de días laborados, firma inválida | Token inválido |
 
 `SocketUser.area` admite también un string por compatibilidad con tokens
@@ -91,10 +91,6 @@ Lo que el handshake **no** hace, a diferencia de `authMiddleware`:
   `sesion-cerrada` a la sala del usuario para que su cliente se desconecte. Un
   cambio de áreas o rol tampoco llega al socket hasta que se reconecta; la
   reconexión sí vuelve a pasar por el handshake (`skipMiddlewares: false`).
-- **Comprobar el registro del token del portal.** Ni el handshake ni
-  `forms:join` miran `conductor_token`: un enlace revocado sigue entrando a la
-  sala de su conductor hasta que vence el JWT, aunque la API REST del portal
-  ya lo rechace.
 
 ## Salas
 
@@ -259,6 +255,8 @@ conectado.
 | `ping` / `pong` | C→S / S→C | emisor | `sockets/index.ts` | Latencia |
 | `join-dashboard` / `leave-dashboard` | C→S | — | `sockets/index.ts` | `userIdPedido` (solo respaldo) |
 | `usuarios-online` | S→C | todos | `sockets/index.ts` | Lista de ids conectados |
+| `mobile-presence:join` / `mobile-presence:leave` | C→S | — | `EVENTOS_PRESENCIA_MOVIL` | La app declara iOS o Android; la identidad sale exclusivamente del token móvil validado |
+| `mobile-presence:changed` | S→C | todos | `EVENTOS_PRESENCIA_MOVIL` | Sin datos personales; Equipo vuelve a consultar `GET /api/sesiones/app-movil`, protegido para rol admin |
 | `nueva-notificacion` | S→C | `user-<id>` | `emitNotificacion` (crons, servicios, facturación, viáticos…) | La fila de `notificacion`. Sin `usuario_id` cae a todos con aviso en el log. También dispara el Web Push |
 | `sesion-cerrada` | S→C | `user-<id>` | `sesiones.controller.ts` | `{ motivo }` |
 | `usuario-deshabilitado` | S→C | todos | `usuarios.controller.ts` | `{ usuarioId }` |
