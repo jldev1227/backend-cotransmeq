@@ -86,6 +86,7 @@ import { misCapacitacionesRoutes } from './modules/mis-capacitaciones/mis-capaci
 import { mapsRoutes } from './modules/maps/maps.routes'
 import { solicitudesWebPublicRoutes, solicitudesWebRoutes } from './modules/solicitudes-web/solicitudes-web.routes'
 import { mantenimientoRoutes } from './modules/mantenimiento/mantenimiento.routes'
+import { analiticaIndividualRoutes } from './modules/analitica-individual/analitica-individual.routes'
 
 export function buildApp() {
     const app = fastify({ logger: logger as any })
@@ -290,6 +291,7 @@ export function buildApp() {
     app.register(solicitudesWebPublicRoutes, { prefix: '/api' })
     app.register(solicitudesWebRoutes, { prefix: '/api' })
     app.register(mantenimientoRoutes, { prefix: '/api' })
+    app.register(analiticaIndividualRoutes, { prefix: '/api' })
 
     // sockets are initialized in server
     return app

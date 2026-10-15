@@ -20,6 +20,8 @@ const clienteBaseSchema = z.object({
   cedula: z.string().optional().nullable(),
   telefono: z.string().optional().nullable(),
   direccion: z.string().optional().nullable(),
+  municipio_sede: z.string().max(255).optional().nullable(),
+  departamento_sede: z.string().max(255).optional().nullable(),
   /// Vacío equivale a «sin correo»: borrar el campo al editar no es un correo
   /// mal escrito.
   correo: z.preprocess(

@@ -25,6 +25,7 @@ export const createVehiculoSchema = z.object({
   numero_chasis: z.string().optional(),
   propietario_nombre: z.string().optional(),
   propietario_identificacion: z.string().optional(),
+  tercero_propietario_id: z.string().uuid().nullable().optional(),
   kilometraje: z.number().int().min(0).optional(),
   estado: EstadoVehiculoEnum.optional(),
   fecha_matricula: z.string().optional(),

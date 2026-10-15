@@ -17,6 +17,8 @@ camelCase: `createdAt`, `updatedAt` y `deletedAt`.
   historial.
 - `requiere_osi` y `paga_recargos` son banderas de negocio que leen otros
   módulos.
+- `municipio_sede` y `departamento_sede` ubican la sede principal para medir
+  cobertura sin inferirla de la dirección libre.
 
 ## Acceso
 

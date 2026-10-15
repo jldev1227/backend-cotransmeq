@@ -3,8 +3,9 @@
 `/api/vehiculos` y `/api/flota/basicos` · código en [`src/modules/vehiculos/`](../../src/modules/vehiculos/) · permiso [`flota`](../permisos.md#catálogo-de-módulos) para escribir
 
 Ficha de cada vehículo de la flota (tabla `vehiculos`): placa única, datos de la
-tarjeta de propiedad, propietario en texto libre (`propietario_nombre`,
-`propietario_identificacion`; no es una FK a [terceros](./terceros.md)),
+tarjeta de propiedad, propietario vinculado por `tercero_propietario_id` a
+[terceros](./terceros.md) y su snapshot visible en `propietario_nombre` y
+`propietario_identificacion`,
 conductor titular (`conductor_id`), estado operativo (`disponible`, `programado`,
 `servicio`, `mantenimiento`, `inactivo`, `desvinculado`) y kilometraje. La hoja de
 vida documental está en [vehiculos-documentos](./vehiculos-documentos.md), los
@@ -20,6 +21,9 @@ lo escribe cada hora el cron `sincronizar-kilometraje` con el `km_final` del úl
 preoperacional entregado, y nunca lo baja. Las columnas del FUEC
 (`numero_interno`, `tarjeta_operacion`, `empresa_afiliacion`) tampoco se escriben
 aquí: las completa la emisión de [extractos](./extractos.md).
+
+Cambiar `tercero_propietario_id` modifica la afiliación vigente. No reescribe los
+propietarios ni valores guardados en liquidaciones y cierres finales anteriores.
 
 ## Acceso
 

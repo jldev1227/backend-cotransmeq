@@ -34,6 +34,8 @@ export const ClientesService = {
         cedula: data.cedula,
         telefono: data.telefono,
         direccion: data.direccion,
+        municipio_sede: data.municipio_sede,
+        departamento_sede: data.departamento_sede,
         correo: data.correo,
         requiere_osi: data.requiere_osi || false,
         paga_recargos: data.paga_recargos || false,

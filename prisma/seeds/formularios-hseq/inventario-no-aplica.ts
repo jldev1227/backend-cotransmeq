@@ -27,7 +27,7 @@
  * ─────────────────────────
  * Una versión publicada no se muta: sus campos son las columnas de los
  * informes y el esqueleto de los borradores en curso. El script usa el mismo
- * camino que el dashboard: `clonarVersion` (borrador nuevo, ids nuevos),
+ * camino que el dashboard: clona como `clonarVersion` (borrador nuevo, ids nuevos),
  * modifica el borrador, `publicarVersion` (que valida y rechaza si algo está
  * mal) y, como `version_id` de una asignación no se cambia, crea una asignación
  * nueva igual a la vigente contra la versión nueva y cierra la vieja. Los
@@ -44,8 +44,10 @@
  */
 
 import { Prisma } from '@prisma/client'
+import { randomUUID } from 'crypto'
 import { prisma } from '../../../src/config/prisma'
-import { clonarVersion, publicarVersion } from '../../../src/modules/formularios-dinamicos/formularios-dinamicos.service'
+import { publicarVersion } from '../../../src/modules/formularios-dinamicos/formularios-dinamicos.service'
+import { copyVersionTree, nextVersionNumber } from '../../../src/modules/formularios-dinamicos/formularios-dinamicos.repository'
 import {
   cambiarEstadoAsignacion,
   crearAsignacion,
@@ -54,6 +56,10 @@ import type { CrearAsignacionInput } from '../../../src/modules/formularios-dina
 
 const REVISION = 'inventario-no-aplica-2026-10'
 const NA = { value: 'NA', label: 'No aplica', color: 'gray' }
+
+/// Copiar ~130 campos son cientos de consultas: por el túnel a producción pasan
+/// de los 5 s que Prisma da por defecto a una transacción interactiva.
+const TX = { timeout: 300_000, maxWait: 30_000 }
 
 interface Objetivo {
   code: string
@@ -227,7 +233,38 @@ async function modificarBorrador(obj: Objetivo, versionId: string) {
     // Dos pasadas: primero fuera del rango, luego el definitivo (índice único por orden).
     for (const [i, c] of orden.entries()) await tx.form_field.update({ where: { id: c.id }, data: { sort_order: 1_000_000 + i } })
     for (const [i, c] of orden.entries()) await tx.form_field.update({ where: { id: c.id }, data: { sort_order: (i + 1) * 100 } })
-  })
+  }, TX)
+}
+
+/**
+ * Lo mismo que `clonarVersion` del motor (borrador nuevo con el árbol copiado e
+ * ids nuevos), pero con el tiempo de transacción de arriba y ya marcado con la
+ * revisión.
+ */
+async function clonar(
+  formId: string,
+  origen: { id: string; title: string; description: string | null; instructions: string | null; settings_json: Prisma.JsonValue; source_metadata_json: Prisma.JsonValue },
+  actorId: string,
+) {
+  const id = randomUUID()
+  await prisma.$transaction(async (tx) => {
+    await tx.form_version.create({
+      data: {
+        id,
+        form_id: formId,
+        version_number: await nextVersionNumber(tx, formId),
+        status: 'DRAFT',
+        title: origen.title,
+        description: origen.description,
+        instructions: origen.instructions,
+        settings_json: origen.settings_json as Prisma.InputJsonValue,
+        source_metadata_json: { ...(origen.source_metadata_json as object), revision: REVISION } as Prisma.InputJsonValue,
+        created_by_id: actorId,
+      },
+    })
+    await copyVersionTree(tx, { sourceVersionId: origen.id, targetVersionId: id })
+  }, TX)
+  return prisma.form_version.findUniqueOrThrow({ where: { id } })
 }
 
 async function main() {
@@ -264,15 +301,12 @@ async function main() {
     // Borrador nuevo (o el que dejó una ejecución anterior) y publicación.
     let nueva = yaHecha
     if (!nueva) {
-      const clon = await clonarVersion(form.id, origen.id, actor)
-      nueva = await prisma.form_version.update({
-        where: { id: clon.id },
-        data: { source_metadata_json: { ...(origen.source_metadata_json as object), revision: REVISION } as Prisma.InputJsonValue },
-      })
-      await modificarBorrador(obj, nueva.id)
+      nueva = await clonar(form.id, origen, actor.id)
       console.log(`  borrador v${nueva.version_number} creado (${nueva.id})`)
     }
     if (nueva.status === 'DRAFT') {
+      /// Idempotente: si una ejecución anterior clonó pero no alcanzó a modificar, aquí se completa.
+      await modificarBorrador(obj, nueva.id)
       const r = await publicarVersion(form.id, nueva.id, actor)
       console.log(`  v${nueva.version_number} publicada · ${r.validation.warnings.length} advertencia(s)`)
       for (const w of r.validation.warnings) console.log(`    ⚠ ${w.message}`)

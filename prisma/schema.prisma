@@ -649,6 +649,8 @@ model clientes {
   cedula                        String?                         @db.VarChar(50)
   telefono                      String?                         @db.VarChar(50)
   direccion                     String?                         @db.VarChar(255)
+  municipio_sede                String?                         @db.VarChar(255)
+  departamento_sede             String?                         @db.VarChar(255)
   createdAt                     DateTime?                       @db.Timestamp(6)
   updatedAt                     DateTime?                       @db.Timestamp(6)
   deletedAt                     DateTime?                       @db.Timestamp(6)
@@ -1612,6 +1614,7 @@ model vehiculos {
   fecha_matricula                           String?                                   @db.VarChar(255)
   created_at                                DateTime                                  @db.Timestamptz(6)
   propietario_id                            String?                                   @db.Uuid
+  tercero_propietario_id                    String?                                   @db.Uuid
   updated_at                                DateTime                                  @db.Timestamptz(6)
   deleted_at                                DateTime?                                 @db.Timestamptz(6)
   id                                        String                                    @id @db.Uuid
@@ -1630,6 +1633,7 @@ model vehiculos {
   registros_dia_mantenimiento               registro_dia_laboral[]                    @relation("mantenimiento_vehiculo")
   conductores                               conductores?                              @relation(fields: [conductor_id], references: [id])
   usuarios                                  usuarios?                                 @relation(fields: [propietario_id], references: [id])
+  tercero_propietario                       terceros?                                 @relation("vehiculo_tercero_propietario", fields: [tercero_propietario_id], references: [id], onDelete: SetNull)
   form_assignment_targets                   form_assignment_target[]                  @relation("form_assignment_target_vehiculo")
   form_submissions                          form_submission[]                         @relation("form_submission_vehiculo")
   excesos_velocidad                         excesos_velocidad[]
@@ -1648,6 +1652,8 @@ model vehiculos {
   viatico_anticipos               viatico_anticipo[]          @relation("viatico_anticipo_vehiculo")
   viatico_solicitudes             viatico_solicitud[]         @relation("viatico_solicitud_vehiculo")
   gastos_empresa_viaticos viatico_gasto_empresa[] @relation("viatico_gasto_empresa_vehiculo")
+
+  @@index([tercero_propietario_id])
 }
 
 /// Formularios de asistencia creados por administradores
@@ -2103,6 +2109,7 @@ model terceros {
   envios_liquidacion                        liquidacion_tercero_envio[]
   anticipos_viaticos                        viatico_anticipo[]                        @relation("viatico_anticipo_tercero")
   gastos_viaticos                           viatico_gasto_empresa[]                   @relation("viatico_gasto_empresa_tercero")
+  vehiculos_propios                         vehiculos[]                               @relation("vehiculo_tercero_propietario")
 
   // ── PESV ─ relaciones inversas
   contratos_transporte transport_contract[] @relation("contrato_tercero")

@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-765 rutas en 62 módulos, más `GET /` (salud) y las que
+766 rutas en 63 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -11,6 +11,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 |---|--:|
 | [`acciones-correctivas`](./acciones-correctivas.md) | 26 |
 | [`actividad`](./actividad.md) | 2 |
+| [`analitica-individual`](./analitica-individual.md) | 1 |
 | [`app-usuarios`](./app-usuarios.md) | 6 |
 | [`asistencias`](./asistencias.md) | 16 |
 | [`asistente`](./asistente.md) | 2 |
@@ -109,6 +110,12 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 |---|---|---|
 | GET | `/api/actividad` | `src/modules/actividad/actividad.routes.ts:47` |
 | GET | `/api/actividad/opciones` | `src/modules/actividad/actividad.routes.ts:105` |
+
+## analitica-individual
+
+| Método | Ruta | Declarada en |
+|---|---|---|
+| GET | `/api/analitica-individual/:tipo/:id` | `src/modules/analitica-individual/analitica-individual.routes.ts:17` |
 
 ## app-usuarios
 
