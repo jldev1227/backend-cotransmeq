@@ -59,8 +59,8 @@ export const SECCIONES: readonly Seccion[] = [
   },
   {
     id: 'facturacion',
-    titulo: 'Facturación',
-    descripcion: 'Liquidaciones por facturar, facturado por cliente, tercero y placa.',
+    titulo: 'Financiero',
+    descripcion: 'Facturación, rentabilidad estimada, costos, cartera y pagos pendientes.',
     areas: ['facturacion', 'administracion'],
     modulos: ['liquidaciones-servicios'],
   },

@@ -18,7 +18,7 @@ pasa dos filtros, los dos obligatorios (`secciones.ts`):
 | `hseq` | HSEQ | `hseq`, `administracion` | `formularios`, `conductores` |
 | `mantenimiento` | Mantenimiento | `mantenimiento`, `administracion` | `flota`, `mantenimiento` |
 | `talento_humano` | Talento humano | `talento_humano`, `administracion` | `conductores` |
-| `facturacion` | Facturación | `facturacion`, `administracion` | `liquidaciones-servicios` |
+| `facturacion` | Financiero | `facturacion`, `administracion` | `liquidaciones-servicios` |
 | `contabilidad` | Contabilidad | `contabilidad`, `administracion` | `terceros` |
 
 Dentro de cada sección, los bloques que leen de **otro** módulo se omiten uno a
@@ -92,10 +92,23 @@ Cada elemento de lista trae un `enlace` a la pantalla del frontend.
 | `hseq` | `kpis`, `en_servicio` (conductores en servicio, con su servicio en curso y si hicieron el preoperacional hoy), `preoperacionales` (HSEQ-FR-08 y HSEQ-FR-09 entregados, por día y por hora), `ranking_formularios`, `dias_laborados` (10), `descansos` (ciclo 21-9 en una ventana de 45 días) | `fatiga` (`recargos`: horas por jornada, jornadas de más de 12 h, racha sin descanso y sueño reportado), `horas_laboradas` (`recargos` o `recorridos`), `hora_realizacion` (`servicios`) |
 | `mantenimiento` | `kpis`, `planes` (vencidos, próximos, órdenes abiertas, costo del mes), `enlaces`, `estado_vehiculos` (último preoperacional por placa con ítems en Malo), `items_malos`, `placas_con_novedades`, `mantenimientos`, `kilometraje`, `vencimientos` (documentos vencidos o que vencen en 30 días) | sin bloques condicionados; con `formularios` los enlaces abren el envío completo y sin él, el resumen de la pantalla de Mantenimiento |
 | `talento_humano` | `kpis`, `pendientes` (datos faltantes de la ficha de los vinculados), `sin_contrato`, `licencias` (vencidas o que vencen en 60 días), `seguridad_social` (`defecto`, `sin_dato`, `puede_editar` = `conductores` con `full`), `dias_laborados`, `descansos` | `nomina` (`nomina`: liquidaciones en estado Liquidado del periodo, los 12 mejor pagados y los últimos 6 periodos) |
-| `facturacion` | `kpis` (por facturar, por aprobar, facturado y anuladas), `por_facturar` (30 liquidaciones APROBADAS), `facturado_mes_a_mes` (6 meses), `ranking_clientes` | `terceros_mes_a_mes`, `previstas_pagar`, `ranking_terceros`, `ranking_placas` (`liquidaciones-terceros`) |
+| `facturacion` | `kpis` (por facturar, por aprobar, facturado y anuladas), `por_facturar` (30 liquidaciones APROBADAS), `facturado_mes_a_mes` (6 meses), `ranking_clientes`, `finanzas` (ingresos liquidados y facturados, costos identificados por fuente, margen estimado, cartera de las facturas del periodo) | costos por `liquidaciones-terceros`, `nomina`, `viaticos`, `combustible` y `mantenimiento` solo aparecen con acceso al módulo correspondiente; `previstas_pagar`, `terceros_mes_a_mes`, `ranking_terceros` y `ranking_placas` requieren `liquidaciones-terceros`; la cartera requiere `cartera` |
 | `contabilidad` | `kpis` (terceros sin identificación o sin contacto), `terceros_incompletos` (40) | el mismo bloque de terceros (`liquidaciones-terceros`) |
 
 Las fórmulas y fuentes de cada cifra están comentadas en su `seccion-*.ts`.
+
+El margen es **estimado**, no un estado de resultados contable: compara el total de
+liquidaciones de servicio no anuladas (por mes de servicio) con cierres aprobados o
+pagados a terceros, nómina neta liquidada, viáticos legalizados, gastos de empresa
+clasificados como oficina/bancarios/otros/servicios profesionales, combustible y
+órdenes ejecutadas de mantenimiento, según los permisos disponibles. Se marca como
+parcial si falta acceso a alguna fuente. Los gastos directos a conductores y la
+categoría de mantenimiento pagada por viáticos se presentan aparte para no duplicar
+nómina u órdenes. También puede haber cruces entre pagos a terceros, combustible y
+mantenimiento si un mismo costo se registró en varios módulos. No suma gastos fijos
+ni impuestos que no estén registrados ahí.
+Las facturas se cuentan por fecha de registro; las liquidaciones y cierres por mes de
+servicio; el resto por la fecha registrada en cada módulo.
 
 **Errores**
 

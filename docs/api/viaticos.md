@@ -38,7 +38,7 @@ Reglas del módulo:
   o eliminar un anticipo o gasto que salió del fondo deja un `AJUSTE` o un
   `REVERSO`.
 - **Gastos de la empresa** (`viatico_gasto_empresa`): oficina, mantenimiento,
-  pagos a conductores, cobros bancarios u otros, que asume la empresa o el tercero
+  pagos a conductores, cobros bancarios, servicios profesionales u otros, que asume la empresa o el tercero
   propietario de una placa.
 - Anticipos y gastos de la empresa tienen borrado lógico (`deleted_at`); las
   lecturas lo filtran.
@@ -339,7 +339,7 @@ Cada gasto:
 
 | Campo | Tipo | Obligatorio | Notas |
 |---|---|---|---|
-| `categoria` | `OFICINA` \| `MANTENIMIENTO` \| `CONDUCTOR` \| `BANCARIO` \| `OTRO` | sí | `CONDUCTOR` exige `conductor_id` |
+| `categoria` | `OFICINA` \| `MANTENIMIENTO` \| `CONDUCTOR` \| `BANCARIO` \| `PROFESIONAL` \| `OTRO` | sí | `PROFESIONAL` identifica honorarios y servicios contratados; `CONDUCTOR` exige `conductor_id` |
 | `asume` | `EMPRESA` \| `TERCERO` | no | `EMPRESA` por defecto. `TERCERO` exige `vehiculo_id`; un `BANCARIO` no puede ser `TERCERO` |
 | `tercero_id` | uuid | no | Con `TERCERO`: el indicado o el propietario de la placa (409 `PLACA_SIN_TERCERO` si no tiene) |
 | `descripcion` | string 3–1000 | sí | |

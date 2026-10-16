@@ -25,6 +25,7 @@ import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import type { Periodo } from './periodo'
 import { enMeses } from './seccion-operaciones'
+import { resumenFinanciero } from './seccion-finanzas'
 
 const MESES_HISTORICO = 6
 
@@ -158,6 +159,7 @@ export async function seccionFacturacion(ctx: ContextoSeccion): Promise<Record<s
   }
 
   if (modulos['liquidaciones-terceros']) Object.assign(data, await bloqueTerceros(periodo))
+  data.finanzas = await resumenFinanciero(ctx, facturado[0]?.valor ?? 0, Boolean(modulos['liquidaciones-terceros']))
   return data
 }
 

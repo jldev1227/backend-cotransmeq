@@ -31,7 +31,7 @@ const aFecha = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
 const deFecha = (d: Date) => d.toISOString().slice(0, 10)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-export const CATEGORIAS_GASTO = ['OFICINA', 'MANTENIMIENTO', 'CONDUCTOR', 'BANCARIO', 'OTRO'] as const
+export const CATEGORIAS_GASTO = ['OFICINA', 'MANTENIMIENTO', 'CONDUCTOR', 'BANCARIO', 'PROFESIONAL', 'OTRO'] as const
 export const METODOS_GASTO = ['TRANSFERENCIA', 'RETIRO_TARJETA', 'EFECTIVO', 'DEBITO_AUTOMATICO'] as const
 export const ASUME_GASTO = ['EMPRESA', 'TERCERO'] as const
 
