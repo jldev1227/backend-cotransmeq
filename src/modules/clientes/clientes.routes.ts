@@ -90,7 +90,9 @@ export async function clientesRoutes(app: FastifyInstance) {
           tipo: { type: 'string', enum: ['EMPRESA', 'PERSONA_NATURAL', 'TODOS'] },
           search: { type: 'string', description: 'Búsqueda en nombre, NIT, representante, cédula, teléfono, correo y dirección' },
           orden: { type: 'string', enum: ['asc', 'desc'], description: 'Orden alfabético por nombre' },
-          incluir_ocultos: { type: 'string', enum: ['true', 'false'], description: 'Selectores: incluir clientes ocultos' }
+          incluir_ocultos: { type: 'string', enum: ['true', 'false'], description: 'Selectores: incluir clientes ocultos' },
+          requiere_osi: { type: 'string', enum: ['true', 'false'] },
+          paga_recargos: { type: 'string', enum: ['true', 'false'] }
         }
       }
     }
@@ -105,6 +107,17 @@ export async function clientesRoutes(app: FastifyInstance) {
     schema: {
       description: 'Obtener lista de clientes ocultos (solo admin)',
       tags: ['clientes'],
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'string' },
+          limit: { type: 'string' },
+          tipo: { type: 'string' },
+          search: { type: 'string' },
+          requiere_osi: { type: 'string', enum: ['true', 'false'] },
+          paga_recargos: { type: 'string', enum: ['true', 'false'] }
+        }
+      },
       response: {
         200: {
           type: 'object',
@@ -112,7 +125,17 @@ export async function clientesRoutes(app: FastifyInstance) {
             success: { type: 'boolean' },
             message: { type: 'string' },
             data: { type: 'array' },
-            total: { type: 'number' }
+            total: { type: 'number' },
+            resumen: {
+              type: 'object',
+              properties: {
+                total: { type: 'number' },
+                empresas: { type: 'number' },
+                personas: { type: 'number' },
+                conOSI: { type: 'number' },
+                conRecargos: { type: 'number' }
+              }
+            }
           }
         },
         403: {

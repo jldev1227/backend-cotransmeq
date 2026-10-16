@@ -52,13 +52,15 @@ export const ClientesController = {
   },
 
   async obtenerTodos(request: FastifyRequest, reply: FastifyReply) {
-    const { page, limit, tipo, search, orden, incluir_ocultos } = request.query as {
+    const { page, limit, tipo, search, orden, incluir_ocultos, requiere_osi, paga_recargos } = request.query as {
       page?: string
       limit?: string
       tipo?: string
       search?: string
       orden?: string
       incluir_ocultos?: string
+      requiere_osi?: string
+      paga_recargos?: string
     }
     
     const pageNum = page ? parseInt(page) : 1
@@ -71,6 +73,8 @@ export const ClientesController = {
       search,
       orden === 'desc' ? 'desc' : 'asc',
       incluir_ocultos === 'true',
+      requiere_osi === 'true' ? true : requiere_osi === 'false' ? false : undefined,
+      paga_recargos === 'true' ? true : paga_recargos === 'false' ? false : undefined,
     )
     
     reply.send({
@@ -177,7 +181,9 @@ export const ClientesController = {
       parseInt(query.page) || 1,
       parseInt(query.limit) || 10,
       query.tipo || undefined,
-      query.search || undefined
+      query.search || undefined,
+      query.requiere_osi === 'true' ? true : query.requiere_osi === 'false' ? false : undefined,
+      query.paga_recargos === 'true' ? true : query.paga_recargos === 'false' ? false : undefined
     )
     return reply.send({ success: true, message: 'Papelera de clientes', ...result })
   },
@@ -310,7 +316,14 @@ export const ClientesController = {
       const tipo = query.tipo || undefined
       const search = query.search || undefined
 
-      const result = await ClientesService.obtenerOcultos(page, limit, tipo, search)
+      const result = await ClientesService.obtenerOcultos(
+        page,
+        limit,
+        tipo,
+        search,
+        query.requiere_osi === 'true' ? true : query.requiere_osi === 'false' ? false : undefined,
+        query.paga_recargos === 'true' ? true : query.paga_recargos === 'false' ? false : undefined
+      )
       
       return reply.send({
         success: true,

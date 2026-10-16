@@ -68,6 +68,7 @@ con todos los no eliminados, ocultos incluidos, por nombre.
 | `search` | string | — | Nombre, NIT, representante, cédula, teléfono, correo o dirección (contiene, sin distinguir mayúsculas) |
 | `orden` | `asc` \| `desc` | `asc` | Por nombre |
 | `incluir_ocultos` | `'true'` \| `'false'` | `'false'` | |
+| `requiere_osi`, `paga_recargos` | `'true'` \| `'false'` | — | Filtra por las condiciones del cliente; se pueden combinar entre sí y con los demás filtros. |
 
 **Respuesta 200**
 
@@ -76,8 +77,13 @@ con todos los no eliminados, ocultos incluidos, por nombre.
   "data": [ { "id": "uuid", "tipo": "EMPRESA", "nombre": "…", "nit": "…", "correo": "…", "oculto": false,
               "requiere_osi": false, "paga_recargos": true, "createdAt": "…", "updatedAt": "…", "deletedAt": null,
               "_count": { "recargos": 3, "pernotes": 0, "servicio": 40 } } ],
+  "resumen": { "total": 57, "empresas": 41, "personas": 16, "conOSI": 12, "conRecargos": 24 },
   "pagination": { "page": 1, "limit": 10, "total": 57, "pages": 6, "hasNext": true, "hasPrev": false } }
 ```
+
+`resumen` agrupa sobre la vista y la búsqueda actual, sin reducir los conteos por
+los filtros `tipo`, `requiere_osi` o `paga_recargos`. `pagination.total` sí
+representa los resultados que cumplen todos los filtros.
 
 ### `GET /api/clientes/buscar`
 
@@ -89,12 +95,13 @@ cédula o correo), `page` y `limit` (máximo 100; por defecto 1 y 20). Orden:
 
 ### `GET /api/clientes/ocultos` · `GET /api/clientes/papelera`
 
-**Query**: `page`, `limit`, `tipo`, `search`. `ocultos` lista los no eliminados
-con `oculto = true` (por `updatedAt` descendente); `papelera`, los eliminados
-(por `deletedAt` descendente).
+**Query**: `page`, `limit`, `tipo`, `search`, `requiere_osi` y `paga_recargos`.
+Las dos banderas aceptan `'true'` o `'false'` y se pueden combinar. `ocultos`
+lista los no eliminados con `oculto = true` (por `updatedAt` descendente);
+`papelera`, los eliminados (por `deletedAt` descendente).
 
-- `papelera`: `{ success, message: 'Papelera de clientes', data, pagination: { page, limit, total, pages } }`.
-- `ocultos`: `{ success, message, data }`. El esquema de respuesta recorta la
+- `papelera`: `{ success, message: 'Papelera de clientes', data, resumen, pagination: { page, limit, total, pages } }`.
+- `ocultos`: `{ success, message, data, resumen }`. El esquema de respuesta recorta la
   paginación (ver Observaciones). **500** `{ success: false, message, error }`.
 
 ### `GET /api/clientes/:id`

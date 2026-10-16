@@ -3,6 +3,32 @@ import { randomUUID } from 'crypto'
 import { prisma } from '../../config/prisma'
 import { CreateClienteInput, UpdateClienteInput, BuscarClientesInput } from './cliente.schema'
 
+/**
+ * Calcula las facetas sobre la búsqueda y la vista, antes de aplicar los
+ * filtros de tipo/OSI/recargos. Así los chips siguen mostrando opciones reales
+ * aunque la página tenga veinte filas o uno de esos filtros esté activo.
+ */
+async function resumirClientes(where: any) {
+  const grupos = await prisma.clientes.groupBy({
+    by: ['tipo', 'requiere_osi', 'paga_recargos'],
+    where,
+    _count: { _all: true },
+  })
+
+  return grupos.reduce(
+    (resumen, grupo) => {
+      const cantidad = grupo._count._all
+      resumen.total += cantidad
+      if (grupo.tipo === 'EMPRESA') resumen.empresas += cantidad
+      if (grupo.tipo === 'PERSONA_NATURAL') resumen.personas += cantidad
+      if (grupo.requiere_osi) resumen.conOSI += cantidad
+      if (grupo.paga_recargos) resumen.conRecargos += cantidad
+      return resumen
+    },
+    { total: 0, empresas: 0, personas: 0, conOSI: 0, conRecargos: 0 },
+  )
+}
+
 export const ClientesService = {
   async create(data: CreateClienteInput) {
     if (data.nit) {
@@ -61,22 +87,21 @@ export const ClientesService = {
     orden: 'asc' | 'desc' = 'asc',
     /** Selectores: los ocultos también se pueden elegir. */
     incluirOcultos = false,
+    requiereOsi?: boolean,
+    pagaRecargos?: boolean,
   ) {
     const skip = (page - 1) * limit;
     
-    const where: any = { 
+    const whereBase: any = {
       deletedAt: null,
       oculto: false // Excluir clientes ocultos
     };
-    if (incluirOcultos) delete where.oculto;
+    if (incluirOcultos) delete whereBase.oculto;
 
-    if (tipo && tipo !== 'TODOS') {
-      where.tipo = tipo;
-    }
-
-    // Búsqueda en múltiples campos
+    // Se copia la búsqueda antes de añadir filtros facetados para que los
+    // contadores describan todo el conjunto visible bajo esta consulta.
     if (search && search.trim() !== '') {
-      where.OR = [
+      whereBase.OR = [
         { nombre: { contains: search, mode: 'insensitive' } },
         { nit: { contains: search, mode: 'insensitive' } },
         { representante: { contains: search, mode: 'insensitive' } },
@@ -86,8 +111,16 @@ export const ClientesService = {
         { direccion: { contains: search, mode: 'insensitive' } },
       ];
     }
-    
-    const [clientes, total] = await Promise.all([
+
+    const where: any = { ...whereBase };
+
+    if (tipo && tipo !== 'TODOS') {
+      where.tipo = tipo;
+    }
+    if (requiereOsi !== undefined) where.requiere_osi = requiereOsi;
+    if (pagaRecargos !== undefined) where.paga_recargos = pagaRecargos;
+
+    const [clientes, total, resumen] = await Promise.all([
       // @ts-ignore
       prisma.clientes.findMany({
         where,
@@ -104,11 +137,13 @@ export const ClientesService = {
           }
         }
       }),
-      prisma.clientes.count({ where })
+      prisma.clientes.count({ where }),
+      resumirClientes(whereBase),
     ]);
 
     return {
       data: clientes,
+      resumen,
       pagination: {
         page,
         limit,
@@ -370,21 +405,23 @@ export const ClientesService = {
   /**
    * Obtener clientes ocultos (admin only)
    */
-  async obtenerOcultos(page: number = 1, limit: number = 10, tipo?: string, search?: string) {
+  async obtenerOcultos(
+    page: number = 1,
+    limit: number = 10,
+    tipo?: string,
+    search?: string,
+    requiereOsi?: boolean,
+    pagaRecargos?: boolean,
+  ) {
     const skip = (page - 1) * limit;
     
-    const where: any = { 
+    const whereBase: any = {
       deletedAt: null,
       oculto: true // Solo clientes ocultos
     };
 
-    if (tipo && tipo !== 'TODOS') {
-      where.tipo = tipo;
-    }
-
-    // Búsqueda en múltiples campos
     if (search && search.trim() !== '') {
-      where.OR = [
+      whereBase.OR = [
         { nombre: { contains: search, mode: 'insensitive' } },
         { nit: { contains: search, mode: 'insensitive' } },
         { representante: { contains: search, mode: 'insensitive' } },
@@ -394,8 +431,16 @@ export const ClientesService = {
         { direccion: { contains: search, mode: 'insensitive' } },
       ];
     }
-    
-    const [clientes, total] = await Promise.all([
+
+    const where: any = { ...whereBase };
+
+    if (tipo && tipo !== 'TODOS') {
+      where.tipo = tipo;
+    }
+    if (requiereOsi !== undefined) where.requiere_osi = requiereOsi;
+    if (pagaRecargos !== undefined) where.paga_recargos = pagaRecargos;
+
+    const [clientes, total, resumen] = await Promise.all([
       // @ts-ignore
       prisma.clientes.findMany({
         where,
@@ -412,11 +457,13 @@ export const ClientesService = {
           }
         }
       }),
-      prisma.clientes.count({ where })
+      prisma.clientes.count({ where }),
+      resumirClientes(whereBase),
     ]);
 
     return {
       data: clientes,
+      resumen,
       pagination: {
         page,
         limit,
@@ -468,12 +515,18 @@ export const ClientesService = {
    * verlos ni devolverlos (salvo de uno en uno, conociendo el id). Misma
    * forma que la papelera de conductores.
    */
-  async obtenerPapelera(page: number = 1, limit: number = 10, tipo?: string, search?: string) {
+  async obtenerPapelera(
+    page: number = 1,
+    limit: number = 10,
+    tipo?: string,
+    search?: string,
+    requiereOsi?: boolean,
+    pagaRecargos?: boolean,
+  ) {
     const skip = (page - 1) * limit;
-    const where: any = { deletedAt: { not: null } };
-    if (tipo && tipo !== 'TODOS') where.tipo = tipo;
+    const whereBase: any = { deletedAt: { not: null } };
     if (search && search.trim() !== '') {
-      where.OR = [
+      whereBase.OR = [
         { nombre: { contains: search, mode: 'insensitive' } },
         { nit: { contains: search, mode: 'insensitive' } },
         { representante: { contains: search, mode: 'insensitive' } },
@@ -481,7 +534,11 @@ export const ClientesService = {
         { correo: { contains: search, mode: 'insensitive' } },
       ];
     }
-    const [clientes, total] = await Promise.all([
+    const where: any = { ...whereBase };
+    if (tipo && tipo !== 'TODOS') where.tipo = tipo;
+    if (requiereOsi !== undefined) where.requiere_osi = requiereOsi;
+    if (pagaRecargos !== undefined) where.paga_recargos = pagaRecargos;
+    const [clientes, total, resumen] = await Promise.all([
       prisma.clientes.findMany({
         where,
         skip,
@@ -498,9 +555,11 @@ export const ClientesService = {
         },
       }),
       prisma.clientes.count({ where }),
+      resumirClientes(whereBase),
     ]);
     return {
       data: clientes,
+      resumen,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   },

@@ -37,3 +37,9 @@ georreferenciadas. Para clientes también devuelve `zonas_historicas`, agregadas
 servicio para todo el historial disponible. Las ubicaciones usan coordenadas exactas del
 servicio y recurren al centro del municipio cuando no hay punto exacto. El tercero incluye
 vehículos vigentes, notas y liquidaciones finales.
+
+Las fichas de conductor y vehículo también devuelven `zonas` y `rutas` calculadas a partir
+de los servicios asociados dentro del período consultado. Las zonas agrupan origen y destino
+por municipio (o por ubicación específica cuando no hay municipio) y cuentan una sola vez
+cada servicio en una misma zona; las rutas solo se devuelven cuando ambos extremos tienen
+coordenadas exactas o el centro del municipio.

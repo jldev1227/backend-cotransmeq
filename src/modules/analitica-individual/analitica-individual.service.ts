@@ -62,7 +62,7 @@ function faltantes(campos: Record<string, unknown>) {
     .map(([campo]) => campo)
 }
 
-function agruparZonasCliente(servicios: any[]) {
+function agruparZonasServicios(servicios: any[]) {
   const zonas = new Map<string, { nombre: string; departamento: string | null; servicios: Set<string>; latitudes: number[]; longitudes: number[] }>()
   for (const servicio of servicios) {
     const extremos = [
@@ -118,6 +118,50 @@ function agruparZonasCliente(servicios: any[]) {
     .slice(0, 30)
 }
 
+function construirRutas(servicios: any[]) {
+  return servicios
+    .map((servicio) => ({
+      servicio,
+      origenLatitud: servicio.origen_latitud ?? servicio.municipios_servicio_origen_idTomunicipios?.latitud,
+      origenLongitud: servicio.origen_longitud ?? servicio.municipios_servicio_origen_idTomunicipios?.longitud,
+      destinoLatitud: servicio.destino_latitud ?? servicio.municipios_servicio_destino_idTomunicipios?.latitud,
+      destinoLongitud: servicio.destino_longitud ?? servicio.municipios_servicio_destino_idTomunicipios?.longitud,
+    }))
+    .filter(({ origenLatitud, origenLongitud, destinoLatitud, destinoLongitud }) =>
+      [origenLatitud, origenLongitud, destinoLatitud, destinoLongitud].every(
+        (coordenada) => coordenada != null && Number.isFinite(Number(coordenada)),
+      ),
+    )
+    .map(({ servicio, origenLatitud, origenLongitud, destinoLatitud, destinoLongitud }) => ({
+      servicio_id: servicio.id,
+      origen: {
+        nombre: servicio.municipios_servicio_origen_idTomunicipios?.nombre_municipio ?? servicio.origen_especifico,
+        latitud: origenLatitud,
+        longitud: origenLongitud,
+      },
+      destino: {
+        nombre: servicio.municipios_servicio_destino_idTomunicipios?.nombre_municipio ?? servicio.destino_especifico,
+        latitud: destinoLatitud,
+        longitud: destinoLongitud,
+      },
+    }))
+}
+
+const camposUbicacionServicio = {
+  origen_especifico: true,
+  destino_especifico: true,
+  origen_latitud: true,
+  origen_longitud: true,
+  destino_latitud: true,
+  destino_longitud: true,
+  municipios_servicio_origen_idTomunicipios: {
+    select: { id: true, nombre_municipio: true, nombre_departamento: true, latitud: true, longitud: true },
+  },
+  municipios_servicio_destino_idTomunicipios: {
+    select: { id: true, nombre_municipio: true, nombre_departamento: true, latitud: true, longitud: true },
+  },
+} as const
+
 async function conductor(id: string, periodo: PeriodoAnalitica) {
   const meses = rangoMeses(periodo)
   const [ficha, jornadas, servicios, planillas, liquidaciones, formularios, extractos] = await Promise.all([
@@ -145,7 +189,7 @@ async function conductor(id: string, periodo: PeriodoAnalitica) {
           { fecha_realizacion: null, fecha_solicitud: { gte: periodo.desde, lte: periodo.hasta } },
         ],
       },
-      select: { id: true },
+      select: { id: true, ...camposUbicacionServicio },
     }),
     prisma.recargos_planillas.findMany({
       where: { conductor_id: id, deleted_at: null, OR: meses },
@@ -299,6 +343,8 @@ async function conductor(id: string, periodo: PeriodoAnalitica) {
           es_vigente: diasParaVencer! >= 0 && actual.estado === 'VIGENTE',
         }
       : null,
+    zonas: agruparZonasServicios(servicios),
+    rutas: construirRutas(servicios),
   }
 }
 
@@ -336,7 +382,12 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
             { fecha_realizacion: null, fecha_solicitud: { gte: periodo.desde, lte: periodo.hasta } },
           ],
         },
-        select: { id: true, conductor_id: true, conductores: { select: { nombre: true, apellido: true } } },
+        select: {
+          id: true,
+          conductor_id: true,
+          conductores: { select: { nombre: true, apellido: true } },
+          ...camposUbicacionServicio,
+        },
       }),
       prisma.recargos_planillas.findMany({
         where: { vehiculo_id: id, deleted_at: null, OR: meses },
@@ -469,6 +520,8 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
     },
     fuecs_vigentes: fuecsVigentes,
     fuecs_recientes: fuecsRecientes,
+    zonas: agruparZonasServicios(servicios),
+    rutas: construirRutas(servicios),
   }
 }
 
@@ -545,8 +598,8 @@ async function cliente(id: string, periodo: PeriodoAnalitica) {
     select: camposFuec,
     orderBy: { vigencia_hasta: 'asc' },
   })
-  const zonas = agruparZonasCliente(servicios)
-  const zonasHistoricas = periodo.historico ? zonas : agruparZonasCliente(serviciosMapaHistorico)
+  const zonas = agruparZonasServicios(servicios)
+  const zonasHistoricas = periodo.historico ? zonas : agruparZonasServicios(serviciosMapaHistorico)
   const rutas = (periodo.historico ? [] : servicios)
     .map((s) => ({
       s,
