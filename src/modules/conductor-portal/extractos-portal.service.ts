@@ -181,6 +181,16 @@ export async function obtenerExtractoDelConductor(conductorId: string, id: strin
  */
 export async function pdfExtractoDelConductor(conductorId: string, id: string) {
   const e = await filaDelConductor(conductorId, id)
+  return pdfDeFila(e)
+}
+
+/** El dashboard y la app administrativa pueden descargar el FUEC completo con permiso de lectura. */
+export async function pdfExtractoAdmin(id: string) {
+  const e = await prisma.fuec_extract.findFirst({ where: { id, deleted_at: null }, include: incluir })
+  return e ? pdfDeFila(e) : null
+}
+
+async function pdfDeFila(e: FilaExtracto) {
   const s = snapshotDe(e)
   const firmado = !!e.firma_sha512
   const buffer = await generarPdfExtracto(s, {

@@ -6,6 +6,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
+import { pdfExtractoAdmin } from '../conductor-portal/extractos-portal.service'
 import {
   ExtractosError,
   TIPOS_CATALOGO,
@@ -187,6 +188,22 @@ export async function extractosRoutes(app: FastifyInstance) {
       return reply.send({ success: true, data: await obtenerExtracto(request.params.id) })
     } catch (err) {
       return responderError(request, reply, err, 'No se pudo leer el extracto')
+    }
+  })
+
+  app.get('/extractos/:id/pdf', puedeLeer, async (request: ConId, reply) => {
+    if (!z.string().uuid().safeParse(request.params.id).success) {
+      return reply.status(400).send({ success: false, message: 'Identificador no válido', code: 'ID_INVALIDO' })
+    }
+    try {
+      const pdf = await pdfExtractoAdmin(request.params.id)
+      if (!pdf) return reply.status(404).send({ success: false, message: 'Extracto no encontrado', code: 'NO_ENCONTRADO' })
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${pdf.nombre}"`)
+      reply.header('Cache-Control', 'private, no-store')
+      return reply.send(pdf.buffer)
+    } catch (err) {
+      return responderError(request, reply, err, 'No se pudo descargar el PDF del extracto')
     }
   })
 
