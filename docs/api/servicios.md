@@ -80,10 +80,11 @@ o, si no hay, la última `FOTO_PERFIL` vigente). Qué campos trae cada relación
 depende del endpoint; el listado añade `creado_por`, `ejecucion` y las
 `recargos_planillas` activas con sus días. En las respuestas JSON, `conductor`
 nunca es la fila entera de `conductores`: cada consulta lo trae con un
-`select`, y `PATCH /estado`, `/cancelar` y `/planilla` usan el mismo del
-detalle (`CONDUCTOR_DE_SERVICIO`: `id`, `nombre`, `apellido`, `telefono`,
-`email`, `estado`, `tipo_identificacion`, `numero_identificacion` y
-`foto_url`), que es también lo que viaja en su evento de socket.
+`select`. `PATCH /estado`, `/cancelar` y `/planilla` usan el select reducido
+(`CONDUCTOR_DE_SERVICIO`: `id`, `nombre`, `apellido`, `telefono`, `email`,
+`estado`, `tipo_identificacion`, `numero_identificacion` y `foto_url`), que es
+también lo que viaja en su evento de socket. `GET /api/servicios/:id` añade
+`vencimiento_licencia` para mostrar la vigencia en la ficha del servicio.
 
 ### `GET /api/servicios`
 
@@ -154,10 +155,11 @@ vehículos: placa, marca o modelo; clientes: nombre o NIT). Devuelven
 
 ### `GET /api/servicios/:id`
 
-`{ success: true, data }` con el detalle: conductor (con identificación y
-correo), vehículo (con clase, línea y color), cliente (con representante y
-dirección), municipios con coordenadas, `creado_por` y las planillas activas
-con vía, riesgos y calificación. **404** `{ success: false, message: 'Servicio no encontrado' }`.
+`{ success: true, data }` con el detalle: conductor (con identificación, correo
+y vencimiento de licencia), vehículo (con clase, línea y color), cliente (con
+representante y dirección), municipios con coordenadas, `creado_por` y planillas
+activas con vía, riesgos y calificación. **404**
+`{ success: false, message: 'Servicio no encontrado' }`.
 
 ### `GET /api/servicios/:id/rutograma`
 

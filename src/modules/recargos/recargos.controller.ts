@@ -1,10 +1,13 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { getIo } from "../../sockets";
+import {
+  getIo,
+} from "../../sockets";
 import { sinCredenciales } from "../../lib/sin-credenciales";
 import { generarPDFReporteServicios, RecargosService } from "./recargos.service";
 import { RecargosImportarTransmeraldaService } from "./recargosImportarTransmeralda.service";
 import { requireTransmeraldaConfigured } from "../../config/prismaTransmeralda";
 import { z } from "zod";
+import { liberarNumeroPlanilla } from "./recargos-planilla-consecutivos";
 import {
   createRecargoSchema,
   updateRecargoSchema,
@@ -153,22 +156,47 @@ export const RecargosController = {
   },
 
   /**
-   * Devuelve el siguiente número de planilla libre (TM-XXXX).
-   * Endpoint ligero: solo consulta el campo numero_planilla, sin joins.
-   * Se usa en ModalFormRecargo para auto-generar el número al abrir para
-   * un recargo nuevo (no consume ancho de banda ni tarda 7+ segundos).
+   * Reserva o revalida el número de un formulario identificado. El GET legado
+   * sin identidad sigue asignando uno nuevo para clientes antiguos.
    */
+  /** Cerrar el formulario devuelve su número a la cola de sugerencias. */
+  async liberarReservaPlanilla(request: FastifyRequest<{ Params: { reservaId: string } }>, reply: FastifyReply) {
+    const parsed = z.string().uuid().safeParse(request.params.reservaId);
+    if (!parsed.success) return responderValidacion(reply, parsed.error);
+    const usuarioId = (request as any).user?.id as string | undefined;
+    if (!usuarioId) return reply.status(401).send({ success: false, message: "Sesión no autenticada" });
+    try {
+      await liberarNumeroPlanilla(parsed.data, usuarioId);
+      return reply.send({ success: true });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("no pertenece a este formulario")) {
+        return reply.status(403).send({ success: false, message: error.message });
+      }
+      throw error;
+    }
+  },
+
   async obtenerSiguienteNumeroPlanilla(
     request: FastifyRequest,
     reply: FastifyReply,
   ) {
     try {
-      const numero = await RecargosService.getNextNumeroPlanilla();
+      const body = z.object({ reserva_id: z.string().uuid().optional() }).parse(request.body ?? {});
+      const usuarioId = (request as any).user?.id as string | undefined;
+      if (body.reserva_id && !usuarioId) {
+        return reply.status(401).send({ success: false, message: "Sesión no autenticada" });
+      }
+      const numero = await RecargosService.getNextNumeroPlanilla(body.reserva_id, usuarioId);
+      reply.header("Cache-Control", "no-store");
       reply.send({
         success: true,
         data: { numero_planilla: numero }
       });
     } catch (error) {
+      if (error instanceof z.ZodError) return responderValidacion(reply, error);
+      if (error instanceof Error && error.message.includes("no pertenece a este formulario")) {
+        return reply.status(403).send({ success: false, message: error.message });
+      }
       console.error("Error en obtenerSiguienteNumeroPlanilla:", error);
       reply.status(500).send({
         success: false,

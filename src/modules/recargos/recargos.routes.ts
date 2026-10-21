@@ -31,9 +31,12 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // Obtener recargos para canvas (con filtros)
   fastify.get('/recargos', RecargosController.obtenerParaCanvas)
 
-  // Siguiente número de planilla libre (auto-generación en ModalFormRecargo).
-  // Va antes de /:id para que no se confunda con el GET de un recargo específico.
-  fastify.get('/recargos/next-numero-planilla', RecargosController.obtenerSiguienteNumeroPlanilla)
+  // La reserva dura mientras el formulario esté abierto; al salir se libera.
+  fastify.post('/recargos/next-numero-planilla', puedeEscribir, RecargosController.obtenerSiguienteNumeroPlanilla)
+  // Compatibilidad temporal con pestañas abiertas antes del despliegue: GET
+  // también reserva, pero los clientes nuevos ya usan POST.
+  fastify.get('/recargos/next-numero-planilla', puedeEscribir, RecargosController.obtenerSiguienteNumeroPlanilla)
+  fastify.delete('/recargos/reservas-planilla/:reservaId', puedeEscribir, RecargosController.liberarReservaPlanilla)
 
   // Obtener un recargo por ID
   fastify.get('/recargos/:id', RecargosController.obtenerPorId)

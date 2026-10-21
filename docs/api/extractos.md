@@ -30,10 +30,12 @@ Reglas que un integrador necesita saber:
 - **Estado** (calculado, no guardado): `ANULADO` si tiene `anulado_at`;
   `VENCIDO` si `vigencia_hasta` es anterior a hoy en Bogotá; `POR_VENCER` si
   vence en los próximos 7 días; `VIGENTE` en otro caso.
-- Emitir actualiza las fichas con lo digitado (salvo `actualizar_fichas:
-  false`): en el vehículo, número interno y tarjeta de operación, y modelo,
-  marca, clase y empresa afiliadora si estaban vacíos; en el conductor, la
-  vigencia de la licencia y la cédula si faltaba y nadie más la tiene.
+- Cada conductor debe tener una fecha de licencia válida y no anterior a hoy
+  en Bogotá. Una licencia vencida o sin fecha impide emitir el extracto.
+  La fecha confirmada se copia siempre a `conductores.vencimiento_licencia`
+  en la misma transacción: el extracto es la fuente primaria de esa vigencia.
+  `actualizar_fichas: false` solo omite los demás datos de las fichas
+  (vehículo y cédula del conductor).
 - El convenio se imprime `N/A` si viene vacío o es la propia empresa
   (variantes en `FUEC.afiliacion_propia`).
 - Al emitir, cada conductor vinculado por `conductor_id` recibe un aviso
@@ -180,7 +182,7 @@ El extracto. **404** `{ success: false, message: 'Extracto no encontrado', code:
 | `convenio` | string ≤ 255 | no | `N/A` si es vacío o la propia empresa |
 | `vigencia_desde`, `vigencia_hasta` | `AAAA-MM-DD` | sí | La final no puede ser anterior a la inicial |
 | `vehiculo` | objeto | sí | `placa` (obligatoria, al menos 5 caracteres alfanuméricos tras normalizar), `id`, `modelo`, `marca`, `clase`, `numero_interno`, `tarjeta_operacion`. Lo que falte se toma de la ficha |
-| `conductores` | arreglo de 1 a 3 | sí | `{ id?, nombre (≥ 3), cedula?, licencia_vigencia? }`. El nombre se imprime en mayúsculas; cédula y vigencia, si faltan, salen de la ficha |
+| `conductores` | arreglo de 1 a 3 | sí | `{ id?, nombre (≥ 3), cedula?, licencia_vigencia }`. La vigencia es una fecha real `AAAA-MM-DD`, hoy o posterior; el nombre se imprime en mayúsculas |
 | `reemplaza_a_id` | uuid | no | El extracto que este corrige; queda anulado con el motivo «Reemplazado por el No. …» |
 | `actualizar_fichas` | boolean | no | `true` por defecto |
 
@@ -192,7 +194,7 @@ El extracto. **404** `{ success: false, message: 'Extracto no encontrado', code:
 |---|---|
 | 400 | Lo que rechaza zod o las reglas de arriba (`code: 'VALIDACION'` en las de zod) |
 | 404 | El extracto de `reemplaza_a_id` no existe |
-| 409 | Ese extracto ya estaba anulado (`code: 'YA_ANULADO'`) |
+| 409 | Ese extracto ya estaba anulado (`YA_ANULADO`) o la ficha del conductor seleccionado ya no existe (`CONDUCTOR_NO_ENCONTRADO`) |
 
 ### `POST /api/extractos/:id/anular`
 
@@ -223,9 +225,10 @@ formato (8 a 24 de `A-Z`, `2-9`) o no existe; **429** al pasar el límite (ver
 
 ## Efectos
 
-Emitir escribe en el extracto, el contratante, los catálogos y,
-salvo `actualizar_fichas: false`, en las fichas del vehículo y los conductores;
-con `reemplaza_a_id`, anula el reemplazado en la misma transacción. Después
+Emitir escribe en el extracto, el contratante, los catálogos y la vigencia de
+licencia de cada conductor vinculado; los demás datos de ficha dependen de
+`actualizar_fichas`. Con `reemplaza_a_id`, anula el reemplazado en la misma
+transacción. Después
 crea los avisos a conductores y a Operaciones descritos arriba; un fallo de
 notificaciones no revierte la emisión.
 

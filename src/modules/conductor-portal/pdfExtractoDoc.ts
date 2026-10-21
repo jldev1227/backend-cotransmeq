@@ -81,7 +81,7 @@ export interface ImagenesDocExtracto {
 	qr: string | null;
 }
 
-const VERDE = '#e2efda';
+const NARANJA_CLARO = '#FFF4E6';
 const NEGRO = '#111111';
 const GRIS = '#555555';
 
@@ -107,10 +107,10 @@ function celda(text: unknown, extra: Record<string, unknown> = {}) {
 	return { text: text ?? '', fontSize: 7.5, alignment: 'center', margin: [2, 3, 2, 3], ...extra };
 }
 function titulo(text: string, extra: Record<string, unknown> = {}) {
-	return celda(text, { fillColor: VERDE, bold: true, ...extra });
+	return celda(text, { fillColor: NARANJA_CLARO, bold: true, ...extra });
 }
 function etiqueta(text: string, extra: Record<string, unknown> = {}) {
-	return celda(text, { fillColor: VERDE, bold: true, alignment: 'left', ...extra });
+	return celda(text, { fillColor: NARANJA_CLARO, bold: true, alignment: 'left', ...extra });
 }
 const vacia = () => ({ text: '' });
 

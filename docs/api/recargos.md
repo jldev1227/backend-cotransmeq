@@ -47,7 +47,9 @@ Reglas que un integrador necesita saber:
 |---|---|---|---|
 | GET | `/api/recargos` | sesión | Planillas del canvas, con filtros y totales por tipo |
 | GET | `/api/recargos/:id` | sesión | Planilla completa con días y detalles |
-| GET | `/api/recargos/next-numero-planilla` | sesión | Siguiente número de planilla libre |
+| POST | `/api/recargos/next-numero-planilla` | `recargos:full` | Reserva de forma atómica un número para un formulario |
+| GET | `/api/recargos/next-numero-planilla` | `recargos:full` | Alias temporal para pestañas antiguas; también reserva |
+| DELETE | `/api/recargos/reservas-planilla/:reservaId` | `recargos:full` | Libera la sugerencia al cerrar el formulario |
 | GET | `/api/recargos/estadisticas/resumen` | sesión | Total y conteo por estado |
 | GET | `/api/recargos/tipos-recargo/activos` | sesión | Tipos de recargo activos |
 | GET | `/api/recargos/tipos-recargo/vigentes` | sesión | Tipos vigentes en una fecha o rango |
@@ -258,13 +260,26 @@ con `status` `running`, `completed` o `failed` y `results` = `[{ id, ok, valor_p
 El estado vive en memoria: se pierde si el proceso se reinicia y se purga una
 hora después de terminar. **404** si no existe, se purgó o es de otro usuario.
 
-### `GET /api/recargos/next-numero-planilla`
+### `POST /api/recargos/next-numero-planilla` · `GET` temporal
 
-`{ success: true, data: { numero_planilla: "CM-0124" } }`: el mayor
-`<PREFIJO>-<n>` de toda la tabla, eliminadas incluidas para que el consecutivo
-nunca retroceda, más uno, con cuatro dígitos como mínimo. El prefijo sale de
-`PLANILLA_PREFIX`; el valor por defecto de `env.ts` es `TM` también en este
-repo, así que el `CM` depende de que la variable esté puesta. **500** si falla.
+`POST` acepta `{ "reserva_id": "<UUID del formulario>" }` y responde
+`{ success: true, data: { numero_planilla: "CM-0124" } }`. La primera llamada
+asigna un número bajo advisory lock de PostgreSQL; repetirla con el mismo ID y
+usuario conserva su número, salvo que se haya liberado uno anterior en la cola
+o que el propio ya se haya guardado. En ese caso toma el primer disponible y
+libera el anterior. Un ID de otro usuario devuelve **403**.
+El prefijo sale de `PLANILLA_PREFIX` (el ejemplo usa `CM`; el valor por defecto
+sigue siendo `TM`). Requiere `recargos:full`; **500** si falla. El GET temporal y
+los POST sin ID de clientes antiguos crean una reserva anónima que caduca.
+
+El siguiente se calcula desde el máximo **guardado** más las reservas aún
+activas. `DELETE /api/recargos/reservas-planilla/:reservaId` devuelve el número
+del formulario a la cola; exige el mismo usuario y es idempotente. La sala
+Socket.IO `recargos-planilla` (`recargos-planilla:entrar`, `:renovar`, `:salir`)
+libera al desconectarse y mantiene vivas las reservas abiertas. Si falla la
+salida, caducan tras 10 minutos sin latidos. Cuando todos cierran, el siguiente
+vuelve a ser el del último recargo guardado + 1. La creación rechaza bajo lock
+un número ya guardado, incluidos envíos concurrentes.
 
 ### `GET /api/recargos/estadisticas/resumen` · `GET /api/recargos/tipos-recargo/activos`
 

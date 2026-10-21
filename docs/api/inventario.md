@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-766 rutas en 63 módulos, más `GET /` (salud) y las que
+768 rutas en 63 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -30,7 +30,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`dias-laborados`](./dias-laborados.md) | 19 |
 | [`documentos`](./documentos.md) | 5 |
 | [`evaluaciones`](./evaluaciones.md) | 14 |
-| [`extractos`](./extractos.md) | 13 |
+| [`extractos`](./extractos.md) | 14 |
 | [`facturacion-liquidaciones`](./facturacion-liquidaciones.md) | 11 |
 | [`formularios-dinamicos`](./formularios-dinamicos.md) | 62 |
 | [`formularios-sarlaft`](./formularios-sarlaft.md) | 13 |
@@ -61,7 +61,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`operadoras`](./operadoras.md) | 4 |
 | [`pdf`](./pdf.md) | 1 |
 | [`primas`](./primas.md) | 8 |
-| [`recargos`](./recargos.md) | 31 |
+| [`recargos`](./recargos.md) | 32 |
 | [`recorridos-canvas`](./recorridos-canvas.md) | 11 |
 | [`salidas-nc`](./salidas-nc.md) | 8 |
 | [`servicios`](./servicios.md) | 19 |
@@ -115,7 +115,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/analitica-individual/:tipo/:id` | `src/modules/analitica-individual/analitica-individual.routes.ts:17` |
+| GET | `/api/analitica-individual/:tipo/:id` | `src/modules/analitica-individual/analitica-individual.routes.ts:18` |
 
 ## app-usuarios
 
@@ -222,18 +222,18 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | Método | Ruta | Declarada en |
 |---|---|---|
 | GET | `/api/clientes` | `src/modules/clientes/clientes.routes.ts:81` |
-| POST | `/api/clientes` | `src/modules/clientes/clientes.routes.ts:129` |
-| DELETE | `/api/clientes/:id` | `src/modules/clientes/clientes.routes.ts:201` |
-| GET | `/api/clientes/:id` | `src/modules/clientes/clientes.routes.ts:157` |
-| PUT | `/api/clientes/:id` | `src/modules/clientes/clientes.routes.ts:171` |
-| PATCH | `/api/clientes/:id/ocultar` | `src/modules/clientes/clientes.routes.ts:260` |
-| DELETE | `/api/clientes/:id/permanente` | `src/modules/clientes/clientes.routes.ts:216` |
-| POST | `/api/clientes/:id/restore` | `src/modules/clientes/clientes.routes.ts:230` |
-| GET | `/api/clientes/:id/stats` | `src/modules/clientes/clientes.routes.ts:245` |
+| POST | `/api/clientes` | `src/modules/clientes/clientes.routes.ts:152` |
+| DELETE | `/api/clientes/:id` | `src/modules/clientes/clientes.routes.ts:224` |
+| GET | `/api/clientes/:id` | `src/modules/clientes/clientes.routes.ts:180` |
+| PUT | `/api/clientes/:id` | `src/modules/clientes/clientes.routes.ts:194` |
+| PATCH | `/api/clientes/:id/ocultar` | `src/modules/clientes/clientes.routes.ts:283` |
+| DELETE | `/api/clientes/:id/permanente` | `src/modules/clientes/clientes.routes.ts:239` |
+| POST | `/api/clientes/:id/restore` | `src/modules/clientes/clientes.routes.ts:253` |
+| GET | `/api/clientes/:id/stats` | `src/modules/clientes/clientes.routes.ts:268` |
 | GET | `/api/clientes/buscar` | `src/modules/clientes/clientes.routes.ts:62` |
-| POST | `/api/clientes/masivo` | `src/modules/clientes/clientes.routes.ts:306` |
-| GET | `/api/clientes/ocultos` | `src/modules/clientes/clientes.routes.ts:104` |
-| GET | `/api/clientes/papelera` | `src/modules/clientes/clientes.routes.ts:102` |
+| POST | `/api/clientes/masivo` | `src/modules/clientes/clientes.routes.ts:329` |
+| GET | `/api/clientes/ocultos` | `src/modules/clientes/clientes.routes.ts:106` |
+| GET | `/api/clientes/papelera` | `src/modules/clientes/clientes.routes.ts:104` |
 | GET | `/api/empresas` | `src/modules/clientes/clientes.routes.ts:45` |
 | GET | `/api/empresas/basicos` | `src/modules/clientes/clientes.routes.ts:27` |
 
@@ -416,18 +416,19 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/extractos` | `src/modules/extractos/extractos.routes.ts:107` |
-| POST | `/api/extractos` | `src/modules/extractos/extractos.routes.ts:194` |
-| GET | `/api/extractos/:id` | `src/modules/extractos/extractos.routes.ts:185` |
-| POST | `/api/extractos/:id/anular` | `src/modules/extractos/extractos.routes.ts:202` |
-| GET | `/api/extractos/anios` | `src/modules/extractos/extractos.routes.ts:115` |
-| GET | `/api/extractos/catalogo` | `src/modules/extractos/extractos.routes.ts:166` |
-| DELETE | `/api/extractos/catalogo/:id` | `src/modules/extractos/extractos.routes.ts:176` |
-| GET | `/api/extractos/contratantes` | `src/modules/extractos/extractos.routes.ts:132` |
-| POST | `/api/extractos/contratantes` | `src/modules/extractos/extractos.routes.ts:141` |
-| DELETE | `/api/extractos/contratantes/:id` | `src/modules/extractos/extractos.routes.ts:157` |
-| PUT | `/api/extractos/contratantes/:id` | `src/modules/extractos/extractos.routes.ts:149` |
-| GET | `/api/extractos/opciones` | `src/modules/extractos/extractos.routes.ts:124` |
+| GET | `/api/extractos` | `src/modules/extractos/extractos.routes.ts:108` |
+| POST | `/api/extractos` | `src/modules/extractos/extractos.routes.ts:211` |
+| GET | `/api/extractos/:id` | `src/modules/extractos/extractos.routes.ts:186` |
+| POST | `/api/extractos/:id/anular` | `src/modules/extractos/extractos.routes.ts:219` |
+| GET | `/api/extractos/:id/pdf` | `src/modules/extractos/extractos.routes.ts:194` |
+| GET | `/api/extractos/anios` | `src/modules/extractos/extractos.routes.ts:116` |
+| GET | `/api/extractos/catalogo` | `src/modules/extractos/extractos.routes.ts:167` |
+| DELETE | `/api/extractos/catalogo/:id` | `src/modules/extractos/extractos.routes.ts:177` |
+| GET | `/api/extractos/contratantes` | `src/modules/extractos/extractos.routes.ts:133` |
+| POST | `/api/extractos/contratantes` | `src/modules/extractos/extractos.routes.ts:142` |
+| DELETE | `/api/extractos/contratantes/:id` | `src/modules/extractos/extractos.routes.ts:158` |
+| PUT | `/api/extractos/contratantes/:id` | `src/modules/extractos/extractos.routes.ts:150` |
+| GET | `/api/extractos/opciones` | `src/modules/extractos/extractos.routes.ts:125` |
 | GET | `/api/public/extractos/:codigo` | `src/modules/extractos/extractos-public.routes.ts:14` |
 
 ## facturacion-liquidaciones
@@ -957,36 +958,37 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | Método | Ruta | Declarada en |
 |---|---|---|
 | GET | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:32` |
-| POST | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:45` |
-| DELETE | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:51` |
-| GET | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:39` |
-| PUT | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:48` |
-| POST | `/api/recargos/:id/duplicar` | `src/modules/recargos/recargos.routes.ts:69` |
-| POST | `/api/recargos/:id/liquidar` | `src/modules/recargos/recargos.routes.ts:66` |
-| POST | `/api/recargos/:id/recalcular` | `src/modules/recargos/recargos.routes.ts:74` |
-| PATCH | `/api/recargos/cambiar-estado-multiple` | `src/modules/recargos/recargos.routes.ts:63` |
-| GET | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:140` |
-| POST | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:186` |
-| DELETE | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:284` |
-| GET | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:165` |
-| PUT | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:235` |
-| GET | `/api/recargos/configuraciones-salarios/vigentes` | `src/modules/recargos/recargos.routes.ts:379` |
-| POST | `/api/recargos/eliminar-multiple` | `src/modules/recargos/recargos.routes.ts:54` |
-| GET | `/api/recargos/empresas-disponibles` | `src/modules/recargos/recargos.routes.ts:309` |
+| POST | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:48` |
+| DELETE | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:54` |
+| GET | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:42` |
+| PUT | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:51` |
+| POST | `/api/recargos/:id/duplicar` | `src/modules/recargos/recargos.routes.ts:72` |
+| POST | `/api/recargos/:id/liquidar` | `src/modules/recargos/recargos.routes.ts:69` |
+| POST | `/api/recargos/:id/recalcular` | `src/modules/recargos/recargos.routes.ts:77` |
+| PATCH | `/api/recargos/cambiar-estado-multiple` | `src/modules/recargos/recargos.routes.ts:66` |
+| GET | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:143` |
+| POST | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:189` |
+| DELETE | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:287` |
+| GET | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:168` |
+| PUT | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:238` |
+| GET | `/api/recargos/configuraciones-salarios/vigentes` | `src/modules/recargos/recargos.routes.ts:382` |
+| POST | `/api/recargos/eliminar-multiple` | `src/modules/recargos/recargos.routes.ts:57` |
+| GET | `/api/recargos/empresas-disponibles` | `src/modules/recargos/recargos.routes.ts:312` |
 | GET | `/api/recargos/estadisticas/resumen` | `src/modules/recargos/recargos.routes.ts:29` |
-| POST | `/api/recargos/importar-desde-transmeralda` | `src/modules/recargos/recargos.routes.ts:129` |
-| POST | `/api/recargos/importar-desde-transmeralda/crear-entidades-faltantes` | `src/modules/recargos/recargos.routes.ts:122` |
-| GET | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:114` |
-| POST | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:105` |
-| POST | `/api/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq` | `src/modules/recargos/recargos.routes.ts:97` |
-| GET | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:36` |
-| POST | `/api/recargos/recalcular-bulk` | `src/modules/recargos/recargos.routes.ts:80` |
-| GET | `/api/recargos/recalcular-bulk/:batchId` | `src/modules/recargos/recargos.routes.ts:84` |
-| GET | `/api/recargos/reporte` | `src/modules/recargos/recargos.routes.ts:42` |
-| POST | `/api/recargos/restaurar-multiple` | `src/modules/recargos/recargos.routes.ts:60` |
-| PATCH | `/api/recargos/restaurar/:id` | `src/modules/recargos/recargos.routes.ts:57` |
+| POST | `/api/recargos/importar-desde-transmeralda` | `src/modules/recargos/recargos.routes.ts:132` |
+| POST | `/api/recargos/importar-desde-transmeralda/crear-entidades-faltantes` | `src/modules/recargos/recargos.routes.ts:125` |
+| GET | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:117` |
+| POST | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:108` |
+| POST | `/api/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq` | `src/modules/recargos/recargos.routes.ts:100` |
+| GET | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:39` |
+| POST | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:36` |
+| POST | `/api/recargos/recalcular-bulk` | `src/modules/recargos/recargos.routes.ts:83` |
+| GET | `/api/recargos/recalcular-bulk/:batchId` | `src/modules/recargos/recargos.routes.ts:87` |
+| GET | `/api/recargos/reporte` | `src/modules/recargos/recargos.routes.ts:45` |
+| POST | `/api/recargos/restaurar-multiple` | `src/modules/recargos/recargos.routes.ts:63` |
+| PATCH | `/api/recargos/restaurar/:id` | `src/modules/recargos/recargos.routes.ts:60` |
 | GET | `/api/recargos/tipos-recargo/activos` | `src/modules/recargos/recargos.routes.ts:26` |
-| GET | `/api/recargos/tipos-recargo/vigentes` | `src/modules/recargos/recargos.routes.ts:331` |
+| GET | `/api/recargos/tipos-recargo/vigentes` | `src/modules/recargos/recargos.routes.ts:334` |
 
 ## recorridos-canvas
 

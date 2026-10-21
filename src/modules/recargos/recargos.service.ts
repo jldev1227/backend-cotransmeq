@@ -1,4 +1,6 @@
 import { prisma } from "../../config/prisma";
+/// El import debe ser estático: con CommonJS, `import()` deja `env` dentro de `default`.
+import { env } from "../../config/env";
 import {
   type CreateRecargoDTO,
   type UpdateRecargoDTO,
@@ -18,6 +20,7 @@ import {
   type DiaLaboralRecargo,
 } from "../../lib/recargos/calculo";
 import { getIo } from "../../sockets";
+import { reservarNumeroPlanilla } from "./recargos-planilla-consecutivos";
 
 /** Estado en memoria de un batch de recálculo bulk. */
 interface BulkRecalcBatchState {
@@ -1152,6 +1155,23 @@ export const RecargosService = {
 
     // 2. Todo en una sola transacción interactiva
     const recargo = await prisma.$transaction(async (tx) => {
+
+      // El número se valida bajo un advisory lock: dos envíos que conservaran
+      // una sugerencia vieja no pueden insertar el mismo consecutivo a la vez.
+      const numeroPlanilla = data.numero_planilla?.trim();
+      if (numeroPlanilla) {
+        const claveNumero = `recargos-planilla-numero:${numeroPlanilla.toLowerCase()}`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${claveNumero}, 0::bigint))::text AS locked`;
+        const duplicado = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id
+          FROM recargos_planillas
+          WHERE lower(btrim(numero_planilla)) = ${numeroPlanilla.toLowerCase()}
+          LIMIT 1
+        `;
+        if (duplicado.length) {
+          throw new Error(`El número de planilla ${numeroPlanilla} ya está en uso. Regenerá el consecutivo.`);
+        }
+      }
 
       // 2a. Crear servicio si hace falta (una sola escritura condicional)
       let servicioId = data.servicio_id ?? null;
@@ -2356,14 +2376,13 @@ export const RecargosService = {
   },
 
   /**
-   * Devuelve el siguiente número de planilla disponible en formato PREFIX-XXXX.
+   * Reserva el siguiente número de planilla en formato PREFIX-XXXX.
    *
-   * Usa SQL crudo (no Prisma findMany) porque:
+   * El helper usa SQL crudo (no Prisma findMany) porque:
    * 1. Prisma findMany trae TODAS las filas y parsea en JS — lento con miles
    *    de planillas y propenso a saltarse filas en casos raros de charset.
-   * 2. Hacer MAX() en Postgres es O(1) gracias al índice y exacto.
-   * 3. El regex a nivel SQL filtra variantes (espacios, mayúsculas, etc.)
-   *    que la regex JS podía aceptar mal.
+   * 2. La lectura de MAX en Postgres evita traer todas las planillas al API.
+   * 3. El advisory lock y el contador persistido hacen atómica cada reserva.
    *
    * Implementación: usa `regexp_replace(..., '^{PREFIX}-(\d+)$', '\1')` para
    * extraer el número. NO usa `SUBSTRING(string FROM n)` porque Prisma manda
@@ -2376,31 +2395,8 @@ export const RecargosService = {
    *
    * Configurable vía env PLANILLA_PREFIX (default "TM", Cotransmeq usa "CM").
    */
-  async getNextNumeroPlanilla(): Promise<string> {
-    // Importación lazy para evitar ciclos
-    const { env } = await import("../../config/env");
-    // El schema Zod valida 1-5 chars. Escapeamos cualquier char regex
-    // especial (., *, +, etc.) para que el patrón sea literal.
-    const rawPrefix = env.PLANILLA_PREFIX || "TM";
-    const prefix = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    // Construimos la query con $queryRawUnsafe: el prefijo es un valor
-    // validado por el schema (1-5 chars alfanuméricos escapados) y
-    // nunca viene de input del usuario. Inlinarlo evita el bug de
-    // overload de SUBSTRING(... FROM $1).
-    const sql = `
-      SELECT MAX(
-        CAST(regexp_replace(numero_planilla, '^${prefix}-(\\d+)$', '\\1') AS INTEGER)
-      ) AS max
-      FROM recargos_planillas
-      WHERE numero_planilla ~ '^${prefix}-[0-9]+$'
-    `;
-
-    const result = await prisma.$queryRawUnsafe<{ max: number | null }[]>(sql);
-
-    const maxNum = result[0]?.max ?? 0;
-    const next = (maxNum + 1).toString().padStart(4, "0");
-    return `${rawPrefix}-${next}`;
+  async getNextNumeroPlanilla(reservaId?: string, usuarioId?: string): Promise<string> {
+    return reservarNumeroPlanilla(env.PLANILLA_PREFIX || "TM", reservaId, usuarioId);
   },
 };
 interface RecargoRow {

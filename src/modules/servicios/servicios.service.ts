@@ -7,7 +7,8 @@ import { randomUUID } from 'crypto'
 import { aplicarEfectosColaterales, ServicioEstado } from './servicios.estados'
 import { ServiciosNotificacionesService } from './servicios-notificaciones.service'
 
-/// Lo que del conductor viaja con un servicio: lo mismo que pinta el detalle.
+/// Campos personales que pueden viajar en las respuestas y eventos de servicio.
+/// El detalle individual añade el vencimiento de licencia para mostrar su vigencia.
 /// Los cambios de estado incluían la fila entera (`conductores: true`), y esa
 /// entidad sale en la respuesta y en el evento de socket a todos los
 /// conectados: hash de la contraseña, salario, EPS, fecha de nacimiento…
@@ -750,7 +751,8 @@ export const ServiciosService = {
             estado: true,
             tipo_identificacion: true,
             numero_identificacion: true,
-            foto_url: true
+            foto_url: true,
+            vencimiento_licencia: true
           }
         },
         vehiculos: {

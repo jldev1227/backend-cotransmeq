@@ -15,6 +15,7 @@ import { enviarWebPush } from '../modules/notificaciones/web-push.service'
 import { registerFormulariosGateway } from '../modules/formularios-dinamicos/formularios-dinamicos.gateway'
 import { registrarPresenciaMovil, retirarPresenciaMovil } from '../modules/sesiones/mobile-presence.service'
 import { EVENTOS_PRESENCIA_MOVIL } from '../modules/sesiones/mobile-presence.events'
+import { registerRecargosPlanillaGateway } from '../modules/recargos/recargos-planilla.gateway'
 
 let io: IOServer | null = null
 
@@ -216,6 +217,7 @@ export function initSockets(server: HttpServer) {
   })
   registerLiquidacionTerceroGateway(io)
   registerSheetGateway(io)
+  registerRecargosPlanillaGateway(io)
   registerFormulariosGateway(io)
   registerChatGateway(io)
   registerBorradorQueueGateway(io)

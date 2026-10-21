@@ -49,6 +49,23 @@ export function normalizarPlaca(s: string): string {
 const ymd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null)
 const aFecha = (s: string): Date => new Date(`${s}T00:00:00Z`)
 
+export function validarVigenciaLicencias(
+  conductores: Array<{ nombre: string; licencia_vigencia?: string | null }>,
+  hoy: string,
+): void {
+  for (const conductor of conductores) {
+    const fecha = conductor.licencia_vigencia
+    const nombre = conductor.nombre.trim() || 'el conductor'
+    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) ||
+        Number.isNaN(aFecha(fecha).getTime()) || ymd(aFecha(fecha)) !== fecha) {
+      throw new ExtractosError(`Indique una fecha válida de vigencia de licencia para ${nombre}`)
+    }
+    if (fecha < hoy) {
+      throw new ExtractosError(`La licencia de ${nombre} venció el ${fecha}. Actualice la fecha antes de emitir el extracto`)
+    }
+  }
+}
+
 /** «24» → «0024»; lo que no es número se deja tal cual. */
 export function pad4(v: string | number | null | undefined): string {
   const s = String(v ?? '').trim()
@@ -377,7 +394,7 @@ export interface EmitirInput {
   }
   conductores: Array<{ id?: string | null; nombre: string; cedula?: string | null; licencia_vigencia?: string | null }>
   reemplaza_a_id?: string | null
-  /** Escribir en la ficha del vehículo y de los conductores lo que se digitó (por defecto sí). */
+  /** Otros datos de ficha; la vigencia de licencia se sincroniza siempre. */
   actualizar_fichas?: boolean
 }
 
@@ -403,6 +420,7 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
   if (!contratoNumero) throw new ExtractosError('El número de contrato es obligatorio')
   const actualizarFichas = input.actualizar_fichas !== false
   const hoy = hoyBogota()
+  validarVigenciaLicencias(conductores, hoy)
   const ahora = new Date()
 
   const id = await prisma.$transaction(async (tx) => {
@@ -458,16 +476,17 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
       })
     }
 
-    // Conductores: nombre tal cual se imprime; la ficha recibe cédula y vigencia si faltaban.
+    // La licencia verificada en el extracto es la fuente primaria de la ficha.
     const drivers: Array<{ conductor_id: string | null; nombre: string; identificacion: string | null; licencia_vigencia: Date | null; orden: number }> = []
     for (const [i, c] of conductores.entries()) {
       const ficha = c.id ? await tx.conductores.findFirst({ where: { id: c.id, deleted_at: null } }) : null
+      if (c.id && !ficha) throw new ExtractosError(`El conductor ${c.nombre} ya no está disponible; selecciónelo de nuevo`, 409, 'CONDUCTOR_NO_ENCONTRADO')
       const cedula = limpio(c.cedula, 50)?.replace(/[.\s]/g, '') ?? ficha?.numero_identificacion ?? null
-      const vigencia = c.licencia_vigencia && /^\d{4}-\d{2}-\d{2}$/.test(c.licencia_vigencia) ? c.licencia_vigencia : ymd(ficha?.vencimiento_licencia)
-      if (ficha && actualizarFichas) {
+      const vigencia = c.licencia_vigencia!
+      if (ficha) {
         const data: Prisma.conductoresUpdateInput = {}
-        if (vigencia && ymd(ficha.vencimiento_licencia) !== vigencia) data.vencimiento_licencia = aFecha(vigencia)
-        if (cedula && !ficha.numero_identificacion) {
+        if (ymd(ficha.vencimiento_licencia) !== vigencia) data.vencimiento_licencia = aFecha(vigencia)
+        if (actualizarFichas && cedula && !ficha.numero_identificacion) {
           const ocupada = await tx.conductores.findFirst({ where: { numero_identificacion: cedula, id: { not: ficha.id } }, select: { id: true } })
           if (!ocupada) data.numero_identificacion = cedula
         }
@@ -477,7 +496,7 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
         conductor_id: ficha?.id ?? null,
         nombre: limpio(c.nombre)!.toUpperCase(),
         identificacion: cedula,
-        licencia_vigencia: vigencia ? aFecha(vigencia) : null,
+        licencia_vigencia: aFecha(vigencia),
         orden: i + 1,
       })
     }

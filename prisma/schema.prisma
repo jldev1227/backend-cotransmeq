@@ -1104,6 +1104,19 @@ model recargos_planillas {
   recargos                                           recargos[]
 }
 
+/// Identifica la asignación de un formulario para que revalidarla no consuma
+/// otro consecutivo mientras el número siga libre.
+model recargos_planillas_reservas {
+  id              String   @id @db.Uuid
+  usuario_id      String   @db.Uuid
+  prefijo         String   @db.VarChar(5)
+  numero          BigInt
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([prefijo, numero])
+}
+
 model servicio_historicos {
   id                 String                                  @id @db.Uuid
   servicio_id        String                                  @db.Uuid
