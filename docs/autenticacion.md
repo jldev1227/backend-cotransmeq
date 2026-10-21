@@ -31,8 +31,9 @@ suyos.
 `POST /api/auth/login` ([api/auth.md](./api/auth.md)) recibe
 `{ correo, password, rememberMe? }`:
 
-1. Valida la forma con zod (`auth.schema.ts`): correo con formato de correo y
-   contraseña de 6 caracteres o más; si no, **400**.
+1. El esquema zod (`auth.schema.ts`) recorta espacios y convierte el correo a
+   minúsculas antes de validarlo; también exige contraseña de 6 caracteres o
+   más. Si el formato no sirve, responde **400**.
 2. Mira el límite de intentos fallidos: **5 por correo y 30 por IP cada 15
    minutos**. Solo cuentan los fallos, y un login correcto reinicia el contador
    del correo. Pasado el tope responde **429** con `Retry-After`.

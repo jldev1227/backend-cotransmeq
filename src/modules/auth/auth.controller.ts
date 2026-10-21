@@ -33,7 +33,7 @@ export const AuthController = {
     const userAgent = request.headers['user-agent'] || null
     const rememberMe = (request.body as any)?.rememberMe ?? false
 
-    const result = await AuthService.login(data.correo, data.password, {
+    const result = await AuthService.login(correo, data.password, {
       ip,
       userAgent,
       rememberMe

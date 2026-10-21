@@ -210,6 +210,16 @@ describe('login', () => {
     expect((await get('/yo', token)).statusCode).toBe(401)
   })
 
+  it('recorta espacios y convierte el correo a minúsculas antes de buscar', async () => {
+    const u = await crearUsuario(['administracion'])
+    const login = await post('/api/auth/login', undefined, {
+      correo: `  ${u.correo.toUpperCase()}  `,
+      password: u.password
+    })
+    expect(login.statusCode).toBe(200)
+    expect(login.json().user.correo).toBe(u.correo)
+  })
+
   it('tras cinco contraseñas erradas responde 429, incluso con la correcta', async () => {
     const u = await crearUsuario(['administracion'])
     for (let i = 0; i < 5; i++) {

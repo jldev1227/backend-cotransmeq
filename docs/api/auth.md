@@ -56,7 +56,7 @@ invalida los enlaces pendientes.
 
 | Campo | Tipo | Obligatorio | Notas |
 |---|---|---|---|
-| `correo` | string (email) | sí | Se busca **tal cual**: la comparación con `usuarios.correo` es exacta y distingue mayúsculas. Solo el limitador lo normaliza (`trim` + minúsculas) |
+| `correo` | string (email) | sí | Se recorta y pasa a minúsculas antes de validarlo y buscar la cuenta; el limitador usa el mismo valor normalizado |
 | `password` | string | sí | Mínimo 6 caracteres; más corta responde 400 sin consultar la base |
 | `rememberMe` | boolean | no | `true`: token y sesión de 90 días; si no, 30. Sin validar: un valor no booleano llega a Prisma al crear la sesión y el login responde 500 |
 
@@ -293,13 +293,10 @@ El frontend muestra tal cual el `error` de cualquier 4xx.
 
 ## Observaciones
 
-- **El correo no se trata igual en todas partes.** El login lo busca tal cual
-  (exacto, sensible a mayúsculas), la recuperación lo pasa a minúsculas y el alta
-  manual (`POST /api/usuarios`) lo guarda en minúsculas, pero la aceptación de una
-  invitación conserva las mayúsculas con que se invitó. Una cuenta guardada con
-  mayúsculas no puede recuperar la contraseña (`lookup` responde `existe: false`),
-  y quien escribe su correo con una mayúscula no entra aunque la contraseña sea
-  correcta (`auth.service.ts`, `recuperacion.controller.ts`).
+- **Las cuentas antiguas creadas desde una invitación pueden conservar
+  mayúsculas en la base.** El alta manual (`POST /api/usuarios`) y los valores
+  recibidos por login y recuperación se normalizan; una búsqueda exacta todavía
+  no encuentra una fila cuyo correo persistido tenga mayúsculas o espacios.
 - **`PUT /api/auth/change-password` no tiene límite de intentos** y no cierra las
   demás sesiones del usuario, a diferencia de la recuperación. Su mínimo es 6
   caracteres frente a 8 con letra y número en la recuperación
