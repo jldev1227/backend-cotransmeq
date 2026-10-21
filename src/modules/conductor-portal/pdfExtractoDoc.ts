@@ -81,7 +81,7 @@ export interface ImagenesDocExtracto {
 	qr: string | null;
 }
 
-const NARANJA_CLARO = '#FFF4E6';
+const NARANJA_CLARO = '#FFE0B2';
 const NEGRO = '#111111';
 const GRIS = '#555555';
 
@@ -182,7 +182,7 @@ export function docExtracto(
 				margin: [4, 4, 4, 2],
 				stack: [
 					imagenes.logo
-						? { image: 'logo', fit: [160, 48], alignment: 'right' }
+						? { image: 'logo', fit: [160, 48], alignment: 'center' }
 						: { text: e.razon_social, bold: true, alignment: 'right' },
 					{
 						columns: [
