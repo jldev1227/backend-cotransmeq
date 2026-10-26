@@ -95,7 +95,7 @@ de email configurado».
 | `CONTABILIDAD_SMTP_USER`, `CONTABILIDAD_SMTP_PASSWORD` | Opcional | — | Gmail de contabilidad: la vía preferida para que las liquidaciones de terceros salgan con ese remitente | Se envían por Resend con `LIQ_EMAIL_FROM_NAME` |
 | `LIQ_EMAIL_FROM_NAME` | Opcional | `Contabilidad Cotransmeq S.A.S.` | Nombre visible de esos envíos | — |
 | `LIQ_EMAIL_REPLY_TO` | Producción | `''` | Buzón que recibe las respuestas de los terceros. Vacía a propósito: el valor del gemelo mandaría las respuestas a la otra empresa | Sin `Reply-To`: las respuestas van al remitente |
-| `LIQ_EMAIL_BCC` | Opcional | `''` | Copia oculta de constancia. Los envíos de prueba nunca llevan copia | Sin copia |
+| `LIQ_EMAIL_BCC` | Opcional; en producción se define en la variable `LIQ_EMAIL_BCC` del entorno `production` de GitHub Actions | `''` | Copia oculta de constancia. El workflow la incluye en el archivo de entorno del contenedor; los envíos de prueba nunca llevan copia | Sin copia |
 | `SOLICITUDES_WEB_EMAIL_TO` | Opcional | — | Buzones, separados por coma, avisados por cada solicitud de la landing | Solo el aviso en el panel |
 
 ## Archivos (S3)

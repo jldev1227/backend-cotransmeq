@@ -172,6 +172,10 @@ asunto lleva `[PRUEBA]`, no hay BCC ni copias y todo va al buzón de prueba. El
 ritmo entre correos lo pone la cola
 ([tareas-programadas.md](./tareas-programadas.md#colas-en-memoria)).
 
+En producción de Cotransmeq, el workflow toma `LIQ_EMAIL_BCC` del entorno
+`production` de GitHub Actions y la escribe en el archivo de entorno temporal
+que carga el contenedor; no requiere editar el `.env` del servidor.
+
 **Otros flujos con configuración propia:**
 
 - **SARLAFT** (`formularios-sarlaft/sarlaft-email-mode.ts`):
