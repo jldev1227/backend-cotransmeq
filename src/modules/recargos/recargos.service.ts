@@ -2406,7 +2406,7 @@ interface RecargoRow {
     numero_identificacion: string;
   };
   vehiculos: { placa: string };
-  clientes: { nombre: string };
+  clientes: { nombre: string | null } | null;
   dias_laborales_planillas: { dia: Date | string }[];
 }
 
@@ -2444,15 +2444,15 @@ const C = {
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
 const MARGIN = 36;
-const CONTENT_W = PAGE_W - MARGIN * 2; // 523.28
+const CONTENT_W = PAGE_W * 0.75; // Todo el reporte ocupa máximo el 75% del ancho de página.
 
 // Columnas: Conductor | Placa | Servicios
-const COL_CONDUCTOR = 210;
-const COL_PLACA = 100;
-const COL_SERVICIOS = 63; // ~63
-const TABLE_W = COL_CONDUCTOR + COL_PLACA + COL_SERVICIOS; // 373 — ancho real de la tabla
+const COL_CONDUCTOR = 315; // 50% más ancho que la columna anterior (210pt).
+const COL_PLACA = 38; // La mitad del ancho de cliente anterior; el espacio pasa a servicios.
+const COL_SERVICIOS = (CONTENT_W - COL_CONDUCTOR - COL_PLACA) / 2; // Mitad del ancho anterior.
+const TABLE_W = COL_CONDUCTOR + COL_PLACA + COL_SERVICIOS;
 
-const ROW_H = 20;
+const ROW_H = 24;
 const TH_H = 22;
 const HEADER_H = 36; // banda compacta 2 líneas
 const TABLE_TOP = MARGIN + HEADER_H + 8;
@@ -2472,13 +2472,14 @@ export function generarPDFReporteServicios(
     // ── 1. Agrupación por conductor → placas ──────────────────
     const mapaGrupos = new Map<
       string,
-      { conductor: string; placas: { placa: string; servicios: number }[] }
+      { conductor: string; placas: { placa: string; servicios: number; clientes: string[] }[] }
     >();
 
     for (const r of recargos) {
       const cedula = r.conductores.numero_identificacion;
       const nombre = `${r.conductores.nombre} ${r.conductores.apellido}`;
       const placa = r.vehiculos.placa;
+      const nombreCliente = (r.clientes?.nombre ?? "").trim().split(/\s+/)[0] ?? "";
       const dias = r.dias_laborales_planillas.length;
 
       if (!mapaGrupos.has(cedula)) {
@@ -2488,8 +2489,9 @@ export function generarPDFReporteServicios(
       const entry = grupo.placas.find((p) => p.placa === placa);
       if (entry) {
         entry.servicios += dias;
+        if (nombreCliente && !entry.clientes.includes(nombreCliente)) entry.clientes.push(nombreCliente);
       } else {
-        grupo.placas.push({ placa, servicios: dias });
+        grupo.placas.push({ placa, servicios: dias, clientes: nombreCliente ? [nombreCliente] : [] });
       }
     }
 
@@ -2531,7 +2533,7 @@ export function generarPDFReporteServicios(
     // ── 3. Helpers ─────────────────────────────────────────────
 
     const drawHeader = () => {
-      doc.rect(0, 0, PAGE_W, HEADER_H).fill(C.HEADER_BG);
+      doc.rect(MARGIN, 0, TABLE_W, HEADER_H).fill(C.HEADER_BG);
 
       doc
         .font("Helvetica-Bold")
@@ -2541,7 +2543,7 @@ export function generarPDFReporteServicios(
           `REPORTE DE SERVICIOS POR PLACA Y CONDUCTOR  —  ${mesNombre.toUpperCase()} ${anio}`,
           MARGIN,
           9,
-          { width: CONTENT_W, align: "left", lineBreak: false },
+          { width: TABLE_W, align: "left", lineBreak: false },
         );
 
       doc
@@ -2549,7 +2551,7 @@ export function generarPDFReporteServicios(
         .fontSize(7.5)
         .fillColor("#90CAF9")
         .text(`Generado el ${hoy}`, MARGIN, 22, {
-          width: CONTENT_W,
+          width: TABLE_W,
           align: "left",
           lineBreak: false,
         });
@@ -2617,6 +2619,7 @@ export function generarPDFReporteServicios(
     const drawPlacaRow = (
       placa: string,
       servicios: number,
+      clientes: string[],
       y: number,
       idx: number,
     ) => {
@@ -2629,15 +2632,29 @@ export function generarPDFReporteServicios(
         width: COL_CONDUCTOR - 8,
         lineBreak: false,
       });
-      doc.text(placa, MARGIN + COL_CONDUCTOR + 4, y + 5, {
+      doc.font("Helvetica-Bold").fontSize(7).fillColor("#263238");
+      doc.text(placa, MARGIN + COL_CONDUCTOR + 4, y + 2, {
         width: COL_PLACA - 8,
         align: "center",
         lineBreak: false,
       });
+      const nombreClientes = clientes.length ? clientes.join(" · ") : "Sin cliente";
+      doc.font("Helvetica").fontSize(6).fillColor("#607D8B");
+      const maxWidthCliente = COL_PLACA - 8;
+      let clientesCompactos = nombreClientes;
+      while (clientesCompactos.length > 1 && doc.widthOfString(clientesCompactos) > maxWidthCliente) {
+        clientesCompactos = `${clientesCompactos.slice(0, -2).trimEnd()}…`;
+      }
+      doc.text(clientesCompactos, MARGIN + COL_CONDUCTOR + 4, y + 13, {
+        width: maxWidthCliente,
+        align: "center",
+        lineBreak: false,
+      });
+      doc.font("Helvetica").fontSize(8).fillColor("#263238");
       doc.text(
         String(servicios),
         MARGIN + COL_CONDUCTOR + COL_PLACA + 4,
-        y + 5,
+        y + 7,
         { width: COL_SERVICIOS - 8, align: "center", lineBreak: false },
       );
       doc
@@ -2739,7 +2756,7 @@ export function generarPDFReporteServicios(
         const spaceNeeded = ROW_H + (isLast && isLastPlaca ? ROW_H : 0);
 
         checkPage(spaceNeeded);
-        drawPlacaRow(p.placa, p.servicios, curY, rowIdx++);
+        drawPlacaRow(p.placa, p.servicios, p.clientes, curY, rowIdx++);
         curY += ROW_H;
       }
     }
