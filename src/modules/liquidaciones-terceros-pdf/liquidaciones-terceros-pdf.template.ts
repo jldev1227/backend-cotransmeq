@@ -669,6 +669,11 @@ ${cada('td.col-internal')} { background: var(--tpdf-interno-bg); }
   font-weight: 800;
   font-size: var(--tpdf-fs-foot);
 }
+.resumen-tbl tr.facturar td {
+  background: var(--tpdf-verde-suave);
+  color: var(--tpdf-verde-texto);
+  font-weight: 900;
+}
 .resumen-tbl tr.desc td {
   background: var(--tpdf-interno-bg);
   color: var(--tpdf-rojo);
@@ -1049,6 +1054,7 @@ function renderResumenPorCopropietario(item: any): string {
   const totImp = fmt.totalImpuestosPorPropietario(item);
   const impList = fmt.impuestosPorPropietarioList(item);
   const vFacturarMap = fmt.valorFacturarPorPropietario(item);
+  const vLiquidarMap = fmt.valorLiquidarPorPropietario(item);
 
   // Identifica al copropietario que es el mismo "tercero" asociado a la
   // liquidación (`item.tercero`). En el flujo real esto es TRANSMERALDA —
@@ -1059,6 +1065,7 @@ function renderResumenPorCopropietario(item: any): string {
   const cards = propietarios
     .map((p: any) => {
       const vFacturar = vFacturarMap[p.id] || 0;
+      const vLiquidar = vLiquidarMap[p.id] || 0;
       const impuestosRaw = impList[p.id] || [];
       // Orden canónico de impuestos en cada card: ICA → AVISOS → BOMBERIL → FUENTE.
       const rankOrden = (c: string): number => {
@@ -1069,7 +1076,7 @@ function renderResumenPorCopropietario(item: any): string {
         .slice()
         .sort((a: any, b: any) => rankOrden(a.concepto) - rankOrden(b.concepto));
       const pTotalImp = totImp[p.id] || 0;
-      const pPagar = Math.max(0, vFacturar - pTotalImp);
+      const pPagar = Math.max(0, vLiquidar - pTotalImp);
       const esTerceroAsociado = terceroAsocId && p.tercero_id === terceroAsocId;
 
       const impRows = impuestos
@@ -1098,7 +1105,7 @@ function renderResumenPorCopropietario(item: any): string {
           </div>
           <div class="card-transmer-body">
             <span class="card-transmer-label">VALOR PROPORCIONAL A ABONAR A CRÉDITO</span>
-            <span class="card-transmer-val">${fmt.COP(vFacturar)}</span>
+            <span class="card-transmer-val">${fmt.COP(vLiquidar)}</span>
           </div>
           <div class="card-transmer-foot">Pago interno — no genera egreso real</div>
         </div>`;
@@ -1134,23 +1141,28 @@ function renderResumenPorCopropietario(item: any): string {
     })
     .join('');
 
-  // Tabla 2-rows: TOTAL DESCUENTOS (LAB + GAST + ANT proporcional por prop)
-  // y VALOR SERVICIO (= V.LIQUIDAR − total descuentos globales).
-  const tdg = fmt.totalDescuentosGlobales(item);
-  const vs = fmt.valorServicio(item);
+  // El valor a facturar descuenta solo los gastos del vehículo. Los
+  // anticipos son el único concepto del resumen de descuentos.
+  const totalDescuentos = fmt.totalAnticipos(item);
+  const totalFacturado = fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item);
+  const totalPagar = totalFacturado - totalDescuentos;
   const servicioTable = `<table class="desc-tbl liq-servicio-tbl">
     <colgroup>
       <col style="width:60%" />
       <col style="width:40%" />
     </colgroup>
     <tbody>
-      <tr class="liq-servicio-row liq-servicio-row-disc">
-        <td class="liq-servicio-label">TOTAL DESCUENTOS</td>
-        <td class="liq-servicio-val">${fmt.COP(tdg)}</td>
-      </tr>
       <tr class="liq-servicio-row liq-servicio-row-final">
-        <td class="liq-servicio-label">VALOR SERVICIO</td>
-        <td class="liq-servicio-val">${fmt.COP(vs)}</td>
+        <td class="liq-servicio-label">VALOR A FACTURAR</td>
+        <td class="liq-servicio-val">${fmt.COP(totalFacturado)}</td>
+      </tr>
+      <tr class="liq-servicio-row liq-servicio-row-disc">
+        <td class="liq-servicio-label">DESCUENTOS ANTICIPO</td>
+        <td class="liq-servicio-val">${fmt.COP(totalDescuentos)}</td>
+      </tr>
+      <tr class="liq-servicio-row">
+        <td class="liq-servicio-label">TOTAL A PAGAR</td>
+        <td class="liq-servicio-val">${fmt.COP(totalPagar)}</td>
       </tr>
     </tbody>
   </table>`;
@@ -1166,18 +1178,22 @@ function renderResumenFinal(item: any): string {
   // el bloque global aquí duplica info y rompe la claridad de la liquidación.
   if (item.es_multi_propietario) return '';
 
-  const totalDesc = Number(item.total_descuentos || 0);
-  const totalLiq = Number(item.valor_liquidar || 0);
-  const totalPagar = totalLiq - totalDesc;
+  const totalFacturado = fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item);
+  const totalAnticipos = fmt.totalAnticipos(item);
+  const totalPagar = totalFacturado - totalAnticipos;
   // Tabla, no divs con flex: los totales son cifras y tienen que alinearse
   // con las del resto del documento. Antes se salían de la rejilla por la
   // izquierda porque el ancho del `<span>` dependía del texto.
   return `<div class="resumen">
     <table class="resumen-tbl">
       <tbody>
+        <tr class="facturar">
+          <td class="lbl">VALOR A FACTURAR</td>
+          <td class="v">${fmt.COP(totalFacturado)}</td>
+        </tr>
         <tr class="desc">
-          <td class="lbl">Total descuentos</td>
-          <td class="v">${fmt.COP(totalDesc)}</td>
+          <td class="lbl">DESCUENTOS ANTICIPO</td>
+          <td class="v">${fmt.COP(totalAnticipos)}</td>
         </tr>
         <tr class="pagar">
           <td class="lbl">Total a pagar</td>

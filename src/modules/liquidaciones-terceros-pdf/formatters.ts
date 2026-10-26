@@ -142,17 +142,8 @@ function descuentosGlobalesPorPropietarioDetallado(item: any) {
   return out;
 }
 
-/**
- * VALOR A FACTURAR por copropietario (después de descontar los descuentos
- * globales proporcionales pero ANTES de aplicar impuestos).
- *
- *   V_FACTURAR_prop = V.LIQUIDAR × pct/100 − desc_globales_prop
- *
- * Es el número que muestra la tabla nueva del PDF y la card de cada
- * propietario. La diferencia con NETO_edicion son los impuestos_prop
- * (que se muestran aparte en la card como TOTAL RETENCIONES).
- */
-function valorFacturarPorPropietario(item: any) {
+/** Valor liquidable por propietario después de los descuentos globales. */
+function valorLiquidarPorPropietario(item: any) {
   const vl = Number(item?.valor_liquidar || 0);
   const props = (item?.propietarios || []).filter((p: any) => !p.deleted_at);
   const desc = descuentosGlobalesPorPropietarioDetallado(item);
@@ -177,13 +168,54 @@ function totalDescuentosGlobales(item: any) {
 }
 
 /**
- * VALOR SERVICIO = V.LIQUIDAR − TOTAL DE DESCUENTOS GLOBALES
- * (es decir, el valor que queda tras restar LABORALES + GASTOS + ANTICIPOS al
- * V.LIQUIDAR, ANTES de aplicar impuestos / retenciones).
+ * Total facturado de la liquidación, antes de descontar administración,
+ * gastos del vehículo, nómina o anticipos. Los adicionales no tienen
+ * `total_facturado`: su bruto es valor unitario × cantidad.
  */
-function valorServicio(item: any) {
-  const vl = Number(item?.valor_liquidar || 0);
-  return Math.max(0, vl - totalDescuentosGlobales(item));
+function valorTotalFacturado(item: any) {
+  const items = Array.isArray(item?.items) ? item.items : [];
+  const adicionales = Array.isArray(item?.items_adicionales) ? item.items_adicionales : [];
+  const totalItems = items.reduce(
+    (s: number, it: any) =>
+      s + Number(it?.liquidacion_tercero?.total_facturado ?? it?.total_facturado ?? 0),
+    0
+  );
+  const totalAdicionales = adicionales.reduce(
+    (s: number, a: any) =>
+      s + (Number(a?.valor_unitario) || 0) * (Number(a?.cantidad) || 1),
+    0
+  );
+  return totalItems + totalAdicionales;
+}
+
+/** Suma los conceptos de un tipo, para los totales del resumen del PDF. */
+function totalConceptos(item: any, tipo: string) {
+  const conceptos = Array.isArray(item?.conceptos) ? item.conceptos : [];
+  return conceptos
+    .filter((c: any) => c?.tipo === tipo && !c?.deleted_at)
+    .reduce((s: number, c: any) => s + (Number(c?.valor_total) || 0), 0);
+}
+
+/** Gastos del vehículo que se restan del valor facturable. */
+function totalGastosVehiculo(item: any) {
+  return totalConceptos(item, 'GASTO_OPERATIVO');
+}
+
+/** Anticipos que componen TOTAL DESCUENTOS en el resumen. */
+function totalAnticipos(item: any) {
+  return totalConceptos(item, 'ANTICIPO');
+}
+
+/** Valor a facturar por propietario: (servicios − gastos de vehículo) × %. */
+function valorFacturarPorPropietario(item: any) {
+  const totalFacturable = valorTotalFacturado(item) - totalGastosVehiculo(item);
+  const props = (item?.propietarios || []).filter((p: any) => !p.deleted_at);
+  const out: Record<string, number> = {};
+  for (const p of props) {
+    const pct = Number(p.porcentaje) || 0;
+    out[p.id] = Math.round(totalFacturable * (pct / 100));
+  }
+  return out;
 }
 
 export const fmt = {
@@ -198,6 +230,9 @@ export const fmt = {
   impuestosPorPropietarioList,
   descuentosGlobalesPorPropietarioDetallado,
   valorFacturarPorPropietario,
+  valorLiquidarPorPropietario,
   totalDescuentosGlobales,
-  valorServicio,
+  valorTotalFacturado,
+  totalGastosVehiculo,
+  totalAnticipos,
 };
