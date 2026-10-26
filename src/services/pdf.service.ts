@@ -119,6 +119,8 @@ export interface PdfFromHtmlOptions {
    * mezclar tamaños/orientaciones dentro del mismo documento.
    */
   preferCSSPageSize?: boolean;
+  /** HTML del pie que Chromium repite en cada página; admite pageNumber/totalPages. */
+  footerTemplate?: string;
 }
 
 // Dimensiones base (en pulgadas) de cada formato, en orientación PORTRAIT.
@@ -142,7 +144,8 @@ export async function pdfFromHtml(opts: PdfFromHtmlOptions): Promise<Buffer> {
     format = "Letter",
     heightScale,
     widthScale,
-    preferCSSPageSize = false
+    preferCSSPageSize = false,
+    footerTemplate
   } = opts;
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -224,6 +227,12 @@ export async function pdfFromHtml(opts: PdfFromHtmlOptions): Promise<Buffer> {
       pdfOptions.height = `${pdfHeightIn.toFixed(3)}in`;
     } else {
       pdfOptions.format = format;
+    }
+
+    if (footerTemplate) {
+      pdfOptions.displayHeaderFooter = true;
+      pdfOptions.headerTemplate = "<span></span>";
+      pdfOptions.footerTemplate = footerTemplate;
     }
 
     const pdf = await page.pdf(pdfOptions);

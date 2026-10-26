@@ -728,10 +728,12 @@ export const RecargosController = {
       }));
 
       // 2. Generar PDF en memoria
+      const usuario = (request as any).user as { nombre?: string; correo?: string } | undefined;
       const pdfBuffer = await generarPDFReporteServicios(
         recargosForPdf,
         query.mes,
         query.anio,
+        { generadoPor: usuario?.nombre || usuario?.correo || null },
       );
 
       // 3. Enviar como descarga
