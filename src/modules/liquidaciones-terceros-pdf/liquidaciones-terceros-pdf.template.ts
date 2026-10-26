@@ -1147,10 +1147,11 @@ function renderResumenPorCopropietario(item: any): string {
     })
     .join('');
 
-  // El valor a facturar descuenta solo los gastos del vehículo. Los
-  // anticipos son el único concepto del resumen de descuentos.
+  // El valor a facturar descuenta nómina de conductores y gastos del
+  // vehículo. Los anticipos son el único concepto del resumen de descuentos.
   const totalDescuentos = fmt.totalAnticipos(item);
-  const totalFacturado = fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item);
+  const totalFacturado =
+    fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
   const totalPagar = totalFacturado - totalDescuentos;
   const servicioTable = `<table class="desc-tbl liq-servicio-tbl">
     <colgroup>
@@ -1184,7 +1185,8 @@ function renderResumenFinal(item: any): string {
   // el bloque global aquí duplica info y rompe la claridad de la liquidación.
   if (item.es_multi_propietario) return '';
 
-  const totalFacturado = fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item);
+  const totalFacturado =
+    fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
   const totalAnticipos = fmt.totalAnticipos(item);
   const totalPagar = totalFacturado - totalAnticipos;
   // Tabla, no divs con flex: los totales son cifras y tienen que alinearse

@@ -201,14 +201,20 @@ function totalGastosVehiculo(item: any) {
   return totalConceptos(item, 'GASTO_OPERATIVO');
 }
 
+/** Costos de nómina del conductor que se restan del valor facturable. */
+function totalCostosLaborales(item: any) {
+  return totalConceptos(item, 'COSTO_LABORAL');
+}
+
 /** Anticipos que componen TOTAL DESCUENTOS en el resumen. */
 function totalAnticipos(item: any) {
   return totalConceptos(item, 'ANTICIPO');
 }
 
-/** Valor a facturar por propietario: (servicios − gastos de vehículo) × %. */
+/** Valor a facturar por propietario: (servicios − nómina − gastos de vehículo) × %. */
 function valorFacturarPorPropietario(item: any) {
-  const totalFacturable = valorTotalFacturado(item) - totalGastosVehiculo(item);
+  const totalFacturable =
+    valorTotalFacturado(item) - totalGastosVehiculo(item) - totalCostosLaborales(item);
   const props = (item?.propietarios || []).filter((p: any) => !p.deleted_at);
   const out: Record<string, number> = {};
   for (const p of props) {
@@ -234,5 +240,6 @@ export const fmt = {
   totalDescuentosGlobales,
   valorTotalFacturado,
   totalGastosVehiculo,
+  totalCostosLaborales,
   totalAnticipos,
 };
