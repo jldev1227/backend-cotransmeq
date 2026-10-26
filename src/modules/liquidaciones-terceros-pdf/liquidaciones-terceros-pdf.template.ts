@@ -735,14 +735,20 @@ ${cada('td.col-internal')} { background: var(--tpdf-interno-bg); }
 // ════════════════════════════════════════════════════════════════════════
 
 function renderItemsTable(item: any): string {
-  const rows = (item.items || []).filter((it: any) => {
-    const lt = it.liquidacion_tercero || {};
-    const vAdmin = lt.valor_admin || 0;
-    const total = lt.total_facturado || 0;
-    const vLiq = lt.valor_liquidar || 0;
-    return !(vAdmin === 0 && total === 0 && vLiq === 0);
-  });
-  const adicionales = Array.isArray(item.items_adicionales) ? item.items_adicionales : [];
+  /// Este PDF se entrega al tercero: solo muestra filas con un valor efectivo por liquidar.
+  const rows = (item.items || []).filter(
+    (it: any) => Number(it.liquidacion_tercero?.valor_liquidar ?? 0) !== 0,
+  );
+  const valorNetoAdicional = (adc: any) => {
+    const bruto = (Number(adc.valor_unitario) || 0) * (Number(adc.cantidad) || 1);
+    const pct = Number(adc.porcentaje_admin) || 0;
+    const admon = adc.valor_admin != null
+      ? Number(adc.valor_admin) || 0
+      : Math.round((bruto * pct) / 100);
+    return bruto - admon;
+  };
+  const adicionales = (Array.isArray(item.items_adicionales) ? item.items_adicionales : [])
+    .filter((adc: any) => valorNetoAdicional(adc) !== 0);
 
   let html = `<div class="items-wrap"><table class="items-tbl">
     <colgroup>
