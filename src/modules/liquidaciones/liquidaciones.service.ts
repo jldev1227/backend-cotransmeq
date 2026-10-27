@@ -2466,8 +2466,8 @@ export const LiquidacionesService = {
       empresa: {
         nombre: l.es_cotransmeq
           ? "COOPERATIVA DE TRANSPORTADORES DEL META Y CASANARE"
-          : "TRANSPORTES Y SERVICIOS ESMERALDA S.A.S",
-        nit: l.es_cotransmeq ? "892099216-1" : "901528440-3",
+          : "SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S.",
+        nit: l.es_cotransmeq ? "892099216-1" : "901983227",
       },
       empleado: {
         nombre: conductor ? `${conductor.nombre} ${conductor.apellido}`.trim() : "—",

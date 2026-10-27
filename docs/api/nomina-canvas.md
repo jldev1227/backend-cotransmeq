@@ -163,8 +163,8 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
 
 | Parámetro | Descripción |
 |---|---|
-| `anios` (o `anio`) | Año del final del periodo |
-| `meses` (o `mes`) | 1–12; se filtran en memoria |
+| `anios` (o `anio`) | Año del final del periodo para el resumen; también año de referencia para los conceptos |
+| `meses` (o `mes`) | 1–12; periodo de nómina en el resumen y mes de referencia en las pestañas de conceptos |
 | `placas` | Se pasan a mayúsculas |
 | `conductores` | Ids |
 | `estados` | `estado_flujo`, se pasan a mayúsculas |
@@ -182,8 +182,17 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
   "total": 0 }
 ```
 
-El mes de cada fila es el mes en que termina su periodo. Sustituye a
-`GET /api/liquidaciones/analisis`. **Errores:** 500 `{ "success": false, "error": "…" }`.
+`anio` y `mes` de cada fila identifican el periodo de nómina (el mes en que
+termina el corte). En las pestañas de bonificaciones, recargos, pernoctes y
+mantenimientos, los mismos filtros se aplican al mes/año del dato: `values` y
+`recargos.mes` guardan `AAAA-MM`, y los pernoctes usan sus fechas. La consulta
+incluye cortes que se cruzan con esos meses de referencia; por ejemplo,
+diciembre también puede encontrar conceptos en el corte que termina en enero.
+El filtro por placa consulta tanto las placas vinculadas al corte como las
+placas de los vehículos asociados directamente a sus conceptos, para incluir
+detalles aunque falte la relación del corte en `liquidacion_vehiculo`.
+Sustituye a `GET /api/liquidaciones/analisis`. **Errores:** 500
+`{ "success": false, "error": "…" }`.
 
 ### `GET /api/nomina/estados`
 

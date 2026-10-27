@@ -591,14 +591,12 @@ enlace vigente y firma. **Errores:** 404; 410; 403; 500 `{ success: false, messa
   retiradas, que ninguna lectura devuelve. `liquidaciones.routes.ts`.
 - `desprendible-tablas-visible` no tiene esquema: `visible` puede llegar como
   cualquier cosa y `count` no refleja las filas cambiadas.
-- **El PDF del servidor imprime la razón social de Transmeralda por defecto.**
-  Razón social y NIT salen de `liquidaciones.es_cotransmeq`: con `false` (el
-  valor por defecto) el documento dice TRANSPORTES Y SERVICIOS ESMERALDA S.A.S y
-  NIT 901528440-3, aunque lleve el logo de Cotransmeq; con `true`, COOPERATIVA DE
-  TRANSPORTADORES DEL META Y CASANARE y NIT 892099216-1, que tampoco es la razón
-  social SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S. Ninguna ruta de este módulo
-  escribe esa columna. Afecta a `pdf-desprendible`, al ZIP y al PDF del enlace
-  de firma, no al desprendible de pdfmake. `liquidaciones.service.ts` (`datosDesprendible`).
+- **El desprendible del servidor identifica la empresa según
+  `liquidaciones.es_cotransmeq`.** Con `false` (el valor por defecto) imprime
+  SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S. y NIT 901983227; con `true`,
+  COOPERATIVA DE TRANSPORTADORES DEL META Y CASANARE y NIT 892099216-1. Afecta a
+  `pdf-desprendible`, al ZIP y al PDF del enlace de firma, no al desprendible de
+  pdfmake. `liquidaciones.service.ts` (`datosDesprendible`).
 - `PUT /api/configuraciones-liquidacion/:id` encuentra y edita también
   configuraciones retiradas (busca sin filtrar `deleted_at`).
 - El respaldo de firma de `GET /api/liquidaciones/:id` toma firmas de primas sin

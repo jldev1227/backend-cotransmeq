@@ -15,10 +15,11 @@
  *   · y el detalle por vehículo de bonificaciones, recargos, pernoctes y
  *     mantenimientos, que es lo que alimenta las pestañas del análisis.
  *
- * Los filtros que la base resuelve bien (años por prefijo del periodo,
- * conductores, estados, placas) van en el `where`; los meses se filtran en
- * memoria porque un LIKE «____-09-%» no existe en Prisma y el conjunto es de
- * cientos de filas, no de millones.
+ * Los filtros de conductor, estado y placa van en el `where`. Año y mes tienen
+ * dos significados distintos: el resumen usa el mes en que termina el corte,
+ * mientras que las pestañas de conceptos usan el mes guardado en cada dato.
+ * Por eso se consultan también cortes que se cruzan con los meses de referencia
+ * y el cliente aplica cada filtro sobre la fecha que corresponde.
  */
 import { prisma } from '../../config/prisma';
 
@@ -139,6 +140,18 @@ function valoresMensuales(raw: unknown): { mes: string; cantidad: number }[] {
     .filter((x: { mes: string; cantidad: number }) => x.mes);
 }
 
+function fechasDe(raw: unknown): string[] {
+  let lista: any = raw;
+  if (typeof raw === 'string') {
+    try {
+      lista = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(lista) ? lista.map((x: unknown) => String(x)) : [];
+}
+
 function periodoDe(periodoEnd: string, periodoStart: string) {
   const fin = String(periodoEnd ?? '').slice(0, 10);
   const ini = String(periodoStart ?? '').slice(0, 10);
@@ -153,14 +166,36 @@ export const NominaAnalisisService = {
   async consultar(f: FiltrosAnalisisNomina): Promise<ResultadoAnalisisNomina> {
     const where: any = { deleted_at: null };
     if (f.anios.length) {
-      where.OR = f.anios.map((a) => ({ periodo_end: { startsWith: `${a}-` } }));
+      const periodos: any[] = f.anios.map((a) => ({ periodo_end: { startsWith: `${a}-` } }));
+      const mesesDeReferencia = f.meses.length ? f.meses : Array.from({ length: 12 }, (_, i) => i + 1);
+      for (const anio of f.anios) {
+        for (const mes of mesesDeReferencia) {
+          const inicio = `${anio}-${String(mes).padStart(2, '0')}-01`;
+          const siguienteMes = mes === 12
+            ? `${anio + 1}-01-01`
+            : `${anio}-${String(mes + 1).padStart(2, '0')}-01`;
+          /// El corte 21→20 que contiene diciembre termina en enero: sin este
+          /// solapamiento, diciembre desaparece al filtrar por su año de referencia.
+          periodos.push({ periodo_start: { lt: siguienteMes }, periodo_end: { gte: inicio } });
+        }
+      }
+      where.OR = periodos;
     }
     if (f.conductores.length) where.conductor_id = { in: f.conductores };
     if (f.estados.length) where.estado_flujo = { in: f.estados };
     if (f.placas.length) {
-      where.liquidacion_vehiculo = {
-        some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } },
+      const porPlaca = {
+        OR: [
+          { liquidacion_vehiculo: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
+          { bonificaciones: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
+          { recargos: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
+          { pernotes: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
+          { mantenimientos: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
+        ],
       };
+      const condiciones = where.OR ? [{ OR: where.OR }, porPlaca] : [porPlaca];
+      delete where.OR;
+      where.AND = condiciones;
     }
 
     const [filas, todas, vehiculosTodos, conductoresTodos] = await Promise.all([
@@ -173,10 +208,22 @@ export const NominaAnalisisService = {
             where: { deleted_at: null },
             include: { vehiculos: { select: { id: true, placa: true } } },
           },
-          bonificaciones: { where: { deleted_at: null } },
-          recargos: { where: { deleted_at: null }, include: { clientes: { select: { id: true, nombre: true } } } },
-          pernotes: { where: { deleted_at: null }, include: { clientes: { select: { id: true, nombre: true } } } },
-          mantenimientos: { where: { deleted_at: null } },
+          bonificaciones: { where: { deleted_at: null }, include: { vehiculos: { select: { id: true, placa: true } } } },
+          recargos: {
+            where: { deleted_at: null },
+            include: {
+              clientes: { select: { id: true, nombre: true } },
+              vehiculos: { select: { id: true, placa: true } },
+            },
+          },
+          pernotes: {
+            where: { deleted_at: null },
+            include: {
+              clientes: { select: { id: true, nombre: true } },
+              vehiculos: { select: { id: true, placa: true } },
+            },
+          },
+          mantenimientos: { where: { deleted_at: null }, include: { vehiculos: { select: { id: true, placa: true } } } },
           firmas_desprendibles: { select: { estado: true, firma_url: true } },
         },
       }),
@@ -198,81 +245,85 @@ export const NominaAnalisisService = {
       }),
     ]);
 
-    const liquidaciones: LiquidacionAnalisis[] = filas
-      .map((l: any) => {
-        const { anio, mes, corte } = periodoDe(l.periodo_end, l.periodo_start);
-        const vehiculos: VehiculoAnalisis[] = (l.liquidacion_vehiculo ?? [])
-          .map((lv: any) => lv.vehiculos)
-          .filter((v: any) => v?.id)
-          .map((v: any) => ({ id: v.id, placa: v.placa }));
-        const placaDe = (vehiculoId: string | null) =>
-          vehiculos.find((v) => v.id === vehiculoId)?.placa ?? null;
-        const firmado = (l.firmas_desprendibles ?? []).some(
-          (fi: any) => fi.estado === 'Activa' && fi.firma_url && fi.firma_url !== 'pending',
-        );
-        return {
-          id: l.id,
-          conductor: {
-            id: l.conductores?.id ?? l.conductor_id ?? null,
-            nombre: `${l.conductores?.nombre ?? ''} ${l.conductores?.apellido ?? ''}`.trim() || 'Sin conductor',
-            cedula: l.conductores?.numero_identificacion ?? null,
-          },
-          periodo_start: String(l.periodo_start ?? '').slice(0, 10),
-          periodo_end: String(l.periodo_end ?? '').slice(0, 10),
-          anio,
-          mes,
-          corte,
-          estado_flujo: l.estado_flujo || 'BORRADOR',
-          firmado,
-          desprendible_visible: !!l.desprendible_visible,
-          dias_laborados: num(l.dias_laborados),
-          salario_basico: num(l.salario_basico),
-          salario_devengado: num(l.salario_devengado),
-          auxilio_transporte: num(l.auxilio_transporte),
-          total_bonificaciones: num(l.total_bonificaciones),
-          total_recargos: num(l.total_recargos),
-          total_pernotes: num(l.total_pernotes),
-          total_vacaciones: num(l.total_vacaciones),
-          total_licencia: num(l.total_licencia),
-          valor_incapacidad: num(l.valor_incapacidad),
-          total_anticipos: num(l.total_anticipos),
-          salud: num(l.salud),
-          pension: num(l.pension),
-          sueldo_total: num(l.sueldo_total),
-          vehiculos,
-          bonificaciones: (l.bonificaciones ?? []).map((b: any) => ({
-            vehiculo_id: b.vehiculo_id ?? null,
-            placa: placaDe(b.vehiculo_id ?? null),
-            nombre: String(b.name ?? b.nombre ?? ''),
-            valor_unitario: num(b.value ?? b.valor),
-            valores: valoresMensuales(b.values),
-          })),
-          recargos: (l.recargos ?? []).map((r: any) => ({
-            vehiculo_id: r.vehiculo_id ?? null,
-            placa: placaDe(r.vehiculo_id ?? null),
-            valor: num(r.valor),
-            paga_cliente: !!r.pag_cliente,
-            cliente_id: r.empresa_id ?? r.clientes?.id ?? null,
-            cliente: r.clientes?.nombre ?? '',
-            mes: String(r.mes ?? ''),
-            porcentaje_propietario: num(r.porcentaje_propietario),
-          })),
-          pernotes: (l.pernotes ?? []).map((p: any) => ({
-            vehiculo_id: p.vehiculo_id ?? null,
-            placa: placaDe(p.vehiculo_id ?? null),
-            cantidad: num(p.cantidad),
-            valor_unitario: num(p.valor),
-            fechas: Array.isArray(p.fechas) ? p.fechas.map((x: unknown) => String(x)) : [],
-            cliente: p.clientes?.nombre ?? '',
-          })),
-          mantenimientos: (l.mantenimientos ?? []).map((m: any) => ({
-            vehiculo_id: m.vehiculo_id ?? null,
-            placa: placaDe(m.vehiculo_id ?? null),
-            valores: valoresMensuales(m.values),
-          })),
-        };
-      })
-      .filter((l) => !f.meses.length || f.meses.includes(l.mes));
+    const liquidaciones: LiquidacionAnalisis[] = filas.map((l: any) => {
+      const { anio, mes, corte } = periodoDe(l.periodo_end, l.periodo_start);
+      const vehiculosPorId = new Map<string, VehiculoAnalisis>();
+      const agregarVehiculo = (v: any) => {
+        if (v?.id) vehiculosPorId.set(v.id, { id: v.id, placa: v.placa });
+      };
+      for (const lv of l.liquidacion_vehiculo ?? []) agregarVehiculo(lv.vehiculos);
+      for (const b of l.bonificaciones ?? []) agregarVehiculo(b.vehiculos);
+      for (const r of l.recargos ?? []) agregarVehiculo(r.vehiculos);
+      for (const p of l.pernotes ?? []) agregarVehiculo(p.vehiculos);
+      for (const m of l.mantenimientos ?? []) agregarVehiculo(m.vehiculos);
+      const vehiculos = Array.from(vehiculosPorId.values());
+      const placaDe = (vehiculoId: string | null) =>
+        vehiculos.find((v) => v.id === vehiculoId)?.placa ?? null;
+      const firmado = (l.firmas_desprendibles ?? []).some(
+        (fi: any) => fi.estado === 'Activa' && fi.firma_url && fi.firma_url !== 'pending',
+      );
+      return {
+        id: l.id,
+        conductor: {
+          id: l.conductores?.id ?? l.conductor_id ?? null,
+          nombre: `${l.conductores?.nombre ?? ''} ${l.conductores?.apellido ?? ''}`.trim() || 'Sin conductor',
+          cedula: l.conductores?.numero_identificacion ?? null,
+        },
+        periodo_start: String(l.periodo_start ?? '').slice(0, 10),
+        periodo_end: String(l.periodo_end ?? '').slice(0, 10),
+        anio,
+        mes,
+        corte,
+        estado_flujo: l.estado_flujo || 'BORRADOR',
+        firmado,
+        desprendible_visible: !!l.desprendible_visible,
+        dias_laborados: num(l.dias_laborados),
+        salario_basico: num(l.salario_basico),
+        salario_devengado: num(l.salario_devengado),
+        auxilio_transporte: num(l.auxilio_transporte),
+        total_bonificaciones: num(l.total_bonificaciones),
+        total_recargos: num(l.total_recargos),
+        total_pernotes: num(l.total_pernotes),
+        total_vacaciones: num(l.total_vacaciones),
+        total_licencia: num(l.total_licencia),
+        valor_incapacidad: num(l.valor_incapacidad),
+        total_anticipos: num(l.total_anticipos),
+        salud: num(l.salud),
+        pension: num(l.pension),
+        sueldo_total: num(l.sueldo_total),
+        vehiculos,
+        bonificaciones: (l.bonificaciones ?? []).map((b: any) => ({
+          vehiculo_id: b.vehiculo_id ?? null,
+          placa: placaDe(b.vehiculo_id ?? null),
+          nombre: String(b.name ?? b.nombre ?? ''),
+          valor_unitario: num(b.value ?? b.valor),
+          valores: valoresMensuales(b.values),
+        })),
+        recargos: (l.recargos ?? []).map((r: any) => ({
+          vehiculo_id: r.vehiculo_id ?? null,
+          placa: placaDe(r.vehiculo_id ?? null),
+          valor: num(r.valor),
+          paga_cliente: !!r.pag_cliente,
+          cliente_id: r.empresa_id ?? r.clientes?.id ?? null,
+          cliente: r.clientes?.nombre ?? '',
+          mes: String(r.mes ?? ''),
+          porcentaje_propietario: num(r.porcentaje_propietario),
+        })),
+        pernotes: (l.pernotes ?? []).map((p: any) => ({
+          vehiculo_id: p.vehiculo_id ?? null,
+          placa: placaDe(p.vehiculo_id ?? null),
+          cantidad: num(p.cantidad),
+          valor_unitario: num(p.valor),
+          fechas: fechasDe(p.fechas),
+          cliente: p.clientes?.nombre ?? '',
+        })),
+        mantenimientos: (l.mantenimientos ?? []).map((m: any) => ({
+          vehiculo_id: m.vehiculo_id ?? null,
+          placa: placaDe(m.vehiculo_id ?? null),
+          valores: valoresMensuales(m.values),
+        })),
+      };
+    });
 
     const anios = Array.from(
       new Set(todas.map((t: any) => Number(String(t.periodo_end ?? '').slice(0, 4))).filter((a: number) => a > 0)),

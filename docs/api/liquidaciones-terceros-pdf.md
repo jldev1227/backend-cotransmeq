@@ -110,12 +110,9 @@ data-URL y no dependen de la red.
   **servicio** de referencia antes que el del propio cierre: los cierres de
   varias placas que salen de la misma liquidación de servicio descargan con el
   mismo nombre de archivo.
-- **El encabezado imprime la razón social de la otra empresa.** La plantilla
-  (`liquidaciones-terceros-pdf.template.ts`) tiene fijo el texto «TRANSPORTES Y
-  SERVICIOS ESMERALDA S.A.S.» —y su código de formato GAF-FR-11, versión y
-  fecha—, igual que en Transmeralda: el documento que se le entrega al
-  propietario sale con el nombre equivocado. La caja de respaldo del logo sí
-  dice COTRANSMEQ.
+- El encabezado de la plantilla (`liquidaciones-terceros-pdf.template.ts`) usa
+  la razón social SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S.; la caja de respaldo
+  del logo conserva la marca COTRANSMEQ.
 
 ## Diferencias con Transmeralda
 

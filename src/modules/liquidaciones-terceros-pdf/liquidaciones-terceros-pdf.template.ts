@@ -1257,7 +1257,7 @@ export function renderTerceroLiquidacionPdf(item: any): string {
       logo ? `<img src="${logo}" alt="Logo" />` : `<div style="width:80px;height:46px;background:#0f4025;color:#fff;font-size:9pt;font-weight:900;display:flex;align-items:center;justify-content:center;border-radius:6px">COTRANS<br/>MEQ</div>`
     }</div>
     <div class="header-title">
-      <div class="co">TRANSPORTES Y SERVICIOS ESMERALDA S.A.S.</div>
+      <div class="co">SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S.</div>
       <div class="doc">LIQUIDACIÓN DE INGRESOS RECIBIDOS PARA TERCEROS</div>
     </div>
     <div class="header-meta">
