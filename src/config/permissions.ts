@@ -175,6 +175,12 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   // Espejo EXACTO de `ingreso-svelte/src/lib/config/permissions.ts`. Si aquí y
   // allí no coinciden, el sidebar muestra una entrada que la API rechaza con
   // 403 (o al contrario, oculta algo a quien sí puede usarlo).
+  encuestas: {
+    full: ['administracion', 'hseq', 'operaciones'],
+    read: ['contabilidad', 'talento_humano'],
+    description: 'Encuestas públicas, respuestas y reportes'
+  },
+
   formularios: {
     full: ['administracion', 'hseq'],
     read: ['operaciones'],

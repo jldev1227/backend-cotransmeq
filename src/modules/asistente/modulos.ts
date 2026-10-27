@@ -62,6 +62,7 @@ export const MODULOS_APP: readonly ModuloApp[] = [
     alias: ['tanqueos', 'tanqueo', 'gasolina', 'acpm', 'diésel', 'diesel', 'consumo de combustible', 'km por galón', 'rendimiento de combustible'],
   },
   { id: 'extractos', etiqueta: 'Extractos', ruta: '/dashboard/extractos', alias: ['extractos de contrato', 'fuec', 'extracto'] },
+  { id: 'encuestas', etiqueta: 'Encuestas', ruta: '/dashboard/encuestas', alias: ['sondeos', 'formularios de opinión'] },
   { id: 'formularios', etiqueta: 'Formularios', ruta: '/dashboard/formularios', alias: ['constructor de formularios'] },
   { id: 'mis-formularios', etiqueta: 'Mis formularios', ruta: '/dashboard/mis-formularios' },
   { id: 'nomina', etiqueta: 'Nómina', ruta: '/dashboard/nomina/canvas', alias: ['nomina', 'desprendibles'] },

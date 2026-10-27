@@ -85,6 +85,7 @@ import { appUsuariosRoutes } from './modules/app-usuarios/app-usuarios.routes'
 import { misCapacitacionesRoutes } from './modules/mis-capacitaciones/mis-capacitaciones.routes'
 import { mapsRoutes } from './modules/maps/maps.routes'
 import { solicitudesWebPublicRoutes, solicitudesWebRoutes } from './modules/solicitudes-web/solicitudes-web.routes'
+import { encuestasPublicRoutes, encuestasRoutes } from './modules/encuestas/encuestas.routes'
 import { mantenimientoRoutes } from './modules/mantenimiento/mantenimiento.routes'
 import { analiticaIndividualRoutes } from './modules/analitica-individual/analitica-individual.routes'
 
@@ -290,6 +291,8 @@ export function buildApp() {
     app.register(mapsRoutes, { prefix: '/api' })
     app.register(solicitudesWebPublicRoutes, { prefix: '/api' })
     app.register(solicitudesWebRoutes, { prefix: '/api' })
+    app.register(encuestasPublicRoutes, { prefix: '/api' })
+    app.register(encuestasRoutes, { prefix: '/api' })
     app.register(mantenimientoRoutes, { prefix: '/api' })
     app.register(analiticaIndividualRoutes, { prefix: '/api' })
 

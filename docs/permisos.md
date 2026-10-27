@@ -62,6 +62,7 @@ entra cualquier usuario autenticado con `full`.
 | `sarlaft` | F | — | — | — | F | — | — | Formularios SARLAFT + PTEE (cumplimiento) |
 | `solicitudes` | F | F | R | R | — | — | — | Solicitudes web (cotizaciones y servicios desde la landing) |
 | `asistencias` | F | — | — | — | — | F | — | Formularios de asistencia |
+| `encuestas` | F | F | R | — | R | F | — | Encuestas públicas, respuestas y reportes |
 | `acciones-correctivas` | F | — | — | — | — | F | — | Acciones correctivas y preventivas |
 | `evaluaciones` | F | — | — | — | — | F | — | Evaluaciones de conductores |
 | `salidas-nc` | F | F | — | — | — | F | — | Salidas no conformes |
