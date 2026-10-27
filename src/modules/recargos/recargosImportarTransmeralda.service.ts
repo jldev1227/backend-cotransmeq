@@ -13,14 +13,222 @@ import { RecargosService } from './recargos.service'
  *     conductores automáticamente: hay temas legales/contractuales).
  *   - Si la PLACA no existe en Cotransmeq → se crea automáticamente desde
  *     los datos de TM (mismo placa, marca, modelo, etc.).
- *   - Si la EMPRESA no existe en Cotransmeq → se crea automáticamente desde
- *     TM (mismo nombre, nit, etc.).
+ *   - La EMPRESA se resuelve por NIT/nombre; similitudes > 80 se asignan y
+ *     las ambiguas requieren selección antes de importar.
  *   - Deduplicación: una planilla se considera "ya importada" si existe
  *     en Cotransmeq con (conductor_id, numero_planilla, mes, año) — esas
  *     salen tachadas en el preview y se omiten en la importación.
  */
 
 const TARGET_YEAR = 2026
+
+const UMBRAL_AUTOMATICO_EMPRESA = 80
+const MAX_SUGERENCIAS_EMPRESA = 5
+
+interface EmpresaDestinoImportacion {
+  id: string
+  nombre: string | null
+  nit: string | null
+  deletedAt: Date | null
+}
+
+interface EmpresaSugeridaImportacion {
+  id: string
+  nombre: string
+  nit: string | null
+  score: number
+}
+
+interface ResolucionEmpresaImportacion {
+  destino: EmpresaDestinoImportacion | null
+  metodo: 'nit' | 'nombre' | 'similitud' | 'revision' | 'nueva' | 'eliminada'
+  score: number | null
+  sugerencias: EmpresaSugeridaImportacion[]
+  requiereRevision: boolean
+  nitEnEmpresaEliminada: boolean
+}
+
+/** Normaliza razón social para comparar datos capturados de forma distinta. */
+function normalizarNombreEmpresa(valor: unknown): string {
+  const palabras = String(valor ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es-CO')
+    .replace(/&/g, ' y ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  /// La forma jurídica no distingue a la empresa: «MCS Colombia S.A.S.» y
+  /// «MCS COLOMBIA SAS» deben resolver al mismo cliente.
+  const sufijos = [
+    ['sas'],
+    ['s', 'a', 's'],
+    ['sa'],
+    ['s', 'a'],
+    ['ltda'],
+    ['limitada'],
+    ['e', 'u'],
+    ['eu'],
+    ['sucursal']
+  ]
+  let cambio = true
+  while (cambio) {
+    cambio = false
+    for (const sufijo of sufijos) {
+      if (sufijo.every((palabra, i) => palabras[palabras.length - sufijo.length + i] === palabra)) {
+        palabras.splice(-sufijo.length)
+        cambio = true
+        break
+      }
+    }
+  }
+
+  return palabras.join(' ')
+}
+
+/** El NIT puede llegar con puntos y guion de verificación en una sola base. */
+function normalizarNitEmpresa(valor: unknown): string {
+  return String(valor ?? '').replace(/\D/g, '')
+}
+
+function distanciaLevenshtein(a: string, b: string): number {
+  const fila = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = fila[0]
+    fila[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const anterior = fila[j]
+      fila[j] = Math.min(
+        fila[j] + 1,
+        fila[j - 1] + 1,
+        diagonal + (a[i - 1] === b[j - 1] ? 0 : 1)
+      )
+      diagonal = anterior
+    }
+  }
+  return fila[b.length]
+}
+
+/** Puntúa nombres de 0 a 100; permite variaciones de orden y digitación. */
+function scoreNombreEmpresa(a: unknown, b: unknown): number {
+  const nombreA = normalizarNombreEmpresa(a)
+  const nombreB = normalizarNombreEmpresa(b)
+  if (!nombreA || !nombreB) return 0
+  if (nombreA === nombreB) return 100
+
+  const textoA = nombreA.replace(/\s/g, '')
+  const textoB = nombreB.replace(/\s/g, '')
+  const longitud = Math.max(textoA.length, textoB.length)
+  const scoreCaracteres = longitud
+    ? ((longitud - distanciaLevenshtein(textoA, textoB)) / longitud) * 100
+    : 0
+  const tokensA = new Set(nombreA.split(' '))
+  const tokensB = new Set(nombreB.split(' '))
+  const interseccion = [...tokensA].filter((token) => tokensB.has(token)).length
+  const union = new Set([...tokensA, ...tokensB]).size
+  const scorePalabras = union ? (interseccion / union) * 100 : 0
+
+  return Math.round(Math.max(scoreCaracteres, scorePalabras))
+}
+
+/** Busca primero identificadores inequívocos y deja la similitud para revisión. */
+function resolverEmpresaDestino(
+  origen: { nombre?: string | null; nit?: string | null } | null | undefined,
+  destinos: EmpresaDestinoImportacion[]
+): ResolucionEmpresaImportacion {
+  const nit = normalizarNitEmpresa(origen?.nit)
+  const nombre = normalizarNombreEmpresa(origen?.nombre)
+  const activos = destinos.filter((empresa) => empresa.deletedAt == null)
+  const nitEnEmpresaEliminada = !!nit && destinos.some(
+    (empresa) => empresa.deletedAt != null && normalizarNitEmpresa(empresa.nit) === nit
+  )
+
+  if (nit) {
+    const porNit = activos.find((empresa) => normalizarNitEmpresa(empresa.nit) === nit)
+    if (porNit) {
+      return { destino: porNit, metodo: 'nit', score: 100, sugerencias: [], requiereRevision: false, nitEnEmpresaEliminada }
+    }
+  }
+
+  if (nombre) {
+    const porNombre = activos.find((empresa) => normalizarNombreEmpresa(empresa.nombre) === nombre)
+    if (porNombre) {
+      return { destino: porNombre, metodo: 'nombre', score: 100, sugerencias: [], requiereRevision: false, nitEnEmpresaEliminada }
+    }
+  }
+
+  const sugerencias = activos
+    .map((empresa) => ({
+      id: empresa.id,
+      nombre: empresa.nombre || '',
+      nit: empresa.nit,
+      score: scoreNombreEmpresa(origen?.nombre, empresa.nombre)
+    }))
+    // Si no hay una coincidencia automática (>80), mostrar las mejores opciones con señal positiva.
+    .filter((empresa) => empresa.nombre && empresa.score > 0)
+    .sort((a, b) => b.score - a.score || a.nombre.localeCompare(b.nombre, 'es'))
+    .slice(0, MAX_SUGERENCIAS_EMPRESA)
+
+  const mejor = sugerencias[0]
+  if (mejor && mejor.score > UMBRAL_AUTOMATICO_EMPRESA) {
+    const destino = activos.find((empresa) => empresa.id === mejor.id) ?? null
+    return { destino, metodo: 'similitud', score: mejor.score, sugerencias, requiereRevision: false, nitEnEmpresaEliminada }
+  }
+  if (sugerencias.length > 0) {
+    return { destino: null, metodo: 'revision', score: mejor?.score ?? null, sugerencias, requiereRevision: true, nitEnEmpresaEliminada }
+  }
+  if (nitEnEmpresaEliminada) {
+    return { destino: null, metodo: 'eliminada', score: null, sugerencias: [], requiereRevision: true, nitEnEmpresaEliminada: true }
+  }
+  return { destino: null, metodo: 'nueva', score: null, sugerencias: [], requiereRevision: false, nitEnEmpresaEliminada: false }
+}
+
+function datosNuevaEmpresa(empresa: any, now: Date) {
+  return {
+    id: randomUUID(),
+    nombre: empresa.nombre,
+    nit: empresa.nit,
+    representante: empresa.representante,
+    cedula: empresa.cedula,
+    telefono: empresa.telefono,
+    direccion: empresa.direccion,
+    requiere_osi: empresa.requiere_osi ?? false,
+    paga_recargos: empresa.paga_recargos ?? false,
+    tipo: empresa.tipo || 'EMPRESA',
+    correo: empresa.correo,
+    oculto: false,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+async function crearEmpresaImportada(
+  empresaOrigen: any,
+  now: Date
+): Promise<{ empresa: EmpresaDestinoImportacion; creada: boolean }> {
+  try {
+    const empresa = await prisma.clientes.create({
+      data: datosNuevaEmpresa(empresaOrigen, now) as any,
+      select: { id: true, nombre: true, nit: true, deletedAt: true }
+    })
+    return { empresa, creada: true }
+  } catch (error: any) {
+    if (error?.code !== 'P2002' || !empresaOrigen.nit) throw error
+
+    /// Otra importación pudo crear el mismo NIT después del preview. Se reutiliza el activo.
+    const existente = await prisma.clientes.findUnique({
+      where: { nit: empresaOrigen.nit },
+      select: { id: true, nombre: true, nit: true, deletedAt: true }
+    })
+    if (existente && existente.deletedAt == null) return { empresa: existente, creada: false }
+    if (existente) {
+      throw new Error('El NIT ya está asociado a una empresa eliminada en Cotransmeq; reactívala antes de importar')
+    }
+    throw error
+  }
+}
 
 /**
  * Convierte un array de días (números) en una representación compacta
@@ -118,6 +326,15 @@ export interface PreviewPlanillaItem {
    * "Días" de la tabla del modal.
    */
   dias_rangos: string
+  /** Id de la empresa origen, para evitar volver a buscarla por nombre. */
+  empresa_origen_id: string | null
+  empresa_destino_id: string | null
+  empresa_destino_nombre: string | null
+  empresa_coincidencia: ResolucionEmpresaImportacion['metodo']
+  empresa_coincidencia_score: number | null
+  empresa_sugerencias: EmpresaSugeridaImportacion[]
+  empresa_requiere_revision: boolean
+  empresa_nit_en_empresa_eliminada: boolean
   /** Ya importado en Cotransmeq (matching por conductor+planilla+mes+año) */
   ya_importado: boolean
   /** El conductor existe en Cotransmeq */
@@ -133,7 +350,7 @@ export interface PreviewPlanillaItem {
   conductor_activo_en_origen: boolean
   /** La placa no existe en Cotransmeq — se va a crear al importar */
   vehiculo_no_existe_en_destino: boolean
-  /** La empresa no existe en Cotransmeq — se va a crear al importar */
+  /** No hay empresa destino coincidente; se creará al importar. */
   empresa_no_existe_en_destino: boolean
   /** Razón por la que NO se puede importar */
   motivo_no_importable: string | null
@@ -238,7 +455,7 @@ export const RecargosImportarTransmeraldaService = {
    *   - `ya_importado`: ya está en Cotransmeq → tachada, no se reimporta
    *   - `motivo_no_importable`: solo si el conductor no existe en CM
    *   - `vehiculo_no_existe_en_destino`: se va a crear al importar
-   *   - `empresa_no_existe_en_destino`: se va a crear al importar
+   *   - `empresa_no_existe_en_destino`: no hay match y se creará al importar
    */
   async obtenerPreview(
     mes: number,
@@ -353,10 +570,9 @@ export const RecargosImportarTransmeraldaService = {
             select: { id: true, placa: true }
           })
         : Promise.resolve([]),
-      // Match por nombre (TM y CM usan los mismos nombres de clientes)
+      // La similitud necesita comparar los nombres distintos, no solo los exactos.
       prisma.clientes.findMany({
-        where: { deletedAt: null, nombre: { in: empresasTM.map((e) => e.nombre).filter((n): n is string => !!n) } },
-        select: { id: true, nombre: true }
+        select: { id: true, nombre: true, nit: true, deletedAt: true }
       })
     ])
 
@@ -388,9 +604,6 @@ export const RecargosImportarTransmeraldaService = {
       conductoresCM.map((c) => [c.numero_identificacion, c])
     )
     const vehByPlaca = new Map(vehiculosCM.map((v) => [v.placa, v]))
-    const empByNombre = new Map(
-      empresasCM.map((e) => [e.nombre?.toLowerCase() || '', e])
-    )
 
     // 4. Detectar ya importados
     //    IMPORTANTE: el matching se hace sobre el numero_planilla
@@ -477,12 +690,9 @@ export const RecargosImportarTransmeraldaService = {
       const placa = p.vehiculos?.placa || null
       const vehiculoDestino = placa ? vehByPlaca.get(placa) : null
 
-      // Empresa: match por nombre
       const empresaTMData = tmEmpById.get(p.empresa_id)
-      const nombreEmpresaLower = empresaTMData?.nombre?.toLowerCase() || null
-      const empresaDestino = nombreEmpresaLower
-        ? empByNombre.get(nombreEmpresaLower)
-        : null
+      const resolucionEmpresa = resolverEmpresaDestino(empresaTMData, empresasCM)
+      const empresaDestino = resolucionEmpresa.destino
 
       // Normalizar el número de planilla para el matching (TM-XXXX)
       const numeroNormalizado = normalizarNumeroPlanillaTM(p.numero_planilla)
@@ -499,7 +709,7 @@ export const RecargosImportarTransmeraldaService = {
 
       const conductorExiste = !!conductorDestino
       const vehiculoNoExiste = !!placa && !vehiculoDestino
-      const empresaNoExiste = !!nombreEmpresaLower && !empresaDestino
+      const empresaNoExiste = !!empresaTMData?.nombre && resolucionEmpresa.metodo === 'nueva'
       /**
        * Activo EN LA FUENTE: cualquier estado que no sea `inactivo`.
        *
@@ -527,7 +737,8 @@ export const RecargosImportarTransmeraldaService = {
       // Track entidades a crear
       if (vehiculoNoExiste && placa) vehiculosACrear.add(placa)
       if (empresaNoExiste && empresaTMData?.nombre) {
-        empresasACrear.add(empresaTMData.nombre)
+        const claveEmpresa = normalizarNitEmpresa(empresaTMData.nit) || normalizarNombreEmpresa(empresaTMData.nombre)
+        empresasACrear.add(claveEmpresa || empresaTMData.nombre)
       }
 
       /**
@@ -562,6 +773,15 @@ export const RecargosImportarTransmeraldaService = {
         dias_count: diasLista.length,
         dias_lista: diasLista,
         dias_rangos: diasRangos,
+        empresa_origen_id: p.empresa_id || null,
+        empresa_destino_id: empresaDestino?.id ?? null,
+        empresa_destino_nombre: empresaDestino?.nombre ?? null,
+        empresa_coincidencia: resolucionEmpresa.metodo,
+        empresa_coincidencia_score: resolucionEmpresa.score,
+        empresa_sugerencias: resolucionEmpresa.sugerencias,
+        empresa_requiere_revision: resolucionEmpresa.requiereRevision,
+        empresa_nit_en_empresa_eliminada:
+          resolucionEmpresa.nitEnEmpresaEliminada && !empresaDestino,
         ya_importado: yaImportado,
         conductor_existe_en_destino: conductorExiste,
         /// Lo que decide. Se conserva el nombre del campo para no romper al
@@ -632,6 +852,9 @@ export const RecargosImportarTransmeraldaService = {
     let vehiculosCreados = 0
     let empresasCreadas = 0
     const errores: Array<{ tipo: 'vehiculo' | 'empresa'; origen_id: string; error: string }> = []
+    const empresasDestino = await prisma.clientes.findMany({
+      select: { id: true, nombre: true, nit: true, deletedAt: true }
+    })
 
     // Crear vehículos faltantes
     for (const item of preview.planillas) {
@@ -684,41 +907,34 @@ export const RecargosImportarTransmeraldaService = {
       }
     }
 
-    // Crear empresas faltantes
+    // Solo se crean cuando no hay match ni sugerencias que deban confirmarse.
+    const empresasProcesadas = new Set<string>()
     for (const item of preview.planillas) {
-      if (!item.empresa_no_existe_en_destino) continue
+      if (!item.empresa_no_existe_en_destino || !item.empresa_origen_id) continue
+      if (empresasProcesadas.has(item.empresa_origen_id)) continue
+      empresasProcesadas.add(item.empresa_origen_id)
       try {
-        // Buscar la empresa en TM por nombre
-        const empresaTM = await tm.clientes.findFirst({
-          where: { nombre: item.empresa_nombre }
+        const empresaTM = await tm.clientes.findUnique({
+          where: { id: item.empresa_origen_id }
         })
         if (!empresaTM) continue
 
-        // Verificar de nuevo
-        const existing = await prisma.clientes.findFirst({
-          where: { nombre: empresaTM.nombre }
-        })
-        if (existing) continue
+        const resolucion = resolverEmpresaDestino(empresaTM, empresasDestino)
+        if (resolucion.destino) continue
+        if (resolucion.requiereRevision) {
+          errores.push({
+            tipo: 'empresa',
+            origen_id: item.source_id,
+            error: 'Hay empresas similares en Cotransmeq; selecciónala en el preview antes de crearla'
+          })
+          continue
+        }
 
-        await prisma.clientes.create({
-          data: {
-            id: randomUUID(),
-            nombre: empresaTM.nombre,
-            nit: empresaTM.nit,
-            representante: empresaTM.representante,
-            cedula: empresaTM.cedula,
-            telefono: empresaTM.telefono,
-            direccion: empresaTM.direccion,
-            requiere_osi: empresaTM.requiere_osi ?? false,
-            paga_recargos: empresaTM.paga_recargos ?? false,
-            tipo: empresaTM.tipo || 'EMPRESA',
-            correo: empresaTM.correo,
-            oculto: false,
-            createdAt: now,
-            updatedAt: now
-          } as any
-        })
-        empresasCreadas++
+        const resultado = await crearEmpresaImportada(empresaTM, now)
+        if (resultado.creada) empresasCreadas++
+        if (!empresasDestino.some((empresa) => empresa.id === resultado.empresa.id)) {
+          empresasDestino.push(resultado.empresa)
+        }
       } catch (e: any) {
         errores.push({
           tipo: 'empresa',
@@ -750,7 +966,12 @@ export const RecargosImportarTransmeraldaService = {
    *     el response del POST retorna en segundos aunque se importen
    *     200 planillas.
    */
-  async importarPlanillas(sourceIds: string[], userId: string) {
+  async importarPlanillas(
+    sourceIds: string[],
+    userId: string,
+    empresaDestinoPorPlanilla: Record<string, string> = {},
+    empresasConfirmadasNuevas: string[] = []
+  ) {
     if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
       throw new Error('Debe proporcionar al menos un source_id')
     }
@@ -838,9 +1059,6 @@ export const RecargosImportarTransmeraldaService = {
 
     const idents = Array.from(identsSet)
     const placas = Array.from(placasSet)
-    const nombresEmpresas = empresasTMFull
-      .map((e) => e.nombre)
-      .filter((n): n is string => !!n)
 
     // 3. Queries a Cotransmeq
     const [conductoresCM, vehiculosCM, empresasCM] = await Promise.all([
@@ -856,12 +1074,9 @@ export const RecargosImportarTransmeraldaService = {
             select: { id: true, placa: true }
           })
         : Promise.resolve([]),
-      nombresEmpresas.length
-        ? prisma.clientes.findMany({
-            where: { nombre: { in: nombresEmpresas } },
-            select: { id: true, nombre: true }
-          })
-        : Promise.resolve([])
+      prisma.clientes.findMany({
+        select: { id: true, nombre: true, nit: true, deletedAt: true }
+      })
     ])
 
     /// 3b. La misma regla que el preview: decide el estado en TRANSMERALDA,
@@ -874,9 +1089,6 @@ export const RecargosImportarTransmeraldaService = {
       conductoresCM.map((c) => [c.numero_identificacion, c.id])
     )
     const vehByPlaca = new Map(vehiculosCM.map((v) => [v.placa, v.id]))
-    const empByNombre = new Map(
-      empresasCM.map((e) => [e.nombre || '', e.id])
-    )
 
     const now = new Date()
     const importadas: Array<{ source_id: string; new_id: string; numero_planilla: string }> = []
@@ -885,6 +1097,61 @@ export const RecargosImportarTransmeraldaService = {
     const idsParaRecalcular: string[] = []
     let vehiculosCreados = 0
     let empresasCreadas = 0
+    const empresasPendientes = new Map<string, Promise<EmpresaDestinoImportacion>>()
+    const empresasConfirmadasNuevasSet = new Set(empresasConfirmadasNuevas)
+
+    const resolverOCrearEmpresa = async (
+      sourceId: string,
+      empresaTM: any
+    ): Promise<string> => {
+      const resolucion = resolverEmpresaDestino(empresaTM, empresasCM)
+      const empresaElegidaId = empresaDestinoPorPlanilla[sourceId]
+      if (empresaElegidaId) {
+        const empresaElegida = empresasCM.find(
+          (empresa) => empresa.id === empresaElegidaId && empresa.deletedAt == null
+        )
+        if (!empresaElegida) {
+          throw new Error('La empresa seleccionada ya no existe o está eliminada en Cotransmeq')
+        }
+        const eraOpcionDisponible =
+          resolucion.destino?.id === empresaElegidaId ||
+          resolucion.sugerencias.some((sugerencia) => sugerencia.id === empresaElegidaId)
+        if (!eraOpcionDisponible) {
+          throw new Error('La empresa seleccionada ya no coincide con las sugerencias actuales; vuelve a cargar el preview')
+        }
+        return empresaElegida.id
+      }
+
+      if (resolucion.destino) return resolucion.destino.id
+      if (resolucion.nitEnEmpresaEliminada) {
+        throw new Error('El NIT ya está asociado a una empresa eliminada en Cotransmeq; reactívala antes de importar')
+      }
+      if (resolucion.requiereRevision && !empresasConfirmadasNuevasSet.has(sourceId)) {
+        throw new Error(`Confirma la empresa destino en el preview (mejor coincidencia: ${resolucion.score ?? 0}/100)`)
+      }
+
+      const nitNormalizado = normalizarNitEmpresa(empresaTM?.nit)
+      const clave = nitNormalizado
+        ? `nit:${nitNormalizado}`
+        : `nombre:${normalizarNombreEmpresa(empresaTM?.nombre)}`
+      if (!clave || clave === 'nombre:') {
+        throw new Error('La planilla no tiene datos suficientes para resolver su empresa')
+      }
+
+      let pendiente = empresasPendientes.get(clave)
+      if (!pendiente) {
+        pendiente = (async () => {
+          const resultado = await crearEmpresaImportada(empresaTM, now)
+          if (resultado.creada) empresasCreadas++
+          if (!empresasCM.some((empresa) => empresa.id === resultado.empresa.id)) {
+            empresasCM.push(resultado.empresa)
+          }
+          return resultado.empresa
+        })()
+        empresasPendientes.set(clave, pendiente)
+      }
+      return (await pendiente).id
+    }
 
     // 3c. Dedup en BATCH: una sola query que trae TODAS las planillas
     //     candidatas a matchear por (conductor_id, numero_planilla,
@@ -1033,38 +1300,10 @@ export const RecargosImportarTransmeraldaService = {
           return
         }
 
-        // Empresa (upsert por nombre). Idempotente dentro del batch.
         const empresaTM = tmEmpById.get(p.empresa_id)
-        let empresaIdCM = empresaTM?.nombre
-          ? empByNombre.get(empresaTM.nombre)
+        const empresaIdCM = empresaTM?.nombre
+          ? await resolverOCrearEmpresa(p.id, empresaTM)
           : null
-        if (!empresaIdCM && empresaTM?.nombre) {
-          // `clientes` no tiene UNIQUE por nombre en el schema, así que
-          // hacemos check-then-create dentro de un try/catch para tolerar
-          // carreras concurrentes.
-          const nuevaEmpresa = await prisma.clientes.create({
-            data: {
-              id: randomUUID(),
-              nombre: empresaTM.nombre,
-              nit: empresaTM.nit,
-              representante: empresaTM.representante,
-              cedula: empresaTM.cedula,
-              telefono: empresaTM.telefono,
-              direccion: empresaTM.direccion,
-              requiere_osi: empresaTM.requiere_osi ?? false,
-              paga_recargos: empresaTM.paga_recargos ?? false,
-              tipo: empresaTM.tipo || 'EMPRESA',
-              correo: empresaTM.correo,
-              oculto: false,
-              createdAt: now,
-              updatedAt: now
-            } as any,
-            select: { id: true, nombre: true }
-          })
-          empresaIdCM = nuevaEmpresa.id
-          empByNombre.set(empresaTM.nombre, nuevaEmpresa.id)
-          empresasCreadas++
-        }
         if (!empresaIdCM) {
           omitidas.push({ source_id: p.id, motivo: 'Empresa no encontrada en TM' })
           return

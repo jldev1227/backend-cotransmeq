@@ -190,6 +190,8 @@ export const importarTransmeraldaSchema = z.object({
     .array(z.string().uuid())
     .min(1, "Debe seleccionar al menos una planilla")
     .max(200, "Máximo 200 planillas por importación"),
+  empresa_destino_por_planilla: z.record(z.string().uuid()).optional().default({}),
+  empresas_confirmadas_nuevas: z.array(z.string().uuid()).optional().default([]),
 });
 
 export type CreateRecargoDTO = z.infer<typeof createRecargoSchema>;

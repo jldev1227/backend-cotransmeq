@@ -353,6 +353,10 @@ los dos pasos.
                    "empresa_nombre": "…", "vehiculo_placa": "…", "numero_planilla_original": "7176",
                    "numero_planilla_normalizado": "TM-7176", "numero_planilla": "TM-7176",
                    "dias_count": 6, "dias_lista": [1, 2, 3, 5, 6, 7], "dias_rangos": "1-3, 5-7",
+                   "empresa_origen_id": "uuid", "empresa_destino_id": "uuid", "empresa_destino_nombre": "…",
+                   "empresa_coincidencia": "nit", "empresa_coincidencia_score": 100,
+                   "empresa_sugerencias": [], "empresa_requiere_revision": false,
+                   "empresa_nit_en_empresa_eliminada": false,
                    "ya_importado": false, "imported_id": null, "conductor_existe_en_destino": true,
                    "conductor_activo_en_destino": true, "conductor_activo_en_origen": true,
                    "vehiculo_no_existe_en_destino": false, "empresa_no_existe_en_destino": false,
@@ -362,13 +366,39 @@ los dos pasos.
 `conductor_activo_en_destino` conserva el nombre por compatibilidad, pero ya
 significa «existe aquí y no está inactivo en Transmeralda».
 
+La empresa destino se resuelve primero por NIT normalizado y luego por nombre
+normalizado. Una similitud de nombre **mayor a 80/100** se asigna automáticamente;
+si la mejor opción da 80 o menos, el preview devuelve hasta cinco sugerencias con
+su score y exige escoger una. Solo se ofrece crear una empresa nueva cuando no
+hay coincidencias; en filas ambiguas, “crear como nueva” requiere confirmación
+explícita. Si el NIT pertenece a una empresa eliminada en Cotransmeq, no se crea
+otra empresa con ese NIT.
+
 **`POST /importar-desde-transmeralda/crear-entidades-faltantes`**. Body
 `{ mes, año }`. Crea las placas (en `disponible`) y empresas que el preview
 completo marca como faltantes; no importa planillas.
 `{ success, data: { vehiculos_creados, empresas_creadas, errores: [{ tipo, origen_id, error }] } }`.
 
-**`POST /importar-desde-transmeralda`**. Body `{ "source_ids": ["uuid", …] }`
-(entre 1 y 200).
+**`POST /importar-desde-transmeralda`**. Body de 1 a 200 `source_ids`, más la
+resolución de empresa opcional que presenta el preview:
+
+```json
+{
+  "source_ids": [
+    "11111111-1111-4111-8111-111111111111",
+    "33333333-3333-4333-8333-333333333333"
+  ],
+  "empresa_destino_por_planilla": {
+    "11111111-1111-4111-8111-111111111111": "22222222-2222-4222-8222-222222222222"
+  },
+  "empresas_confirmadas_nuevas": ["33333333-3333-4333-8333-333333333333"]
+}
+```
+
+`empresa_destino_por_planilla` asigna una sugerencia activa para la planilla;
+`empresas_confirmadas_nuevas` confirma crear una empresa cuando existen opciones
+ambiguas. Ambos campos son opcionales si la resolución fue automática o el
+preview determinó que no hay coincidencias.
 
 ```json
 { "success": true, "message": "Importación completada: 20 importadas, 4 omitidas, 0 con error",
