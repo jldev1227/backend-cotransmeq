@@ -889,7 +889,11 @@ export const RecargosController = {
   ) {
     try {
       requireTransmeraldaConfigured();
-      const { source_ids } = importarTransmeraldaSchema.parse(request.body);
+      const {
+        source_ids,
+        empresa_destino_por_planilla,
+        empresas_confirmadas_nuevas,
+      } = importarTransmeraldaSchema.parse(request.body);
       const userId = (request as any).user?.id;
       if (!userId) {
         return reply
@@ -900,6 +904,8 @@ export const RecargosController = {
         await RecargosImportarTransmeraldaService.importarPlanillas(
           source_ids,
           userId,
+          empresa_destino_por_planilla,
+          empresas_confirmadas_nuevas,
         );
 
       // Notificar a clientes conectados para que refresquen el canvas
