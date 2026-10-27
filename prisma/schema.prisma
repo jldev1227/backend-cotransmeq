@@ -6321,3 +6321,49 @@ model usuario_web_push {
 
   @@index([usuario_id, activo])
 }
+
+/// Encuesta pública con preguntas congeladas al publicar. Un cambio posterior
+/// exige duplicarla para que las respuestas antiguas conserven su significado.
+model encuesta {
+  id                String              @id @default(uuid()) @db.Uuid
+  token             String              @unique @db.VarChar(64)
+  titulo            String              @db.VarChar(180)
+  descripcion       String?             @db.Text
+  mensaje_final     String?             @db.Text
+  estado            String              @default("BORRADOR") @db.VarChar(20)
+  nombre_modo       String              @default("NO") @db.VarChar(12)
+  correo_modo       String              @default("NO") @db.VarChar(12)
+  registrar_origen  Boolean             @default(false)
+  politica_origen   String              @default("PERMITIR") @db.VarChar(20)
+  preguntas         Json                @default("[]")
+  fecha_cierre      DateTime?           @db.Timestamptz(6)
+  publicado_at      DateTime?           @db.Timestamptz(6)
+  creado_por_id     String?             @db.Uuid
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?           @db.Timestamptz(6)
+  respuestas        encuesta_respuesta[]
+
+  @@index([estado, created_at(sort: Desc)])
+  @@index([deleted_at])
+}
+
+model encuesta_respuesta {
+  id                String    @id @default(uuid()) @db.Uuid
+  encuesta_id       String    @db.Uuid
+  nombre            String?   @db.VarChar(160)
+  correo            String?   @db.VarChar(254)
+  respuestas        Json
+  /// Huellas HMAC por encuesta: permiten comparar sin guardar IP ni huella crudas.
+  ip_hash           String?   @db.VarChar(64)
+  dispositivo_hash  String?   @db.VarChar(64)
+  coincide_ip       Boolean   @default(false)
+  coincide_dispositivo Boolean @default(false)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  encuesta          encuesta  @relation(fields: [encuesta_id], references: [id], onDelete: Restrict)
+
+  @@index([encuesta_id, created_at(sort: Desc)])
+  @@index([encuesta_id, ip_hash])
+  @@index([encuesta_id, dispositivo_hash])
+}

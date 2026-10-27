@@ -73,6 +73,7 @@ Reglas que un integrador necesita saber:
 | GET | `/api/extractos/catalogo` | `extractos:read` | Textos frecuentes de un tipo |
 | DELETE | `/api/extractos/catalogo/:id` | `extractos:full` | Retira un texto del catálogo |
 | GET | `/api/extractos/:id` | `extractos:read` | Detalle de un extracto |
+| GET | `/api/extractos/:id/pdf` | `extractos:read` | Descarga el PDF del extracto |
 | POST | `/api/extractos` | `extractos:full` | Emite (y firma) un extracto |
 | POST | `/api/extractos/:id/anular` | `extractos:full` | Anula un extracto |
 | GET | `/api/public/extractos/:codigo` | pública · token · límite 120/min por IP | Validación pública (QR) |

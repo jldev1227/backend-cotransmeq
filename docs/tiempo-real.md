@@ -313,6 +313,7 @@ no la planilla.
 |---|---|---|---|---|
 | `asistencias:formulario:created`, `:updated`, `:disabled` | S→C | todos | `asistencias.controller.ts` | `{ formulario, timestamp }`. `updated`/`disabled` se eligen con un ternario: están en `EMITIDOS_INDIRECTAMENTE` del test de contrato |
 | `asistencias:respuesta:created` | S→C | todos | asistencias y capacitaciones del portal | `{ respuesta, formularioId, … }` |
+| `encuestas:respuesta` | S→C | todos | `encuestas.service.ts` | `{ encuestaId, respuestaId, occurredAt }`, sin contenido; el panel vuelve a consultar por REST con permiso |
 | `asistencias:export:progress`, `asistencias:export:done` | S→C | `user-<id>` | exportación ZIP | `{ jobId, current, total, … }` |
 | `inducciones:created`, `inducciones:updated` | S→C | todos | `inducciones.controller.ts` | `{ induccion, timestamp }` |
 | `join-evaluacion` / `leave-evaluacion` | C→S | — | `sockets/index.ts` | `evaluacionId` |

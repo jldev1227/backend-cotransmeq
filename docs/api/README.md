@@ -191,6 +191,7 @@ actualicen. Cada módulo los lista en «Efectos»; el catálogo completo está e
 | Módulo | Qué cubre |
 |---|---|
 | [formularios-dinamicos](./formularios-dinamicos.md) | Constructor, asignaciones, envíos; portal y «mis formularios» |
+| [encuestas](./encuestas.md) | Encuestas públicas configurables, respuestas, resultados y exportaciones |
 | [formularios-sarlaft](./formularios-sarlaft.md) | Formularios públicos SARLAFT + PTEE |
 | [mis-capacitaciones](./mis-capacitaciones.md) | Capacitaciones del usuario |
 | [asistencias](./asistencias.md) | Formularios de asistencia |
