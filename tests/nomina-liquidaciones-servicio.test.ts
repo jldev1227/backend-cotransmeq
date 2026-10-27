@@ -879,7 +879,7 @@ describe('Desprendible: las líneas salen de lo guardado', () => {
     const d = await LiquidacionesService.datosDesprendible(liqId)
     expect(d.basePrestacional).toBe(1_423_500)
     expect(d.empleado).toMatchObject({ nombre: 'Ana Nómina', cedula: `${MARCA}-1`, cargo: 'CONDUCTOR' })
-    expect(d.empresa).toEqual({ nombre: 'TRANSPORTES Y SERVICIOS ESMERALDA S.A.S', nit: '901528440-3' })
+    expect(d.empresa).toEqual({ nombre: 'SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S.', nit: '901983227' })
     expect(d.firmaUrl).toBeNull()
   })
 

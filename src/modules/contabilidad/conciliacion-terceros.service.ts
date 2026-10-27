@@ -512,7 +512,7 @@ export class ConciliacionTercerosService {
     // Hoja 1: Resumen
     const resumenData = [
       ['CONCILIACIÓN DE FACTURAS CON TERCEROS'],
-      ['TRANSPORTES Y SERVICIOS ESMERALDA S.A.S'],
+      ['SERVICIOS Y TRANSPORTES COTRANSMEQ S.A.S.'],
       [''],
       ['Concepto', 'Valor'],
       ['Registros contables procesados', resultado.resumen.totalRegistrosContables],
