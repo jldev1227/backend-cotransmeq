@@ -511,6 +511,10 @@ export class RecorridosPatchService {
           )
         }
         registroDiaId = existente.id
+        /// Un LABORADO heredado puede existir sin segmento. Al completar su
+        /// fila desde el canvas se crea el primer tramo y el cliente debe
+        /// reconstruirla como recorrido para reemplazar la fila de día.
+        if (existente.segmentos.length === 0) recargar = true
         if (existente.tipo !== 'LABORADO') {
           // Un día sin recorridos que recibe el primero: su fila de día
           // desaparece del libro y en su lugar queda el recorrido.

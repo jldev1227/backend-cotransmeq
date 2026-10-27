@@ -13,6 +13,7 @@ import {
 } from "../../sockets";
 import { NotificacionesService } from "../notificaciones/notificaciones.service";
 import { FacturacionLiquidacionesService } from "../facturacion-liquidaciones/facturacion-liquidaciones.service";
+import { EVENTOS_FACTURACION_LIQUIDACIONES } from "../facturacion-liquidaciones/facturacion-liquidaciones.events";
 import { enviarPushUsuarios } from "../usuario-push/usuario-push.service";
 import { ZodError } from "zod";
 import {
@@ -509,7 +510,7 @@ export class LiquidacionesServiciosController {
           await FacturacionLiquidacionesService.sincronizarTotalLiquidacion(id);
         if (facturaRecalculada) {
           emitFacturacionLiquidacion(
-            "facturacion-updated",
+            EVENTOS_FACTURACION_LIQUIDACIONES.facturaActualizada,
             await FacturacionLiquidacionesService.obtenerPorId(
               facturaRecalculada.factura_id,
             ),

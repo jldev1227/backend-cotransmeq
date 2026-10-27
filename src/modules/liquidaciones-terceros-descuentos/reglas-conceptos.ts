@@ -83,19 +83,41 @@ export const ORDEN_BASE_ANTICIPO = 6000;
  * tarifa se siembra porque es tarifa y ahorra buscarla; la medida no, porque
  * inventarla mete plata que nadie tecleó.
  */
-export const VALOR_TURNO_DOBLE = 25000;
+export interface ValoresUnitariosTercero {
+  valor_dia_conductor_nomina: number;
+  valor_salario_manual: number;
+  valor_auxilio_transporte_manual: number;
+  valor_bonificacion_manual: number;
+  valor_bonificacion_turno_doble_manual: number;
+  valor_dotacion: number;
+  valor_examen_medico: number;
+}
+
+/** Respaldo que conserva los importes vigentes antes de hacerlos editables. */
+export const VALORES_UNITARIOS_TERCERO_POR_DEFECTO: ValoresUnitariosTercero = {
+  valor_dia_conductor_nomina: 78629.9,
+  valor_salario_manual: 69510,
+  valor_auxilio_transporte_manual: 8303,
+  valor_bonificacion_manual: 26061,
+  valor_bonificacion_turno_doble_manual: 25000,
+  valor_dotacion: 3985,
+  valor_examen_medico: 2882,
+};
+
+export const VALOR_TURNO_DOBLE =
+  VALORES_UNITARIOS_TERCERO_POR_DEFECTO.valor_bonificacion_turno_doble_manual;
 
 export const BLOQUE_CONDUCTOR_MANUAL = {
   DIAS_POR_DEFECTO: 0,
-  SALARIO: 69510,
-  AUXILIO_TRANSPORTE: 8303,
-  BONIFICACION: { dias: 0, valor_unitario: 26061 },
+  SALARIO: VALORES_UNITARIOS_TERCERO_POR_DEFECTO.valor_salario_manual,
+  AUXILIO_TRANSPORTE: VALORES_UNITARIOS_TERCERO_POR_DEFECTO.valor_auxilio_transporte_manual,
+  BONIFICACION: { dias: 0, valor_unitario: VALORES_UNITARIOS_TERCERO_POR_DEFECTO.valor_bonificacion_manual },
   BONIFICACION_TURNO_DOBLE: { dias: 0, valor_unitario: VALOR_TURNO_DOBLE },
   RECARGOS: { dias: 0, valor_unitario: 0 },
 } as const;
 
-export const VALOR_DOTACION = 3985;
-export const VALOR_EXAMEN_MEDICO = 2882;
+export const VALOR_DOTACION = VALORES_UNITARIOS_TERCERO_POR_DEFECTO.valor_dotacion;
+export const VALOR_EXAMEN_MEDICO = VALORES_UNITARIOS_TERCERO_POR_DEFECTO.valor_examen_medico;
 export const VALOR_PAPELERIA = 25000;
 export const TARIFA_FIJA_GASTOS_DIVERSOS = 20000;
 export const PORCENTAJE_GASTO_POR_ITEM = 0.004;
@@ -217,10 +239,13 @@ export const GASTOS_POR_DEFECTO: GastoPorDefecto[] = [
 export function gastosPorDefectoDelPeriodo(
   config: ConfigGastosPeriodo,
   bases: { baseFacturada: number; valorLiquidar: number },
+  valoresUnitarios: ValoresUnitariosTercero = VALORES_UNITARIOS_TERCERO_POR_DEFECTO,
 ): GastoPorDefecto[] {
   const diversos = importeGastosDiversos(config, bases.baseFacturada);
   const papeleria = importePapeleria(config, bases.valorLiquidar);
   return GASTOS_POR_DEFECTO.map((g) => {
+    if (g.concepto === 'DOTACION') return { ...g, valor_unitario: valoresUnitarios.valor_dotacion };
+    if (g.concepto === 'EXAMEN_MEDICO') return { ...g, valor_unitario: valoresUnitarios.valor_examen_medico };
     if (g.concepto === 'PAPELERIA') return { ...g, valor_unitario: papeleria };
     if (g.concepto === 'GASTOS_DIVERSOS') return { ...g, valor_unitario: diversos };
     return g;
@@ -365,6 +390,7 @@ export function recalcularGastosAutomaticos(
   propietarios: Record<string, boolean>,
   config: ConfigGastosPeriodo = CONFIG_GASTOS_FALLBACK,
   valorLiquidar?: number,
+  valoresUnitarios: ValoresUnitariosTercero = VALORES_UNITARIOS_TERCERO_POR_DEFECTO,
 ): ConceptoLike[] {
   const dias = totalDiasNoPropietarios(conceptos, propietarios);
   const baseDiversos = totalFacturadoItems + brutoAdicionales;
@@ -375,10 +401,10 @@ export function recalcularGastosAutomaticos(
     if (c.calculado === false) return c;
 
     if (c.concepto === 'DOTACION') {
-      return { ...c, dias, valor_unitario: VALOR_DOTACION, valor_total: dias * VALOR_DOTACION, calculado: true };
+      return { ...c, dias, valor_unitario: valoresUnitarios.valor_dotacion, valor_total: dias * valoresUnitarios.valor_dotacion, calculado: true };
     }
     if (c.concepto === 'EXAMEN_MEDICO') {
-      return { ...c, dias, valor_unitario: VALOR_EXAMEN_MEDICO, valor_total: dias * VALOR_EXAMEN_MEDICO, calculado: true };
+      return { ...c, dias, valor_unitario: valoresUnitarios.valor_examen_medico, valor_total: dias * valoresUnitarios.valor_examen_medico, calculado: true };
     }
     if (c.concepto === 'GASTOS_DIVERSOS') {
       return { ...c, dias: 1, valor_unitario: unitDiversos, valor_total: unitDiversos, calculado: true };

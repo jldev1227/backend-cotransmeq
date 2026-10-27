@@ -166,6 +166,7 @@ const FRASES: Array<{ patron: RegExp; metodo?: string; accion: AccionActividad; 
   { patron: /^\/api\/liquidaciones-terceros\/items\/:pivoteId\/revertir-traslado$/, accion: 'editar', frase: 'revirtió el traslado de un ítem de terceros' },
   { patron: /^\/api\/liquidaciones-terceros\/migrar$/, accion: 'otro', frase: 'migró liquidaciones de terceros' },
   { patron: /^\/api\/liquidaciones-terceros\/config-gastos$/, accion: 'editar', frase: 'cambió la configuración de gastos de terceros' },
+  { patron: /^\/api\/liquidaciones-terceros\/config-valores$/, accion: 'editar', frase: 'cambió las tarifas base de terceros' },
   { patron: /^\/api\/configuracion-descuentos-tercero$/, accion: 'editar', frase: 'cambió la configuración de descuentos de terceros' },
   { patron: /^\/api\/liquidaciones-servicios\/:id\/estado$/, accion: 'estado', frase: 'cambió el estado de la liquidación de servicios {ref}' },
   { patron: /^\/api\/liquidaciones-servicios\/config-liquidador$/, accion: 'editar', frase: 'cambió la configuración del liquidador' },

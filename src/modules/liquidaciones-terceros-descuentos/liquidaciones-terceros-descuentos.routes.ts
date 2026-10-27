@@ -73,6 +73,8 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   // estáticas: van antes que cualquier `/:id` para que no las capture.
   app.get('/liquidaciones-terceros/config-gastos', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerConfigGastos);
   app.put('/liquidaciones-terceros/config-gastos', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarConfigGastos);
+  app.get('/liquidaciones-terceros/config-valores', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerConfigValoresTercero);
+  app.put('/liquidaciones-terceros/config-valores', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarConfigValoresTercero);
 
   // Calcular impuestos del cierre
   app.get('/liquidaciones-terceros/:id/calcular-impuestos', puedeLeer, LiquidacionesTercerosDescuentosController.calcularImpuestos);

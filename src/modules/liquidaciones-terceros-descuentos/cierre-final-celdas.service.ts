@@ -43,6 +43,7 @@ import {
 } from "./totales-cierre";
 import { filasGastosFaltantes } from "./sembrar-gastos.service";
 import { ConfigGastosPeriodoService } from "./config-gastos-periodo.service";
+import { ConfigValoresTerceroService } from "./config-valores-tercero.service";
 
 const ESTADOS_BLOQUEADOS = ["APROBADA", "PAGADA", "FACTURADA", "ANULADA", "REEMPLAZADA"];
 
@@ -265,6 +266,8 @@ export const CierreFinalCeldasService = {
       throw new Error(`Campo no editable: ${field}`);
     }
 
+    const valoresUnitarios = await ConfigValoresTerceroService.obtener();
+
     const { cierreId, cambiadas } = await prisma.$transaction(async (tx) => {
       const actual = await tx.liquidacion_tercero_final_concepto.findFirst({
         where: { id, deleted_at: null },
@@ -280,7 +283,15 @@ export const CierreFinalCeldasService = {
 
       const cierre = await tx.liquidacion_tercero_final.findFirst({
         where: { id: cierreId, deleted_at: null },
-        select: { id: true, estado: true, es_multi_propietario: true, es_propietario_overrides: true },
+        select: {
+          id: true,
+          estado: true,
+          es_multi_propietario: true,
+          es_propietario_overrides: true,
+          anio: true,
+          mes: true,
+          valor_liquidar: true,
+        },
       });
       if (!cierre) throw new Error(`Cierre ${cierreId} no encontrado`);
       if (ESTADOS_BLOQUEADOS.includes(cierre.estado)) {
@@ -288,6 +299,7 @@ export const CierreFinalCeldasService = {
           `No se puede editar un cierre en estado ${cierre.estado}`,
         );
       }
+      const configGastos = await ConfigGastosPeriodoService.obtener(cierre.anio, cierre.mes, tx);
 
       // ── 1. Compare-and-swap sobre la fila editada ──────────────────
       // El `version` del WHERE es lo que convierte esto en un CAS. Se hace
@@ -349,6 +361,9 @@ export const CierreFinalCeldasService = {
         totalFacturado,
         brutoAdicionales,
         overrides,
+        configGastos,
+        Number(cierre.valor_liquidar) || 0,
+        valoresUnitarios,
       );
 
       // ── 4. Persistir SOLO lo que cambió ───────────────────────────
@@ -742,6 +757,7 @@ export const CierreFinalCeldasService = {
     // La configuración es una lectura pura y no depende del cierre: fuera de
     // la transacción para no alargar la que sí bloquea filas.
     const config: any[] = await LiquidacionesTercerosDescuentosService.obtenerConfiguracion();
+    const valoresUnitarios = await ConfigValoresTerceroService.obtener();
     const prestaciones = config.filter(
       (c) => c.categoria === "PRESTACION_SOCIAL" && c.activo,
     );
@@ -814,7 +830,19 @@ export const CierreFinalCeldasService = {
 
       for (const conductorId of agregados) {
         const p = pedidos.get(conductorId)!;
-        const D = BLOQUE_CONDUCTOR_MANUAL;
+        const D = {
+          ...BLOQUE_CONDUCTOR_MANUAL,
+          SALARIO: valoresUnitarios.valor_salario_manual,
+          AUXILIO_TRANSPORTE: valoresUnitarios.valor_auxilio_transporte_manual,
+          BONIFICACION: {
+            ...BLOQUE_CONDUCTOR_MANUAL.BONIFICACION,
+            valor_unitario: valoresUnitarios.valor_bonificacion_manual,
+          },
+          BONIFICACION_TURNO_DOBLE: {
+            ...BLOQUE_CONDUCTOR_MANUAL.BONIFICACION_TURNO_DOBLE,
+            valor_unitario: valoresUnitarios.valor_bonificacion_turno_doble_manual,
+          },
+        };
 
         const salario = p.dias * D.SALARIO;
         const auxilio = p.dias * D.AUXILIO_TRANSPORTE;
@@ -900,7 +928,7 @@ export const CierreFinalCeldasService = {
         ...filasGastosFaltantes(cierreId, conceptosBD, configGastos, {
           baseFacturada: itemsBase + adicionalesBase,
           valorLiquidar: Number(cierre.valor_liquidar) || 0,
-        }),
+        }, valoresUnitarios),
       );
 
       if (nuevos.length) {
@@ -971,6 +999,9 @@ export const CierreFinalCeldasService = {
         itemsPivote.reduce((s, it) => s + num(it.liquidacion_tercero?.total_facturado), 0),
         adicionales.reduce((s, a) => s + num(a.valor_unitario) * (num(a.cantidad) || 1), 0),
         overrides,
+        configGastos,
+        Number(cierre.valor_liquidar) || 0,
+        valoresUnitarios,
       );
 
       for (const c of trabajo) {

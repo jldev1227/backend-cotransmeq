@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { ConfigGastosPeriodoService } from './config-gastos-periodo.service';
+import { ConfigValoresTerceroService } from './config-valores-tercero.service';
 import { LiquidacionesTercerosDescuentosService } from './liquidaciones-terceros-descuentos.service';
 import { PeriodoCierresService } from './periodo-cierres.service';
 import { CierreEstadoService, ErrorEstado } from './cierre-estado.service';
@@ -590,6 +591,24 @@ export class LiquidacionesTercerosDescuentosController {
         userId,
       );
       return reply.send(result);
+    } catch (error: any) {
+      return reply.status(error.statusCode || 500).send({ error: error.message });
+    }
+  }
+
+  static async obtenerConfigValoresTercero(_request: FastifyRequest, reply: FastifyReply) {
+    try {
+      return reply.send(await ConfigValoresTerceroService.obtener());
+    } catch (error: any) {
+      return reply.status(error.statusCode || 500).send({ error: error.message });
+    }
+  }
+
+  static async guardarConfigValoresTercero(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const valores = (request.body as any) || {};
+      const userId = (request as any).user?.id;
+      return reply.send(await ConfigValoresTerceroService.guardar(valores, userId));
     } catch (error: any) {
       return reply.status(error.statusCode || 500).send({ error: error.message });
     }

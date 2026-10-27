@@ -12,6 +12,7 @@ import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { MAX_BYTES_COMPROBANTE, TIPOS_COMPROBANTE } from '../../lib/pagos/medios'
 import { emitFacturacionLiquidacion, eventoMeta } from '../../sockets'
+import { EVENTOS_FACTURACION_LIQUIDACIONES } from '../facturacion-liquidaciones/facturacion-liquidaciones.events'
 import { FacturacionLiquidacionesService } from '../facturacion-liquidaciones/facturacion-liquidaciones.service'
 import { ErrorCartera } from './cartera.condiciones'
 import {
@@ -49,7 +50,7 @@ async function avisarFacturaActualizada(request: FastifyRequest, facturaId: stri
     if (!factura) return
     const u = usuarioDe(request)
     emitFacturacionLiquidacion(
-      'facturacion-updated',
+      EVENTOS_FACTURACION_LIQUIDACIONES.facturaActualizada,
       factura,
       eventoMeta({
         tipo: 'updated',

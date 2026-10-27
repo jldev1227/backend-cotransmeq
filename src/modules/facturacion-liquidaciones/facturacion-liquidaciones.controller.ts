@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { FacturacionLiquidacionesService } from './facturacion-liquidaciones.service'
+import { EVENTOS_FACTURACION_LIQUIDACIONES as EVENTO } from './facturacion-liquidaciones.events'
 import { emitFacturacionLiquidacion, emitNotificacion, eventoMeta } from '../../sockets'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { ErrorCartera } from '../cartera/cartera.condiciones'
@@ -24,7 +25,7 @@ export class FacturacionLiquidacionesController {
       // Emit socket event
       const actor = { id: userId ?? null, nombre: userName }
       emitFacturacionLiquidacion(
-        'facturacion-created',
+        EVENTO.facturaCreada,
         factura,
         eventoMeta({
           tipo: 'created',
@@ -39,7 +40,7 @@ export class FacturacionLiquidacionesController {
       for (const item of factura.items) {
         if (item.liquidacion) {
           emitFacturacionLiquidacion(
-            'liquidacion-servicio-facturada',
+            EVENTO.liquidacionFacturada,
             {
               id: item.liquidacion.id,
               estado: 'FACTURADA',
@@ -141,7 +142,7 @@ export class FacturacionLiquidacionesController {
       // Emit socket
       const actorAnula = { id: userId ?? null, nombre: userName }
       emitFacturacionLiquidacion(
-        'facturacion-anulada',
+        EVENTO.facturaAnulada,
         factura,
         eventoMeta({
           tipo: 'anulada',
@@ -155,7 +156,7 @@ export class FacturacionLiquidacionesController {
         if (item.liquidacion) {
           const estadoNuevo = factura.estados_resultantes[item.liquidacion.id] ?? 'LIQUIDADA'
           emitFacturacionLiquidacion(
-            'liquidacion-servicio-facturada',
+            EVENTO.liquidacionFacturada,
             {
               id: item.liquidacion.id,
               estado: estadoNuevo,
@@ -227,7 +228,7 @@ export class FacturacionLiquidacionesController {
       const factura = await FacturacionLiquidacionesService.obtenerCompleta(id)
       if (factura) {
         emitFacturacionLiquidacion(
-          'facturacion-updated',
+          EVENTO.facturaActualizada,
           factura,
           eventoMeta({
             tipo: 'updated',
@@ -270,7 +271,7 @@ export class FacturacionLiquidacionesController {
 
       const actor = { id: userId ?? null, nombre: userName }
       emitFacturacionLiquidacion(
-        'facturacion-updated',
+        EVENTO.facturaActualizada,
         result.factura,
         eventoMeta({
           tipo: 'updated',
@@ -281,7 +282,7 @@ export class FacturacionLiquidacionesController {
       )
       for (const liq of result.liquidaciones_afectadas) {
         emitFacturacionLiquidacion(
-          'liquidacion-servicio-facturada',
+          EVENTO.liquidacionFacturada,
           {
             id: liq.id,
             estado: 'FACTURADA',
@@ -341,7 +342,7 @@ export class FacturacionLiquidacionesController {
 
       const actor = { id: userId ?? null, nombre: userName }
       emitFacturacionLiquidacion(
-        'facturacion-updated',
+        EVENTO.facturaActualizada,
         result.factura,
         eventoMeta({
           tipo: 'updated',
@@ -352,7 +353,7 @@ export class FacturacionLiquidacionesController {
       )
       for (const liq of result.liquidaciones_afectadas) {
         emitFacturacionLiquidacion(
-          'liquidacion-servicio-facturada',
+          EVENTO.liquidacionFacturada,
           {
             id: liq.id,
             estado: liq.estado,
@@ -403,7 +404,7 @@ export class FacturacionLiquidacionesController {
       const { id } = request.params as any
       const result = await FacturacionLiquidacionesService.eliminar(id)
       emitFacturacionLiquidacion(
-        'facturacion-anulada',
+        EVENTO.facturaAnulada,
         { id },
         eventoMeta({
           tipo: 'deleted',
@@ -438,7 +439,7 @@ export class FacturacionLiquidacionesController {
       /// servicios.
       const factura = await FacturacionLiquidacionesService.obtenerPorId(id)
       emitFacturacionLiquidacion(
-        'facturacion-created',
+        EVENTO.facturaCreada,
         factura,
         eventoMeta({
           tipo: 'created',
