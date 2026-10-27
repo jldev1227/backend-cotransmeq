@@ -36,6 +36,7 @@ export class NominaAnalisisController {
         placas: csv(q.placas).map((p) => p.toUpperCase()),
         conductores: csv(q.conductores),
         estados: csv(q.estados).map((e) => e.toUpperCase()),
+        incluirRecargosJornada: q.incluirRecargosJornada === 'true',
       });
       return reply.send({ success: true, ...resultado });
     } catch (error) {

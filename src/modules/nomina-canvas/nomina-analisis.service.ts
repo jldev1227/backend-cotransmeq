@@ -22,6 +22,7 @@
  * y el cliente aplica cada filtro sobre la fecha que corresponde.
  */
 import { prisma } from '../../config/prisma';
+import { CODIGOS_RECARGO } from './nomina-canvas.types';
 
 export interface FiltrosAnalisisNomina {
   anios: number[];
@@ -29,6 +30,7 @@ export interface FiltrosAnalisisNomina {
   placas: string[];
   conductores: string[];
   estados: string[];
+  incluirRecargosJornada?: boolean;
 }
 
 export interface VehiculoAnalisis {
@@ -54,6 +56,23 @@ export interface RecargoAnalisis {
   cliente: string;
   mes: string;
   porcentaje_propietario: number;
+}
+
+export interface RecargoJornadaDiaAnalisis {
+  fecha: string;
+  valor: number;
+}
+
+export interface RecargoJornadaAnalisis {
+  planilla_id: string;
+  numero_planilla: string | null;
+  vehiculo_id: string | null;
+  placa: string | null;
+  cliente_id: string | null;
+  cliente: string;
+  mes: string;
+  dias: RecargoJornadaDiaAnalisis[];
+  valor: number;
 }
 
 export interface PernocteAnalisis {
@@ -99,6 +118,7 @@ export interface LiquidacionAnalisis {
   vehiculos: VehiculoAnalisis[];
   bonificaciones: BonificacionAnalisis[];
   recargos: RecargoAnalisis[];
+  recargos_jornada: RecargoJornadaAnalisis[];
   pernotes: PernocteAnalisis[];
   mantenimientos: MantenimientoAnalisis[];
 }
@@ -152,6 +172,114 @@ function fechasDe(raw: unknown): string[] {
   return Array.isArray(lista) ? lista.map((x: unknown) => String(x)) : [];
 }
 
+function mesesEntre(desde: string, hasta: string): { a_o: number; mes: number }[] {
+  const [anioInicio, mesInicio] = String(desde ?? '').slice(0, 7).split('-').map(Number);
+  const [anioFin, mesFin] = String(hasta ?? '').slice(0, 7).split('-').map(Number);
+  if (!anioInicio || !mesInicio || !anioFin || !mesFin) return [];
+  const meses: { a_o: number; mes: number }[] = [];
+  let anio = anioInicio;
+  let mes = mesInicio;
+  while (anio < anioFin || (anio === anioFin && mes <= mesFin)) {
+    meses.push({ a_o: anio, mes });
+    if (mes === 12) {
+      anio += 1;
+      mes = 1;
+    } else mes += 1;
+  }
+  return meses;
+}
+
+/** Consolida por planilla, empresa, mes y día los valores registrados en Recargos. */
+function agruparRecargosJornada(
+  liquidaciones: any[],
+  planillas: any[],
+  f: FiltrosAnalisisNomina,
+): Map<string, RecargoJornadaAnalisis[]> {
+  const planillasPorConductor = new Map<string, any[]>();
+  for (const planilla of planillas) {
+    const lista = planillasPorConductor.get(planilla.conductor_id) ?? [];
+    lista.push(planilla);
+    planillasPorConductor.set(planilla.conductor_id, lista);
+  }
+
+  const resultado = new Map<string, RecargoJornadaAnalisis[]>();
+  for (const liquidacion of liquidaciones) {
+    const desde = String(liquidacion.periodo_start ?? '').slice(0, 10);
+    const hasta = String(liquidacion.periodo_end ?? '').slice(0, 10);
+    const grupos = new Map<string, RecargoJornadaAnalisis>();
+    const agregarDia = (planilla: any, dia: any, fecha: string) => {
+      if (fecha < desde || fecha > hasta) return;
+      const anio = Number(fecha.slice(0, 4));
+      const mes = Number(fecha.slice(5, 7));
+      if (f.anios.length && !f.anios.includes(anio)) return;
+      if (f.meses.length && !f.meses.includes(mes)) return;
+      const placa = planilla.vehiculos?.placa ?? null;
+      if (f.placas.length && (!placa || !f.placas.includes(placa))) return;
+
+      let valorDia = 0;
+      let tieneRecargo = false;
+      for (const detalle of dia.detalles_recargos_dias ?? []) {
+        const codigo = String(detalle.tipos_recargos?.codigo ?? '').toUpperCase();
+        if (!(CODIGOS_RECARGO as readonly string[]).includes(codigo)) continue;
+        const horas = num(detalle.horas);
+        const valor = num(detalle.valor_calculado);
+        if (horas <= 0 && valor <= 0) continue;
+        tieneRecargo = true;
+        valorDia += valor;
+      }
+      if (!tieneRecargo) return;
+
+      const mesReferencia = String(anio) + '-' + String(mes).padStart(2, '0');
+      const vehiculoId = planilla.vehiculo_id ?? null;
+      const clienteId = planilla.empresa_id ?? null;
+      const clave = [planilla.id, vehiculoId, placa, clienteId, mesReferencia].join('|');
+      const valorRedondeado = Math.round(valorDia * 100) / 100;
+      const existente = grupos.get(clave);
+      if (existente) {
+        existente.dias.push({ fecha, valor: valorRedondeado });
+        existente.valor = Math.round((existente.valor + valorRedondeado) * 100) / 100;
+      } else {
+        grupos.set(clave, {
+          planilla_id: planilla.id,
+          numero_planilla: planilla.numero_planilla ?? null,
+          vehiculo_id: vehiculoId,
+          placa,
+          cliente_id: clienteId,
+          cliente: planilla.clientes?.nombre ?? '',
+          mes: mesReferencia,
+          dias: [{ fecha, valor: valorRedondeado }],
+          valor: valorRedondeado,
+        });
+      }
+    };
+
+    /// Esta pestaña contrasta con lo que está registrado en Recargos:
+    /// no sustituir esos datos por las horas editables del snapshot del canvas.
+    for (const planilla of planillasPorConductor.get(liquidacion.conductor_id) ?? []) {
+      for (const dia of planilla.dias_laborales_planillas ?? []) {
+        const fecha =
+          String(planilla.a_o) +
+          '-' +
+          String(planilla.mes).padStart(2, '0') +
+          '-' +
+          String(dia.dia).padStart(2, '0');
+        agregarDia(planilla, dia, fecha);
+      }
+    }
+
+    resultado.set(
+      liquidacion.id,
+      Array.from(grupos.values()).sort(
+        (a, b) =>
+          a.mes.localeCompare(b.mes) ||
+          (a.numero_planilla ?? '').localeCompare(b.numero_planilla ?? '') ||
+          (a.cliente ?? '').localeCompare(b.cliente ?? '', 'es'),
+      ),
+    );
+  }
+  return resultado;
+}
+
 function periodoDe(periodoEnd: string, periodoStart: string) {
   const fin = String(periodoEnd ?? '').slice(0, 10);
   const ini = String(periodoStart ?? '').slice(0, 10);
@@ -184,6 +312,20 @@ export const NominaAnalisisService = {
     if (f.conductores.length) where.conductor_id = { in: f.conductores };
     if (f.estados.length) where.estado_flujo = { in: f.estados };
     if (f.placas.length) {
+      const filtroPlanillas: any = {
+        deleted_at: null,
+        vehiculos: { placa: { in: f.placas } },
+        dias_laborales_planillas: {
+          some: {
+            deleted_at: null,
+            detalles_recargos_dias: {
+              some: { activo: true, deleted_at: null, horas: { gt: 0 } },
+            },
+          },
+        },
+      };
+      if (f.anios.length) filtroPlanillas.a_o = { in: f.anios };
+      if (f.meses.length) filtroPlanillas.mes = { in: f.meses };
       const porPlaca = {
         OR: [
           { liquidacion_vehiculo: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
@@ -191,6 +333,9 @@ export const NominaAnalisisService = {
           { recargos: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
           { pernotes: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
           { mantenimientos: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
+          ...(f.incluirRecargosJornada
+            ? [{ conductores: { is: { recargos_planillas: { some: filtroPlanillas } } } }]
+            : []),
         ],
       };
       const condiciones = where.OR ? [{ OR: where.OR }, porPlaca] : [porPlaca];
@@ -245,6 +390,62 @@ export const NominaAnalisisService = {
       }),
     ]);
 
+    const recargosJornadaPorLiquidacion = new Map<string, RecargoJornadaAnalisis[]>();
+    if (f.incluirRecargosJornada && filas.length) {
+      const conductores = Array.from(new Set(filas.map((l: any) => l.conductor_id).filter(Boolean)));
+      const mesesPlanilla = new Map<string, { a_o: number; mes: number }>();
+      for (const liquidacion of filas as any[]) {
+        for (const periodo of mesesEntre(liquidacion.periodo_start, liquidacion.periodo_end)) {
+          if (f.anios.length && !f.anios.includes(periodo.a_o)) continue;
+          if (f.meses.length && !f.meses.includes(periodo.mes)) continue;
+          mesesPlanilla.set(`${periodo.a_o}-${periodo.mes}`, periodo);
+        }
+      }
+
+      const planillas = conductores.length && mesesPlanilla.size
+        ? await prisma.recargos_planillas.findMany({
+            where: {
+              deleted_at: null,
+              conductor_id: { in: conductores },
+              OR: Array.from(mesesPlanilla.values()),
+              ...(f.placas.length ? { vehiculos: { placa: { in: f.placas } } } : {}),
+              dias_laborales_planillas: {
+                some: {
+                  deleted_at: null,
+                  detalles_recargos_dias: {
+                    some: {
+                      activo: true,
+                      deleted_at: null,
+                      OR: [{ horas: { gt: 0 } }, { valor_calculado: { gt: 0 } }],
+                    },
+                  },
+                },
+              },
+            },
+            include: {
+              vehiculos: { select: { id: true, placa: true } },
+              clientes: { select: { id: true, nombre: true } },
+              dias_laborales_planillas: {
+                where: { deleted_at: null },
+                include: {
+                  detalles_recargos_dias: {
+                    where: { activo: true, deleted_at: null },
+                    select: {
+                      horas: true,
+                      valor_calculado: true,
+                      tipos_recargos: { select: { codigo: true } },
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : [];
+      for (const [id, recargos] of agruparRecargosJornada(filas, planillas, f)) {
+        recargosJornadaPorLiquidacion.set(id, recargos);
+      }
+    }
+
     const liquidaciones: LiquidacionAnalisis[] = filas.map((l: any) => {
       const { anio, mes, corte } = periodoDe(l.periodo_end, l.periodo_start);
       const vehiculosPorId = new Map<string, VehiculoAnalisis>();
@@ -256,6 +457,9 @@ export const NominaAnalisisService = {
       for (const r of l.recargos ?? []) agregarVehiculo(r.vehiculos);
       for (const p of l.pernotes ?? []) agregarVehiculo(p.vehiculos);
       for (const m of l.mantenimientos ?? []) agregarVehiculo(m.vehiculos);
+      for (const r of recargosJornadaPorLiquidacion.get(l.id) ?? []) {
+        agregarVehiculo(r.vehiculo_id && r.placa ? { id: r.vehiculo_id, placa: r.placa } : null);
+      }
       const vehiculos = Array.from(vehiculosPorId.values());
       const placaDe = (vehiculoId: string | null) =>
         vehiculos.find((v) => v.id === vehiculoId)?.placa ?? null;
@@ -309,6 +513,7 @@ export const NominaAnalisisService = {
           mes: String(r.mes ?? ''),
           porcentaje_propietario: num(r.porcentaje_propietario),
         })),
+        recargos_jornada: recargosJornadaPorLiquidacion.get(l.id) ?? [],
         pernotes: (l.pernotes ?? []).map((p: any) => ({
           vehiculo_id: p.vehiculo_id ?? null,
           placa: placaDe(p.vehiculo_id ?? null),
