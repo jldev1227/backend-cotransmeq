@@ -32,9 +32,10 @@ Reglas de cálculo que un integrador tiene que conocer:
   porcentaje y el resto reparte el remanente); los porcentajes no se validan
   contra 100 %.
 - **Gastos de vehículo**: papelería y gastos diversos salen de
-  `configuracion_gastos_periodo` (una fila por mes); un mes sin fila usa los
-  valores de respaldo de `reglas-conceptos.ts`. Cambiar la configuración no
-  recalcula cierres ya generados.
+  `configuracion_gastos_periodo` (una fila por mes); dotación y examen médico
+  usan las tarifas globales de `configuracion_valores_tercero`. Un mes sin
+  fila usa los valores de respaldo de `reglas-conceptos.ts`. Cambiar la
+  configuración no reescribe cierres ya generados.
 - **Estados** (`cierre-estado.service.ts`, espejo de
   `cierres-finales-estado.ts` del frontend). PAGADA reemplazó a FACTURADA en
   oct-2026: con terceros quien factura es el propietario y la empresa le paga.
@@ -81,6 +82,8 @@ cierre entero.
 | PUT | `/api/configuracion-descuentos-tercero` | `liquidaciones-terceros:limited` | Actualiza esos porcentajes por concepto |
 | GET | `/api/liquidaciones-terceros/config-gastos` | `liquidaciones-terceros:limited` | Papelería y gastos diversos de un periodo |
 | PUT | `/api/liquidaciones-terceros/config-gastos` | `liquidaciones-terceros:limited` | Crea o actualiza la configuración de gastos del periodo |
+| GET | `/api/liquidaciones-terceros/config-valores` | `liquidaciones-terceros:limited` | Tarifas diarias de conductores y gastos automáticos |
+| PUT | `/api/liquidaciones-terceros/config-valores` | `liquidaciones-terceros:limited` | Actualiza esas tarifas globales |
 | GET | `/api/liquidaciones-terceros-descuentos` | `liquidaciones-terceros:limited` | Historial paginado de cierres |
 | GET | `/api/liquidaciones-terceros-descuentos/:id` | `liquidaciones-terceros:limited` | Detalle completo de un cierre |
 | GET | `/api/liquidaciones-terceros/periodo` | `liquidaciones-terceros:limited` | Índice de hojas del periodo, o el detalle de un lote de cierres |
@@ -124,9 +127,8 @@ cierre entero.
 
 Arreglo plano de las filas activas de `configuracion_descuento_tercero`,
 ordenadas por `categoria` y `orden`: `{ id, categoria, concepto, nombre,
-porcentaje, base_calculo, activo, orden, valor_dia_conductor, … }`. Las
-categorías que usa el cálculo son `PRESTACION_SOCIAL`, `SEGURIDAD_SOCIAL` e
-`IMPUESTO`; `valor_dia_conductor` es la tarifa diaria del SALARIO.
+porcentaje, base_calculo, activo, orden, … }`. Las categorías que usa el
+cálculo son `PRESTACION_SOCIAL`, `SEGURIDAD_SOCIAL` e `IMPUESTO`.
 
 ### `PUT /api/configuracion-descuentos-tercero`
 
@@ -137,7 +139,7 @@ categorías que usa el cálculo son `PRESTACION_SOCIAL`, `SEGURIDAD_SOCIAL` e
 | `concepto` | string | sí | Clave única de la fila a actualizar |
 | `porcentaje` | number | no | Solo se cambia lo que llega |
 | `base_calculo` | string | no | Ver la regla fija de AVISOS/BOMBERIL arriba |
-| `valor_dia_conductor` | number | no | |
+| `valor_dia_conductor` | number | no | Compatibilidad con clientes anteriores; sincroniza la tarifa diaria de nómina con la configuración global. |
 
 **Respuesta 200** — arreglo con las filas actualizadas. 400 si `items` no es un
 arreglo; un `concepto` inexistente sale como 500. Las filas se actualizan una a
@@ -171,6 +173,35 @@ vigente, y un periodo retirado revive. Responde lo mismo que el `GET`.
 | Código | Cuándo |
 |---|---|
 | 400 | Año fuera de 2000–2100, mes fuera de 1–12, algún valor negativo, o `pct_gastos_diversos > 100` |
+
+### `GET /api/liquidaciones-terceros/config-valores`
+
+Devuelve las tarifas globales que antes eran constantes de código:
+
+```json
+{
+  "valor_dia_conductor_nomina": 78629.9,
+  "valor_salario_manual": 69510,
+  "valor_auxilio_transporte_manual": 8303,
+  "valor_bonificacion_manual": 26061,
+  "valor_bonificacion_turno_doble_manual": 25000,
+  "valor_dotacion": 3985,
+  "valor_examen_medico": 2882
+}
+```
+
+### `PUT /api/liquidaciones-terceros/config-valores`
+
+Recibe cualquiera de esos campos; los omitidos conservan su valor vigente.
+Guarda una única configuración global. Estos valores se usan al sincronizar o
+crear bloques de conductores y al sembrar o recalcular dotación y examen médico.
+La migración inicial conserva `valor_dia_conductor` previo cuando existía y
+mantiene como respaldo los demás importes que ya usaba el cálculo. No altera
+automáticamente cierres guardados.
+
+Los porcentajes de cada fila de `configuracion-descuentos-tercero` siguen
+controlando prestaciones sociales, seguridad social e impuestos. Las tarifas
+por periodo de papelería y gastos diversos siguen en `config-gastos`.
 
 ## Listados y detalle
 

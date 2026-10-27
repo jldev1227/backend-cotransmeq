@@ -27,6 +27,7 @@ import {
   type ConfigGastosPeriodo,
 } from './reglas-conceptos';
 import { ConfigGastosPeriodoService } from './config-gastos-periodo.service';
+import { ConfigValoresTerceroService } from './config-valores-tercero.service';
 import { sumarAdicionalesCierre, sumarItemsCierre } from './totales-cierre';
 
 /** Cliente Prisma o transacción. */
@@ -51,6 +52,7 @@ export function filasGastosFaltantes(
   conceptosExistentes: Array<{ tipo: string; concepto: string }>,
   config: ConfigGastosPeriodo,
   bases: BasesGastos,
+  valoresUnitarios?: Awaited<ReturnType<typeof ConfigValoresTerceroService.obtener>>,
 ): any[] {
   const presentes = new Set(
     conceptosExistentes
@@ -58,7 +60,7 @@ export function filasGastosFaltantes(
       .map((c) => c.concepto),
   );
 
-  return gastosPorDefectoDelPeriodo(config, bases)
+  return gastosPorDefectoDelPeriodo(config, bases, valoresUnitarios)
     .filter((g) => !presentes.has(g.concepto))
     .map((g) => ({
       id: randomUUID(),
@@ -103,7 +105,10 @@ export async function sembrarGastosDelCierre(
     select: { tipo: true, concepto: true },
   });
 
-  const config = await ConfigGastosPeriodoService.obtener(periodo.anio, periodo.mes, db);
+  const [config, valoresUnitarios] = await Promise.all([
+    ConfigGastosPeriodoService.obtener(periodo.anio, periodo.mes, db),
+    ConfigValoresTerceroService.obtener(db),
+  ]);
   const items = await sumarItemsCierre(db, cierreId);
   const { total: adicionales } = await sumarAdicionalesCierre(db, cierreId);
 
@@ -112,7 +117,7 @@ export async function sembrarGastosDelCierre(
     // `valor_liquidar` ya está calculado en el cierre cuando se llama a esto:
     // se persiste en el mismo `create` que los items.
     valorLiquidar: Number(cierre.valor_liquidar) || 0,
-  });
+  }, valoresUnitarios);
   if (filas.length === 0) return 0;
 
   await db.liquidacion_tercero_final_concepto.createMany({ data: filas });

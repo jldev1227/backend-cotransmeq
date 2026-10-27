@@ -3604,6 +3604,23 @@ model configuracion_gastos_periodo {
   @@index([deleted_at])
 }
 
+/// Valores de partida que antes estaban fijos en `reglas-conceptos.ts`.
+/// Un único registro conserva una configuración común para las nuevas filas
+/// de conductor y para los gastos automáticos de los cierres de terceros.
+model configuracion_valores_tercero {
+  id                                   String   @id @default("global") @db.VarChar(20)
+  valor_dia_conductor_nomina           Decimal  @default(78629.9) @db.Decimal(12, 2)
+  valor_salario_manual                 Decimal  @default(69510) @db.Decimal(12, 2)
+  valor_auxilio_transporte_manual      Decimal  @default(8303) @db.Decimal(12, 2)
+  valor_bonificacion_manual            Decimal  @default(26061) @db.Decimal(12, 2)
+  valor_bonificacion_turno_doble_manual Decimal @default(25000) @db.Decimal(12, 2)
+  valor_dotacion                       Decimal  @default(3985) @db.Decimal(12, 2)
+  valor_examen_medico                  Decimal  @default(2882) @db.Decimal(12, 2)
+  actualizado_por_id                   String?  @db.Uuid
+  created_at                           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                           DateTime @updatedAt @db.Timestamptz(6)
+}
+
 model liquidacion_tercero_final {
   id                       String                                       @id @default(uuid()) @db.Uuid
   consecutivo              String                                       @unique @db.VarChar(50)

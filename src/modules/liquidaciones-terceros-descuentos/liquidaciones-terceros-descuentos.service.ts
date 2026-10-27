@@ -9,6 +9,7 @@ import { CierreEstadoService } from "./cierre-estado.service";
 // repetirla aquí: es la misma con la que el canvas da de alta un conductor a
 // mano, y dos copias acabarían divergiendo.
 import { BLOQUE_CONDUCTOR_MANUAL } from "./reglas-conceptos";
+import { ConfigValoresTerceroService } from "./config-valores-tercero.service";
 import { calcularPorcentajesEfectivos, repartirValor } from "./reparto-propietarios";
 
 const MESES = [
@@ -253,6 +254,10 @@ export const LiquidacionesTercerosDescuentosService = {
         },
       });
       results.push(updated);
+    }
+    const valorDiaConductor = items.find((item) => item.valor_dia_conductor !== undefined)?.valor_dia_conductor;
+    if (valorDiaConductor !== undefined) {
+      await ConfigValoresTerceroService.guardar({ valor_dia_conductor_nomina: valorDiaConductor });
     }
     return results;
   },
@@ -694,12 +699,12 @@ export const LiquidacionesTercerosDescuentosService = {
     });
 
     const configDescuentos = await this.obtenerConfiguracion();
+    const valoresUnitarios = await ConfigValoresTerceroService.obtener();
     const conceptosGenerados: ConceptoInput[] = [];
     const prestacionesConfig = configDescuentos.filter((c: any) => c.categoria === 'PRESTACION_SOCIAL' && c.activo);
     const ssConfig = configDescuentos.filter((c: any) => c.categoria === 'SEGURIDAD_SOCIAL' && c.activo);
 
-    const configConValorDia = configDescuentos.find((c: any) => c.valor_dia_conductor != null);
-    const VALOR_DIA_CONDUCTOR = configConValorDia ? toNumber(configConValorDia.valor_dia_conductor) : 78629.9;
+    const VALOR_DIA_CONDUCTOR = valoresUnitarios.valor_dia_conductor_nomina;
 
     for (const cd of conductoresData) {
       const conductorInfo = {
@@ -780,7 +785,7 @@ export const LiquidacionesTercerosDescuentosService = {
       const vrUnitBonos =
         cd.bonos_alimentacion_valor_unitario > 0
           ? cd.bonos_alimentacion_valor_unitario
-          : BLOQUE_CONDUCTOR_MANUAL.BONIFICACION.valor_unitario;
+          : valoresUnitarios.valor_bonificacion_manual;
       conceptosGenerados.push({
         tipo: 'COSTO_LABORAL',
         concepto: 'BONIFICACION',
@@ -810,10 +815,10 @@ export const LiquidacionesTercerosDescuentosService = {
         conductor_id: cd.conductor_id,
         conductor: conductorInfo,
         dias: BLOQUE_CONDUCTOR_MANUAL.BONIFICACION_TURNO_DOBLE.dias,
-        valor_unitario: BLOQUE_CONDUCTOR_MANUAL.BONIFICACION_TURNO_DOBLE.valor_unitario,
+        valor_unitario: valoresUnitarios.valor_bonificacion_turno_doble_manual,
         valor_total:
           BLOQUE_CONDUCTOR_MANUAL.BONIFICACION_TURNO_DOBLE.dias *
-          BLOQUE_CONDUCTOR_MANUAL.BONIFICACION_TURNO_DOBLE.valor_unitario,
+          valoresUnitarios.valor_bonificacion_turno_doble_manual,
         calculado: true,
       });
 

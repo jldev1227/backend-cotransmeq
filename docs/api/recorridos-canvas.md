@@ -135,8 +135,10 @@ ordenados por placa.
 
 Si ya hay un día vivo en esa fecha, una fila de día se rechaza (422) y un
 recorrido se añade como tramo nuevo; si ese día no era LABORADO, pasa a serlo,
-se retiran sus soportes de mantenimiento y la respuesta trae `recargar: true`
-(su antigua fila de día ya no existe). Un día retirado se revive con lo tecleado.
+se retiran sus soportes de mantenimiento y la respuesta trae `recargar: true`.
+También se solicita recargar cuando el día LABORADO todavía no tenía tramos y
+recibe el primero, para sustituir su fila de día por la nueva fila de recorrido.
+Un día retirado se revive con lo tecleado.
 
 **Respuesta 201** — `{ "fila": { …FilaRecorrido… }, "recargar": false }`.
 

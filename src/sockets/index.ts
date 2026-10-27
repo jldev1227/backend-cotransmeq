@@ -412,11 +412,7 @@ export function emitNotificacion(data: any) {
 
 /** Emit a facturacion-liquidacion event to all connected clients */
 export function emitFacturacionLiquidacion(
-  event:
-    | 'facturacion-created'
-    | 'facturacion-updated'
-    | 'facturacion-anulada'
-    | 'liquidacion-servicio-facturada',
+  event: import('../modules/facturacion-liquidaciones/facturacion-liquidaciones.events').EventoFacturacionLiquidacion,
   data: any,
   meta?: EventoSocketMeta,
 ) {
