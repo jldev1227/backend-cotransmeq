@@ -168,6 +168,7 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
 | `placas` | Se pasan a mayúsculas |
 | `conductores` | Ids |
 | `estados` | `estado_flujo`, se pasan a mayúsculas |
+| `incluirRecargosJornada` | `true`: añade `recargos_jornada` con días y valores agrupados por empresa desde las planillas activas de Recargos |
 
 **Respuesta 200**
 
@@ -177,7 +178,7 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
                        "periodo_start": "…", "periodo_end": "…", "anio": 2026, "mes": 9, "corte": 21,
                        "estado_flujo": "PAGADA", "firmado": true, "desprendible_visible": true,
                        "dias_laborados": 30, "salario_basico": 0, "salario_devengado": 0, "sueldo_total": 0, "…": "demás totales",
-                       "vehiculos": [ { "id": "…", "placa": "…" } ], "bonificaciones": [], "recargos": [], "pernotes": [], "mantenimientos": [] } ],
+                       "vehiculos": [ { "id": "…", "placa": "…" } ], "bonificaciones": [], "recargos": [], "recargos_jornada": [], "pernotes": [], "mantenimientos": [] } ],
   "catalogos": { "anios": [], "placas": [], "conductores": [ { "id": "…", "nombre": "…" } ], "estados": [] },
   "total": 0 }
 ```
@@ -191,6 +192,14 @@ diciembre también puede encontrar conceptos en el corte que termina en enero.
 El filtro por placa consulta tanto las placas vinculadas al corte como las
 placas de los vehículos asociados directamente a sus conceptos, para incluir
 detalles aunque falte la relación del corte en `liquidacion_vehiculo`.
+Al pedir `incluirRecargosJornada=true`, `recargos_jornada` consulta los detalles
+activos de `recargos_planillas`, los mismos registros de la sección Recargos.
+Cada fila agrupa la planilla, placa, empresa y mes calendario. Incluye los días
+con recargos y el valor total registrado para cada día, sin discriminar tipos ni
+horas; se limita al periodo de la liquidación y a los filtros de año, mes y placa.
+No usa el snapshot editable del canvas. Estos pagos de jornada se presentan aparte
+de recargos, que representa el reparto monetario guardado en la liquidación entre
+cliente y propietario.
 Sustituye a `GET /api/liquidaciones/analisis`. **Errores:** 500
 `{ "success": false, "error": "…" }`.
 
