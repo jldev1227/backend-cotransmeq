@@ -3,12 +3,17 @@ import { ZodError, z } from 'zod'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { crearLimitador, ipCliente, MINUTO, responderLimite } from '../../utils/limitador'
+import { logger } from '../../utils/logger'
 import { encuestaSchema, respuestaSchema } from './encuestas.schema'
 import { EncuestaError, EncuestasService } from './encuestas.service'
 import { exportarExcel, exportarPdf } from './encuestas.export'
+import { generarBorradorEncuesta } from './encuestas.ai'
+import { asistenteConfigurado } from '../asistente/azure-openai'
 
 const uuid = z.string().uuid()
 const limiteEnvios = crearLimitador({ max: 120, ventanaMs: 15 * MINUTO })
+const limiteGeneracion = crearLimitador({ max: 12, ventanaMs: 15 * MINUTO })
+const instruccionesIA = z.object({ instrucciones: z.string().trim().min(5).max(12_000) })
 
 function error(reply: FastifyReply, err: unknown) {
   if (err instanceof ZodError) {
@@ -59,6 +64,26 @@ export async function encuestasRoutes(app: FastifyInstance) {
       const encuesta = await EncuestasService.crear(entrada, (request as any).user?.id ?? null)
       return reply.status(201).send({ success: true, encuesta })
     } catch (err) { return error(reply, err) }
+  })
+  app.post('/encuestas/generar', editar, async (request, reply) => {
+    const entrada = instruccionesIA.safeParse(request.body ?? {})
+    if (!entrada.success) {
+      return reply.status(422).send({ success: false, code: 'DATOS_INVALIDOS', message: 'Describe la encuesta en al menos 5 caracteres y máximo 12.000.' })
+    }
+    const usuarioId = String((request as any).user?.id ?? '')
+    if (!usuarioId) return reply.status(401).send({ success: false, code: 'USUARIO_NO_VALIDO', message: 'Inicia sesión para usar el asistente.' })
+    const espera = limiteGeneracion.consumir(usuarioId)
+    if (espera) return responderLimite(reply, espera)
+    if (!asistenteConfigurado()) {
+      return reply.status(503).send({ success: false, code: 'ASISTENTE_NO_CONFIGURADO', message: 'El asistente no está disponible en este momento.' })
+    }
+    try {
+      const encuesta = await generarBorradorEncuesta(entrada.data.instrucciones)
+      return reply.send({ success: true, encuesta })
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : 'Error desconocido' }, 'Encuestas: no fue posible generar el borrador con IA')
+      return reply.status(502).send({ success: false, code: 'ERROR_GENERACION', message: 'El asistente no pudo preparar la encuesta. Ajusta las instrucciones y vuelve a intentarlo.' })
+    }
   })
   app.get('/encuestas/:id', leer, async (request, reply) => {
     try { return reply.send({ success: true, encuesta: await EncuestasService.obtener(idDe(request)) }) }

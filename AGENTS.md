@@ -43,6 +43,21 @@ la línea que la necesita. Lo valioso es el motivo y lo que se rompió antes:
 `domain/errors.ts`, que mapea a HTTP en un solo sitio. El código viaja al cliente y
 la outbox del portal decide con él si reintenta.
 
+## Ejecutar las apps web
+
+Cuando el usuario pida "ejecuta las apps web" o una instrucción equivalente,
+inicia y deja corriendo los cuatro procesos con npm run dev:
+
+- Transmeralda: ingreso-svelte (http://localhost:5273) y backend-nest
+  (http://localhost:4100).
+- Cotransmeq: cotransmeq-app (http://localhost:5173) y backend-cotransmeq
+  (http://localhost:4000).
+
+Si alguno ya está corriendo, verifica que corresponda al repositorio y
+reutilízalo. Comprueba que los dos frontends respondan por HTTP y que los dos
+backends hayan iniciado y conectado con sus bases de datos antes de dar la
+tarea por terminada.
+
 ## Comandos
 
 ```bash

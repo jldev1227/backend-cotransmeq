@@ -67,6 +67,8 @@ export interface RoutePermission {
   read?: Area[]
   /** Áreas con acceso limitado (funcionalidad específica) */
   limited?: Area[]
+  /** Permite asignar `limited` en la lista blanca individual para acciones puntuales. */
+  allowLimited?: boolean
   /** Si es true, cualquier usuario autenticado puede acceder */
   general?: boolean
   /** Descripción para documentación */
@@ -117,8 +119,9 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
 
   recargos: {
     full: ['administracion', 'operaciones'],
-    read: ['hseq', 'facturacion', 'talento_humano'],
-    description: 'Gestión de recargos/planillas'
+    read: ['talento_humano'],
+    allowLimited: true,
+    description: 'Planillas: consulta para talento humano; nivel limitado permite adjuntar soporte sin editar'
   },
 
   clientes: {
@@ -353,8 +356,10 @@ export function normalizarRutasOverride(valor: unknown): RutasOverride | null {
 
   const limpio: RutasOverride = {}
   for (const [moduleId, nivel] of Object.entries(valor as Record<string, unknown>)) {
-    if (!ROUTE_PERMISSIONS[moduleId]) continue
+    const permiso = ROUTE_PERMISSIONS[moduleId]
+    if (!permiso) continue
     if (!NIVELES_VALIDOS.includes(nivel as AccessLevel)) continue
+    if (nivel === 'limited' && !permiso.allowLimited && !permiso.limited?.length) continue
     limpio[moduleId] = nivel as AccessLevel
   }
 

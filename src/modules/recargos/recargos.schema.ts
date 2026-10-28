@@ -99,6 +99,8 @@ export const createRecargoSchema = z.object({
 
 // Schema para actualizar recargo
 export const updateRecargoSchema = createRecargoSchema.partial().extend({
+  // Permite adjuntar el soporte de planilla sin abrir edición de los demás campos.
+  planilla_s3key: z.string().max(1000).nullable().optional(),
   estado: z
     .enum(["pendiente", "liquidada", "facturada", "encontrada", "no_esta"])
     .optional(),

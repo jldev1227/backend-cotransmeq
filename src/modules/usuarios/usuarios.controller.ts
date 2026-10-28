@@ -1,7 +1,12 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { UsuariosService, UsuarioError, type CrearUsuarioInput } from './usuarios.service'
-import { createUsuarioSchema, updatePermisosSchema, updateUsuarioSchema } from './usuarios.schema'
+import {
+  cambiarPasswordUsuarioSchema,
+  createUsuarioSchema,
+  updatePermisosSchema,
+  updateUsuarioSchema
+} from './usuarios.schema'
 import { uploadToS3, deleteFromS3, getS3SignedUrl } from '../../config/aws'
 import { prisma } from '../../config/prisma'
 import { SesionesService } from '../sesiones/sesiones.service'
@@ -55,6 +60,21 @@ export const UsuariosController = {
     const data = updateUsuarioSchema.parse(request.body)
     const user = await UsuariosService.update(id, data)
     reply.send(user)
+  },
+  async cambiarPassword(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const { password } = cambiarPasswordUsuarioSchema.parse(request.body)
+      const actualizado = await UsuariosService.cambiarPassword(id, password)
+      if (!actualizado) return reply.status(404).send({ error: 'Usuario no encontrado' })
+      return reply.send({ success: true })
+    } catch (err: any) {
+      if (err?.issues) {
+        return reply.status(400).send({ error: 'Datos inválidos', details: err.issues })
+      }
+      request.log.error({ err }, 'Error cambiando contraseña de usuario')
+      return reply.status(500).send({ error: 'No se pudo cambiar la contraseña' })
+    }
   },
   async updatePermisos(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string }

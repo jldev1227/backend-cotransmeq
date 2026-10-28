@@ -28,6 +28,17 @@ export function permissionsMode(): PermissionsMode {
   return process.env.PERMISSIONS_MODE === 'warn' ? 'warn' : 'enforce'
 }
 
+/** Compara niveles de acceso: `limited` habilita acciones puntuales, `read` consulta y `full` CRUD. */
+export function nivelSuficiente(actual: AccessLevel | null, requerido: AccessLevel): boolean {
+  if (!actual) return false
+  const jerarquia: AccessLevel[] = ['limited', 'read', 'full']
+  return jerarquia.indexOf(actual) >= jerarquia.indexOf(requerido)
+}
+
+export function estadoDenegacionPermisos(rutasOverride: object | null): 403 | 404 {
+  return rutasOverride ? 404 : 403
+}
+
 /** Un rechazo que el modo `warn` dejó pasar. Útil para tests y auditoría. */
 export interface RechazoPermiso {
   moduleId: string
@@ -104,7 +115,10 @@ export function requirePermission(moduleId: string, requiredLevel: AccessLevel =
         ;(request as any).accessLevel = level ?? 'full'
         return
       }
-      return reply.status(403).send(payload)
+      /// La whitelist individual hace que el módulo se comporte como una ruta inexistente.
+      return reply.status(estadoDenegacionPermisos(rutasOverride)).send(
+        rutasOverride ? { error: 'No encontrado' } : payload
+      )
     }
 
     if (!allowed) {
@@ -115,11 +129,7 @@ export function requirePermission(moduleId: string, requiredLevel: AccessLevel =
     }
 
     // Verificar nivel de acceso
-    const levelHierarchy: AccessLevel[] = ['limited', 'read', 'full']
-    const userLevelIndex = levelHierarchy.indexOf(level!)
-    const requiredLevelIndex = levelHierarchy.indexOf(requiredLevel)
-
-    if (userLevelIndex < requiredLevelIndex) {
+    if (!nivelSuficiente(level, requiredLevel)) {
       return denegar({
         error: 'Nivel de acceso insuficiente',
         message: `Tu nivel de acceso "${level}" no es suficiente. Se requiere "${requiredLevel}".`
@@ -181,10 +191,9 @@ export function requireAlgunPermiso(...permisos: Array<[moduleId: string, nivel:
     const user = (request as any).user
     if (!user) return reply.status(401).send({ error: 'No autenticado' })
     const rutasOverride = await obtenerPermisosRutas(user.id)
-    const jerarquia: AccessLevel[] = ['limited', 'read', 'full']
     const alguno = permisos.some(([m, n]) => {
       const { allowed, level } = checkAccess(user.role, user.area, m, rutasOverride)
-      return allowed && jerarquia.indexOf(level!) >= jerarquia.indexOf(n)
+      return allowed && nivelSuficiente(level, n)
     })
     if (alguno) return
     /// Sin ninguno: se delega en la primera guarda, que sabe responder 403 (o
@@ -209,6 +218,8 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
   const rutasOverride = await obtenerPermisosRutas(user.id)
   const { allowed, level } = checkAccess(user.role, user.area, 'sesiones', rutasOverride)
   if (!allowed || level !== 'full') {
-    return reply.status(403).send({ error: 'Sin permisos para esta acción' })
+    return reply.status(estadoDenegacionPermisos(rutasOverride)).send(
+      rutasOverride ? { error: 'No encontrado' } : { error: 'Sin permisos para esta acción' }
+    )
   }
 }

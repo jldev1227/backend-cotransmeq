@@ -180,8 +180,13 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
                        "dias_laborados": 30, "salario_basico": 0, "salario_devengado": 0, "sueldo_total": 0, "…": "demás totales",
                        "vehiculos": [ { "id": "…", "placa": "…" } ], "bonificaciones": [], "recargos": [], "recargos_jornada": [], "pernotes": [], "mantenimientos": [] } ],
   "catalogos": { "anios": [], "placas": [], "conductores": [ { "id": "…", "nombre": "…" } ], "estados": [] },
-  "total": 0 }
+  "total": 0,
+  "meta": { "recargos_jornada_grupos": 0 } }
 ```
+
+`meta.recargos_jornada_grupos` cuenta las planillas que aportan grupos al tab
+Recargos con los filtros actuales. Se devuelve aunque no se soliciten los días
+detallados, para que el contador de la pestaña no muestre cero antes de abrirla.
 
 `anio` y `mes` de cada fila identifican el periodo de nómina (el mes en que
 termina el corte). En las pestañas de bonificaciones, recargos, pernoctes y

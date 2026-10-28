@@ -1330,6 +1330,7 @@ export const RecargosService = {
       updateData[campo === "año" ? "a_o" : campo] = data[campo];
     }
   }
+  if (data.planilla_s3key !== undefined) updateData.planilla_s3key = data.planilla_s3key;
   if (data.año !== undefined) updateData.a_o = data.año;
 
   // 3. Transacción única para todo

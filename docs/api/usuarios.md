@@ -62,6 +62,7 @@ mira el módulo `usuarios` (que es el que piden las herramientas del
 | GET | `/api/usuarios/online-ids` | admin | Ids de los usuarios conectados por socket |
 | GET | `/api/usuarios/:id` | admin | Un usuario |
 | PUT | `/api/usuarios/:id` | admin | Edita datos, rol, áreas, estado y lista blanca |
+| PATCH | `/api/usuarios/:id/password` | admin | Cambia la contraseña y revoca las sesiones activas |
 | PATCH | `/api/usuarios/:id/activo` | admin | Activa o desactiva; al desactivar cierra sus sesiones |
 | PATCH | `/api/usuarios/:id/permisos` | admin | Reemplaza el JSON `permisos` |
 | POST | `/api/usuarios/permisos/bonos-planilla` | admin | Concede o quita `bonos-planilla` a varios usuarios |
@@ -92,7 +93,7 @@ Lo que devuelven el alta, el listado, la ficha, el `PUT` y los dos `PATCH`
 |---|---|---|---|
 | `nombre` | string | sí | Mínimo 2 caracteres; se guarda con `trim` |
 | `correo` | string (email) | sí | Se guarda con `trim` y en minúsculas |
-| `password` | string | sí | Mínimo 6 (mismo mínimo que la invitación y el cambio de contraseña) |
+| `password` | string | sí | Mínimo 6 para el alta manual; el cambio administrativo requiere mínimo 8 |
 | `telefono` | string | no | |
 | `cargo` | string \| null | no | |
 | `role` | string | no | `usuario` por defecto. El esquema acepta cualquier texto, pero tiene que ser un valor de `enum_users_role` (`admin`, `liquidador`, `facturador`, `aprobador`, `gestor_flota`, `gestor_nomina`, `consulta`, `usuario`, `gestor_servicio`, `gestor_planillas`, `kilometraje`) o Prisma falla |
@@ -147,6 +148,19 @@ o un `role` fuera del enum salen como 500 con el formato por defecto de Fastify.
 `PUT`. Si `activo` es falso, además cierra todas sus sesiones y emite
 `usuario-deshabilitado` con `{ usuarioId }` a **todos** los sockets conectados
 (`io.emit`). Responde el usuario.
+
+### `PATCH /api/usuarios/:id/password`
+
+Permite a un administrador establecer una contraseña nueva desde la edición de
+un miembro en «Equipo». No consulta ni devuelve la contraseña ni su hash.
+
+**Body**: `{ "password": "NuevaClave123" }`. Debe tener entre 8 y 72
+caracteres e incluir al menos una letra y un número. La escritura del hash de
+Argon2 y el cierre de todas las sesiones activas se hacen en una transacción;
+después se vacía la caché de sesiones.
+
+**Respuesta 200**: `{ "success": true }`. **Errores**: 400 si incumple la
+política; 404 si el usuario no existe; 500 ante un error interno.
 
 ### `PATCH /api/usuarios/:id/permisos`
 

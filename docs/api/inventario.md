@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-768 rutas en 63 módulos, más `GET /` (salud) y las que
+786 rutas en 64 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -29,6 +29,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`dashboard`](./dashboard.md) | 5 |
 | [`dias-laborados`](./dias-laborados.md) | 19 |
 | [`documentos`](./documentos.md) | 5 |
+| [`encuestas`](./encuestas.md) | 14 |
 | [`evaluaciones`](./evaluaciones.md) | 14 |
 | [`extractos`](./extractos.md) | 14 |
 | [`facturacion-liquidaciones`](./facturacion-liquidaciones.md) | 11 |
@@ -43,7 +44,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`liquidaciones-terceros`](./liquidaciones-terceros.md) | 4 |
 | [`liquidaciones-terceros-adicionales`](./liquidaciones-terceros-adicionales.md) | 6 |
 | [`liquidaciones-terceros-adicionales-snapshots`](./liquidaciones-terceros-adicionales-snapshots.md) | 5 |
-| [`liquidaciones-terceros-descuentos`](./liquidaciones-terceros-descuentos.md) | 40 |
+| [`liquidaciones-terceros-descuentos`](./liquidaciones-terceros-descuentos.md) | 42 |
 | [`liquidaciones-terceros-envios`](./liquidaciones-terceros-envios.md) | 6 |
 | [`liquidaciones-terceros-ingresos`](./liquidaciones-terceros-ingresos.md) | 4 |
 | [`liquidaciones-terceros-ocasional`](./liquidaciones-terceros-ocasional.md) | 19 |
@@ -61,7 +62,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`operadoras`](./operadoras.md) | 4 |
 | [`pdf`](./pdf.md) | 1 |
 | [`primas`](./primas.md) | 8 |
-| [`recargos`](./recargos.md) | 32 |
+| [`recargos`](./recargos.md) | 34 |
 | [`recorridos-canvas`](./recorridos-canvas.md) | 11 |
 | [`salidas-nc`](./salidas-nc.md) | 8 |
 | [`servicios`](./servicios.md) | 19 |
@@ -182,13 +183,13 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| DELETE | `/api/cartera/abonos/:abonoId` | `src/modules/cartera/cartera.routes.ts:168` |
-| GET | `/api/cartera/abonos/:abonoId/comprobante` | `src/modules/cartera/cartera.routes.ts:179` |
-| GET | `/api/cartera/facturas` | `src/modules/cartera/cartera.routes.ts:116` |
-| GET | `/api/cartera/facturas/:id` | `src/modules/cartera/cartera.routes.ts:125` |
-| POST | `/api/cartera/facturas/:id/abonos` | `src/modules/cartera/cartera.routes.ts:149` |
-| PATCH | `/api/cartera/facturas/:id/condiciones` | `src/modules/cartera/cartera.routes.ts:133` |
-| GET | `/api/cartera/resumen` | `src/modules/cartera/cartera.routes.ts:108` |
+| DELETE | `/api/cartera/abonos/:abonoId` | `src/modules/cartera/cartera.routes.ts:169` |
+| GET | `/api/cartera/abonos/:abonoId/comprobante` | `src/modules/cartera/cartera.routes.ts:180` |
+| GET | `/api/cartera/facturas` | `src/modules/cartera/cartera.routes.ts:117` |
+| GET | `/api/cartera/facturas/:id` | `src/modules/cartera/cartera.routes.ts:126` |
+| POST | `/api/cartera/facturas/:id/abonos` | `src/modules/cartera/cartera.routes.ts:150` |
+| PATCH | `/api/cartera/facturas/:id/condiciones` | `src/modules/cartera/cartera.routes.ts:134` |
+| GET | `/api/cartera/resumen` | `src/modules/cartera/cartera.routes.ts:109` |
 
 ## certificados-tributarios
 
@@ -392,6 +393,25 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | POST | `/api/desprendible/compartido/:token/firmar` | `src/modules/documentos/documentos-compartidos.routes.ts:35` |
 | GET | `/api/documentos/url-firma` | `src/modules/documentos/documentos.routes.ts:73` |
 | GET | `/api/documentos/ver/*` | `src/modules/documentos/documentos.routes.ts:28` |
+
+## encuestas
+
+| Método | Ruta | Declarada en |
+|---|---|---|
+| GET | `/api/encuestas` | `src/modules/encuestas/encuestas.routes.ts:57` |
+| POST | `/api/encuestas` | `src/modules/encuestas/encuestas.routes.ts:61` |
+| DELETE | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:112` |
+| GET | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:88` |
+| PUT | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:92` |
+| POST | `/api/encuestas/:id/cerrar` | `src/modules/encuestas/encuestas.routes.ts:102` |
+| POST | `/api/encuestas/:id/duplicar` | `src/modules/encuestas/encuestas.routes.ts:106` |
+| GET | `/api/encuestas/:id/exportar.pdf` | `src/modules/encuestas/encuestas.routes.ts:130` |
+| GET | `/api/encuestas/:id/exportar.xlsx` | `src/modules/encuestas/encuestas.routes.ts:122` |
+| POST | `/api/encuestas/:id/publicar` | `src/modules/encuestas/encuestas.routes.ts:98` |
+| GET | `/api/encuestas/:id/resultados` | `src/modules/encuestas/encuestas.routes.ts:116` |
+| POST | `/api/encuestas/generar` | `src/modules/encuestas/encuestas.routes.ts:68` |
+| GET | `/api/public/encuestas/:token` | `src/modules/encuestas/encuestas.routes.ts:33` |
+| POST | `/api/public/encuestas/:token/respuestas` | `src/modules/encuestas/encuestas.routes.ts:39` |
 
 ## evaluaciones
 
@@ -689,24 +709,24 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 |---|---|---|
 | GET | `/api/configuracion-descuentos-tercero` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:26` |
 | PUT | `/api/configuracion-descuentos-tercero` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:27` |
-| GET | `/api/liquidaciones-terceros-descuentos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:135` |
-| GET | `/api/liquidaciones-terceros-descuentos/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:136` |
-| DELETE | `/api/liquidaciones-terceros/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:122` |
-| GET | `/api/liquidaciones-terceros/:id/calcular-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:78` |
-| PATCH | `/api/liquidaciones-terceros/:id/color-hoja` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:119` |
+| GET | `/api/liquidaciones-terceros-descuentos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:137` |
+| GET | `/api/liquidaciones-terceros-descuentos/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:138` |
+| DELETE | `/api/liquidaciones-terceros/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:124` |
+| GET | `/api/liquidaciones-terceros/:id/calcular-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:80` |
+| PATCH | `/api/liquidaciones-terceros/:id/color-hoja` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:121` |
 | GET | `/api/liquidaciones-terceros/:id/conceptos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:56` |
 | PUT | `/api/liquidaciones-terceros/:id/conceptos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:57` |
 | POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:65` |
 | PUT | `/api/liquidaciones-terceros/:id/conductores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:61` |
-| PATCH | `/api/liquidaciones-terceros/:id/estado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:114` |
-| GET | `/api/liquidaciones-terceros/:id/historial-estados` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:115` |
-| PUT | `/api/liquidaciones-terceros/:id/items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:84` |
-| POST | `/api/liquidaciones-terceros/:id/items-agregar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:95` |
-| GET | `/api/liquidaciones-terceros/:id/items-disponibles` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:94` |
+| PATCH | `/api/liquidaciones-terceros/:id/estado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:116` |
+| GET | `/api/liquidaciones-terceros/:id/historial-estados` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:117` |
+| PUT | `/api/liquidaciones-terceros/:id/items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:86` |
+| POST | `/api/liquidaciones-terceros/:id/items-agregar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:97` |
+| GET | `/api/liquidaciones-terceros/:id/items-disponibles` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:96` |
 | GET | `/api/liquidaciones-terceros/:id/propietarios` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:69` |
 | PUT | `/api/liquidaciones-terceros/:id/propietarios` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:70` |
-| POST | `/api/liquidaciones-terceros/:id/recalcular-totales` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:81` |
-| POST | `/api/liquidaciones-terceros/:id/refresh-items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:89` |
+| POST | `/api/liquidaciones-terceros/:id/recalcular-totales` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:83` |
+| POST | `/api/liquidaciones-terceros/:id/refresh-items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:91` |
 | GET | `/api/liquidaciones-terceros/anticipos-vehiculo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:49` |
 | GET | `/api/liquidaciones-terceros/autocompletar-nomina` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:43` |
 | GET | `/api/liquidaciones-terceros/bonificaciones` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:46` |
@@ -715,18 +735,20 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:66` |
 | GET | `/api/liquidaciones-terceros/config-gastos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:74` |
 | PUT | `/api/liquidaciones-terceros/config-gastos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:75` |
-| POST | `/api/liquidaciones-terceros/estado-lote` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:113` |
+| GET | `/api/liquidaciones-terceros/config-valores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:76` |
+| PUT | `/api/liquidaciones-terceros/config-valores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:77` |
+| POST | `/api/liquidaciones-terceros/estado-lote` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:115` |
 | POST | `/api/liquidaciones-terceros/generar-borrador` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:31` |
 | POST | `/api/liquidaciones-terceros/generar-borrador-async` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:34` |
 | POST | `/api/liquidaciones-terceros/guardar-borrador` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:40` |
-| POST | `/api/liquidaciones-terceros/guardar-borrador-bulk-async` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:125` |
-| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/aplica-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:98` |
-| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/excluir` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:103` |
-| POST | `/api/liquidaciones-terceros/items/:pivoteId/revertir-traslado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:110` |
-| POST | `/api/liquidaciones-terceros/items/:pivoteId/trasladar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:109` |
-| GET | `/api/liquidaciones-terceros/periodo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:132` |
-| DELETE | `/api/liquidaciones-terceros/save-bulk-job/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:127` |
-| GET | `/api/liquidaciones-terceros/save-bulk/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:126` |
+| POST | `/api/liquidaciones-terceros/guardar-borrador-bulk-async` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:127` |
+| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/aplica-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:100` |
+| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/excluir` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:105` |
+| POST | `/api/liquidaciones-terceros/items/:pivoteId/revertir-traslado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:112` |
+| POST | `/api/liquidaciones-terceros/items/:pivoteId/trasladar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:111` |
+| GET | `/api/liquidaciones-terceros/periodo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:134` |
+| DELETE | `/api/liquidaciones-terceros/save-bulk-job/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:129` |
+| GET | `/api/liquidaciones-terceros/save-bulk/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:128` |
 
 ## liquidaciones-terceros-envios
 
@@ -957,38 +979,40 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:32` |
-| POST | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:48` |
-| DELETE | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:54` |
-| GET | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:42` |
-| PUT | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:51` |
-| POST | `/api/recargos/:id/duplicar` | `src/modules/recargos/recargos.routes.ts:72` |
-| POST | `/api/recargos/:id/liquidar` | `src/modules/recargos/recargos.routes.ts:69` |
-| POST | `/api/recargos/:id/recalcular` | `src/modules/recargos/recargos.routes.ts:77` |
-| PATCH | `/api/recargos/cambiar-estado-multiple` | `src/modules/recargos/recargos.routes.ts:66` |
-| GET | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:143` |
-| POST | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:189` |
-| DELETE | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:287` |
-| GET | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:168` |
-| PUT | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:238` |
-| GET | `/api/recargos/configuraciones-salarios/vigentes` | `src/modules/recargos/recargos.routes.ts:382` |
-| POST | `/api/recargos/eliminar-multiple` | `src/modules/recargos/recargos.routes.ts:57` |
-| GET | `/api/recargos/empresas-disponibles` | `src/modules/recargos/recargos.routes.ts:312` |
-| GET | `/api/recargos/estadisticas/resumen` | `src/modules/recargos/recargos.routes.ts:29` |
-| POST | `/api/recargos/importar-desde-transmeralda` | `src/modules/recargos/recargos.routes.ts:132` |
-| POST | `/api/recargos/importar-desde-transmeralda/crear-entidades-faltantes` | `src/modules/recargos/recargos.routes.ts:125` |
-| GET | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:117` |
-| POST | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:108` |
-| POST | `/api/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq` | `src/modules/recargos/recargos.routes.ts:100` |
-| GET | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:39` |
-| POST | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:36` |
-| POST | `/api/recargos/recalcular-bulk` | `src/modules/recargos/recargos.routes.ts:83` |
-| GET | `/api/recargos/recalcular-bulk/:batchId` | `src/modules/recargos/recargos.routes.ts:87` |
-| GET | `/api/recargos/reporte` | `src/modules/recargos/recargos.routes.ts:45` |
-| POST | `/api/recargos/restaurar-multiple` | `src/modules/recargos/recargos.routes.ts:63` |
-| PATCH | `/api/recargos/restaurar/:id` | `src/modules/recargos/recargos.routes.ts:60` |
-| GET | `/api/recargos/tipos-recargo/activos` | `src/modules/recargos/recargos.routes.ts:26` |
-| GET | `/api/recargos/tipos-recargo/vigentes` | `src/modules/recargos/recargos.routes.ts:334` |
+| GET | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:36` |
+| POST | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:55` |
+| DELETE | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:61` |
+| GET | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:46` |
+| PUT | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:58` |
+| POST | `/api/recargos/:id/duplicar` | `src/modules/recargos/recargos.routes.ts:79` |
+| POST | `/api/recargos/:id/liquidar` | `src/modules/recargos/recargos.routes.ts:76` |
+| POST | `/api/recargos/:id/planilla` | `src/modules/recargos/recargos.routes.ts:49` |
+| POST | `/api/recargos/:id/recalcular` | `src/modules/recargos/recargos.routes.ts:84` |
+| PATCH | `/api/recargos/cambiar-estado-multiple` | `src/modules/recargos/recargos.routes.ts:73` |
+| GET | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:150` |
+| POST | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:196` |
+| DELETE | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:294` |
+| GET | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:175` |
+| PUT | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:245` |
+| GET | `/api/recargos/configuraciones-salarios/vigentes` | `src/modules/recargos/recargos.routes.ts:389` |
+| POST | `/api/recargos/eliminar-multiple` | `src/modules/recargos/recargos.routes.ts:64` |
+| GET | `/api/recargos/empresas-disponibles` | `src/modules/recargos/recargos.routes.ts:319` |
+| GET | `/api/recargos/estadisticas/resumen` | `src/modules/recargos/recargos.routes.ts:33` |
+| POST | `/api/recargos/importar-desde-transmeralda` | `src/modules/recargos/recargos.routes.ts:139` |
+| POST | `/api/recargos/importar-desde-transmeralda/crear-entidades-faltantes` | `src/modules/recargos/recargos.routes.ts:132` |
+| GET | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:124` |
+| POST | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:115` |
+| POST | `/api/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq` | `src/modules/recargos/recargos.routes.ts:107` |
+| GET | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:42` |
+| POST | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:39` |
+| POST | `/api/recargos/recalcular-bulk` | `src/modules/recargos/recargos.routes.ts:90` |
+| GET | `/api/recargos/recalcular-bulk/:batchId` | `src/modules/recargos/recargos.routes.ts:94` |
+| GET | `/api/recargos/reporte` | `src/modules/recargos/recargos.routes.ts:52` |
+| DELETE | `/api/recargos/reservas-planilla/:reservaId` | `src/modules/recargos/recargos.routes.ts:43` |
+| POST | `/api/recargos/restaurar-multiple` | `src/modules/recargos/recargos.routes.ts:70` |
+| PATCH | `/api/recargos/restaurar/:id` | `src/modules/recargos/recargos.routes.ts:67` |
+| GET | `/api/recargos/tipos-recargo/activos` | `src/modules/recargos/recargos.routes.ts:30` |
+| GET | `/api/recargos/tipos-recargo/vigentes` | `src/modules/recargos/recargos.routes.ts:341` |
 
 ## recorridos-canvas
 

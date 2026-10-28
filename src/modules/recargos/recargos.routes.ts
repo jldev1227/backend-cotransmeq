@@ -9,6 +9,9 @@ export async function recargosRoutes(fastify: FastifyInstance) {
   // Aplicar middleware de autenticación a TODAS las rutas de recargos
   fastify.addHook('onRequest', authMiddleware)
 
+  /// También se autorizan las lecturas: el guard anterior solo protegía escrituras.
+  fastify.addHook('preHandler', requirePermission('recargos', 'limited'))
+
   /**
    * Escribir exige nivel `full` sobre el módulo `recargos`.
    *
@@ -20,6 +23,7 @@ export async function recargosRoutes(fastify: FastifyInstance) {
    * `read` dejaría fuera a quien tenga `limited`.
    */
   const puedeEscribir = { preHandler: requirePermission('recargos', 'full') }
+  const puedeAdjuntarPlanilla = { preHandler: requirePermission('recargos', 'limited') }
 
   
   // Obtener tipos de recargo (debe ir primero para evitar conflicto con /:id)
@@ -40,6 +44,9 @@ export async function recargosRoutes(fastify: FastifyInstance) {
 
   // Obtener un recargo por ID
   fastify.get('/recargos/:id', RecargosController.obtenerPorId)
+
+  // Solo cambia el soporte; el resto de los campos continúa bloqueado para `limited`.
+  fastify.post('/recargos/:id/planilla', puedeAdjuntarPlanilla, RecargosController.adjuntarPlanilla)
 
   // Obtener un reporte de mes y año
   fastify.get('/recargos/reporte', RecargosController.reportePdf)

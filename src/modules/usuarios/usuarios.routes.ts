@@ -23,6 +23,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
   app.get('/usuarios/online-ids', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.getOnlineIds)
   app.get('/usuarios/:id', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.getById)
   app.put('/usuarios/:id', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.update)
+  app.patch('/usuarios/:id/password', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.cambiarPassword)
   app.patch('/usuarios/:id/activo', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.toggleActivo)
   app.patch('/usuarios/:id/permisos', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.updatePermisos)
   // Permiso individual: bonos de planilla de días laborados

@@ -134,6 +134,7 @@ export interface ResultadoAnalisisNomina {
   liquidaciones: LiquidacionAnalisis[];
   catalogos: CatalogosAnalisis;
   total: number;
+  meta: { recargos_jornada_grupos: number };
 }
 
 const ESTADOS = ['BORRADOR', 'LIQUIDADA', 'APROBADA', 'PAGADA', 'FIRMADA', 'ANULADA'];
@@ -187,6 +188,80 @@ function mesesEntre(desde: string, hasta: string): { a_o: number; mes: number }[
     } else mes += 1;
   }
   return meses;
+}
+
+/** Cuenta planillas que aportan grupos al detalle, sin enviar sus días al resumen. */
+async function contarGruposRecargosJornada(liquidaciones: any[], f: FiltrosAnalisisNomina) {
+  const periodos = new Map<string, {
+    conductorId: string;
+    a_o: number;
+    mes: number;
+    rangos: { desde: number; hasta: number }[];
+  }>();
+  for (const liquidacion of liquidaciones) {
+    if (!liquidacion.conductor_id) continue;
+    const inicio = String(liquidacion.periodo_start ?? '').slice(0, 10);
+    const fin = String(liquidacion.periodo_end ?? '').slice(0, 10);
+    for (const periodo of mesesEntre(inicio, fin)) {
+      if (f.anios.length && !f.anios.includes(periodo.a_o)) continue;
+      if (f.meses.length && !f.meses.includes(periodo.mes)) continue;
+
+      const prefijo = `${periodo.a_o}-${String(periodo.mes).padStart(2, '0')}`;
+      const ultimoDia = new Date(Date.UTC(periodo.a_o, periodo.mes, 0)).getUTCDate();
+      const desdeDia = inicio.startsWith(prefijo) ? Number(inicio.slice(8, 10)) : 1;
+      const hastaDia = fin.startsWith(prefijo) ? Number(fin.slice(8, 10)) : ultimoDia;
+      if (desdeDia > hastaDia) continue;
+
+      const clave = [liquidacion.conductor_id, periodo.a_o, periodo.mes].join('|');
+      const grupo = periodos.get(clave) ?? {
+        conductorId: liquidacion.conductor_id,
+        a_o: periodo.a_o,
+        mes: periodo.mes,
+        rangos: [],
+      };
+      grupo.rangos.push({ desde: desdeDia, hasta: hastaDia });
+      periodos.set(clave, grupo);
+    }
+  }
+
+  if (!periodos.size) return 0;
+  const condiciones = Array.from(periodos.values()).map((grupo) => {
+    const rangos = grupo.rangos.sort((a, b) => a.desde - b.desde).reduce(
+      (unidos, rango) => {
+        const ultimo = unidos.at(-1);
+        if (ultimo && rango.desde <= ultimo.hasta + 1) ultimo.hasta = Math.max(ultimo.hasta, rango.hasta);
+        else unidos.push({ ...rango });
+        return unidos;
+      },
+      [] as { desde: number; hasta: number }[],
+    );
+    return {
+      conductor_id: grupo.conductorId,
+      a_o: grupo.a_o,
+      mes: grupo.mes,
+      dias_laborales_planillas: {
+        some: {
+          deleted_at: null,
+          OR: rangos.map(({ desde, hasta }) => ({ dia: { gte: desde, lte: hasta } })),
+          detalles_recargos_dias: {
+            some: {
+              activo: true,
+              deleted_at: null,
+              tipos_recargos: { codigo: { in: CODIGOS_RECARGO as unknown as string[] } },
+              OR: [{ horas: { gt: 0 } }, { valor_calculado: { gt: 0 } }],
+            },
+          },
+        },
+      },
+    };
+  });
+  return prisma.recargos_planillas.count({
+    where: {
+      deleted_at: null,
+      OR: condiciones,
+      ...(f.placas.length ? { vehiculos: { placa: { in: f.placas } } } : {}),
+    },
+  });
 }
 
 /** Consolida por planilla, empresa, mes y día los valores registrados en Recargos. */
@@ -390,6 +465,7 @@ export const NominaAnalisisService = {
       }),
     ]);
 
+    const recargosJornadaGrupos = await contarGruposRecargosJornada(filas, f);
     const recargosJornadaPorLiquidacion = new Map<string, RecargoJornadaAnalisis[]>();
     if (f.incluirRecargosJornada && filas.length) {
       const conductores = Array.from(new Set(filas.map((l: any) => l.conductor_id).filter(Boolean)));
@@ -546,6 +622,7 @@ export const NominaAnalisisService = {
       liquidaciones,
       catalogos: { anios, placas, conductores, estados: ESTADOS },
       total: liquidaciones.length,
+      meta: { recargos_jornada_grupos: recargosJornadaGrupos },
     };
   },
 };

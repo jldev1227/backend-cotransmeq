@@ -1,6 +1,6 @@
 # Recargos (planillas)
 
-`/api/recargos` · código en [`src/modules/recargos/`](../../src/modules/recargos/) · permiso [`recargos`](../permisos.md#catálogo-de-módulos) para escribir
+`/api/recargos` · código en [`src/modules/recargos/`](../../src/modules/recargos/) · administración y operaciones: `full`; talento humano: `read`; lista blanca individual: `limited` permite consultar y adjuntar soporte, pero no editar datos
 
 Una planilla de recargos (`recargos_planillas`) es lo que un conductor trabajó
 con un vehículo para una empresa (cliente) en un mes: un número de planilla,
@@ -126,6 +126,15 @@ regla propia incumplida (ya en español y con el día) o «Error de validación�
 
 `meta.total_valor_pagar` suma el valor de **todas** las planillas del filtro, no
 solo de la página. Orden: `created_at` descendente.
+
+### `POST /api/recargos/:id/planilla`
+
+Adjunta o reemplaza únicamente el soporte de una planilla existente. Requiere
+nivel `limited` o superior en `recargos`; es la única escritura disponible para
+ese nivel. Recibe `multipart/form-data` con el campo `file` (PDF, JPEG, PNG o
+WebP, máximo 10 MB), persiste la clave S3 en `planilla_s3key` y emite el evento
+`recargo-actualizado` para refrescar las listas conectadas. **404** si la
+planilla no existe o la lista blanca individual deniega el módulo.
 
 ### `GET /api/recargos/:id`
 
