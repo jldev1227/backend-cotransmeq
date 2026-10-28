@@ -43,6 +43,7 @@ Reglas del módulo:
 |---|---|
 | Todas | `sesión` (hook `onRequest` del plugin) |
 | Todas | `liquidaciones-servicios:limited` (`permisoPorMetodo` con `lectura` y `escritura` en `limited`): Administración, Operaciones y Facturación |
+| `PATCH /:id/editar` al quitar liquidaciones | además, área `administracion` o `facturacion` (403) |
 | `PATCH /:id/anular` | además, área `administracion` (403) |
 | `DELETE /:id/items/:liquidacionId` | además, área `administracion` (403) |
 
@@ -54,7 +55,7 @@ Reglas del módulo:
 | POST | `/api/facturacion-liquidaciones` | `liquidaciones-servicios:limited` | Registra una factura y factura sus liquidaciones |
 | GET | `/api/facturacion-liquidaciones/eliminadas` | `liquidaciones-servicios:limited` | Papelera de facturas |
 | GET | `/api/facturacion-liquidaciones/:id` | `liquidaciones-servicios:limited` | Una factura con sus liquidaciones |
-| PATCH | `/api/facturacion-liquidaciones/:id/editar` | `liquidaciones-servicios:limited` (+ administración si quita liquidaciones) | Edita datos de la factura y agrega o quita liquidaciones del lote |
+| PATCH | `/api/facturacion-liquidaciones/:id/editar` | `liquidaciones-servicios:limited` (+ administración o facturación si quita liquidaciones) | Edita datos de la factura y agrega o quita liquidaciones del lote |
 | POST | `/api/facturacion-liquidaciones/:id/items` | `liquidaciones-servicios:limited` | Asocia liquidaciones a una factura existente |
 | DELETE | `/api/facturacion-liquidaciones/:id/items/:liquidacionId` | `liquidaciones-servicios:limited` (+ administración) | Quita una liquidación de la factura y la devuelve a aprobada |
 | PATCH | `/api/facturacion-liquidaciones/:id/condiciones` | `liquidaciones-servicios:limited` | Corrige valor, emisión, plazo o vencimiento |
@@ -172,7 +173,7 @@ la restricción de base de datos cubre actualizaciones concurrentes.
 liquidación no está en estado `LIQUIDADA`/`APROBADA`; 404 si la factura o alguna
 liquidación no existe; 409 si el consecutivo está duplicado, la factura está
 anulada o una liquidación cambió durante la edición; 403 al quitar liquidaciones
-sin pertenecer a Administración.
+si el usuario no pertenece a Administración ni Facturación.
 
 ### `POST /api/facturacion-liquidaciones/:id/items`
 
@@ -307,6 +308,9 @@ quien la siga usando.
   `numero_factura` (las dos serían `<numero>_ELIMINADA`) y sale 500.
 - Facturación (`limited`) puede anular, eliminar y restaurar facturas: es a
   propósito según el comentario de `facturacion-liquidaciones.routes.ts`.
+- Al editar, Administración y Facturación pueden desmarcar liquidaciones del
+  lote; el retiro individual por `DELETE /:id/items/:liquidacionId` sigue siendo
+  exclusivo de Administración.
 - `PATCH /:id/anular` y `DELETE /:id/items/:liquidacionId` informan en
   `estados_resultantes` / `liquidaciones_afectadas` el estado de destino aunque
   la liquidación ya no estuviera `FACTURADA` (el `updateMany` condicional no la

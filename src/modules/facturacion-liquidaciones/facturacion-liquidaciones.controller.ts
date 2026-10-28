@@ -28,9 +28,18 @@ const anularFacturaSchema = z.object({
   liquidacion_duplicada_id: z.string().uuid().optional().nullable()
 }).strict()
 
+function areasDelUsuario(request: FastifyRequest): string[] {
+  const area = (request as any).user?.area
+  const areas: unknown[] = Array.isArray(area) ? area : area ? [area] : []
+  return areas.filter((value): value is string => typeof value === 'string').map((value) => value.toUpperCase())
+}
+
 function esAdministracion(request: FastifyRequest): boolean {
-  const areas: string[] = ((request as any).user?.area || []).map((a: string) => a.toUpperCase())
-  return areas.includes('ADMINISTRACION')
+  return areasDelUsuario(request).includes('ADMINISTRACION')
+}
+
+function esFacturacion(request: FastifyRequest): boolean {
+  return areasDelUsuario(request).includes('FACTURACION')
 }
 
 export class FacturacionLiquidacionesController {
@@ -260,9 +269,9 @@ export class FacturacionLiquidacionesController {
       const entrada = editarFacturaSchema.parse(request.body ?? {}) as EditarFacturaInput
       const userId = (request as any).user?.id
       const userName = (request as any).user?.nombre || 'Usuario'
-      if (entrada.quitar_liquidacion_ids.length > 0 && !esAdministracion(request)) {
+      if (entrada.quitar_liquidacion_ids.length > 0 && !esAdministracion(request) && !esFacturacion(request)) {
         return reply.status(403).send({
-          error: 'Solo Administración puede devolver liquidaciones a aprobada.'
+          error: 'Solo Administración o Facturación pueden devolver liquidaciones a aprobada al editar la factura.'
         })
       }
       const result = await FacturacionLiquidacionesService.editar(id, userId, entrada)
