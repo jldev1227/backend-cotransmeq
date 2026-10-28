@@ -57,7 +57,7 @@ entra cualquier usuario autenticado con `full`.
 | `flota` ¹ | F | F | F | F | F | F | F | Gestión de flota vehicular |
 | `conductores` ¹ | F | F | F | F | F | F | F | Gestión de conductores |
 | `servicios` | F | F | — | R | R | R | — | Gestión de servicios de transporte |
-| `recargos` | F | F | — | R | R | R | — | Gestión de recargos/planillas |
+| `recargos` | F | F | — | — | R | — | — | Gestión de recargos/planillas |
 | `clientes` ¹ | F | F | F | F | F | F | F | Gestión de clientes/empresas |
 | `sarlaft` | F | — | — | — | F | — | — | Formularios SARLAFT + PTEE (cumplimiento) |
 | `solicitudes` | F | F | R | R | — | — | — | Solicitudes web (cotizaciones y servicios desde la landing) |
@@ -136,6 +136,11 @@ lee. Se diseñó así para que «¿por qué ve esto?» tenga una sola respuesta.
   propio JSON no tendría cómo desbloquearse).
 - `general: true` **no** exime: la gracia es poder recortar también lo que ve
   todo el mundo.
+- `recargos` admite el nivel `limited`: permite consultar planillas y adjuntar
+  su soporte, pero las escrituras de datos siguen exigiendo `full`. Por áreas,
+  solo administración y operaciones tienen `full`, y talento humano tiene `read`.
+- Una denegación causada por una lista blanca devuelve **404** para ocultar la
+  existencia de la ruta; las denegaciones por área conservan **403**.
 - **Cuidado con `sesiones`.** La administración de usuarios la protege
   `requireAdmin`, que pide `sesiones` con nivel `full`: un
   `{"sesiones": "full"}` en la lista blanca da poder para cambiar áreas, rol y

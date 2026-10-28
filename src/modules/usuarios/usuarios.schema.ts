@@ -40,9 +40,9 @@ const permisosRutasSchema = z
 export const createUsuarioSchema = z.object({
   nombre: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   correo: z.string().email('Correo inválido'),
-  /// Mismo mínimo que la aceptación de invitación y que el cambio de
-  /// contraseña. Si se sube aquí y no allí, un usuario dado de alta a mano no
-  /// podría reponer su propia contraseña con una que el alta sí aceptó.
+  /// Mantiene el mínimo histórico del alta manual y la aceptación de
+  /// invitación; el cambio administrativo aplica la política reforzada de
+  /// recuperación de cuenta.
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
   telefono: z.string().optional(),
   cargo: z.string().optional().nullable(),
@@ -64,4 +64,16 @@ export const updateUsuarioSchema = z.object({
 
 export const updatePermisosSchema = z.object({
   permisos: z.record(z.boolean())
+})
+
+/// Misma política que la recuperación de cuenta: así una contraseña puesta
+/// por administración también sirve para el siguiente cambio del usuario.
+export const cambiarPasswordUsuarioSchema = z.object({
+  password: z
+    .string()
+    .min(8, 'La contraseña debe tener al menos 8 caracteres')
+    .max(72, 'La contraseña no puede superar los 72 caracteres')
+    .refine((valor) => /[a-zA-ZáéíóúñÁÉÍÓÚÑ]/.test(valor) && /\d/.test(valor), {
+      message: 'La contraseña debe combinar al menos una letra y un número.'
+    })
 })

@@ -54,7 +54,7 @@ la ruta ya resuelta (`request.routeOptions.url`).
 | Guarda | Archivo | Uso típico | Rechaza con |
 |---|---|---|---|
 | `authMiddleware` | `src/middlewares/auth.middleware.ts` | `app.addHook('onRequest', authMiddleware)` en el plugin | 401 |
-| `requirePermission(módulo, nivel)` | `src/middlewares/permissions.middleware.ts` | `preHandler` de una ruta o del plugin | 401 sin usuario, 403 sin acceso o con nivel insuficiente |
+| `requirePermission(módulo, nivel)` | `src/middlewares/permissions.middleware.ts` | `preHandler` de una ruta o del plugin | 401 sin usuario, 404 cuando deniega la lista blanca individual, 403 cuando deniegan las áreas |
 | `permisoPorMetodo(módulo, { lectura, escritura }, { excepto })` | idem | `app.addHook('preHandler', …)` en el plugin | como `requirePermission` |
 | `requireAlgunPermiso([m, n], …)` | idem | ruta que sirve a dos pantallas de módulos distintos | como `requirePermission` |
 | `requireAdmin` | idem | gestión de usuarios, sesiones e invitaciones | 403 «Sin permisos para esta acción» |
@@ -78,9 +78,9 @@ payload del token con `id`, `sub`, `role`, `area`, `permisos`, `nombre` y
 2. Carga la lista blanca del usuario (`permisos_rutas`, caché de 30 s) y la deja
    en `request.permisosRutas`.
 3. Resuelve el acceso con `checkAccess` (ver [permisos.md](./permisos.md)).
-4. Sin acceso al módulo → 403
+4. Sin acceso al módulo → 404 si la decisión viene de `permisos_rutas`; si viene de las áreas, 403
    `{ error: 'Sin permisos', message: 'No tienes acceso al módulo "X"…' }`.
-5. Nivel por debajo del pedido (`limited` < `read` < `full`) → 403
+5. Nivel por debajo del pedido (`limited` < `read` < `full`) → 404 con lista blanca individual, 403 por áreas
    `{ error: 'Nivel de acceso insuficiente', message: … }`.
 6. Si pasa, deja el nivel en `request.accessLevel` para que el controlador
    recorte lo que haga falta (p. ej. `limited` que solo registra facturas).

@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-785 rutas en 64 módulos, más `GET /` (salud) y las que
+786 rutas en 64 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -62,7 +62,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`operadoras`](./operadoras.md) | 4 |
 | [`pdf`](./pdf.md) | 1 |
 | [`primas`](./primas.md) | 8 |
-| [`recargos`](./recargos.md) | 33 |
+| [`recargos`](./recargos.md) | 34 |
 | [`recorridos-canvas`](./recorridos-canvas.md) | 11 |
 | [`salidas-nc`](./salidas-nc.md) | 8 |
 | [`servicios`](./servicios.md) | 19 |
@@ -979,39 +979,40 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:32` |
-| POST | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:48` |
-| DELETE | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:54` |
-| GET | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:42` |
-| PUT | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:51` |
-| POST | `/api/recargos/:id/duplicar` | `src/modules/recargos/recargos.routes.ts:72` |
-| POST | `/api/recargos/:id/liquidar` | `src/modules/recargos/recargos.routes.ts:69` |
-| POST | `/api/recargos/:id/recalcular` | `src/modules/recargos/recargos.routes.ts:77` |
-| PATCH | `/api/recargos/cambiar-estado-multiple` | `src/modules/recargos/recargos.routes.ts:66` |
-| GET | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:143` |
-| POST | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:189` |
-| DELETE | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:287` |
-| GET | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:168` |
-| PUT | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:238` |
-| GET | `/api/recargos/configuraciones-salarios/vigentes` | `src/modules/recargos/recargos.routes.ts:382` |
-| POST | `/api/recargos/eliminar-multiple` | `src/modules/recargos/recargos.routes.ts:57` |
-| GET | `/api/recargos/empresas-disponibles` | `src/modules/recargos/recargos.routes.ts:312` |
-| GET | `/api/recargos/estadisticas/resumen` | `src/modules/recargos/recargos.routes.ts:29` |
-| POST | `/api/recargos/importar-desde-transmeralda` | `src/modules/recargos/recargos.routes.ts:132` |
-| POST | `/api/recargos/importar-desde-transmeralda/crear-entidades-faltantes` | `src/modules/recargos/recargos.routes.ts:125` |
-| GET | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:117` |
-| POST | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:108` |
-| POST | `/api/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq` | `src/modules/recargos/recargos.routes.ts:100` |
-| GET | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:38` |
-| POST | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:35` |
-| POST | `/api/recargos/recalcular-bulk` | `src/modules/recargos/recargos.routes.ts:83` |
-| GET | `/api/recargos/recalcular-bulk/:batchId` | `src/modules/recargos/recargos.routes.ts:87` |
-| GET | `/api/recargos/reporte` | `src/modules/recargos/recargos.routes.ts:45` |
-| DELETE | `/api/recargos/reservas-planilla/:reservaId` | `src/modules/recargos/recargos.routes.ts:39` |
-| POST | `/api/recargos/restaurar-multiple` | `src/modules/recargos/recargos.routes.ts:63` |
-| PATCH | `/api/recargos/restaurar/:id` | `src/modules/recargos/recargos.routes.ts:60` |
-| GET | `/api/recargos/tipos-recargo/activos` | `src/modules/recargos/recargos.routes.ts:26` |
-| GET | `/api/recargos/tipos-recargo/vigentes` | `src/modules/recargos/recargos.routes.ts:334` |
+| GET | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:36` |
+| POST | `/api/recargos` | `src/modules/recargos/recargos.routes.ts:55` |
+| DELETE | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:61` |
+| GET | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:46` |
+| PUT | `/api/recargos/:id` | `src/modules/recargos/recargos.routes.ts:58` |
+| POST | `/api/recargos/:id/duplicar` | `src/modules/recargos/recargos.routes.ts:79` |
+| POST | `/api/recargos/:id/liquidar` | `src/modules/recargos/recargos.routes.ts:76` |
+| POST | `/api/recargos/:id/planilla` | `src/modules/recargos/recargos.routes.ts:49` |
+| POST | `/api/recargos/:id/recalcular` | `src/modules/recargos/recargos.routes.ts:84` |
+| PATCH | `/api/recargos/cambiar-estado-multiple` | `src/modules/recargos/recargos.routes.ts:73` |
+| GET | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:150` |
+| POST | `/api/recargos/configuraciones-salarios` | `src/modules/recargos/recargos.routes.ts:196` |
+| DELETE | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:294` |
+| GET | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:175` |
+| PUT | `/api/recargos/configuraciones-salarios/:id` | `src/modules/recargos/recargos.routes.ts:245` |
+| GET | `/api/recargos/configuraciones-salarios/vigentes` | `src/modules/recargos/recargos.routes.ts:389` |
+| POST | `/api/recargos/eliminar-multiple` | `src/modules/recargos/recargos.routes.ts:64` |
+| GET | `/api/recargos/empresas-disponibles` | `src/modules/recargos/recargos.routes.ts:319` |
+| GET | `/api/recargos/estadisticas/resumen` | `src/modules/recargos/recargos.routes.ts:33` |
+| POST | `/api/recargos/importar-desde-transmeralda` | `src/modules/recargos/recargos.routes.ts:139` |
+| POST | `/api/recargos/importar-desde-transmeralda/crear-entidades-faltantes` | `src/modules/recargos/recargos.routes.ts:132` |
+| GET | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:124` |
+| POST | `/api/recargos/importar-desde-transmeralda/preview` | `src/modules/recargos/recargos.routes.ts:115` |
+| POST | `/api/recargos/importar-desde-transmeralda/sincronizar-conductores-cotransmeq` | `src/modules/recargos/recargos.routes.ts:107` |
+| GET | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:42` |
+| POST | `/api/recargos/next-numero-planilla` | `src/modules/recargos/recargos.routes.ts:39` |
+| POST | `/api/recargos/recalcular-bulk` | `src/modules/recargos/recargos.routes.ts:90` |
+| GET | `/api/recargos/recalcular-bulk/:batchId` | `src/modules/recargos/recargos.routes.ts:94` |
+| GET | `/api/recargos/reporte` | `src/modules/recargos/recargos.routes.ts:52` |
+| DELETE | `/api/recargos/reservas-planilla/:reservaId` | `src/modules/recargos/recargos.routes.ts:43` |
+| POST | `/api/recargos/restaurar-multiple` | `src/modules/recargos/recargos.routes.ts:70` |
+| PATCH | `/api/recargos/restaurar/:id` | `src/modules/recargos/recargos.routes.ts:67` |
+| GET | `/api/recargos/tipos-recargo/activos` | `src/modules/recargos/recargos.routes.ts:30` |
+| GET | `/api/recargos/tipos-recargo/vigentes` | `src/modules/recargos/recargos.routes.ts:341` |
 
 ## recorridos-canvas
 

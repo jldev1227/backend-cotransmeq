@@ -8,6 +8,9 @@ import { RecargosImportarTransmeraldaService } from "./recargosImportarTransmera
 import { requireTransmeraldaConfigured } from "../../config/prismaTransmeralda";
 import { z } from "zod";
 import { liberarNumeroPlanilla } from "./recargos-planilla-consecutivos";
+import { randomUUID } from "crypto";
+import { uploadToS3 } from "../../config/aws";
+import { prisma } from "../../config/prisma";
 import {
   createRecargoSchema,
   updateRecargoSchema,
@@ -58,6 +61,43 @@ export function avisarRecargos(evento: string, datos: unknown): void {
 }
 
 export const RecargosController = {
+  /** Sustituye únicamente el adjunto de una planilla, sin editar sus valores. */
+  async adjuntarPlanilla(request: FastifyRequest<{ Params: RecargoParams }>, reply: FastifyReply) {
+    try {
+      const { id } = request.params;
+      const existente = await prisma.recargos_planillas.findFirst({
+        where: { id, deleted_at: null },
+        select: { id: true },
+      });
+      if (!existente) return reply.status(404).send({ success: false, message: "Planilla no encontrada" });
+
+      const archivo = await request.file({ limits: { fileSize: 10 * 1024 * 1024 } });
+      if (!archivo) return reply.status(400).send({ success: false, message: "No se envió ningún archivo" });
+      const extension = ({ "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" } as Record<string, string>)[archivo.mimetype];
+      if (!extension) return reply.status(400).send({ success: false, message: "La planilla debe ser un PDF o una imagen JPG, PNG o WebP" });
+
+      const buffer = await archivo.toBuffer();
+      const firmaValida =
+        (extension === "pdf" && buffer.subarray(0, 5).toString("ascii") === "%PDF-") ||
+        (extension === "jpg" && buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) ||
+        (extension === "png" && buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) ||
+        (extension === "webp" && buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP");
+      if (!firmaValida) return reply.status(400).send({ success: false, message: "El contenido del archivo no coincide con un formato permitido" });
+
+      const key = `planillas/recargos/${randomUUID()}.${extension}`;
+      await uploadToS3(key, buffer, archivo.mimetype);
+      const recargo = await RecargosService.update(id, { planilla_s3key: key }, (request as any).user?.id);
+      avisarRecargos("recargo-actualizado", { recargoId: id, tiene_documento: true });
+      return reply.send({ success: true, data: { id: recargo.id, planilla_s3key: key, filename: archivo.filename, tiene_documento: true } });
+    } catch (error: any) {
+      const excedeLimite = error?.code === "FST_REQ_FILE_TOO_LARGE" || error?.name === "RequestFileTooLargeError";
+      return reply.status(excedeLimite ? 413 : 500).send({
+        success: false,
+        message: excedeLimite ? "El archivo no puede superar 10 MB" : error?.message || "No se pudo adjuntar la planilla",
+      });
+    }
+  },
+
   async crear(request: FastifyRequest, reply: FastifyReply) {
     try {
       const data = createRecargoSchema.parse(request.body);

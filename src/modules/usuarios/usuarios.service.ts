@@ -181,6 +181,31 @@ export const UsuariosService = {
 
     return actualizado
   },
+  /**
+   * Reemplaza la contraseña de un usuario y revoca sus sesiones en la misma
+   * transacción para que la clave anterior no conserve acceso abierto.
+   */
+  async cambiarPassword(id: string, password: string) {
+    const usuario = await prisma.usuarios.findUnique({ where: { id }, select: { id: true } })
+    if (!usuario) return false
+
+    const hash = await argon2.hash(password)
+    await prisma.$transaction([
+      prisma.usuarios.update({
+        where: { id },
+        data: { password: hash, updated_at: new Date() },
+        select: { id: true }
+      }),
+      prisma.sesiones.updateMany({
+        where: { usuario_id: id, is_active: true },
+        data: { is_active: false, closed_at: new Date() }
+      })
+    ])
+    /// La transacción cerró las sesiones en DB; vaciar caché hace efectivo el
+    /// cierre también en peticiones que aún tengan el token anterior.
+    olvidarSesionesEnCache()
+    return true
+  },
   async updatePermisos(id: string, permisos: Record<string, boolean>) {
     const actualizado = await prisma.usuarios.update({
       where: { id },
