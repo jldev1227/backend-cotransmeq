@@ -17,11 +17,16 @@ export const preguntaSchema = z.object({
   tipo: z.enum(TIPOS_PREGUNTA),
   requerida: z.boolean().default(false),
   opciones: z.array(opcionSchema).max(30).default([]),
+  permite_otro: z.boolean().default(false),
+  otro_etiqueta: z.string().trim().max(80).default('Otra (especificar)'),
   minimo: z.number().int().min(0).max(10).optional(),
   maximo: z.number().int().min(1).max(10).optional()
 }).superRefine((p, ctx) => {
-  if (['OPCION_UNICA', 'OPCION_MULTIPLE'].includes(p.tipo) && p.opciones.length < 2) {
+  if (['OPCION_UNICA', 'OPCION_MULTIPLE'].includes(p.tipo) && p.opciones.length < (p.permite_otro ? 0 : 2)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['opciones'], message: 'Agrega al menos dos opciones' })
+  }
+  if (!['OPCION_UNICA', 'OPCION_MULTIPLE'].includes(p.tipo) && p.permite_otro) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['permite_otro'], message: 'La opción abierta solo aplica a preguntas con opciones' })
   }
   if (new Set(p.opciones.map(o => o.id)).size !== p.opciones.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['opciones'], message: 'Las opciones deben ser únicas' })

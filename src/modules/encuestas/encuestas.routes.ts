@@ -9,6 +9,7 @@ import { EncuestaError, EncuestasService } from './encuestas.service'
 import { exportarExcel, exportarPdf } from './encuestas.export'
 import { generarBorradorEncuesta } from './encuestas.ai'
 import { asistenteConfigurado } from '../asistente/azure-openai'
+import { escucharActualizacionEncuesta, EVENTOS_ENCUESTAS } from './encuestas.events'
 
 const uuid = z.string().uuid()
 const limiteEnvios = crearLimitador({ max: 120, ventanaMs: 15 * MINUTO })
@@ -33,6 +34,33 @@ export async function encuestasPublicRoutes(app: FastifyInstance) {
   app.get('/public/encuestas/:token', async (request, reply) => {
     try {
       return reply.send({ success: true, encuesta: await EncuestasService.publica((request.params as { token: string }).token) })
+    } catch (err) { return error(reply, err) }
+  })
+
+  app.get('/public/encuestas/:token/eventos', async (request, reply) => {
+    try {
+      const token = (request.params as { token: string }).token
+      const encuesta = await EncuestasService.publica(token)
+      const raw = reply.raw
+      reply.hijack()
+      raw.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': '*'
+      })
+      const enviar = (evento: { actualizada_at: string; estado: string }) => {
+        raw.write(`event: ${EVENTOS_ENCUESTAS.actualizada}\ndata: ${JSON.stringify(evento)}\n\n`)
+      }
+      const baja = escucharActualizacionEncuesta(encuesta.id, enviar)
+      const latido = setInterval(() => raw.write(': keep-alive\n\n'), 20_000)
+      const cerrar = () => {
+        clearInterval(latido)
+        baja()
+      }
+      raw.once('close', cerrar)
+      enviar({ actualizada_at: encuesta.actualizada_at, estado: encuesta.estado })
     } catch (err) { return error(reply, err) }
   })
 
@@ -101,6 +129,10 @@ export async function encuestasRoutes(app: FastifyInstance) {
   })
   app.post('/encuestas/:id/cerrar', editar, async (request, reply) => {
     try { return reply.send({ success: true, encuesta: await EncuestasService.cerrar(idDe(request)) }) }
+    catch (err) { return error(reply, err) }
+  })
+  app.post('/encuestas/:id/abrir', editar, async (request, reply) => {
+    try { return reply.send({ success: true, encuesta: await EncuestasService.abrir(idDe(request)) }) }
     catch (err) { return error(reply, err) }
   })
   app.post('/encuestas/:id/duplicar', editar, async (request, reply) => {
