@@ -20,12 +20,18 @@ Reglas del módulo:
 - `valor_total = Σ valor_liquidacion de los pivotes vivos + ajuste_valor`. Digitar
   el valor de la factura electrónica guarda la diferencia como `ajuste_valor`,
   así que asociar o quitar liquidaciones después conserva la corrección.
+- Una factura activa se puede editar: consecutivo, observaciones, fecha de
+  emisión, plazo y liquidaciones del lote. También se pueden agregar
+  liquidaciones `LIQUIDADA` o `APROBADA` que no estén en otra factura activa;
+  las que se quitan regresan a `APROBADA`.
 - Condiciones de cobro: `fecha_emision` (por defecto hoy en Colombia), `plazo_dias`
   (30 por defecto, máximo 365) y `fecha_vencimiento`; si llega el vencimiento,
   manda él y el plazo se recalcula. Mismas reglas que cartera
   (`cartera.condiciones.ts`). Las fechas salen como `YYYY-MM-DD`.
-- Anular devuelve sus liquidaciones a `LIQUIDADA`. Una factura con abonos vivos
-  no se anula. Eliminar es lógico y solo para anuladas; al eliminar, el número
+- Al anular, el motivo define el destino: sin cambios requeridos, todas quedan
+  `APROBADA`; si hay que corregir, solo las seleccionadas vuelven a `LIQUIDADA`;
+  por duplicidad, el servicio indicado queda `ANULADA` y el resto `APROBADA`.
+  Una factura con abonos vivos no se anula. Eliminar es lógico y solo para anuladas; al eliminar, el número
   recibe el sufijo `_ELIMINADA` para poder reutilizarlo, y restaurar se lo quita.
 - Quitar una liquidación de su factura **marca** el pivote (`deleted_at`): su
   unicidad `(factura_id, liquidacion_id)` es un índice parcial sobre filas vivas,
@@ -37,8 +43,8 @@ Reglas del módulo:
 |---|---|
 | Todas | `sesión` (hook `onRequest` del plugin) |
 | Todas | `liquidaciones-servicios:limited` (`permisoPorMetodo` con `lectura` y `escritura` en `limited`): Administración, Operaciones y Facturación |
-| `PATCH /:id/anular` con `mantener_aprobada` | además, área `administracion` (403) |
-| `DELETE /:id/items/:liquidacionId` con `destino: 'APROBADA'` | además, área `administracion` (403) |
+| `PATCH /:id/anular` | además, área `administracion` (403) |
+| `DELETE /:id/items/:liquidacionId` | además, área `administracion` (403) |
 
 ## Endpoints
 
@@ -48,10 +54,11 @@ Reglas del módulo:
 | POST | `/api/facturacion-liquidaciones` | `liquidaciones-servicios:limited` | Registra una factura y factura sus liquidaciones |
 | GET | `/api/facturacion-liquidaciones/eliminadas` | `liquidaciones-servicios:limited` | Papelera de facturas |
 | GET | `/api/facturacion-liquidaciones/:id` | `liquidaciones-servicios:limited` | Una factura con sus liquidaciones |
+| PATCH | `/api/facturacion-liquidaciones/:id/editar` | `liquidaciones-servicios:limited` (+ administración si quita liquidaciones) | Edita datos de la factura y agrega o quita liquidaciones del lote |
 | POST | `/api/facturacion-liquidaciones/:id/items` | `liquidaciones-servicios:limited` | Asocia liquidaciones a una factura existente |
-| DELETE | `/api/facturacion-liquidaciones/:id/items/:liquidacionId` | `liquidaciones-servicios:limited` (+ administración si `destino: 'APROBADA'`) | Quita una liquidación de la factura |
+| DELETE | `/api/facturacion-liquidaciones/:id/items/:liquidacionId` | `liquidaciones-servicios:limited` (+ administración) | Quita una liquidación de la factura y la devuelve a aprobada |
 | PATCH | `/api/facturacion-liquidaciones/:id/condiciones` | `liquidaciones-servicios:limited` | Corrige valor, emisión, plazo o vencimiento |
-| PATCH | `/api/facturacion-liquidaciones/:id/anular` | `liquidaciones-servicios:limited` (+ administración si `mantener_aprobada`) | Anula la factura y revierte sus liquidaciones |
+| PATCH | `/api/facturacion-liquidaciones/:id/anular` | `liquidaciones-servicios:limited` (+ administración) | Anula la factura y aplica el destino de cada liquidación según el motivo |
 | DELETE | `/api/facturacion-liquidaciones/:id` | `liquidaciones-servicios:limited` | Elimina (lógico) una factura anulada |
 | PATCH | `/api/facturacion-liquidaciones/:id/restaurar` | `liquidaciones-servicios:limited` | Saca una factura de la papelera |
 | POST | `/api/facturacion-liquidaciones/batch-info` | `liquidaciones-servicios:limited` | Factura activa de cada liquidación de una lista |
@@ -142,6 +149,31 @@ La factura (también anulada o eliminada) con `facturado_por`, `anulado_por`,
 (incluye `cliente` y `creado_por`). Inexistente → 404
 `{ "error": "Factura no encontrada" }`; un id mal formado sale como 500.
 
+### `PATCH /api/facturacion-liquidaciones/:id/editar`
+
+Edita una factura activa, agrega liquidaciones opcionales y quita las que se
+desmarquen del lote en una sola transacción. Las que se quitan regresan a
+`APROBADA`; cambiar la emisión vuelve a calcular el vencimiento con el plazo
+indicado.
+
+**Body** (zod, `.strict()`): `numero_factura` (texto no vacío, máximo 50),
+`observaciones` (texto o `null`), `fecha_emision` (`YYYY-MM-DD`), `plazo_dias`
+(entero 0–365), `liquidacion_ids` (opcional, arreglo de UUID a agregar) y
+`quitar_liquidacion_ids` (opcional, arreglo de UUID que pertenecen al lote
+actual y se deben devolver a aprobada). Una liquidación no puede agregarse y
+quitarse en la misma edición.
+
+**Respuesta 200**:
+`{ factura, liquidaciones_afectadas: [{ id, consecutivo, estado_anterior, estado, factura_id, numero_factura }] }`.
+El número debe ser único; la validación ignora la factura que se está editando y
+la restricción de base de datos cubre actualizaciones concurrentes.
+
+**Errores**: 400 si el body o las condiciones no son válidos, o si una nueva
+liquidación no está en estado `LIQUIDADA`/`APROBADA`; 404 si la factura o alguna
+liquidación no existe; 409 si el consecutivo está duplicado, la factura está
+anulada o una liquidación cambió durante la edición; 403 al quitar liquidaciones
+sin pertenecer a Administración.
+
 ### `POST /api/facturacion-liquidaciones/:id/items`
 
 **Body**: `{ "liquidacion_ids": ["uuid", "…"] }`. Mismas reglas que el alta. La
@@ -157,20 +189,17 @@ alguna ya está facturada o no está en estado para facturar; 500 lo demás.
 
 ### `DELETE /api/facturacion-liquidaciones/:id/items/:liquidacionId`
 
-**Body** (opcional): `{ "destino": "APROBADA" }`. Sin él, la liquidación vuelve a
-`LIQUIDADA` (solo si sigue `FACTURADA`). Con `APROBADA` (solo área
-`administracion`) vuelve a aprobada conservando quién y cuándo la aprobó; si
-nunca tuvo aprobación, la firma quien hace el cambio. Deja fila en el historial y
-recalcula el total.
+No requiere body. La liquidación vuelve a `APROBADA` (solo si sigue
+`FACTURADA`), conservando quién y cuándo la aprobó; si nunca tuvo aprobación,
+la firma quien hace el cambio. Deja fila en el historial y recalcula el total.
 
 **Respuesta 200**:
 `{ factura, quedo_vacia, liquidaciones_afectadas: [{ id, consecutivo, estado, factura_id: null, numero_factura: null }] }`.
 `quedo_vacia: true` avisa de que la factura se quedó sin liquidaciones: no se
 anula sola.
 
-**Errores**: 403 (`destino: 'APROBADA'` sin administración); 404 si la factura no
-existe o está eliminada, o la liquidación no está en ella; 400 si la factura está
-anulada.
+**Errores**: 403 sin administración; 404 si la factura no existe o está
+eliminada, o la liquidación no está en ella; 400 si la factura está anulada.
 
 ### `PATCH /api/facturacion-liquidaciones/:id/condiciones`
 
@@ -202,25 +231,32 @@ puerta de quien registra facturas (sin necesitar el permiso `cartera`).
 
 | Campo | Tipo | Obligatorio | Notas |
 |---|---|---|---|
-| `motivo` | string | no | `motivo_anulacion`; por defecto «Anulada por usuario» |
-| `mantener_aprobada` | uuid | no | Id de UNA liquidación de la factura que debe quedar en `APROBADA` en vez de `LIQUIDADA` (quitarle la factura sin desaprobarla). Solo área `administracion` |
+| `motivo` | string | sí | Motivo de la anulación, guardado en la factura y el historial |
+| `tipo` | enum | no | `SIN_MODIFICAR` (por defecto), `MODIFICAR_LIQUIDACIONES` o `DUPLICIDAD` |
+| `liquidaciones_a_liquidar` | uuid[] | condicional | En `MODIFICAR_LIQUIDACIONES`, servicios que deben volver a `LIQUIDADA`; los demás quedan `APROBADA` |
+| `liquidacion_duplicada_id` | uuid | condicional | En `DUPLICIDAD`, el servicio duplicado del lote; queda `ANULADA` con motivo de duplicidad y los demás quedan `APROBADA` |
 
-Marca la factura `ANULADA` (`anulado_por`, `fecha_anulacion`), devuelve sus
-liquidaciones `FACTURADA` a `LIQUIDADA` con fila de historial, y la de
-`mantener_aprobada` a `APROBADA`.
+Marca la factura `ANULADA` (`anulado_por`, `fecha_anulacion`). Con
+`SIN_MODIFICAR`, todas las liquidaciones quedan `APROBADA`. Con
+`MODIFICAR_LIQUIDACIONES`, solo las seleccionadas vuelven a `LIQUIDADA`; el
+resto queda `APROBADA`. Con `DUPLICIDAD`, el servicio seleccionado queda
+`ANULADA`, con una marca de duplicidad en `motivo_anulacion`, y los demás quedan
+`APROBADA`. Todos los cambios se guardan en el historial.
 
 **Respuesta 200** — la factura (con `facturado_por`, `anulado_por`, condiciones e
 `items` vivos, sin `cliente` ni `total_liquidaciones`), `cartera: null` y
-`estados_resultantes: { "<liquidacion_id>": "LIQUIDADA" | "APROBADA" }`.
+`estados_resultantes: { "<liquidacion_id>": "LIQUIDADA" | "APROBADA" | "ANULADA" }`.
 
 **Errores**
 
 | Código | Cuándo | Cuerpo |
 |---|---|---|
-| 403 | `mantener_aprobada` sin ser del área `administracion` | `{ error }` |
+| 403 | Sin ser del área `administracion` | `{ error }` |
 | 404 | No existe | `{ error }` |
 | 409 | Tiene abonos vivos: hay que retirarlos en cartera | `{ "error": "…", "code": "TIENE_ABONOS" }` |
-| 500 | Ya estaba anulada, u otro fallo | `{ error }` |
+| 400 | Selección de liquidaciones inválida | `{ error }` |
+| 409 | Ya estaba anulada o cambió una liquidación durante la operación | `{ error }` |
+| 500 | Otro fallo | `{ error }` |
 
 ### `DELETE /api/facturacion-liquidaciones/:id` y `PATCH /api/facturacion-liquidaciones/:id/restaurar`
 
@@ -246,7 +282,7 @@ quien la siga usando.
 ## Efectos
 
 - **Socket** (a todos, con `_evento`): `facturacion-created` (alta y
-  restauración), `facturacion-updated` (asociar, quitar, condiciones),
+  restauración), `facturacion-updated` (editar, asociar, quitar, condiciones),
   `facturacion-anulada` (anular, y también eliminar con `{ id }` y
   `tipo: 'deleted'`), y un `liquidacion-servicio-facturada`
   `{ id, estado, factura_id, numero_factura }` por cada liquidación que cambia de
@@ -255,7 +291,7 @@ quien la siga usando.
   actúa: `LIQUIDACION_FACTURADA` al registrar y `FACTURA_ANULADA` al anular
   (campana, socket `nueva-notificacion` y Web Push).
 - **Historial** de cada liquidación en `historial_estado_liquidacion` (sin
-  snapshot) al facturar, asociar, quitar y anular.
+  snapshot) al facturar, editar/asociar, quitar y anular.
 - **Registro de actividad** de las escrituras (excluye `batch-info`).
 
 ## Observaciones

@@ -137,9 +137,6 @@ export type AccionActividad = 'crear' | 'editar' | 'eliminar' | 'restaurar' | 'e
  */
 const FRASES: Array<{ patron: RegExp; metodo?: string; accion: AccionActividad; frase: string }> = [
   { patron: /^\/api\/solicitudes\/:id$/, metodo: 'PATCH', accion: 'estado', frase: 'gestionó la solicitud web {ref}' },
-  { patron: /^\/api\/facturacion-liquidaciones$/, metodo: 'POST', accion: 'crear', frase: 'registró la factura {ref}' },
-  { patron: /^\/api\/facturacion-liquidaciones\/:id\/anular$/, accion: 'estado', frase: 'anuló la factura {ref}' },
-  { patron: /^\/api\/facturacion-liquidaciones\/:id\/items$/, accion: 'editar', frase: 'agregó liquidaciones a la factura {ref}' },
   { patron: /^\/api\/servicios\/:id\/compartir$/, accion: 'otro', frase: 'compartió el servicio {ref}' },
   { patron: /^\/api\/servicios\/:id\/planilla$/, accion: 'editar', frase: 'asignó planilla al servicio {ref}' },
   { patron: /^\/api\/servicios\/:id\/cancelar$/, accion: 'estado', frase: 'canceló el servicio {ref}' },
@@ -232,6 +229,7 @@ interface ContextoRegistro {
   params: Record<string, unknown>
   body: unknown
   payload: unknown
+  actividadFactura?: Record<string, unknown>
 }
 
 function moduloDe(patron: string): string {
@@ -269,19 +267,158 @@ function referencia(ctx: ContextoRegistro): { id: string | null; ref: string | n
   return { id, ref: ref && ref.length <= 255 ? ref : null }
 }
 
+function liquidacionesEnPayload(ctx: ContextoRegistro): Array<{ id: string | null; ref: string | null; estado: string | null }> {
+  const payload = ctx.payload as any
+  if (Array.isArray(payload?.liquidaciones_afectadas)) {
+    return payload.liquidaciones_afectadas.map((item: any) => ({
+      id: item?.id ?? item?.liquidacion?.id ?? item?.liquidacion_id ?? null,
+      ref: item?.consecutivo ?? item?.liquidacion?.consecutivo ?? null,
+      estado: item?.estado ?? null,
+    }))
+  }
+  if (Array.isArray(payload?.items)) {
+    return payload.items.map((item: any) => {
+      const liquidacion = item?.liquidacion ?? item
+      const id = liquidacion?.id ?? item?.liquidacion_id ?? null
+      return {
+        id,
+        ref: liquidacion?.consecutivo ?? item?.consecutivo ?? null,
+        estado: payload?.estados_resultantes?.[id] ?? liquidacion?.estado ?? null,
+      }
+    })
+  }
+  return []
+}
+
+function referenciaFactura(ctx: ContextoRegistro, ref: string | null): string {
+  const payload = ctx.payload as any
+  const factura = payload?.factura ?? payload?.data?.factura ?? payload?.data ?? payload
+  const numero = factura?.numero_factura ?? (ctx.body as any)?.numero_factura ?? ref
+  return typeof numero === 'string' && numero.trim()
+    ? numero.trim()
+    : 'sin número'
+}
+
+function describirFacturacion(ctx: ContextoRegistro, id: string | null, ref: string | null) {
+  const patron = ctx.patron
+  if (!patron.startsWith('/api/facturacion-liquidaciones')) return null
+
+  const modulo = 'liquidaciones-servicios'
+  const factura = referenciaFactura(ctx, ref)
+  const payload = ctx.payload as any
+  const body = ctx.body as any
+  const afectadas = liquidacionesEnPayload(ctx)
+  const refs = (items: typeof afectadas) => items.map((item) => item.ref).filter((value): value is string => typeof value === 'string' && !!value.trim())
+  const detalle: Record<string, unknown> = { factura }
+
+  if (patron === '/api/facturacion-liquidaciones' && ctx.metodo === 'POST') {
+    const cantidad = afectadas.length || (Array.isArray(body?.liquidacion_ids) ? body.liquidacion_ids.length : 0)
+    if (cantidad) detalle.liquidaciones = cantidad
+    detalle.liquidaciones_incluidas = refs(afectadas)
+    return { modulo, accion: 'crear' as AccionActividad, descripcion: `registró la factura ${factura}${cantidad ? ` con ${cantidad} liquidación${cantidad === 1 ? '' : 'es'}${refs(afectadas).length ? ` (${refs(afectadas).join(', ')})` : ''}` : ''}`, id, ref: factura, detalle }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id\/editar$/.test(patron) && ctx.metodo === 'PATCH') {
+    const cambios = (ctx.actividadFactura?.cambios_cabecera ?? {}) as Record<string, any>
+    const partes: string[] = []
+    if (cambios.numero_factura) partes.push(`cambió el consecutivo de ${cambios.numero_factura.anterior} a ${cambios.numero_factura.nuevo}`)
+    if (cambios.fecha_emision) partes.push(`cambió la fecha de emisión a ${cambios.fecha_emision.nuevo}`)
+    if (cambios.plazo_dias) partes.push(`cambió el plazo a ${cambios.plazo_dias.nuevo} días`)
+    if (cambios.observaciones) partes.push('actualizó las observaciones')
+
+    const agregadas = afectadas.filter((item) => item.estado === 'FACTURADA')
+    const devueltas = afectadas.filter((item) => item.estado === 'APROBADA')
+    if (agregadas.length) partes.push(`agregó ${agregadas.length} liquidación${agregadas.length === 1 ? '' : 'es'}${refs(agregadas).length ? ` (${refs(agregadas).join(', ')})` : ''}`)
+    if (devueltas.length) partes.push(`quitó ${devueltas.length} liquidación${devueltas.length === 1 ? '' : 'es'} del lote${refs(devueltas).length ? ` (${refs(devueltas).join(', ')})` : ''}; ${devueltas.length === 1 ? 'quedó aprobada' : 'quedaron aprobadas'}`)
+    if (!partes.length) partes.push('guardó la factura sin cambios detectados')
+
+    detalle.campos_modificados = Object.entries(cambios).filter(([, value]) => !!value).map(([key]) => key)
+    detalle.liquidaciones_agregadas = refs(agregadas)
+    detalle.liquidaciones_devueltas_a_aprobada = refs(devueltas)
+    return { modulo, accion: 'editar' as AccionActividad, descripcion: `actualizó la factura ${factura}: ${partes.join('; ')}`, id, ref: factura, detalle }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id\/items$/.test(patron) && ctx.metodo === 'POST') {
+    const cantidad = afectadas.length || (Array.isArray(body?.liquidacion_ids) ? body.liquidacion_ids.length : 0)
+    detalle.liquidaciones_agregadas = refs(afectadas)
+    return { modulo, accion: 'editar' as AccionActividad, descripcion: `agregó ${cantidad} liquidación${cantidad === 1 ? '' : 'es'}${refs(afectadas).length ? ` (${refs(afectadas).join(', ')})` : ''} a la factura ${factura}`, id, ref: factura, detalle }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id\/items\/:liquidacionId$/.test(patron) && ctx.metodo === 'DELETE') {
+    const liquidacion = afectadas[0]
+    const consecutivo = liquidacion?.ref ?? (typeof body?.consecutivo === 'string' ? body.consecutivo : null)
+    const estado = liquidacion?.estado ?? 'APROBADA'
+    if (consecutivo) detalle.liquidacion = consecutivo
+    detalle.estado_resultante = estado
+    return { modulo, accion: 'editar' as AccionActividad, descripcion: `quitó ${consecutivo ? `la liquidación ${consecutivo}` : 'una liquidación'} de la factura ${factura}; quedó ${estado.toLowerCase()}`, id, ref: factura, detalle }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id\/anular$/.test(patron) && ctx.metodo === 'PATCH') {
+    const tipo = ['SIN_MODIFICAR', 'MODIFICAR_LIQUIDACIONES', 'DUPLICIDAD'].includes(body?.tipo) ? body.tipo : 'SIN_MODIFICAR'
+    const estados = payload?.estados_resultantes && typeof payload.estados_resultantes === 'object' ? Object.values(payload.estados_resultantes) as string[] : afectadas.map((item) => item.estado).filter((estado): estado is string => !!estado)
+    const aprobadas = estados.filter((estado) => estado === 'APROBADA').length
+    const aLiquidadaIds: string[] = Array.isArray(body?.liquidaciones_a_liquidar) ? body.liquidaciones_a_liquidar : []
+    const aLiquidada = afectadas.filter((item) => aLiquidadaIds.includes(item.id ?? ''))
+    const duplicadaId = typeof body?.liquidacion_duplicada_id === 'string' ? body.liquidacion_duplicada_id : null
+    const duplicada = afectadas.find((item) => item.id === duplicadaId)
+    const motivo = typeof body?.motivo === 'string' ? body.motivo.trim().slice(0, 240) : ''
+    const otrasAprobadas = aprobadas === 1
+      ? 'La otra liquidación quedó aprobada'
+      : `Las otras ${aprobadas} liquidaciones quedaron aprobadas`
+    let descripcion: string
+    if (tipo === 'MODIFICAR_LIQUIDACIONES') {
+      const corregidas = refs(aLiquidada)
+      const servicios = corregidas.length ? corregidas.join(', ') : `${aLiquidada.length} seleccionada${aLiquidada.length === 1 ? '' : 's'}`
+      descripcion = `anuló la factura ${factura} para corregir ${servicios}; esas liquidaciones volvieron a LIQUIDADA${aprobadas ? `. ${otrasAprobadas}` : ''}`
+    } else if (tipo === 'DUPLICIDAD') {
+      const duplicadaRef = duplicada?.ref
+      descripcion = `anuló la factura ${factura} por duplicidad: ${duplicadaRef ? `la liquidación ${duplicadaRef}` : 'la liquidación seleccionada'} quedó anulada como duplicada${aprobadas ? `. ${otrasAprobadas}` : ''}`
+      detalle.liquidacion_duplicada = duplicadaRef
+    } else {
+      descripcion = `anuló la factura ${factura}; no se requirió corregir las liquidaciones y ${aprobadas === 1 ? 'la liquidación quedó aprobada' : `${aprobadas} liquidaciones quedaron aprobadas`}`
+    }
+    if (motivo) descripcion += `. Motivo: ${motivo}`
+    detalle.tipo_anulacion = tipo
+    detalle.liquidaciones_a_liquidar = refs(aLiquidada)
+    detalle.cantidad_aprobadas = aprobadas
+    if (motivo) detalle.motivo = motivo
+    return { modulo, accion: 'estado' as AccionActividad, descripcion, id, ref: factura, detalle }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id\/condiciones$/.test(patron) && ctx.metodo === 'PATCH') {
+    const partes = [
+      body?.fecha_emision ? `emisión ${body.fecha_emision}` : null,
+      Number.isFinite(body?.plazo_dias) ? `plazo ${body.plazo_dias} días` : null,
+    ].filter((value): value is string => !!value)
+    return { modulo, accion: 'editar' as AccionActividad, descripcion: `actualizó las condiciones de cobro de la factura ${factura}${partes.length ? ` (${partes.join(', ')})` : ''}`, id, ref: factura, detalle: { factura, fecha_emision: body?.fecha_emision ?? null, plazo_dias: body?.plazo_dias ?? null } }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id$/.test(patron) && ctx.metodo === 'DELETE') {
+    return { modulo, accion: 'eliminar' as AccionActividad, descripcion: `eliminó la factura ${factura}`, id, ref: factura, detalle }
+  }
+
+  if (/^\/api\/facturacion-liquidaciones\/:id\/restaurar$/.test(patron) && ctx.metodo === 'PATCH') {
+    return { modulo, accion: 'restaurar' as AccionActividad, descripcion: `restauró la factura ${factura}`, id, ref: factura, detalle }
+  }
+
+  return null
+}
+
 function describir(ctx: ContextoRegistro): { modulo: string; accion: AccionActividad; descripcion: string; id: string | null; ref: string | null; detalle: Record<string, unknown> | null } {
   const modulo = moduloDe(ctx.patron)
   const { id, ref } = referencia(ctx)
+  const descripcionFactura = describirFacturacion(ctx, id, ref)
+  if (descripcionFactura) return descripcionFactura
   const detalle: Record<string, unknown> = {}
   const estado = (ctx.body as any)?.estado ?? (ctx.body as any)?.nuevo_estado
   if (typeof estado === 'string') detalle.estado = estado
   const cantidad = Array.isArray((ctx.body as any)?.ids) ? (ctx.body as any).ids.length : null
   if (cantidad) detalle.cantidad = cantidad
 
-  const etiquetaRef = ref ?? (id ? `#${id.slice(0, 8)}` : '')
+  const etiquetaRef = ref ? ` ${ref}` : ''
   const especial = FRASES.find((f) => f.patron.test(ctx.patron) && (!f.metodo || f.metodo === ctx.metodo))
   if (especial) {
-    let frase = especial.frase.replace('{ref}', etiquetaRef).replace(/\s+/g, ' ').trim()
+    let frase = especial.frase.replace('{ref}', etiquetaRef.trim()).replace(/\s+/g, ' ').trim()
     if (especial.accion === 'estado' && detalle.estado) frase += ` a «${String(detalle.estado).toLowerCase()}»`
     if (detalle.cantidad) frase += ` (${detalle.cantidad})`
     return { modulo, accion: especial.accion, descripcion: frase, id, ref, detalle: Object.keys(detalle).length ? detalle : null }
@@ -297,7 +434,7 @@ function describir(ctx: ContextoRegistro): { modulo: string; accion: AccionActiv
     estado: 'cambió el estado de',
     otro: 'modificó',
   }
-  let frase = `${VERBO[accion]} ${recurso} ${etiquetaRef}`.replace(/\s+/g, ' ').trim()
+  let frase = `${VERBO[accion]} ${recurso}${etiquetaRef}`.replace(/\s+/g, ' ').trim()
   if (accion === 'estado' && detalle.estado) frase += ` a «${String(detalle.estado).toLowerCase()}»`
   return { modulo, accion, descripcion: frase, id, ref, detalle: Object.keys(detalle).length ? detalle : null }
 }
@@ -341,6 +478,7 @@ export function instalarRegistroActividad(app: FastifyInstance) {
         params: (request.params as Record<string, unknown>) ?? {},
         body: request.body,
         payload: parsearPayload(payload),
+        actividadFactura: (request as any).actividadFactura,
       }
       const d = describir(ctx)
       const areas: string[] = Array.isArray(user.area) ? user.area : user.area ? [user.area] : []

@@ -1,12 +1,32 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
-import { FacturacionLiquidacionesService } from './facturacion-liquidaciones.service'
+import {
+  FacturacionLiquidacionesService,
+  type AnularFacturaInput,
+  type EditarFacturaInput
+} from './facturacion-liquidaciones.service'
 import { EVENTOS_FACTURACION_LIQUIDACIONES as EVENTO } from './facturacion-liquidaciones.events'
 import { emitFacturacionLiquidacion, emitNotificacion, eventoMeta } from '../../sockets'
 import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { ErrorCartera } from '../cartera/cartera.condiciones'
 import { CarteraService } from '../cartera/cartera.service'
 import { condicionesSchema, UUID } from '../cartera/cartera.schema'
-import { ZodError } from 'zod'
+import { z, ZodError } from 'zod'
+
+const editarFacturaSchema = z.object({
+  numero_factura: z.string().trim().min(1, 'El número de factura es obligatorio').max(50),
+  observaciones: z.string().nullable(),
+  fecha_emision: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha de emisión no es válida'),
+  plazo_dias: z.number().int().min(0).max(365),
+  liquidacion_ids: z.array(z.string().uuid()).optional().default([]),
+  quitar_liquidacion_ids: z.array(z.string().uuid()).optional().default([])
+}).strict()
+
+const anularFacturaSchema = z.object({
+  motivo: z.string().trim().min(1, 'Indique el motivo de anulación'),
+  tipo: z.enum(['SIN_MODIFICAR', 'MODIFICAR_LIQUIDACIONES', 'DUPLICIDAD']).default('SIN_MODIFICAR'),
+  liquidaciones_a_liquidar: z.array(z.string().uuid()).optional().default([]),
+  liquidacion_duplicada_id: z.string().uuid().optional().nullable()
+}).strict()
 
 function esAdministracion(request: FastifyRequest): boolean {
   const areas: string[] = ((request as any).user?.area || []).map((a: string) => a.toUpperCase())
@@ -125,19 +145,23 @@ export class FacturacionLiquidacionesController {
   static async anular(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any
-      const { motivo, mantener_aprobada } = request.body as any
+      const entrada = anularFacturaSchema.parse(request.body ?? {})
       const userId = (request as any).user?.id
       const userName = (request as any).user?.nombre || 'Usuario'
-      /// Dejar una liquidación en APROBADA es tocar su aprobación, y eso es
-      /// de Administración (mismo criterio que `cambiarEstado`).
-      if (mantener_aprobada && !esAdministracion(request)) {
+      /// Los nuevos resultados incluyen volver liquidaciones a APROBADA o
+      /// marcar una como ANULADA por duplicidad; son cambios de estado de
+      /// liquidaciones y quedan restringidos a Administración.
+      if (!esAdministracion(request)) {
         return reply.status(403).send({
-          error: 'Solo Administración puede devolver una liquidación a aprobada.'
+          error: 'Solo Administración puede aplicar el resultado de anulación a las liquidaciones.'
         })
       }
-      const factura = await FacturacionLiquidacionesService.anular(id, userId, motivo, {
-        mantenerAprobada: mantener_aprobada
-      })
+      const opciones: AnularFacturaInput = {
+        tipo: entrada.tipo,
+        liquidaciones_a_liquidar: entrada.liquidaciones_a_liquidar,
+        liquidacion_duplicada_id: entrada.liquidacion_duplicada_id ?? undefined
+      }
+      const factura = await FacturacionLiquidacionesService.anular(id, userId, entrada.motivo, opciones)
 
       // Emit socket
       const actorAnula = { id: userId ?? null, nombre: userName }
@@ -184,7 +208,7 @@ export class FacturacionLiquidacionesController {
             usuario_id: u.id,
             tipo: 'FACTURA_ANULADA' as const,
             titulo: `Factura ${factura.numero_factura} anulada`,
-            mensaje: `${userName} anuló la factura ${factura.numero_factura}. ${motivo ? 'Motivo: ' + motivo : ''}`,
+            mensaje: `${userName} anuló la factura ${factura.numero_factura}. Motivo: ${entrada.motivo}`,
             referencia_id: factura.id,
             /// La web abre la pestaña Facturas buscando por número (la lista no
             /// filtra por id); el prefijo lo reconoce `rutaDeNotificacion`.
@@ -201,12 +225,109 @@ export class FacturacionLiquidacionesController {
 
       return reply.send(factura)
     } catch (error: any) {
+      if (error instanceof ZodError) {
+        return reply.status(400).send({ error: error.errors[0]?.message ?? 'Datos inválidos' })
+      }
       /// Tiene abonos registrados: 409 con el motivo, no un 500.
       if (error instanceof ErrorCartera) {
         return reply.status(error.statusCode).send({ error: error.message, code: error.code })
       }
       if (error.message.includes('no encontrada')) {
         return reply.status(404).send({ error: error.message })
+      }
+      if (
+        error.message.includes('Seleccione') ||
+        error.message.includes('No repita') ||
+        error.message.includes('Solo puede devolver')
+      ) {
+        return reply.status(400).send({ error: error.message })
+      }
+      if (error.message.includes('cambiaron mientras') || error.message.includes('ya está anulada')) {
+        return reply.status(409).send({ error: error.message })
+      }
+      return reply.status(500).send({ error: error.message })
+    }
+  }
+
+  /**
+   * Editar consecutivo, observaciones y condiciones, y asociar liquidaciones
+   * nuevas en una sola operación.
+   */
+  static async editar(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as any
+      if (!UUID.test(String(id))) return reply.status(400).send({ error: 'Identificador inválido' })
+      const entrada = editarFacturaSchema.parse(request.body ?? {}) as EditarFacturaInput
+      const userId = (request as any).user?.id
+      const userName = (request as any).user?.nombre || 'Usuario'
+      if (entrada.quitar_liquidacion_ids.length > 0 && !esAdministracion(request)) {
+        return reply.status(403).send({
+          error: 'Solo Administración puede devolver liquidaciones a aprobada.'
+        })
+      }
+      const result = await FacturacionLiquidacionesService.editar(id, userId, entrada)
+      const { actividad, ...respuesta } = result
+      ;(request as any).actividadFactura = actividad
+      const actor = { id: userId ?? null, nombre: userName }
+
+      emitFacturacionLiquidacion(
+        EVENTO.facturaActualizada,
+        result.factura,
+        eventoMeta({
+          tipo: 'updated',
+          scope: 'facturas',
+          actor,
+          etiqueta: result.factura.numero_factura
+        })
+      )
+      for (const liquidacion of result.liquidaciones_afectadas) {
+        emitFacturacionLiquidacion(
+          EVENTO.liquidacionFacturada,
+          {
+            id: liquidacion.id,
+            estado: liquidacion.estado,
+            factura_id: liquidacion.factura_id,
+            numero_factura: liquidacion.numero_factura
+          },
+          eventoMeta({
+            tipo: 'estado',
+            scope: 'liquidaciones',
+            actor,
+            etiqueta: liquidacion.consecutivo,
+            estado_anterior: liquidacion.estado_anterior,
+            estado_nuevo: liquidacion.estado
+          })
+        )
+      }
+
+      return reply.send(respuesta)
+    } catch (error: any) {
+      if (error instanceof ZodError) {
+        return reply.status(400).send({ error: error.errors[0]?.message ?? 'Datos inválidos' })
+      }
+      if (error instanceof ErrorCartera) {
+        return reply.status(error.statusCode).send({ error: error.message, code: error.code })
+      }
+      if (error?.code === 'P2002' || error.message?.includes('Ya existe')) {
+        return reply.status(409).send({ error: error.message || 'Ya existe una factura con ese número' })
+      }
+      if (error.message?.includes('no encontrada') || error.message?.includes('no fueron encontradas')) {
+        return reply.status(404).send({ error: error.message })
+      }
+      if (
+        error.message?.includes('está anulada') ||
+        error.message?.includes('ya están facturadas') ||
+        error.message?.includes('cambiaron mientras') ||
+        error.message?.includes('ya no pertenecen')
+      ) {
+        return reply.status(409).send({ error: error.message })
+      }
+      if (
+        error.message?.includes('no están en estado') ||
+        error.message?.includes('No repita') ||
+        error.message?.includes('no puede agregarse')
+      ) {
+        return reply.status(400).send({ error: error.message })
       }
       return reply.status(500).send({ error: error.message })
     }
@@ -316,18 +437,15 @@ export class FacturacionLiquidacionesController {
     }
   }
 
-  /**
-   * Quitar una liquidación de su factura (vuelve a LIQUIDADA).
-   */
+  /** Quitar una liquidación de su factura y devolverla a APROBADA. */
   static async quitarLiquidacion(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id, liquidacionId } = request.params as any
       const userId = (request as any).user?.id
       const userName = (request as any).user?.nombre || 'Usuario'
-      /// `DELETE` con cuerpo opcional: sin él, la liquidación vuelve a
-      /// LIQUIDADA como siempre; `destino: 'APROBADA'` la deja autorizada.
-      const destino = (request.body as any)?.destino === 'APROBADA' ? 'APROBADA' : 'LIQUIDADA'
-      if (destino === 'APROBADA' && !esAdministracion(request)) {
+      /// Solo la anulación tipificada puede devolver liquidaciones a LIQUIDADA.
+      /// Desasociar una liquidación de una factura activa la deja APROBADA.
+      if (!esAdministracion(request)) {
         return reply.status(403).send({
           error: 'Solo Administración puede devolver una liquidación a aprobada.'
         })
@@ -336,8 +454,7 @@ export class FacturacionLiquidacionesController {
       const result = await FacturacionLiquidacionesService.quitarLiquidacion(
         id,
         liquidacionId,
-        userId,
-        destino
+        userId
       )
 
       const actor = { id: userId ?? null, nombre: userName }
@@ -378,6 +495,9 @@ export class FacturacionLiquidacionesController {
       }
       if (error.message.includes('anulada')) {
         return reply.status(400).send({ error: error.message })
+      }
+      if (error.message.includes('cambió mientras')) {
+        return reply.status(409).send({ error: error.message })
       }
       return reply.status(500).send({ error: error.message })
     }

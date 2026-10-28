@@ -24,6 +24,23 @@ export interface CrearFacturaInput {
   fecha_vencimiento?: string | null;
 }
 
+export interface EditarFacturaInput {
+  numero_factura: string;
+  observaciones: string | null;
+  fecha_emision: string;
+  plazo_dias: number;
+  liquidacion_ids?: string[];
+  quitar_liquidacion_ids?: string[];
+}
+
+export type TipoAnulacionFactura = "SIN_MODIFICAR" | "MODIFICAR_LIQUIDACIONES" | "DUPLICIDAD";
+
+export interface AnularFacturaInput {
+  tipo: TipoAnulacionFactura;
+  liquidaciones_a_liquidar?: string[];
+  liquidacion_duplicada_id?: string;
+}
+
 export interface FiltrosFacturas {
   page?: number;
   limit?: number;
@@ -338,20 +355,26 @@ export const FacturacionLiquidacionesService = {
   },
 
   /**
-   * Anular una factura — revertir liquidaciones a estado LIQUIDADA
+   * Anula una factura y aplica a cada liquidación el resultado indicado por el motivo.
    */
   async anular(
     id: string,
     userId: string,
     motivo: string,
-    opciones: { mantenerAprobada?: string } = {},
+    opciones: AnularFacturaInput = { tipo: "SIN_MODIFICAR" },
   ) {
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id },
       include: {
         /// Solo el pivote vivo: una liquidación que ya se había quitado de
         /// esta factura no debe volver a LIQUIDADA al anularla.
-        items: { where: { deleted_at: null }, select: { liquidacion_id: true } },
+        items: {
+          where: { deleted_at: null },
+          select: {
+            liquidacion_id: true,
+            liquidacion: { select: { id: true, consecutivo: true } },
+          },
+        },
       },
     });
 
@@ -374,14 +397,34 @@ export const FacturacionLiquidacionesService = {
     }
 
     const liquidacionIds = factura.items.map((i) => i.liquidacion_id);
-    /// La liquidación que se está devolviendo a APROBADA desde su ficha: el
-    /// resto de la factura vuelve a LIQUIDADA como siempre, pero ella no,
-    /// porque lo que el usuario pidió fue «quitarle la factura», no
-    /// desaprobarla.
-    const aprobadaId = liquidacionIds.includes(opciones.mantenerAprobada ?? "")
-      ? opciones.mantenerAprobada!
+    const aLiquidada = opciones.tipo === "MODIFICAR_LIQUIDACIONES"
+      ? opciones.liquidaciones_a_liquidar ?? []
+      : [];
+    const duplicadaId = opciones.tipo === "DUPLICIDAD"
+      ? opciones.liquidacion_duplicada_id ?? null
       : null;
-    const aLiquidada = liquidacionIds.filter((lid) => lid !== aprobadaId);
+    const pertenecenALote = new Set(liquidacionIds);
+
+    if (new Set(aLiquidada).size !== aLiquidada.length) {
+      throw new Error("No repita liquidaciones en la selección");
+    }
+    if (aLiquidada.some((liquidacionId) => !pertenecenALote.has(liquidacionId))) {
+      throw new Error("Solo puede devolver a liquidada servicios incluidos en esta factura");
+    }
+    if (opciones.tipo === "MODIFICAR_LIQUIDACIONES" && aLiquidada.length === 0) {
+      throw new Error("Seleccione al menos una liquidación que requiera modificación");
+    }
+    if (opciones.tipo === "DUPLICIDAD" && (!duplicadaId || !pertenecenALote.has(duplicadaId))) {
+      throw new Error("Seleccione el servicio duplicado de esta factura");
+    }
+
+    const aAprobada = liquidacionIds.filter(
+      (liquidacionId) => !aLiquidada.includes(liquidacionId) && liquidacionId !== duplicadaId,
+    );
+    const duplicada = factura.items.find((item) => item.liquidacion_id === duplicadaId)?.liquidacion;
+    const motivoDuplicidad = duplicadaId
+      ? `[DUPLICIDAD DE FACTURACIÓN] Servicio ${duplicada?.consecutivo ?? duplicadaId} ya facturado. ${motivo.trim()}`
+      : null;
 
     const result = await prisma.$transaction(async (tx) => {
       // Anular factura
@@ -412,30 +455,60 @@ export const FacturacionLiquidacionesService = {
         },
       });
 
-      // Revertir liquidaciones a LIQUIDADA
-      await tx.liquidacion_servicio.updateMany({
-        where: { id: { in: aLiquidada }, estado: "FACTURADA" },
-        data: { estado: "LIQUIDADA", fecha_facturacion: null },
+      // Solo las liquidaciones que se deben corregir vuelven a LIQUIDADA.
+      const devueltas = await tx.liquidacion_servicio.updateMany({
+        where: { id: { in: aLiquidada }, estado: "FACTURADA", deleted_at: null },
+        data: { estado: "LIQUIDADA", fecha_facturacion: null, actualizado_por_id: userId },
       });
+      if (devueltas.count !== aLiquidada.length) {
+        throw new Error("Las liquidaciones cambiaron mientras se anulaba la factura. Recargue e intente de nuevo.");
+      }
 
-      // Registrar historial para cada liquidación revertida
+      // Registrar historial de las que regresan para corregirse.
       await tx.historial_estado_liquidacion.createMany({
         data: aLiquidada.map((lid) => ({
           liquidacion_id: lid,
           estado_anterior: "FACTURADA",
           estado_nuevo: "LIQUIDADA",
           usuario_id: userId,
-          motivo: motivo || "Factura anulada",
+          motivo: `Factura ${factura.numero_factura} anulada para modificar la liquidación${motivo ? `: ${motivo}` : ""}`,
         })),
       });
 
-      if (aprobadaId) {
-        await devolverAAprobada(
+      for (const liquidacionId of aAprobada) {
+        const devuelta = await devolverAAprobada(
           tx,
-          aprobadaId,
+          liquidacionId,
           userId,
           `Factura ${factura.numero_factura} anulada${motivo ? `: ${motivo}` : ""}`,
         );
+        if (!devuelta) {
+          throw new Error("Las liquidaciones cambiaron mientras se anulaba la factura. Recargue e intente de nuevo.");
+        }
+      }
+
+      if (duplicadaId && motivoDuplicidad) {
+        const marcada = await tx.liquidacion_servicio.updateMany({
+          where: { id: duplicadaId, estado: "FACTURADA", deleted_at: null },
+          data: {
+            estado: "ANULADA",
+            fecha_facturacion: null,
+            motivo_anulacion: motivoDuplicidad,
+            actualizado_por_id: userId,
+          },
+        });
+        if (marcada.count !== 1) {
+          throw new Error("La liquidación duplicada cambió mientras se anulaba la factura. Recargue e intente de nuevo.");
+        }
+        await tx.historial_estado_liquidacion.create({
+          data: {
+            liquidacion_id: duplicadaId,
+            estado_anterior: "FACTURADA",
+            estado_nuevo: "ANULADA",
+            usuario_id: userId,
+            motivo: motivoDuplicidad,
+          },
+        });
       }
 
       return updated;
@@ -450,7 +523,11 @@ export const FacturacionLiquidacionesService = {
       estados_resultantes: Object.fromEntries(
         liquidacionIds.map((lid) => [
           lid,
-          lid === aprobadaId ? ("APROBADA" as const) : ("LIQUIDADA" as const),
+          lid === duplicadaId
+            ? ("ANULADA" as const)
+            : aLiquidada.includes(lid)
+              ? ("LIQUIDADA" as const)
+              : ("APROBADA" as const),
         ]),
       ),
       items: result.items.map((i) => ({
@@ -560,6 +637,265 @@ export const FacturacionLiquidacionesService = {
         },
       },
     });
+  },
+
+  /**
+   * Editar la cabecera y añadir liquidaciones a una factura en una sola
+   * transacción. La unicidad del consecutivo se valida de nuevo bajo bloqueo.
+   */
+  async editar(facturaId: string, userId: string, data: EditarFacturaInput) {
+    const numeroFactura = data.numero_factura.trim();
+    if (!numeroFactura) throw new Error("El número de factura es obligatorio");
+
+    const liquidacionIds = data.liquidacion_ids ?? [];
+    const quitarLiquidacionIds = data.quitar_liquidacion_ids ?? [];
+    if (new Set(liquidacionIds).size !== liquidacionIds.length) {
+      throw new Error("No repita liquidaciones en la selección");
+    }
+    if (new Set(quitarLiquidacionIds).size !== quitarLiquidacionIds.length) {
+      throw new Error("No repita liquidaciones para quitar de la factura");
+    }
+    if (quitarLiquidacionIds.some((liquidacionId) => liquidacionIds.includes(liquidacionId))) {
+      throw new Error("Una liquidación no puede agregarse y quitarse en la misma edición");
+    }
+
+    const { factura, agregadas, quitadas, actividad } = await prisma.$transaction(async (tx) => {
+      /// La edición y los cambios desde Cartera comparten el mismo registro;
+      /// bloquearlo evita perder condiciones o sumar liquidaciones dos veces.
+      await tx.$queryRaw`SELECT id FROM factura_liquidacion_servicio WHERE id = ${facturaId}::uuid FOR UPDATE`;
+
+      const actual = await tx.factura_liquidacion_servicio.findFirst({
+        where: { id: facturaId, deleted_at: null },
+        select: {
+          id: true,
+          numero_factura: true,
+          estado: true,
+          cliente_id: true,
+          fecha_emision: true,
+          plazo_dias: true,
+          observaciones: true,
+          ajuste_valor: true,
+        },
+      });
+      if (!actual) throw new Error("Factura no encontrada");
+      if (actual.estado !== "ACTIVA") {
+        throw new Error(`La factura ${actual.numero_factura} está anulada: no se puede editar`);
+      }
+
+      const duplicada = await tx.factura_liquidacion_servicio.findFirst({
+        where: {
+          numero_factura: numeroFactura,
+          deleted_at: null,
+          id: { not: facturaId },
+        },
+        select: { id: true },
+      });
+      if (duplicada) {
+        throw new Error(`Ya existe una factura con el número "${numeroFactura}"`);
+      }
+
+      let liquidacionesQuitadas: Array<{ id: string; consecutivo: string }> = [];
+      if (quitarLiquidacionIds.length > 0) {
+        const pivotes = await tx.factura_liquidacion_item.findMany({
+          where: {
+            factura_id: facturaId,
+            deleted_at: null,
+            liquidacion_id: { in: quitarLiquidacionIds },
+          },
+          select: {
+            id: true,
+            liquidacion_id: true,
+            liquidacion: { select: { consecutivo: true } },
+          },
+        });
+        if (pivotes.length !== quitarLiquidacionIds.length) {
+          throw new Error("Algunas liquidaciones seleccionadas ya no pertenecen a esta factura");
+        }
+
+        const quitadas = await tx.factura_liquidacion_item.updateMany({
+          where: {
+            factura_id: facturaId,
+            deleted_at: null,
+            liquidacion_id: { in: quitarLiquidacionIds },
+          },
+          data: { deleted_at: new Date() },
+        });
+        if (quitadas.count !== quitarLiquidacionIds.length) {
+          throw new Error("Las liquidaciones cambiaron mientras se editaba la factura. Recargue e intente de nuevo.");
+        }
+
+        for (const pivot of pivotes) {
+          const devuelta = await devolverAAprobada(
+            tx,
+            pivot.liquidacion_id,
+            userId,
+            `Quitada de la factura ${numeroFactura} durante su edición`,
+          );
+          if (!devuelta) {
+            throw new Error("Las liquidaciones cambiaron mientras se editaba la factura. Recargue e intente de nuevo.");
+          }
+        }
+        liquidacionesQuitadas = pivotes.map((pivot) => ({
+          id: pivot.liquidacion_id,
+          consecutivo: pivot.liquidacion.consecutivo,
+        }));
+      }
+
+      let nuevasLiquidaciones: Array<{
+        id: string;
+        consecutivo: string;
+        estado: string;
+        total: Prisma.Decimal | number;
+        cliente_id: string | null;
+      }> = [];
+
+      if (liquidacionIds.length > 0) {
+        nuevasLiquidaciones = await tx.liquidacion_servicio.findMany({
+          where: { id: { in: liquidacionIds }, deleted_at: null },
+          select: { id: true, consecutivo: true, estado: true, total: true, cliente_id: true },
+        });
+        if (nuevasLiquidaciones.length !== liquidacionIds.length) {
+          throw new Error("Algunas liquidaciones no fueron encontradas");
+        }
+
+        const yaFacturadas = await tx.factura_liquidacion_item.findMany({
+          where: {
+            deleted_at: null,
+            liquidacion_id: { in: liquidacionIds },
+            factura: { estado: "ACTIVA", deleted_at: null },
+          },
+          include: {
+            liquidacion: { select: { consecutivo: true } },
+            factura: { select: { numero_factura: true } },
+          },
+        });
+        if (yaFacturadas.length > 0) {
+          const detalles = yaFacturadas
+            .map((item) => `${item.liquidacion.consecutivo} (Factura: ${item.factura.numero_factura})`)
+            .join(", ");
+          throw new Error(`Las siguientes liquidaciones ya están facturadas: ${detalles}`);
+        }
+
+        const noFacturables = nuevasLiquidaciones.filter(
+          (liquidacion) => !["LIQUIDADA", "APROBADA"].includes(liquidacion.estado),
+        );
+        if (noFacturables.length > 0) {
+          throw new Error(
+            `Las siguientes liquidaciones no están en estado para facturar: ${noFacturables
+              .map((liquidacion) => liquidacion.consecutivo)
+              .join(", ")}`,
+          );
+        }
+
+        /// Repetir la validación al tomar las filas hace de cerrojo frente a
+        /// otra factura que asocie las mismas liquidaciones en paralelo.
+        const tomadas = await tx.liquidacion_servicio.updateMany({
+          where: {
+            id: { in: liquidacionIds },
+            estado: { in: ["LIQUIDADA", "APROBADA"] },
+            deleted_at: null,
+          },
+          data: { estado: "FACTURADA", fecha_facturacion: new Date() },
+        });
+        if (tomadas.count !== liquidacionIds.length) {
+          throw new Error("Las liquidaciones cambiaron mientras se editaba la factura. Recargue e intente de nuevo.");
+        }
+
+        await tx.factura_liquidacion_item.createMany({
+          data: nuevasLiquidaciones.map((liquidacion) => ({
+            factura_id: facturaId,
+            liquidacion_id: liquidacion.id,
+            valor_liquidacion: Number(liquidacion.total),
+          })),
+        });
+
+        await tx.historial_estado_liquidacion.createMany({
+          data: nuevasLiquidaciones.map((liquidacion) => ({
+            liquidacion_id: liquidacion.id,
+            estado_anterior: liquidacion.estado,
+            estado_nuevo: "FACTURADA",
+            usuario_id: userId,
+            motivo: `Asociada a la factura ${numeroFactura}`,
+          })),
+        });
+      }
+
+      const agg = await tx.factura_liquidacion_item.aggregate({
+        where: { factura_id: facturaId, deleted_at: null },
+        _sum: { valor_liquidacion: true },
+      });
+      const condiciones = resolverCondiciones(
+        { fecha_emision: data.fecha_emision, plazo_dias: data.plazo_dias },
+        {
+          suma: Number(agg._sum.valor_liquidacion ?? 0),
+          fecha_emision: isoDia(actual.fecha_emision) ?? hoyColombia(),
+          plazo_dias: actual.plazo_dias ?? PLAZO_POR_DEFECTO,
+          ajuste_valor: Number(actual.ajuste_valor ?? 0),
+        },
+      );
+
+      const actualizada = await tx.factura_liquidacion_servicio.update({
+        where: { id: facturaId },
+        data: {
+          numero_factura: numeroFactura,
+          observaciones: data.observaciones?.trim() || null,
+          fecha_emision: aFechaDb(condiciones.fecha_emision),
+          plazo_dias: condiciones.plazo_dias,
+          fecha_vencimiento: aFechaDb(condiciones.fecha_vencimiento),
+          valor_total: condiciones.valor_total,
+          ajuste_valor: condiciones.ajuste_valor,
+          ...(actual.cliente_id || nuevasLiquidaciones.length === 0
+            ? {}
+            : { cliente_id: clienteDeLiquidaciones(nuevasLiquidaciones) }),
+        },
+        include: facturaIncludeCompleto(),
+      });
+
+      const observacionesNuevas = data.observaciones?.trim() || null;
+      return {
+        factura: actualizada,
+        agregadas: nuevasLiquidaciones,
+        quitadas: liquidacionesQuitadas,
+        actividad: {
+          cambios_cabecera: {
+            numero_factura: actual.numero_factura !== numeroFactura
+              ? { anterior: actual.numero_factura, nuevo: numeroFactura }
+              : null,
+            fecha_emision: isoDia(actual.fecha_emision) !== condiciones.fecha_emision
+              ? { anterior: isoDia(actual.fecha_emision), nuevo: condiciones.fecha_emision }
+              : null,
+            plazo_dias: actual.plazo_dias !== condiciones.plazo_dias
+              ? { anterior: actual.plazo_dias, nuevo: condiciones.plazo_dias }
+              : null,
+            observaciones: (actual.observaciones?.trim() || null) !== observacionesNuevas,
+          },
+          fecha_emision: condiciones.fecha_emision,
+          plazo_dias: condiciones.plazo_dias,
+        },
+      };
+    });
+
+    return {
+      factura: mapFactura(factura),
+      actividad,
+      liquidaciones_afectadas: [
+        ...agregadas.map((liquidacion) => ({
+          id: liquidacion.id,
+          consecutivo: liquidacion.consecutivo,
+          estado_anterior: liquidacion.estado,
+          estado: "FACTURADA" as const,
+          factura_id: facturaId,
+          numero_factura: factura.numero_factura,
+        })),
+        ...quitadas.map((liquidacion) => ({
+          ...liquidacion,
+          estado_anterior: "FACTURADA" as const,
+          estado: "APROBADA" as const,
+          factura_id: null,
+          numero_factura: null,
+        })),
+      ],
+    };
   },
 
   /**
@@ -706,7 +1042,7 @@ export const FacturacionLiquidacionesService = {
   },
 
   /**
-   * Quitar UNA liquidación de su factura y devolverla a LIQUIDADA.
+   * Quitar UNA liquidación de su factura y devolverla a APROBADA.
    *
    * `quedo_vacia` avisa de que la factura se quedó sin items: no se borra
    * sola — anularla y eliminarla es una decisión del usuario.
@@ -715,7 +1051,6 @@ export const FacturacionLiquidacionesService = {
     facturaId: string,
     liquidacionId: string,
     userId: string,
-    destino: "LIQUIDADA" | "APROBADA" = "LIQUIDADA",
   ) {
     const factura = await prisma.factura_liquidacion_servicio.findUnique({
       where: { id: facturaId },
@@ -759,30 +1094,14 @@ export const FacturacionLiquidacionesService = {
         data: { deleted_at: new Date() },
       });
 
-      if (destino === "APROBADA") {
-        await devolverAAprobada(
-          tx,
-          liquidacionId,
-          userId,
-          `Quitada de la factura ${factura.numero_factura}`,
-        );
-      } else {
-        // Solo se revierte si sigue FACTURADA: si alguien la anuló por otra
-        // vía en paralelo, no se pisa ese estado.
-        await tx.liquidacion_servicio.updateMany({
-          where: { id: liquidacionId, estado: "FACTURADA" },
-          data: { estado: "LIQUIDADA", fecha_facturacion: null },
-        });
-
-        await tx.historial_estado_liquidacion.create({
-          data: {
-            liquidacion_id: liquidacionId,
-            estado_anterior: "FACTURADA",
-            estado_nuevo: "LIQUIDADA",
-            usuario_id: userId,
-            motivo: `Quitada de la factura ${factura.numero_factura}`,
-          },
-        });
+      const devuelta = await devolverAAprobada(
+        tx,
+        liquidacionId,
+        userId,
+        `Quitada de la factura ${factura.numero_factura}`,
+      );
+      if (!devuelta) {
+        throw new Error("La liquidación cambió mientras se quitaba de la factura. Recargue e intente de nuevo.");
       }
 
       const agg = await tx.factura_liquidacion_item.aggregate({
@@ -808,7 +1127,7 @@ export const FacturacionLiquidacionesService = {
         {
           id: liquidacionId,
           consecutivo: item.liquidacion?.consecutivo ?? "",
-          estado: destino,
+          estado: "APROBADA" as const,
           factura_id: null,
           numero_factura: null,
         },
@@ -1109,10 +1428,10 @@ async function devolverAAprobada(
     select: { estado: true, aprobado_por_id: true },
   });
   /// Solo si sigue FACTURADA: si alguien la cambió en paralelo, no se pisa.
-  if (liq?.estado !== "FACTURADA") return;
+  if (liq?.estado !== "FACTURADA") return false;
 
-  await tx.liquidacion_servicio.update({
-    where: { id: liquidacionId },
+  const actualizada = await tx.liquidacion_servicio.updateMany({
+    where: { id: liquidacionId, estado: "FACTURADA", deleted_at: null },
     data: {
       estado: "APROBADA",
       fecha_facturacion: null,
@@ -1122,6 +1441,7 @@ async function devolverAAprobada(
         : { aprobado_por_id: userId, fecha_aprobacion: new Date() }),
     },
   });
+  if (actualizada.count !== 1) return false;
   await tx.historial_estado_liquidacion.create({
     data: {
       liquidacion_id: liquidacionId,
@@ -1131,6 +1451,7 @@ async function devolverAAprobada(
       motivo,
     },
   });
+  return true;
 }
 
 async function metadataFacturas(where: any) {
