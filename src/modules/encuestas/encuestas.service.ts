@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
 import { getIo } from '../../sockets'
-import { EVENTOS_ENCUESTAS } from './encuestas.events'
+import { emitirActualizacionEncuesta, EVENTOS_ENCUESTAS } from './encuestas.events'
 import {
   encuestaSchema, type EncuestaInput, type Pregunta, type RespuestaInput
 } from './encuestas.schema'
@@ -34,17 +34,29 @@ function huella(encuestaId: string, tipo: string, valor: string): string {
   return createHmac('sha256', env.JWT_SECRET).update(`encuesta:${encuestaId}:${tipo}:${valor}`).digest('hex')
 }
 
+function notificarActualizacion(encuesta: { id: string; estado: string; updated_at: Date }): void {
+  const evento = { encuestaId: encuesta.id, estado: encuesta.estado, actualizada_at: encuesta.updated_at.toISOString() }
+  emitirActualizacionEncuesta(evento)
+  try { getIo().emit(EVENTOS_ENCUESTAS.actualizada, evento) } catch { /* API sin socket en desarrollo */ }
+}
+
 function valorVacio(valor: unknown): boolean {
-  return valor == null || valor === '' || (Array.isArray(valor) && valor.length === 0)
+  if (valor == null || valor === '' || (Array.isArray(valor) && valor.length === 0)) return true
+  if (typeof valor === 'object' && !Array.isArray(valor)) {
+    const respuesta = valor as { opcion_ids?: unknown; otro_activo?: unknown; otro_texto?: unknown }
+    return (!Array.isArray(respuesta.opcion_ids) || respuesta.opcion_ids.length === 0) &&
+      !respuesta.otro_activo && !(typeof respuesta.otro_texto === 'string' && respuesta.otro_texto.trim())
+  }
+  return false
 }
 
 /** Validar en el servidor evita respuestas inventadas y opciones de otra encuesta. */
-export function validarRespuestas(preguntas: Pregunta[], entrada: Record<string, unknown>): Record<string, string | number | boolean | string[]> {
+export function validarRespuestas(preguntas: Pregunta[], entrada: Record<string, unknown>): Record<string, string | number | boolean | string[] | { opcion_ids: string[]; otro_activo: boolean; otro_texto: string }> {
   const ids = new Set(preguntas.map(p => p.id))
   if (Object.keys(entrada).some(id => !ids.has(id))) {
     throw new EncuestaError('PREGUNTA_DESCONOCIDA', 'La encuesta cambió. Recarga el enlace e intenta otra vez')
   }
-  const salida: Record<string, string | number | boolean | string[]> = {}
+  const salida: Record<string, string | number | boolean | string[] | { opcion_ids: string[]; otro_activo: boolean; otro_texto: string }> = {}
   for (const p of preguntas) {
     const valor = entrada[p.id]
     if (valorVacio(valor)) {
@@ -52,11 +64,19 @@ export function validarRespuestas(preguntas: Pregunta[], entrada: Record<string,
       continue
     }
     if (p.tipo === 'OPCION_UNICA') {
+      if (p.permite_otro) {
+        salida[p.id] = validarOpcionAbierta(p, valor, true)
+        continue
+      }
       if (typeof valor !== 'string' || !p.opciones.some(o => o.id === valor)) {
         throw new EncuestaError('OPCION_INVALIDA', `Opción inválida en «${p.titulo}»`)
       }
       salida[p.id] = valor
     } else if (p.tipo === 'OPCION_MULTIPLE') {
+      if (p.permite_otro) {
+        salida[p.id] = validarOpcionAbierta(p, valor, false)
+        continue
+      }
       const opciones = new Set(p.opciones.map(o => o.id))
       if (!Array.isArray(valor) || valor.length > opciones.size || new Set(valor).size !== valor.length ||
           valor.some(x => typeof x !== 'string' || !opciones.has(x))) {
@@ -104,6 +124,29 @@ export function validarRespuestas(preguntas: Pregunta[], entrada: Record<string,
   return salida
 }
 
+function validarOpcionAbierta(p: Pregunta, valor: unknown, unica: boolean): { opcion_ids: string[]; otro_activo: boolean; otro_texto: string } {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) {
+    throw new EncuestaError('OPCION_INVALIDA', `Respuesta inválida en «${p.titulo}»`)
+  }
+  const respuesta = valor as { opcion_ids?: unknown; otro_activo?: unknown; otro_texto?: unknown }
+  const ids = respuesta.opcion_ids ?? []
+  const activo = respuesta.otro_activo === true
+  const texto = typeof respuesta.otro_texto === 'string' ? respuesta.otro_texto.trim() : ''
+  const opcionesValidas = new Set(p.opciones.map(o => o.id))
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !opcionesValidas.has(id)) || new Set(ids).size !== ids.length) {
+    throw new EncuestaError('OPCION_INVALIDA', `Opciones inválidas en «${p.titulo}»`)
+  }
+  if (unica && (ids.length > 1 || (ids.length > 0 && activo))) {
+    throw new EncuestaError('OPCION_INVALIDA', `Elige una sola opción en «${p.titulo}»`)
+  }
+  if (typeof respuesta.otro_activo !== 'boolean' || (respuesta.otro_texto != null && typeof respuesta.otro_texto !== 'string') || texto.length > 500) {
+    throw new EncuestaError('RESPUESTA_INVALIDA', `Texto inválido en «${p.titulo}»`)
+  }
+  if (activo && !texto) throw new EncuestaError('RESPUESTA_REQUERIDA', `Completa la respuesta abierta en «${p.titulo}»`)
+  if (!activo && texto) throw new EncuestaError('RESPUESTA_INVALIDA', `Selecciona la opción abierta en «${p.titulo}»`)
+  return { opcion_ids: ids as string[], otro_activo: activo, otro_texto: activo ? texto : '' }
+}
+
 async function obtener(id: string) {
   const encuesta = await prisma.encuesta.findFirst({
     where: { id, ...activa },
@@ -145,11 +188,9 @@ export const EncuestasService = {
 
   async actualizar(id: string, entrada: EncuestaInput) {
     const encuesta = await obtener(id)
-    if (encuesta.estado !== 'BORRADOR') {
-      throw new EncuestaError('ENCUESTA_PUBLICADA', 'Duplica la encuesta para cambiar sus preguntas o configuración', 409)
-    }
+    if (!['BORRADOR', 'PUBLICADA', 'CERRADA'].includes(encuesta.estado)) throw new EncuestaError('ESTADO_INVALIDO', 'No se puede editar esta encuesta', 409)
     const data = encuestaSchema.parse(entrada)
-    return prisma.encuesta.update({
+    const actualizada = await prisma.encuesta.update({
       where: { id },
       data: {
         titulo: data.titulo,
@@ -163,6 +204,8 @@ export const EncuestasService = {
         preguntas: data.preguntas as unknown as Prisma.InputJsonValue
       }
     })
+    if (encuesta.estado !== 'BORRADOR') notificarActualizacion(actualizada)
+    return actualizada
   },
 
   async publicar(id: string) {
@@ -174,13 +217,28 @@ export const EncuestasService = {
     if (encuesta.fecha_cierre && encuesta.fecha_cierre <= new Date()) {
       throw new EncuestaError('FECHA_CIERRE', 'La fecha de cierre debe ser futura')
     }
-    return prisma.encuesta.update({ where: { id }, data: { estado: 'PUBLICADA', publicado_at: new Date() } })
+    const publicada = await prisma.encuesta.update({ where: { id }, data: { estado: 'PUBLICADA', publicado_at: new Date() } })
+    notificarActualizacion(publicada)
+    return publicada
   },
 
   async cerrar(id: string) {
     const encuesta = await obtener(id)
     if (encuesta.estado !== 'PUBLICADA') throw new EncuestaError('ESTADO_INVALIDO', 'La encuesta no está publicada', 409)
-    return prisma.encuesta.update({ where: { id }, data: { estado: 'CERRADA' } })
+    const cerrada = await prisma.encuesta.update({ where: { id }, data: { estado: 'CERRADA' } })
+    notificarActualizacion(cerrada)
+    return cerrada
+  },
+
+  async abrir(id: string) {
+    const encuesta = await obtener(id)
+    if (encuesta.estado !== 'CERRADA') throw new EncuestaError('ESTADO_INVALIDO', 'Solo se pueden abrir encuestas cerradas', 409)
+    if (encuesta.fecha_cierre && encuesta.fecha_cierre <= new Date()) {
+      throw new EncuestaError('FECHA_CIERRE', 'Actualiza o elimina la fecha de cierre vencida antes de abrir la encuesta')
+    }
+    const abierta = await prisma.encuesta.update({ where: { id }, data: { estado: 'PUBLICADA' } })
+    notificarActualizacion(abierta)
+    return abierta
   },
 
   async duplicar(id: string, usuarioId: string | null) {
@@ -203,14 +261,18 @@ export const EncuestasService = {
 
   async archivar(id: string) {
     await obtener(id)
-    return prisma.encuesta.update({ where: { id }, data: { deleted_at: new Date(), estado: 'CERRADA' } })
+    const archivada = await prisma.encuesta.update({ where: { id }, data: { deleted_at: new Date(), estado: 'CERRADA' } })
+    notificarActualizacion(archivada)
+    return archivada
   },
 
   async publica(token: string) {
     const encuesta = await prisma.encuesta.findFirst({ where: { token, ...activa } })
     if (!encuesta) throw new EncuestaError('ENCUESTA_NO_ENCONTRADA', 'Enlace no encontrado', 404)
     return {
+      id: encuesta.id,
       token: encuesta.token,
+      actualizada_at: encuesta.updated_at.toISOString(),
       titulo: encuesta.titulo,
       descripcion: encuesta.descripcion,
       mensaje_final: encuesta.mensaje_final,
@@ -297,8 +359,13 @@ export const EncuestasService = {
       const opciones: Array<{ id: string; texto: string; total: number; porcentaje: number }> = []
       if (p.tipo === 'OPCION_UNICA' || p.tipo === 'OPCION_MULTIPLE') {
         for (const o of p.opciones) {
-          const total = valores.filter(v => Array.isArray(v) ? v.includes(o.id) : v === o.id).length
+          const total = valores.filter(v => Array.isArray(v) ? v.includes(o.id) :
+            v && typeof v === 'object' ? (v as any).opcion_ids?.includes(o.id) : v === o.id).length
           opciones.push({ id: o.id!, texto: o.texto!, total, porcentaje: valores.length ? Math.round(total / valores.length * 1000) / 10 : 0 })
+        }
+        if (p.permite_otro) {
+          const total = valores.filter(v => !!v && typeof v === 'object' && (v as any).otro_activo && String((v as any).otro_texto || '').trim()).length
+          opciones.push({ id: '__otro__', texto: p.otro_etiqueta || 'Otra (especificar)', total, porcentaje: valores.length ? Math.round(total / valores.length * 1000) / 10 : 0 })
         }
       } else if (p.tipo === 'SI_NO') {
         for (const [id, texto] of [['true', 'Sí'], ['false', 'No']]) {
@@ -322,7 +389,8 @@ export const EncuestasService = {
         id: p.id, titulo: p.titulo, tipo: p.tipo, respondidas: valores.length,
         opciones, promedio, nps,
         textos: ['TEXTO_CORTO', 'TEXTO_LARGO', 'CORREO', 'FECHA', 'NUMERO'].includes(p.tipo)
-          ? valores.slice(0, 12).map(String) : []
+          ? valores.slice(0, 12).map(String)
+          : p.permite_otro ? valores.filter(v => !!v && typeof v === 'object' && (v as any).otro_activo).slice(0, 12).map(v => String((v as any).otro_texto)) : []
       }
     })
     const tamano = 50

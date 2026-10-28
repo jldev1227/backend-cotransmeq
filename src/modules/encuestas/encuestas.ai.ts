@@ -14,6 +14,8 @@ const borradorModeloSchema = z.object({
     tipo: z.enum(['TEXTO_CORTO', 'TEXTO_LARGO', 'OPCION_UNICA', 'OPCION_MULTIPLE', 'SI_NO', 'ESCALA', 'NPS', 'NUMERO', 'FECHA', 'CORREO']),
     requerida: z.boolean(),
     opciones: z.array(z.string().trim().max(160)).max(30),
+    permite_otro: z.boolean(),
+    otro_etiqueta: z.string().trim().max(80),
     minimo: z.number().int().min(0).max(9).nullable(),
     maximo: z.number().int().min(1).max(10).nullable()
   })).min(1).max(40)
@@ -40,13 +42,15 @@ const herramienta: OpenAI.Chat.Completions.ChatCompletionTool = {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['titulo', 'descripcion', 'tipo', 'requerida', 'opciones', 'minimo', 'maximo'],
+            required: ['titulo', 'descripcion', 'tipo', 'requerida', 'opciones', 'permite_otro', 'otro_etiqueta', 'minimo', 'maximo'],
             properties: {
               titulo: { type: 'string' },
               descripcion: { type: 'string' },
               tipo: { type: 'string', enum: ['TEXTO_CORTO', 'TEXTO_LARGO', 'OPCION_UNICA', 'OPCION_MULTIPLE', 'SI_NO', 'ESCALA', 'NPS', 'NUMERO', 'FECHA', 'CORREO'] },
               requerida: { type: 'boolean' },
               opciones: { type: 'array', items: { type: 'string' } },
+              permite_otro: { type: 'boolean' },
+              otro_etiqueta: { type: 'string' },
               minimo: { type: ['integer', 'null'] },
               maximo: { type: ['integer', 'null'] }
             }
@@ -72,6 +76,7 @@ export async function generarBorradorEncuesta(prompt: string) {
           'Respeta los tipos de pregunta y cantidades que solicite. Si pega preguntas literales, consérvalas y corrige únicamente ortografía evidente.',
           'Cuando no indique cantidad, crea entre 5 y 10 preguntas pertinentes, sin preguntas redundantes ni sesgadas.',
           'Usa OPCION_UNICA o OPCION_MULTIPLE con opciones completas y mutuamente comprensibles cuando aplique; usa NPS solo para recomendación, ESCALA para valoración, TEXTO_LARGO para comentarios y SI_NO para preguntas binarias.',
+          'Si el usuario pide una opción “Otra” o respuesta abierta adicional, configura permite_otro=true solo en preguntas OPCION_UNICA u OPCION_MULTIPLE y usa “Otra (especificar)” como otro_etiqueta. Para preguntas solo abiertas usa TEXTO_CORTO o TEXTO_LARGO.',
           'Evita pedir nombres, documentos, teléfonos, correos, datos sensibles o información privada como pregunta salvo que lo pidan expresamente. La encuesta se mantiene anónima por defecto.',
           'Toda pregunta de opciones debe traer al menos dos opciones. Los demás tipos deben tener opciones vacías. En ESCALA, define minimo y maximo con minimo < maximo; usa 1 y 5 por defecto. Para otros tipos, minimo y maximo son null.',
           'Entrega un título, una descripción que explique propósito y tiempo aproximado, un mensaje final amable y preguntas listas para revisar. No añadas markdown ni texto fuera de la herramienta.'

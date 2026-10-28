@@ -5,6 +5,12 @@ import type { Pregunta } from './encuestas.schema'
 
 function textoRespuesta(p: Pregunta, valor: unknown): string {
   if (valor == null) return ''
+  if (p.permite_otro && valor && typeof valor === 'object' && !Array.isArray(valor)) {
+    const respuesta = valor as { opcion_ids?: string[]; otro_activo?: boolean; otro_texto?: string }
+    const opciones = (respuesta.opcion_ids ?? []).map(id => p.opciones.find(o => o.id === id)?.texto || id)
+    if (respuesta.otro_activo && respuesta.otro_texto) opciones.push(`${p.otro_etiqueta || 'Otra'}: ${respuesta.otro_texto}`)
+    return opciones.join('; ')
+  }
   if (p.tipo === 'OPCION_UNICA') return p.opciones.find(o => o.id === valor)?.texto || String(valor)
   if (p.tipo === 'OPCION_MULTIPLE' && Array.isArray(valor)) {
     return valor.map(v => p.opciones.find(o => o.id === v)?.texto || String(v)).join('; ')
