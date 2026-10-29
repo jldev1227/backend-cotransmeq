@@ -119,13 +119,13 @@ pantalla. Si no tiene ninguno, responde como la primera guarda de la lista.
 
 ### `requireAdmin`
 
-Exige nivel **`full`** en el módulo `sesiones`. Por áreas solo lo tiene
-administración; con lista blanca hace falta `{"sesiones": "full"}` (`read` o
-`limited` no bastan), y un `role: 'admin'` con lista blanca lo tiene siempre.
+Exige nivel **`full`** en `sesiones` y que el usuario pertenezca al área
+Administración. `role` es un dato heredado y nunca sustituye esa comprobación.
 Protege toda la gestión de usuarios (`/api/usuarios/*`), las sesiones y las
-invitaciones: quien pasa puede cambiar áreas, rol y permisos de cualquiera,
-también los suyos. El módulo `usuarios` del mapa de permisos no es el que
-decide aquí. No mira `PERMISSIONS_MODE`: siempre rechaza.
+invitaciones: quien pasa puede cambiar áreas y permisos por ruta de cualquiera,
+también los suyos. El módulo `usuarios` del mapa no decide este acceso y
+`PERMISSIONS_MODE` no altera la guarda: siempre rechaza si no cumple ambas
+condiciones.
 
 ### `requireBonosPlanilla`
 

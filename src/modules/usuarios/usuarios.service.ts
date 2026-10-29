@@ -78,7 +78,6 @@ export interface CrearUsuarioInput {
   password: string
   telefono?: string | null
   cargo?: string | null
-  role?: string
   area?: string[]
   permisos_rutas?: Record<string, AccessLevel> | null
 }
@@ -129,7 +128,8 @@ export const UsuariosService = {
           password: hash,
           telefono: input.telefono || null,
           cargo: input.cargo || null,
-          role: input.role || 'usuario',
+          /// La columna se conserva por compatibilidad, pero el cliente no la asigna ni autoriza.
+          role: 'usuario',
           area: input.area ?? [],
           permisos: PERMISOS_DEFAULT,
           permisos_rutas: input.permisos_rutas ?? null,
@@ -161,7 +161,7 @@ export const UsuariosService = {
       select: USUARIO_SELECT,
     })
   },
-  async update(id: string, data: { nombre?: string; telefono?: string; correo?: string; role?: string; cargo?: string; area?: string[]; activo?: boolean; permisos_rutas?: Record<string, AccessLevel> | null }) {
+  async update(id: string, data: { nombre?: string; telefono?: string; correo?: string; cargo?: string; area?: string[]; activo?: boolean; permisos_rutas?: Record<string, AccessLevel> | null }) {
     const actualizado = await prisma.usuarios.update({
       where: { id },
       data: { ...data, updated_at: new Date() },
@@ -172,9 +172,9 @@ export const UsuariosService = {
     /// no se notaría hasta medio minuto después de guardarlo.
     if ('permisos_rutas' in data) invalidarPermisosRutas(id)
 
-    /// El middleware toma rol, áreas y estado de la sesión con una caché de
+    /// El middleware toma áreas y estado de la sesión con una caché de
     /// 30 s. Quitar un área o desactivar a alguien tiene que notarse ya.
-    if ('area' in data || 'role' in data || 'activo' in data) olvidarSesionesEnCache()
+    if ('area' in data || 'activo' in data) olvidarSesionesEnCache()
     /// Desactivar cierra sus sesiones también por esta vía (no solo desde el
     /// interruptor de la lista): sin sesión activa el middleware lo rechaza.
     if (data.activo === false) await SesionesService.cerrarTodas(id)

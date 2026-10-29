@@ -156,7 +156,7 @@ export const VehiculosController = {
     try {
       // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -195,7 +195,7 @@ export const VehiculosController = {
     try {
       // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -268,7 +268,7 @@ export const VehiculosController = {
   ) {
     try {
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 

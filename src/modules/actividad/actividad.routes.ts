@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { prisma } from '../../config/prisma'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
+import { getAccessibleModules, normalizarRutasOverride } from '../../config/permissions'
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/
 
@@ -29,13 +30,27 @@ export function areasDe(user: any): string[] {
   return Array.isArray(user?.area) ? user.area : user?.area ? [user.area] : []
 }
 
-/** Condición de visibilidad: admin todo; los demás, su gente y ellos mismos. */
-export function visibilidadActividad(user: any): Prisma.registro_actividadWhereInput {
-  if (user?.role === 'admin') return {}
-  const areas = areasDe(user)
-  const propio: Prisma.registro_actividadWhereInput = { usuario_id: user.id ?? user.sub }
-  if (areas.length === 0) return propio
-  return { OR: [{ usuario_areas: { hasSome: areas } }, propio] }
+/** Limita el feed a áreas compatibles y rutas que el usuario puede operar. */
+export function visibilidadActividad(
+  user: any,
+  rutasOverride?: unknown,
+): Prisma.registro_actividadWhereInput {
+  const areas = areasDe(user) as any
+  const override = rutasOverride ?? user.permisos_rutas
+  const modulos = getAccessibleModules(areas, normalizarRutasOverride(override), user.id ?? user.sub)
+  const operables = Object.entries(modulos)
+    .filter(([, nivel]) => nivel === 'full' || nivel === 'limited')
+    .map(([modulo]) => modulo)
+  const condiciones: Prisma.registro_actividadWhereInput[] = [
+    { modulo: { in: operables.length ? operables : ['__sin_permiso__'] } },
+  ]
+
+  // Administración conserva el alcance global que ya tenía, acotado ahora
+  // por las rutas que puede operar. Las demás áreas solo ven actividad de su gente.
+  if (!areas.includes('administracion')) {
+    condiciones.push(areas.length ? { usuario_areas: { hasSome: areas } } : { usuario_areas: { has: '__sin_area__' } })
+  }
+  return { AND: condiciones }
 }
 
 export async function actividadRoutes(app: FastifyInstance) {
@@ -52,7 +67,7 @@ export async function actividadRoutes(app: FastifyInstance) {
     const q = parsed.data
     const user = (request as any).user
 
-    const where: Prisma.registro_actividadWhereInput = { AND: [visibilidadActividad(user)] }
+    const where: Prisma.registro_actividadWhereInput = { AND: [visibilidadActividad(user, (request as any).permisosRutas)] }
     const and = where.AND as Prisma.registro_actividadWhereInput[]
     if (q.area) and.push({ usuario_areas: { has: q.area } })
     if (q.usuario_id) and.push({ usuario_id: q.usuario_id })
@@ -105,7 +120,9 @@ export async function actividadRoutes(app: FastifyInstance) {
   app.get('/actividad/opciones', protegida, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = (request as any).user
     const desde = new Date(Date.now() - 90 * 86400000)
-    const where: Prisma.registro_actividadWhereInput = { AND: [visibilidadActividad(user), { created_at: { gte: desde } }] }
+    const where: Prisma.registro_actividadWhereInput = {
+      AND: [visibilidadActividad(user, (request as any).permisosRutas), { created_at: { gte: desde } }],
+    }
     const [usuarios, modulos] = await Promise.all([
       prisma.registro_actividad.groupBy({ by: ['usuario_id', 'usuario_nombre'], where, _count: { _all: true }, orderBy: { usuario_nombre: 'asc' } }),
       prisma.registro_actividad.groupBy({ by: ['modulo'], where, _count: { _all: true }, orderBy: { modulo: 'asc' } }),
@@ -115,7 +132,7 @@ export async function actividadRoutes(app: FastifyInstance) {
       data: {
         usuarios: usuarios.filter((u) => u.usuario_id).map((u) => ({ id: u.usuario_id, nombre: u.usuario_nombre, registros: u._count._all })),
         modulos: modulos.map((m) => ({ id: m.modulo, registros: m._count._all })),
-        areas: user?.role === 'admin' ? null : areasDe(user),
+        areas: areasDe(user).includes('administracion') ? null : areasDe(user),
       },
     })
   })

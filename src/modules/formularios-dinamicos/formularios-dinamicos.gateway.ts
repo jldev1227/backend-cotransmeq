@@ -88,7 +88,7 @@ export function registerFormulariosGateway(io: IOServer): void {
       /// no en el socket, a quien se le quitó `formularios` le seguirían
       /// llegando los avisos de envíos por el room admin.
       const rutasOverride = await obtenerPermisosRutas(user.id)
-      const { allowed } = checkAccess(user.role, user.area as any, MODULO, rutasOverride)
+      const { allowed } = checkAccess(user.area as any, MODULO, rutasOverride)
       if (!allowed) {
         logger.warn(
           { type: 'forms-socket-admin-denied', userId: user.id, areas: user.area },

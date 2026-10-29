@@ -85,7 +85,7 @@ export function areasDe(user: UsuarioPanel): Area[] {
 }
 
 export function seccionesVisibles(user: UsuarioPanel, modulos: Record<string, AccessLevel>): Seccion[] {
-  const admin = user.role === 'admin'
+  const admin = areasDe(user).includes('administracion')
   const areas = areasDe(user)
   return SECCIONES.filter((s) => {
     const porArea = admin || s.areas.some((a) => areas.includes(a))

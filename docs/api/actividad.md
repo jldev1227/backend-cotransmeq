@@ -34,17 +34,20 @@ invitaciones, borradores y autoguardados, los crons por HTTP, la propia
 `/chat/`, `/presign`, `/lookup`, `/validate` o `/cron-hora`. Son lecturas
 disfrazadas de `POST` o ruido.
 
-**Quién ve qué** (`visibilidadActividad`): `role: 'admin'` ve todo; los demás ven
-lo que hizo la gente que comparte alguna de sus áreas (`usuario_areas` con
-`hasSome`) y lo suyo; un usuario sin área solo se ve a sí mismo. Es el rol, no el
-área `administracion`, lo que da la vista completa.
+**Quién ve qué** (`visibilidadActividad`): Administración conserva la vista
+global, limitada a módulos que puede operar. Las demás áreas solo ven acciones
+de usuarios que compartían una de sus áreas al momento del evento. Además, la
+acción debe corresponder a una ruta con nivel efectivo `full` o `limited`; las
+rutas solo `read`, las rutas fuera de la lista personalizada y el módulo `otros`
+no aparecen. El endpoint de opciones usa exactamente el mismo filtro para que
+los filtros no revelen usuarios ni módulos ocultos.
 
 ## Acceso
 
 | Rutas | Guarda |
 |---|---|
 | Las dos | `actividad:read` (`onRequest: authMiddleware` + `preHandler: requirePermission('actividad')`). `actividad` es `general: true`: entra cualquiera con sesión, salvo quien tenga lista blanca sin `actividad` (con `read` o más) |
-| Filas | la consulta se restringe siempre con `visibilidadActividad`; los filtros solo acotan dentro de eso |
+| Filas | la consulta restringe por áreas y por rutas operables (`full`/`limited`); los filtros solo acotan dentro de ese conjunto |
 
 ## Endpoints
 

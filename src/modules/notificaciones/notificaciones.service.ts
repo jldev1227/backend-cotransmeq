@@ -1,4 +1,16 @@
 import { prisma } from '../../config/prisma'
+import { getAccessibleModules, normalizarRutasOverride } from '../../config/permissions'
+import { filtroNotificacionesPermitidas } from './permisos-notificaciones'
+
+async function whereNotificacionesPermitidas(usuario_id: string) {
+  const usuario = await prisma.usuarios.findUnique({
+    where: { id: usuario_id },
+    select: { id: true, area: true, permisos_rutas: true },
+  })
+  if (!usuario) return { usuario_id, referencia_tipo: '__sin_permiso__' }
+  const modulos = getAccessibleModules(usuario.area, normalizarRutasOverride(usuario.permisos_rutas), usuario.id)
+  return { usuario_id, ...filtroNotificacionesPermitidas(modulos) }
+}
 
 export const NotificacionesService = {
 
@@ -53,29 +65,38 @@ export const NotificacionesService = {
   /** Listar notificaciones de un usuario con paginación */
   async listarPorUsuario(usuario_id: string, page = 1, limit = 20) {
     const skip = (page - 1) * limit
+    const where = await whereNotificacionesPermitidas(usuario_id)
     const [notificaciones, total, noLeidas] = await Promise.all([
       prisma.notificacion.findMany({
-        where: { usuario_id },
+        where,
         orderBy: { created_at: 'desc' },
         skip,
         take: limit,
       }),
-      prisma.notificacion.count({ where: { usuario_id } }),
-      prisma.notificacion.count({ where: { usuario_id, leida: false } }),
+      prisma.notificacion.count({ where }),
+      prisma.notificacion.count({ where: { AND: [where, { leida: false }] } }),
     ])
     return { notificaciones, total, noLeidas, totalPages: Math.ceil(total / limit), page }
   },
 
   /** Contar no leídas */
   async contarNoLeidas(usuario_id: string) {
-    return await prisma.notificacion.count({ where: { usuario_id, leida: false } })
+    const where = await whereNotificacionesPermitidas(usuario_id)
+    return await prisma.notificacion.count({ where: { AND: [where, { leida: false }] } })
+  },
+
+  /** Push de prueba con el aviso más reciente que el usuario aún puede recibir. */
+  async ultimaVisible(usuario_id: string) {
+    const where = await whereNotificacionesPermitidas(usuario_id)
+    return prisma.notificacion.findFirst({ where, orderBy: { created_at: 'desc' } })
   },
 
   /** Marcar una como leída */
   async marcarLeida(id: string, usuario_id: string) {
-    // Primero verificar que existe y es del usuario
+    // Verifica propietario y permiso actual antes de tocar una notificación histórica.
+    const where = await whereNotificacionesPermitidas(usuario_id)
     const notif = await prisma.notificacion.findFirst({
-      where: { id, usuario_id },
+      where: { AND: [where, { id }] },
     })
     if (!notif) throw new Error('Notificación no encontrada')
     return await prisma.notificacion.update({
@@ -86,8 +107,9 @@ export const NotificacionesService = {
 
   /** Marcar todas como leídas */
   async marcarTodasLeidas(usuario_id: string) {
+    const where = await whereNotificacionesPermitidas(usuario_id)
     return await prisma.notificacion.updateMany({
-      where: { usuario_id, leida: false },
+      where: { AND: [where, { leida: false }] },
       data: { leida: true },
     })
   },

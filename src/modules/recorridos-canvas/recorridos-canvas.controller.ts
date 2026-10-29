@@ -140,7 +140,7 @@ export class RecorridosCanvasController {
           descripcion: body.descripcion,
           bonos: Array.isArray(body.bonos) ? (body.bonos as string[]) : [],
         },
-        actor: { id: user.id, area: user.area, role: user.role },
+        actor: { id: user.id, area: user.area },
       })
       const { anio, mes } = periodoDeCorte(corte)
       emitSheetInvalidate({ scope: 'recorridos', anio, mes, accion: 'filas', by: user.id })
@@ -172,7 +172,7 @@ export class RecorridosCanvasController {
         tipoFila: tipo,
         entityId: id,
         baseVersion,
-        actor: { id: user.id, area: user.area, role: user.role },
+        actor: { id: user.id, area: user.area },
       })
       const { anio, mes } = periodoDeCorte({ desde: q.desde!, hasta: q.hasta! })
       emitSheetInvalidate({ scope: 'recorridos', anio, mes, accion: 'filas', by: user.id })

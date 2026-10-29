@@ -6,8 +6,8 @@ Servidor [MCP](https://modelcontextprotocol.io) para conectar Claude (Desktop,
 Code, claude.ai) o ChatGPT a la plataforma con la identidad de un usuario. Usa
 `@modelcontextprotocol/sdk` con el transporte *Streamable HTTP* **sin estado** y
 respuestas JSON: cada `POST` crea un `Server` nuevo, solo con la capacidad
-`tools`, y unas `instructions` que presentan la empresa y al usuario (nombre,
-áreas, rol) y explican cómo usar las herramientas.
+`tools`, y unas `instructions` que presentan la empresa y al usuario (nombre y
+áreas) y explican cómo usar las herramientas.
 
 Las herramientas son **las mismas del asistente del chat**
 (`src/modules/asistente/herramientas.ts`), filtradas con la misma función
@@ -26,7 +26,7 @@ caracteres). Se muestra una sola vez; en `api_tokens` quedan el hash SHA-256
 El MCP **no pasa por `authMiddleware` ni por `sesiones`**: `pareceToken` exige el
 prefijo `cmq_` y más de 20 caracteres, `apiTokensService.autenticar` busca el hash
 sin `revoked_at` y con el usuario activo, y `cargarUsuarioAsistente` vuelve a leer
-rol, áreas y `permisos_rutas` en cada petición, así que un cambio de permisos o
+áreas y `permisos_rutas` en cada petición, así que un cambio de permisos o
 desactivar al usuario aplica de inmediato. Los tokens no vencen; se revocan.
 `last_used_at` se actualiza como mucho cada 5 minutos. Máximo 10 activos por
 usuario.

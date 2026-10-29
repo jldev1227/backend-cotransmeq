@@ -50,17 +50,17 @@ porcentaje_admin / 100`, `valor_liquidar = total_facturado − valor_admin` e
 | Operación | Guarda |
 |---|---|
 | Todas | `sesión` (hook `onRequest` del plugin) |
-| `GET` | `liquidaciones-terceros:limited` (`permisoPorMetodo`) |
-| `POST`, `PUT` | `liquidaciones-terceros:limited`: la escritura también va en `limited` para que facturación y contabilidad puedan editar |
+| `GET` | `liquidaciones-servicios-seccion06:read` |
+| `POST /migrar`, `PUT /:liquidacion_id` | `liquidaciones-servicios-seccion06:full` |
 
 ## Endpoints
 
 | Método | Ruta | Acceso | Qué hace |
 |---|---|---|---|
-| GET | `/api/liquidaciones-terceros` | `liquidaciones-terceros:limited` | Historial paginado de filas de terceros, con agregados del filtro |
-| POST | `/api/liquidaciones-terceros/migrar` | `liquidaciones-terceros:limited` | Migra `recargos_data.terceroRows` a la tabla `liquidacion_tercero` |
-| GET | `/api/liquidaciones-terceros/:liquidacion_id` | `liquidaciones-terceros:limited` | Filas de terceros vivas de una liquidación de servicio |
-| PUT | `/api/liquidaciones-terceros/:liquidacion_id` | `liquidaciones-terceros:limited` | Reemplaza las filas de terceros de una liquidación de servicio |
+| GET | `/api/liquidaciones-terceros` | `liquidaciones-servicios-seccion06:read` | Historial paginado de filas de Hoja 4, con agregados del filtro |
+| POST | `/api/liquidaciones-terceros/migrar` | `liquidaciones-servicios-seccion06:full` | Migra `recargos_data.terceroRows` a la tabla `liquidacion_tercero` |
+| GET | `/api/liquidaciones-terceros/:liquidacion_id` | `liquidaciones-servicios-seccion06:read` | Filas de terceros vivas de una liquidación de servicio |
+| PUT | `/api/liquidaciones-terceros/:liquidacion_id` | `liquidaciones-servicios-seccion06:full` | Reemplaza las filas de terceros de una liquidación de servicio |
 
 ### `GET /api/liquidaciones-terceros`
 

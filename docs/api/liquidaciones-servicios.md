@@ -46,11 +46,11 @@ Reglas que un integrador necesita saber:
 |---|---|
 | Todas | `sesión` (hook `onRequest` del plugin) |
 | `GET` | `liquidaciones-servicios:limited` (`permisoPorMetodo` con `lectura: 'limited'`): Administración, Operaciones y Facturación |
-| `POST`, `PUT`, `PATCH`, `DELETE` | `liquidaciones-servicios:full`: Administración y Operaciones. Facturación registra facturas por [facturacion-liquidaciones](./facturacion-liquidaciones.md) |
+| `POST`, `PUT`, `PATCH`, `DELETE` | `liquidaciones-servicios:full`: Administración y Operaciones. Los campos de Hoja 4 además requieren `liquidaciones-servicios-seccion06:full` |
 | `PUT /:id` sobre `APROBADA`, `FACTURADA` o `ANULADA` | además, área `administracion` (403 si no) |
 | `PATCH /:id/estado` a `APROBADA`, o desde `APROBADA`/`FACTURADA`/`ANULADA` | además, área `administracion` (403 si no) |
 | Borradores (`/draft`, `/autoguardado`) | el dueño sale siempre de la sesión: cada usuario solo ve y pisa los suyos |
-| `GET /` con `incluir_no_confirmadas=true` | las no confirmadas ajenas solo para `role: admin` o área `administracion`; el resto recibe solo las propias |
+| `GET /` con `incluir_no_confirmadas=true` | las no confirmadas ajenas solo para el área `administracion`; el resto recibe solo las propias |
 
 Contabilidad no tiene acceso a este módulo.
 
@@ -79,7 +79,7 @@ Contabilidad no tiene acceso a este módulo.
 | POST | `/api/liquidaciones-servicios` | `liquidaciones-servicios:full` | Registra una liquidación (nace confirmada, en `BORRADOR`) |
 | GET | `/api/liquidaciones-servicios/eliminadas` | `liquidaciones-servicios:limited` | Papelera |
 | GET | `/api/liquidaciones-servicios/:id` | `liquidaciones-servicios:limited` | Una liquidación con ítems y terceros vivos |
-| PUT | `/api/liquidaciones-servicios/:id` | `liquidaciones-servicios:full` (+ administración según estado) | Edita; confirma si venía del autoguardado |
+| PUT | `/api/liquidaciones-servicios/:id` | `liquidaciones-servicios:full` (+ administración según estado); Hoja 4 requiere además `liquidaciones-servicios-seccion06:full` | Edita; confirma si venía del autoguardado |
 | DELETE | `/api/liquidaciones-servicios/:id` | `liquidaciones-servicios:full` | Borrado lógico del árbol |
 | PATCH | `/api/liquidaciones-servicios/:id/estado` | `liquidaciones-servicios:full` (+ administración según estado) | Cambia el estado |
 | GET | `/api/liquidaciones-servicios/:id/historial` | `liquidaciones-servicios:limited` | Historial de estados y ediciones |
@@ -364,6 +364,11 @@ entrada repetida (mismo `id` o misma `client_key`) entra como ítem nuevo, y una
 vaciar la lista. Después de reconciliar se releen los ítems vivos, por `orden`:
 son los que trae la respuesta y a los que se enlazan los `terceros_items` (su
 `src_index` es la posición en esa lista).
+
+Los campos de la SECCIÓN 06 requieren `liquidaciones-servicios-seccion06:full`.
+Sin lectura de ese permiso, la API oculta los terceros, sus filas JSON y las
+relaciones `tercero_id` en detalle, borradores, historial y listados; las
+escrituras conservan los valores existentes y Socket.IO no los emite.
 
 **Respuesta 200** — la liquidación más `factura_recalculada`: si estaba
 `FACTURADA` y el total cambió, el servidor actualiza el pivote y el

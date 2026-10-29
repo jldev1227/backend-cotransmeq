@@ -9,15 +9,16 @@ import { requirePermission } from './permissions.middleware'
 const obtener = vi.mocked(obtenerPermisosRutas)
 
 async function consultar(
-	area: string,
+	area: string | null,
 	override: Record<string, 'full' | 'read' | 'limited'> | null,
 	nivel: 'limited' | 'full',
 	method: 'GET' | 'POST' = 'GET',
-	url = '/api/recargos'
+	url = '/api/recargos',
+	role = 'usuario'
 ) {
 	const app = Fastify()
 	app.addHook('preHandler', async (request) => {
-		(request as any).user = { id: 'usuario-prueba', role: 'usuario', area: [area] }
+		(request as any).user = { id: 'usuario-prueba', role, area: area ? [area] : [] }
 	})
 	app.get('/api/recargos', { preHandler: requirePermission('recargos', nivel) }, async () => ({ ok: true }))
 	app.post('/api/recargos/:id/planilla', { preHandler: requirePermission('recargos', 'limited') }, async () => ({ ok: true }))
@@ -45,6 +46,11 @@ describe('guardas HTTP de recargos', () => {
 	] as const)('área %s: GET recargos responde %i', async (area, status) => {
 		const response = await consultar(area, null, 'limited')
 		expect(response.statusCode).toBe(status)
+	})
+
+	it('role admin sin área tampoco abre el módulo', async () => {
+		const response = await consultar(null, null, 'limited', 'GET', '/api/recargos', 'admin')
+		expect(response.statusCode).toBe(403)
 	})
 
 	it('una lista blanca limitada consulta y adjunta, pero no edita planillas', async () => {

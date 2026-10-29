@@ -5,7 +5,7 @@
 Cuentas del equipo administrativo (modelo `usuarios`, tabla `users`; los
 conductores no son usuarios). El módulo cubre el alta manual —la alternativa a la
 [invitación](./invitaciones.md) para quien no tiene correo corporativo o hay que
-dejar listo en el momento—, la edición de datos, rol y áreas, la activación, la
+dejar listo en el momento—, la edición de datos y áreas, la activación, la
 firma y los permisos. El hash se hace con `argon2.hash` con los parámetros por
 defecto, igual que la invitación, para no tener dos formatos «nuevos».
 
@@ -13,12 +13,10 @@ El acceso de una persona se decide con tres datos que conviene no confundir:
 
 - **`area`** (`String[]`, columna `areas`): las reglas por área de
   `src/config/permissions.ts`.
-- **`permisos_rutas`** (JSON `{ "<moduleId>": "full" | "read" | "limited" }`): lista
-  blanca por usuario. Con al menos una clave **sustituye por completo** a las
-  reglas por área: solo entran los módulos listados, con exactamente ese nivel,
-  incluidos los `general: true`. Excepciones: `perfil` siempre queda accesible y
-  `role: 'admin'` conserva acceso total. `null` y `{}` significan «sin lista
-  blanca». Ver [permisos](../permisos.md).
+- **`permisos_rutas`** (JSON `{ "<moduleId>": "full" | "read" | "limited" }`):
+  límites personalizados por usuario. Solo pueden retirar módulos o bajar el
+  nivel concedido por sus áreas. `null` hereda del área; `{}` es una
+  personalización explícita que deja solo `perfil`. Ver [permisos](../permisos.md).
 - **`permisos`** (JSON de booleanos, heredado): **no** decide el acceso a módulos.
   Hoy solo se leen claves sueltas: `bonos-planilla` (permiso individual que exige
   `requireBonosPlanilla`, `src/middlewares/bonos.middleware.ts`, y el canvas de
@@ -41,15 +39,12 @@ Los cambios aplican de inmediato: las escrituras vacían la caché de
 | Todas menos las dos de abajo | `authMiddleware` + `requireAdmin` en cada ruta (`admin`: `sesiones:full`) |
 | `GET /api/usuarios/firmantes`, `GET /api/conductores/basicos` | solo `sesión` |
 
-`requireAdmin` (`src/middlewares/permissions.middleware.ts`) pasa si el usuario
-tiene nivel **`full`** en el módulo `sesiones`: área `administracion`, una
-lista blanca con `{"sesiones": "full"}` (`read` o `limited` no bastan), o
-`role: 'admin'` con lista blanca. Quien pasa puede editar el `area`, el `role` y
-la `permisos_rutas` de cualquiera, incluida la propia: conceder «Sesiones» con
-nivel completo desde la pantalla de permisos equivale a dar administración. No
-mira el módulo `usuarios` (que es el que piden las herramientas del
-[asistente](./asistente.md)) y siempre rechaza con 403, también en
-`PERMISSIONS_MODE=warn`.
+`requireAdmin` (`src/middlewares/permissions.middleware.ts`) exige área
+`administracion` y nivel **`full`** efectivo en `sesiones`. `role: 'admin'` no
+concede acceso y `permisos_rutas` no puede convertir otra área en
+administración. Quien pasa puede editar las áreas y límites por ruta de
+cualquiera, incluida la propia. No mira el módulo `usuarios` y siempre rechaza
+con 403 si falta alguna condición.
 
 ## Endpoints
 
@@ -61,7 +56,7 @@ mira el módulo `usuarios` (que es el que piden las herramientas del
 | GET | `/api/usuarios/presencia` | admin | Lista de usuarios con `en_linea` |
 | GET | `/api/usuarios/online-ids` | admin | Ids de los usuarios conectados por socket |
 | GET | `/api/usuarios/:id` | admin | Un usuario |
-| PUT | `/api/usuarios/:id` | admin | Edita datos, rol, áreas, estado y lista blanca |
+| PUT | `/api/usuarios/:id` | admin | Edita datos, áreas, estado y límites por ruta |
 | PATCH | `/api/usuarios/:id/password` | admin | Cambia la contraseña y revoca las sesiones activas |
 | PATCH | `/api/usuarios/:id/activo` | admin | Activa o desactiva; al desactivar cierra sus sesiones |
 | PATCH | `/api/usuarios/:id/permisos` | admin | Reemplaza el JSON `permisos` |
@@ -96,12 +91,12 @@ Lo que devuelven el alta, el listado, la ficha, el `PUT` y los dos `PATCH`
 | `password` | string | sí | Mínimo 6 para el alta manual; el cambio administrativo requiere mínimo 8 |
 | `telefono` | string | no | |
 | `cargo` | string \| null | no | |
-| `role` | string | no | `usuario` por defecto. El esquema acepta cualquier texto, pero tiene que ser un valor de `enum_users_role` (`admin`, `liquidador`, `facturador`, `aprobador`, `gestor_flota`, `gestor_nomina`, `consulta`, `usuario`, `gestor_servicio`, `gestor_planillas`, `kilometraje`) o Prisma falla |
 | `area` | string[] | no | Valores de `AREAS` (`administracion`, `operaciones`, `contabilidad`, `facturacion`, `talento_humano`, `hseq`, `mantenimiento`) |
 | `permisos_rutas` | objeto \| null | no | Claves que existan en `ROUTE_PERMISSIONS` (si no, 400 con la lista de válidas) y valores `full`/`read`/`limited` |
 
-Además se fijan `permisos: PERMISOS_DEFAULT` y `es_invitado: false` (lo que mira
-la pantalla para distinguir altas manuales de invitaciones).
+Además, el servidor fija `role: 'usuario'` como dato legado, junto con
+`permisos: PERMISOS_DEFAULT` y `es_invitado: false`. El rol no se acepta como
+entrada ni participa en las autorizaciones.
 
 **Respuesta 201**: el usuario creado.
 
@@ -111,7 +106,7 @@ la pantalla para distinguir altas manuales de invitaciones).
 |---|---|---|
 | 400 | El body no cumple el esquema | `{ "error": "Datos inválidos", "details": [<issues de zod>] }` |
 | 409 | Ya existe ese correo (chequeo previo o P2002 en una carrera) | `{ "error": "Correo duplicado", "message": "Ya existe un usuario registrado con el correo \"x\"." }` |
-| 500 | Cualquier otro fallo, incluido un `role` fuera del enum | `{ "error": "No se pudo crear el usuario" }` |
+| 500 | Cualquier otro fallo | `{ "error": "No se pudo crear el usuario" }` |
 
 ### `GET /api/usuarios` y `GET /api/usuarios/:id`
 
@@ -128,19 +123,18 @@ es UUID hace fallar a Prisma con 500.
 | `nombre` | string | Mínimo 2 |
 | `telefono` | string | |
 | `correo` | string (email) | **No** se normaliza, a diferencia del alta |
-| `role` | string | Igual que en el alta: tiene que ser del enum |
 | `cargo` | string \| null | |
 | `area` | string[] | Valores de `AREAS` |
 | `activo` | boolean | `false` cierra todas sus sesiones |
-| `permisos_rutas` | objeto \| null | Igual que en el alta; `null` o `{}` quitan la lista blanca |
+| `permisos_rutas` | objeto \| null | `null` hereda las áreas; `{}` deja solo el perfil; el objeto permite retirar rutas o bajar niveles |
 
 Siempre pone `updated_at` a ahora. Efectos: tocar `permisos_rutas` invalida su
-caché; tocar `area`, `role` o `activo` vacía la caché de sesiones; `activo: false`
+caché; tocar `area` o `activo` vacía la caché de sesiones; `activo: false`
 cierra sus sesiones (`SesionesService.cerrarTodas`), sin evento de socket.
 
 **Respuesta 200**: el usuario. **Errores**: el controlador no captura nada, así
 que un body inválido (zod), un id inexistente (P2025), un correo repetido (P2002)
-o un `role` fuera del enum salen como 500 con el formato por defecto de Fastify.
+sale como 500 con el formato por defecto de Fastify.
 
 ### `PATCH /api/usuarios/:id/activo`
 
@@ -235,7 +229,7 @@ de los usuarios con rol `CONDUCTOR`. Responde siempre 500: ver Observaciones.
   que tenga uno y no el otro, la pantalla y el asistente discrepan
   (`permissions.middleware.ts`).
 - **Los errores del `PUT` y del `PATCH …/permisos` salen como 500**: `parse` de zod
-  sin captura, id inexistente, correo repetido o `role` inválido
+  sin captura, id inexistente o correo repetido
   (`usuarios.controller.ts`).
 - **`PATCH …/activo` no valida el body.** Sin `activo` (o con `null`, `0`, `""`),
   el usuario sigue activo, pero el controlador cierra todas sus sesiones y emite

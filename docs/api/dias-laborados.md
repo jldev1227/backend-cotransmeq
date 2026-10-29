@@ -57,9 +57,9 @@ Reglas que un integrador necesita saber:
 | `POST /solicitar-acceso` | `pública · límite 3/h por cédula y 30/h por IP` ([límites de intentos](../autenticacion.md#límites-de-intentos)) |
 | `GET /verificar-token` | `pública · token`: el JWT del enlace en la query, verificado contra `conductor_token` |
 | `POST /registros`, `GET /registros`, `DELETE /registros/:fecha` | `portal`: `conductorAuthMiddleware` (hook `onRequest` del sub-plugin, en este archivo) acepta solo `tipo: 'conductor_dias_laborados'`; el conductor sale del token. El token del portal (`conductor_portal`) y los del equipo reciben 401 |
-| `GET /calendar-admin`, `/clientes`, `/vehiculos`, `/bonos`, `/bonos-config-visual` | `sesión`, sin permiso de módulo |
-| `POST /admin/registros-masivos`, `PUT` y `DELETE /admin/segmento/:id`, `PUT` y `DELETE /admin/registro/:id` | `recorridos:full` con `requireRecorridosEdicion`: Administración y Operaciones, o quien tenga `recorridos: 'full'` en su lista blanca `permisos_rutas`; **siempre** aplicado aunque `PERMISSIONS_MODE=warn`, y la misma comprobación que la escritura por socket del canvas ([middlewares](../middlewares.md#requirerecorridosedicion)). 403 `{ error, message }` |
-| `POST /bonos`, `POST /bonos/sync`, `DELETE /bonos/:id`, `PUT /bonos-config-visual` | `sesión + bonos-planilla` (`[authMiddleware, requireBonosPlanilla]` en `preHandler`). 403 `{ error, message }` sin el permiso |
+| `GET /calendar-admin`, `/clientes`, `/vehiculos`, `/bonos`, `/bonos-config-visual` | sesión + `recorridos:read`; también aplica el límite personalizado `permisos_rutas` |
+| `POST /admin/registros-masivos`, `PUT` y `DELETE /admin/segmento/:id`, `PUT` y `DELETE /admin/registro/:id` | `requireRecorridosEdicion`: requiere `recorridos:full` efectivo por área; en Cotransmeq solo Administración edita. `permisos_rutas` puede reducir, no conceder ese nivel; se aplica también a `sheet:patch`. 403 `{ error, message }` |
+| `POST /bonos`, `POST /bonos/sync`, `DELETE /bonos/:id`, `PUT /bonos-config-visual` | `recorridos:full` efectivo + `bonos-planilla`; el mapa de rutas limita la edición y el permiso puntual sigue siendo requisito adicional. 403 `{ error, message }` si falta cualquiera |
 
 En las cuatro rutas de escritura de bonos la autenticación corre en `preHandler`,
 después de validar el esquema: un body inválido sin token recibe 400, no 401.

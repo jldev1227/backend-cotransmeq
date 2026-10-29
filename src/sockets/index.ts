@@ -16,6 +16,8 @@ import { registerFormulariosGateway } from '../modules/formularios-dinamicos/for
 import { registrarPresenciaMovil, retirarPresenciaMovil } from '../modules/sesiones/mobile-presence.service'
 import { EVENTOS_PRESENCIA_MOVIL } from '../modules/sesiones/mobile-presence.events'
 import { registerRecargosPlanillaGateway } from '../modules/recargos/recargos-planilla.gateway'
+import { prisma } from '../config/prisma'
+import { puedeRecibirNotificacion } from '../modules/notificaciones/permisos-notificaciones'
 
 let io: IOServer | null = null
 
@@ -355,13 +357,34 @@ export function emitLiquidacionServicioBorrador(
   emitConMeta('liquidacion-servicio-borrador', data, meta)
 }
 
+/** El payload global no debe filtrar los datos privados de Hoja 4 por sockets. */
+function ocultarSeccion06EnEvento(valor: any): any {
+  if (Array.isArray(valor)) return valor.map(ocultarSeccion06EnEvento);
+  if (!valor || typeof valor !== 'object') return valor;
+  const copia = { ...valor };
+  if ('terceros_items' in copia) copia.terceros_items = [];
+  if ('tercero_liquidado' in copia) delete copia.tercero_liquidado;
+  if (copia.recargos_data && typeof copia.recargos_data === 'object' && !Array.isArray(copia.recargos_data)) {
+    copia.recargos_data = { ...copia.recargos_data };
+    delete copia.recargos_data.terceroRows;
+  }
+  if (Array.isArray(copia.items)) {
+    copia.items = copia.items.map((item: any) => {
+      const fila = { ...item, tercero_id: null };
+      delete fila.tercero;
+      return fila;
+    });
+  }
+  return copia;
+}
+
 /** Emit a liquidacion-servicio event to all connected clients */
 export function emitLiquidacionServicio(
   event: 'liquidacion-servicio-created' | 'liquidacion-servicio-updated' | 'liquidacion-servicio-deleted',
   data: any,
   meta?: EventoSocketMeta,
 ) {
-  emitConMeta(event, data, meta)
+  emitConMeta(event, ocultarSeccion06EnEvento(data), meta)
 }
 
 /**
@@ -393,20 +416,23 @@ export function emitLiquidacionTercero(
  * `usuario_id`.
  */
 export function emitNotificacion(data: any) {
-  /// El aviso del sistema operativo (Web Push) sale aunque no haya socket: es
-  /// justo para quien no tiene la app abierta. Nunca lanza.
-  void enviarWebPush(data)
+  void (async () => {
+    const destinatario = data?.usuario_id
+    if (!destinatario) {
+      console.warn('[sockets] se descartó una notificación sin usuario_id')
+      return
+    }
+    const usuario = await prisma.usuarios.findUnique({
+      where: { id: destinatario },
+      select: { id: true, area: true, permisos_rutas: true, activo: true },
+    })
+    if (!usuario?.activo || !puedeRecibirNotificacion(usuario, data)) return
 
-  if (!io) return
-
-  const destinatario = data?.usuario_id
-  if (destinatario) {
-    io.to(`user-${destinatario}`).emit('nueva-notificacion', data)
-    return
-  }
-
-  console.warn('[sockets] nueva-notificacion sin usuario_id: se emite a todos')
-  io.emit('nueva-notificacion', data)
+    /// El mismo filtro protege la campana y Web Push, aunque la fila histórica
+    /// se hubiera creado antes de un cambio de área o de permisos.
+    void enviarWebPush(data)
+    if (io) io.to(`user-${destinatario}`).emit('nueva-notificacion', data)
+  })().catch((error) => console.error('[sockets] no se pudo autorizar la notificación', error))
 }
 
 

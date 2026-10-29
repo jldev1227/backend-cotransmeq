@@ -6,7 +6,6 @@ import {
   enviarWebPush,
   registrarSuscripcionWeb,
 } from './web-push.service'
-import { prisma } from '../../config/prisma'
 
 /** Una suscripción de `PushManager.subscribe()` serializada con `toJSON()`. */
 function suscripcionValida(body: any): body is { endpoint: string; keys: { p256dh: string; auth: string } } {
@@ -125,7 +124,7 @@ export class NotificacionesController {
     if (!userId) return reply.status(401).send({ error: 'No autenticado' })
     if (!clavePublicaVapid()) return reply.status(503).send({ error: 'Los avisos del navegador no están configurados' })
     try {
-      const ultima = await prisma.notificacion.findFirst({ where: { usuario_id: userId }, orderBy: { created_at: 'desc' } })
+      const ultima = await NotificacionesService.ultimaVisible(userId)
       const resultado = await enviarWebPush(
         ultima ?? {
           usuario_id: userId,

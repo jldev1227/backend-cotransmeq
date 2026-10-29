@@ -2,8 +2,8 @@
 
 `/api/recorridos/canvas`, `/api/recorridos/snapshots`, `/api/recorridos-snapshots/cron-hora` · código en [`src/modules/recorridos-canvas/`](../../src/modules/recorridos-canvas/) · permiso [`recorridos`](../permisos.md#catálogo-de-módulos)
 
-La hoja de cálculo (Univer) donde Operaciones revisa y corrige los recorridos que
-los conductores registran día a día en
+La hoja de cálculo (Univer) donde Administración edita y las demás áreas con
+permiso de lectura consultan los recorridos que los conductores registran día a día en
 [días laborados](./dias-laborados.md): `registro_dia_laboral` (el día) →
 `registro_dia_laboral_segmento` (cada recorrido o tramo) →
 `registro_dia_laboral_bono` (los bonos marcados). Un libro por corte, una hoja
@@ -13,8 +13,9 @@ DESCANSO o MANTENIMIENTO).
 La hoja alimenta la nómina: los bonos que se marcan aquí son los que el
 [canvas de nómina](./nomina-canvas.md) siembra en las `bonificaciones` de cada
 liquidación. Por eso es un módulo de permiso propio, `recorridos`, y no
-`conductores`, que es `general: true`: editarla es una operación contable, no
-una consulta.
+`conductores`: Administración puede editarla; Operaciones y las demás áreas
+autorizadas solo consultan. Un límite personalizado `permisos_rutas` puede
+reducir ambos niveles, nunca elevarlos.
 
 Reglas que un integrador necesita saber:
 

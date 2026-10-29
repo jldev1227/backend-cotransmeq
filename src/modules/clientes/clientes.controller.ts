@@ -167,7 +167,7 @@ export const ClientesController = {
   async obtenerPapelera(request: FastifyRequest, reply: FastifyReply) {
     const user = (request as any).user
     const isAuthorized =
-      user?.role === 'admin' ||
+      user?.area?.includes('administracion') ||
       user?.area?.includes('operaciones') ||
       user?.area?.includes('talento_humano')
     if (!isAuthorized) {
@@ -299,7 +299,7 @@ export const ClientesController = {
     try {
       // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -350,7 +350,7 @@ export const ClientesController = {
     try {
       // Verificar que el usuario es administrador o de las áreas autorizadas
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -423,7 +423,7 @@ export const ClientesController = {
   ) {
     try {
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 

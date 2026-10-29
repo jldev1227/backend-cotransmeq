@@ -26,6 +26,54 @@ import {
   esEstadoLiquidacionServicio,
   validarTransicionLiquidacion,
 } from "./estado-transiciones";
+import { checkAccess } from "../../config/permissions";
+
+function puedeEditarSeccion06(user: any): boolean {
+  const { allowed, level } = checkAccess(
+    user?.area,
+    "liquidaciones-servicios-seccion06",
+    user?.permisos_rutas,
+    user?.id,
+  );
+  return allowed && level === "full";
+}
+
+function puedeVerSeccion06(user: any): boolean {
+  return checkAccess(
+    user?.area,
+    "liquidaciones-servicios-seccion06",
+    user?.permisos_rutas,
+    user?.id,
+  ).allowed;
+}
+
+/** Redacta Hoja 4 de las respuestas del módulo general si falta su permiso. */
+function ocultarSeccion06<T>(valor: T): T {
+  if (Array.isArray(valor)) return valor.map(ocultarSeccion06) as T;
+  if (!valor || typeof valor !== "object") return valor;
+
+  const copia: any = { ...(valor as any) };
+  if ("terceros_items" in copia) copia.terceros_items = [];
+  if ("tercero_liquidado" in copia) delete copia.tercero_liquidado;
+  if (copia.recargos_data && typeof copia.recargos_data === "object" && !Array.isArray(copia.recargos_data)) {
+    copia.recargos_data = { ...copia.recargos_data };
+    delete copia.recargos_data.terceroRows;
+  }
+  if (Array.isArray(copia.items)) {
+    copia.items = copia.items.map((item: any) => {
+      const fila = { ...item, tercero_id: null };
+      delete fila.tercero;
+      return fila;
+    });
+  }
+  if ("payload" in copia) copia.payload = ocultarSeccion06(copia.payload);
+  if ("snapshot" in copia) copia.snapshot = ocultarSeccion06(copia.snapshot);
+  return copia;
+}
+
+function protegerRespuestaSeccion06<T>(user: any, valor: T): T {
+  return puedeVerSeccion06(user) ? valor : ocultarSeccion06(valor);
+}
 
 /**
  * Errores del CRUD de tarifas, en el `{ error }` que ya usa este controlador.
@@ -243,6 +291,7 @@ export class LiquidacionesServiciosController {
       const liquidacion = await LiquidacionesServiciosService.crear(
         request.body as any,
         userId,
+        puedeEditarSeccion06((request as any).user),
       );
       emitLiquidacionServicio(
         "liquidacion-servicio-created",
@@ -257,7 +306,7 @@ export class LiquidacionesServiciosController {
 
       await notificarLiquidacionCreada(liquidacion, userId, userName);
 
-      return reply.status(201).send(liquidacion);
+      return reply.status(201).send(protegerRespuestaSeccion06((request as any).user, liquidacion));
     } catch (error: any) {
       const conflicto = conflictoDeUnicidad(error);
       if (conflicto) return reply.status(conflicto.status).send(conflicto.body);
@@ -279,9 +328,9 @@ export class LiquidacionesServiciosController {
         /// el `usuario_id`, cualquiera leería los borradores de cualquiera.
         usuario_id: usuario?.id,
         puede_ver_no_confirmadas_ajenas:
-          usuario?.role === "admin" || areas.includes("administracion"),
+          areas.includes("administracion"),
       });
-      return reply.send(result);
+      return reply.send(protegerRespuestaSeccion06(usuario, result));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -291,7 +340,7 @@ export class LiquidacionesServiciosController {
     try {
       const { id } = request.params as any;
       const liquidacion = await LiquidacionesServiciosService.obtenerPorId(id);
-      return reply.send(liquidacion);
+      return reply.send(protegerRespuestaSeccion06((request as any).user, liquidacion));
     } catch (error: any) {
       if (error.message.includes("no encontrada")) {
         return reply.status(404).send({ error: error.message });
@@ -348,6 +397,7 @@ export class LiquidacionesServiciosController {
       const resultado = await LiquidacionesServiciosService.autoguardar(
         request.body as any,
         userId,
+        puedeEditarSeccion06((request as any).user),
       );
 
       emitLiquidacionServicioBorrador(
@@ -365,7 +415,7 @@ export class LiquidacionesServiciosController {
         }),
       );
 
-      return reply.send(resultado);
+      return reply.send(protegerRespuestaSeccion06((request as any).user, resultado));
     } catch (error: any) {
       /// 409 con el motivo, no un 500 genérico: el editor necesita saber si
       /// debe recargar (`version`), avisar de que ya no es un borrador
@@ -422,7 +472,7 @@ export class LiquidacionesServiciosController {
       );
       /// 200 con `null` y no 404: «no hay borrador» es una respuesta normal al
       /// abrir el formulario, no un error que el cliente deba tratar aparte.
-      return reply.send(draft);
+      return reply.send(protegerRespuestaSeccion06((request as any).user, draft));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -493,6 +543,7 @@ export class LiquidacionesServiciosController {
         id,
         request.body as any,
         userId,
+        puedeEditarSeccion06((request as any).user),
       );
 
       if (eraBorradorSinConfirmar) {
@@ -567,7 +618,10 @@ export class LiquidacionesServiciosController {
         );
       }
 
-      return reply.send({ ...liquidacion, factura_recalculada: facturaRecalculada });
+      return reply.send(protegerRespuestaSeccion06((request as any).user, {
+        ...liquidacion,
+        factura_recalculada: facturaRecalculada,
+      }));
     } catch (error: any) {
       if (error.message.includes("no encontrada")) {
         return reply.status(404).send({ error: error.message });
@@ -884,7 +938,7 @@ export class LiquidacionesServiciosController {
       const { id } = request.params as any;
       const historial =
         await LiquidacionesServiciosService.obtenerHistorial(id);
-      return reply.send(historial);
+      return reply.send(protegerRespuestaSeccion06((request as any).user, historial));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -986,7 +1040,7 @@ export class LiquidacionesServiciosController {
           etiqueta: liquidacion.consecutivo,
         }),
       );
-      return reply.send({ ...result, liquidacion });
+      return reply.send(protegerRespuestaSeccion06((request as any).user, { ...result, liquidacion }));
     } catch (error: any) {
       if (error.message.includes("no encontrada"))
         return reply.status(404).send({ error: error.message });
@@ -1003,7 +1057,7 @@ export class LiquidacionesServiciosController {
       const result = await LiquidacionesServiciosService.listarEliminadas(
         request.query as any,
       );
-      return reply.send(result);
+      return reply.send(protegerRespuestaSeccion06((request as any).user, result));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }

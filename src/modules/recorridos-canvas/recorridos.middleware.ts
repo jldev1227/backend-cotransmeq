@@ -22,14 +22,13 @@ export async function requireRecorridosEdicion(request: FastifyRequest, reply: F
   const puede = await RecorridosPatchService.puedeEditar({
     id: user.id,
     area: user.area,
-    role: user.role,
   })
 
   if (!puede) {
     return reply.status(403).send({
       error: 'Sin permiso para modificar recorridos',
       message:
-        'Solo Administración y Operaciones pueden modificar recorridos. Tu acceso es de consulta.',
+        'Solo el área Administración puede modificar recorridos. Tu acceso es de consulta.',
     })
   }
 }

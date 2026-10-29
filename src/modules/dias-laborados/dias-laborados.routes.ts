@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import jwt from 'jsonwebtoken'
 import { env } from '../../config/env'
 import { authMiddleware } from '../../middlewares/auth.middleware'
+import { requirePermission } from '../../middlewares/permissions.middleware'
 import { requireBonosPlanilla } from '../../middlewares/bonos.middleware'
 import { DiasLaboradosController } from './dias-laborados.controller'
 import { requireRecorridosEdicion } from '../recorridos-canvas/recorridos.middleware'
@@ -79,12 +80,14 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   }, DiasLaboradosController.verificarToken)
 
   // ═══════════════════════════════════════════
-  // RUTA ADMIN: Calendar global (auth de admin)
+  // Consulta global del calendario. El nivel efectivo de Recorridos permite
+  // abrirlo; las escrituras siguen usando `requireRecorridosEdicion`.
   // ═══════════════════════════════════════════
   app.get('/dias-laborados/calendar-admin', {
     onRequest: authMiddleware,
+    preHandler: requirePermission('recorridos', 'read'),
     schema: {
-      description: 'Calendario de días laborados de todos los conductores (admin)',
+      description: 'Calendario de días laborados de todos los conductores (requiere acceso de lectura a Recorridos)',
       tags: ['dias-laborados'],
       querystring: {
         type: 'object',
@@ -178,15 +181,15 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   }, DiasLaboradosController.guardarRegistrosMasivos)
 
   // ═══════════════════════════════════════════
-  // RUTAS: BONOS de planilla (lectura libre para usuarios autenticados,
-  //        escritura protegida por requireBonosPlanilla)
+  // RUTAS: BONOS de planilla. Leer exige acceso a Recorridos; escribir
+  // conserva además el permiso puntual `bonos-planilla`.
   // ═══════════════════════════════════════════
 
-  // GET /api/dias-laborados/bonos — listar bonos en un rango de fechas
-  // (solo lectura; cualquier usuario autenticado con acceso a conductores
-  //  puede ver los bonos ya otorgados).
+  // GET /api/dias-laborados/bonos — listar bonos en un rango de fechas.
+  // La misma regla de consulta aplica a los endpoints directos y al canvas.
   app.get('/dias-laborados/bonos', {
     onRequest: authMiddleware,
+    preHandler: requirePermission('recorridos', 'read'),
     schema: {
       description: 'Listar bonos de planilla en un rango de fechas',
       tags: ['dias-laborados', 'bonos'],
@@ -203,9 +206,9 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   }, BonosController.listar)
 
   // POST /api/dias-laborados/bonos/sync — sincronizar diff (crear/eliminar)
-  // Protegido por requireBonosPlanilla (permiso individual).
+  // Requiere edición efectiva de Recorridos y el permiso individual de bonos.
   app.post('/dias-laborados/bonos/sync', {
-    preHandler: [authMiddleware, requireBonosPlanilla],
+    preHandler: [authMiddleware, requireRecorridosEdicion, requireBonosPlanilla],
     schema: {
       description: 'Sincronizar bonos de planilla (crear/eliminar)',
       tags: ['dias-laborados', 'bonos'],
@@ -234,7 +237,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
 
   // POST /api/dias-laborados/bonos — crear un bono (protegido)
   app.post('/dias-laborados/bonos', {
-    preHandler: [authMiddleware, requireBonosPlanilla],
+    preHandler: [authMiddleware, requireRecorridosEdicion, requireBonosPlanilla],
     schema: {
       description: 'Crear un bono de planilla',
       tags: ['dias-laborados', 'bonos'],
@@ -254,7 +257,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
 
   // DELETE /api/dias-laborados/bonos/:id — eliminar (protegido)
   app.delete('/dias-laborados/bonos/:id', {
-    preHandler: [authMiddleware, requireBonosPlanilla],
+    preHandler: [authMiddleware, requireRecorridosEdicion, requireBonosPlanilla],
     schema: {
       description: 'Eliminar un bono de planilla',
       tags: ['dias-laborados', 'bonos'],
@@ -279,6 +282,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════════════
   app.get('/dias-laborados/bonos-config-visual', {
     onRequest: authMiddleware,
+    preHandler: requirePermission('recorridos', 'read'),
     schema: {
       description:
         'Lista las configs activas del año con el flag `visible` resuelto (default true si no hay registro)',
@@ -294,7 +298,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   }, BonoConfigVisualController.listar)
 
   app.put('/dias-laborados/bonos-config-visual', {
-    preHandler: [authMiddleware, requireBonosPlanilla],
+    preHandler: [authMiddleware, requireRecorridosEdicion, requireBonosPlanilla],
     schema: {
       description:
         'Reemplaza en bloque la selección de visibilidad de bonos para un año (global)',
@@ -319,6 +323,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════
   app.get('/dias-laborados/clientes', {
     onRequest: authMiddleware,
+    preHandler: requirePermission('recorridos', 'read'),
     schema: {
       description: 'Lista de clientes activos (para selects del modal admin)',
       tags: ['dias-laborados', 'admin']
@@ -327,6 +332,7 @@ export async function diasLaboradosRoutes(app: FastifyInstance) {
 
   app.get('/dias-laborados/vehiculos', {
     onRequest: authMiddleware,
+    preHandler: requirePermission('recorridos', 'read'),
     schema: {
       description: 'Lista de vehículos activos (para selects del modal admin)',
       tags: ['dias-laborados', 'admin']

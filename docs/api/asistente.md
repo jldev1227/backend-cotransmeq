@@ -14,8 +14,8 @@ de Azure (`azure-openai.ts`), configurado con `AZURE_OPENAI_ENDPOINT`,
 están en `src/config/env.ts`). Sin ellas el backend arranca igual y el chat
 responde con un evento de error.
 
-**Permisos.** En cada conversación `cargarUsuarioAsistente` lee de la base el rol,
-las áreas y `permisos_rutas` (no del JWT) y calcula los módulos accesibles con
+**Permisos.** En cada conversación `cargarUsuarioAsistente` lee de la base las
+áreas y `permisos_rutas` (no del JWT) y calcula los módulos accesibles con
 `getAccessibleModules`, la misma regla que pinta el menú lateral. `puedeUsar`
 decide qué herramientas se ofrecen y se vuelve a comprobar en cada llamada:
 

@@ -31,13 +31,13 @@ function enteroOpcional(valor: unknown, min: number, max: number): number | unde
  * una plantilla con los mismos valores, no una segunda liquidación de los
  * mismos viajes.
  *
- * Terceros: la parte de propietarios (`terceros_items` y `terceroRows` dentro
- * de `recargos_data`) solo se copia si el usuario tiene `liquidaciones-terceros`
- * en `full`. Si no, la copia sale sin terceros y se le dice.
+ * Hoja 4: los propietarios y sus valores solo se consultan con acceso a
+ * `liquidaciones-servicios-seccion06`; duplicar solo copia esos datos si el
+ * nivel es `full`.
  */
 
 const MODULO = 'liquidaciones-servicios'
-const MODULO_TERCEROS = 'liquidaciones-terceros'
+const MODULO_SECCION06 = 'liquidaciones-servicios-seccion06'
 const LIMITE_POR_DEFECTO = 10
 const LIMITE_MAXIMO = 500
 
@@ -306,7 +306,7 @@ export const buscarLiquidaciones: Herramienta = {
 export const detalleLiquidacion: Herramienta = {
   nombre: 'detalle_liquidacion',
   descripcion:
-    'Trae una liquidación de servicios COMPLETA por su consecutivo, id o enlace: cabecera y totales, cada ítem (placa, fechas, recorrido, tipo de servicio, cantidad, valor, descuento, recargos y pernoctes del ítem, planilla y enlace al servicio), las filas de recargos, los terceros (propietarios) con sus valores, las facturas que la incluyen (número, fecha, estado), quién la creó, liquidó y aprobó, y el historial de cambios de estado. Úsala para cualquier pregunta sobre una liquidación concreta y antes de duplicarla.',
+    'Trae una liquidación de servicios por su consecutivo, id o enlace: cabecera y totales, cada ítem, filas de recargos, facturas, quién la creó, liquidó y aprobó, e historial. Los propietarios y valores de Hoja 4 solo aparecen si tienes acceso a la SECCIÓN 06. Úsala para cualquier pregunta sobre una liquidación concreta y antes de duplicarla.',
   parametros: {
     type: 'object',
     properties: {
@@ -318,19 +318,19 @@ export const detalleLiquidacion: Herramienta = {
   etiqueta: 'Abriendo la liquidación',
   requiere: MODULO,
   salidaMaxima: { lista: 80, caracteres: 45000 },
-  async ejecutar(args) {
+  async ejecutar(args, usuario) {
     const consecutivo = textoOpcional(args.liquidacion, 300) ?? textoOpcional(args.consecutivo, 300)
     if (!consecutivo) return { error: 'Falta el consecutivo' }
     const l = await cargarPorConsecutivo(consecutivo)
     if (!l) return { error: `No existe la liquidación «${consecutivo}»` }
-    return describir(l)
+    return describir(l, usuario.modulos.has(MODULO_SECCION06))
   },
 }
 
 export const duplicarLiquidacion: Herramienta = {
   nombre: 'duplicar_liquidacion',
   descripcion:
-    'Crea EN BORRADOR una liquidación de servicios copiando otra: mismo cliente, periodo, ítems con sus valores, IVA, pernoctes, OSI, operadora, observaciones, recargos y terceros (estos últimos solo si el usuario tiene permiso de liquidaciones de terceros). El consecutivo nuevo lo da el usuario; si solo da el número (059) se usa el prefijo de la original (IDE-059). Se pueden cambiar mes, año, observaciones y OSI; todo lo demás se copia igual. Antes de llamarla muestra con detalle_liquidacion qué se copiará, resume y pregunta «¿La creo así?»; pasa confirmado=true solo cuando el usuario diga que sí. La copia nace en borrador siempre: liquidarla, aprobarla o facturarla se hace en la pantalla.',
+    'Crea EN BORRADOR una liquidación de servicios copiando otra: mismo cliente, periodo, ítems con sus valores, IVA, pernoctes, OSI, operadora, observaciones, recargos y, si tienes edición en SECCIÓN 06, terceros. El consecutivo nuevo lo da el usuario; si solo da el número (059) se usa el prefijo de la original (IDE-059). Se pueden cambiar mes, año, observaciones y OSI; todo lo demás se copia igual. Antes de llamarla muestra con detalle_liquidacion qué se copiará, resume y pregunta «¿La creo así?»; pasa confirmado=true solo cuando el usuario diga que sí. La copia nace en borrador siempre: liquidarla, aprobarla o facturarla se hace en la pantalla.',
   parametros: {
     type: 'object',
     properties: {
@@ -376,9 +376,9 @@ export const duplicarLiquidacion: Herramienta = {
 
     const mes = enteroOpcional(args.mes, 1, 12) ?? origen.mes
     const anio = enteroOpcional(args.anio, 2020, 2100) ?? origen.anio
-    const puedeTerceros = usuario.modulos.get(MODULO_TERCEROS) === 'full'
+    const puedeEditarSeccion06 = usuario.modulos.get(MODULO_SECCION06) === 'full'
     const tieneTerceros = origen.terceros_items.length > 0 || hayTerceroRows(origen.recargos_data)
-    const copiarTerceros = puedeTerceros && tieneTerceros
+    const copiarTerceros = puedeEditarSeccion06 && tieneTerceros
 
     const recargosData = clonarRecargos(origen.recargos_data, copiarTerceros)
 
@@ -431,7 +431,7 @@ export const duplicarLiquidacion: Herramienta = {
 
     // Mismo servicio que el POST de «Registrar»: nace en BORRADOR, con
     // snapshot de historial, y se avisa por socket y notificación igual.
-    const creada = await LiquidacionesServiciosService.crear(data as never, usuario.id)
+    const creada = await LiquidacionesServiciosService.crear(data as never, usuario.id, puedeEditarSeccion06)
     emitLiquidacionServicio(
       'liquidacion-servicio-created',
       creada,
@@ -445,9 +445,9 @@ export const duplicarLiquidacion: Herramienta = {
     await notificarLiquidacionCreada(creada, usuario.id, usuario.nombre)
 
     const advertencias: string[] = []
-    if (tieneTerceros && !puedeTerceros) {
+    if (tieneTerceros && !puedeEditarSeccion06) {
       advertencias.push(
-        'La original tiene liquidación de terceros, pero el usuario no tiene permiso de liquidaciones de terceros: la copia salió SIN terceros',
+        'La original tiene valores en la SECCIÓN 06, pero el usuario no tiene permiso de edición para esa sección: la copia salió SIN terceros',
       )
     }
     if (mes !== origen.mes || anio !== origen.anio) {
@@ -516,8 +516,8 @@ export const tarifasRecorrido: Herramienta = {
     const desde = typeof args.desde === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.desde) ? args.desde : undefined
     const hasta = typeof args.hasta === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.hasta) ? args.hasta : undefined
     const limite = enteroEntre(args.limite, 1, 200, 30)
-    /// Lo que se paga a los propietarios es del módulo de terceros: sin él, solo lo cobrado.
-    const verTerceros = usuario.modulos.has(MODULO_TERCEROS)
+    /// La liquidación a propietarios pertenece al permiso granular de Hoja 4.
+    const verTerceros = usuario.modulos.has(MODULO_SECCION06)
 
     const palabras = [...new Set(sinTildes(recorrido).split(/[\s\-–—,/()]+/).filter((p) => p.length >= 3))]
     if (!palabras.length) return { error: 'Escribe al menos un lugar del recorrido (3 letras o más)' }
@@ -686,7 +686,7 @@ async function cargarPorConsecutivo(texto: string) {
 
 type LiquidacionCargada = NonNullable<Awaited<ReturnType<typeof cargarPorConsecutivo>>>
 
-function describir(l: LiquidacionCargada) {
+function describir(l: LiquidacionCargada, verSeccion06 = false) {
   const recargos = l.recargos_data as { rows?: unknown[]; terceroRows?: unknown[] } | null
   const facturas = l.factura_items.map((fi) => ({
     numero: fi.factura.numero_factura,
@@ -744,7 +744,7 @@ function describir(l: LiquidacionCargada) {
       pernoctes: i.cantidad_pernoctes || undefined,
       valor_pernoctes: Number(i.valor_pernoctes_total) || undefined,
       planilla: i.numero_planilla,
-      tercero: i.tercero?.nombre_completo,
+      tercero: verSeccion06 ? i.tercero?.nombre_completo : undefined,
       servicio: i.servicio_id ? `/dashboard/servicios/${i.servicio_id}` : undefined,
       recargos_detalle: i.recargos_detalle ?? undefined,
     })),
@@ -753,7 +753,7 @@ function describir(l: LiquidacionCargada) {
       valor_total: Number(l.valor_recargos),
       detalle: Array.isArray(recargos?.rows) ? recargos.rows : undefined,
     },
-    terceros: l.terceros_items.map((t) => ({
+    terceros: verSeccion06 ? l.terceros_items.map((t) => ({
       tercero: t.tercero?.nombre_completo ?? 'sin tercero',
       identificacion: t.tercero?.identificacion ?? undefined,
       placa: t.placa,
@@ -767,7 +767,7 @@ function describir(l: LiquidacionCargada) {
       valor_liquidar: Number(t.valor_liquidar),
       ingreso_empresa: Number(t.ingreso_empresa),
       estado: String(t.estado).toLowerCase(),
-    })),
+    })) : [],
     historial: l.historial_estados.map((h) => ({
       fecha: h.created_at.toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' }),
       de: h.estado_anterior?.toLowerCase() ?? undefined,

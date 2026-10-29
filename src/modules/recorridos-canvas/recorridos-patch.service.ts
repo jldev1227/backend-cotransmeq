@@ -94,7 +94,6 @@ export class RecorridosPatchService {
   static async puedeEditar(actor: {
     id: string
     area?: string | string[] | null
-    role?: string | null
   }): Promise<boolean> {
     const areas = (!actor.area
       ? []
@@ -102,7 +101,7 @@ export class RecorridosPatchService {
         ? actor.area
         : [actor.area]) as Area[]
     const override = await obtenerPermisosRutas(actor.id)
-    const { level } = checkAccess(actor.role ?? null, areas, 'recorridos', override)
+    const { level } = checkAccess(areas, 'recorridos', override, actor.id)
     return level === 'full'
   }
 

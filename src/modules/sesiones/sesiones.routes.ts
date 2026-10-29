@@ -12,9 +12,9 @@ export async function sesionesRoutes(app: FastifyInstance) {
   app.get('/sesiones', { preHandler: [requireAdmin] }, SesionesController.listar)
   app.get('/sesiones/activas', { preHandler: [requireAdmin] }, SesionesController.listarActivas)
   app.get('/sesiones/app-movil', { preHandler: [requireAdmin] }, async (request, reply) => {
-    // El historial de uso de la app es exclusivo del rol admin, incluso si
-    // otra área tiene permiso full sobre el módulo de sesiones.
-    if ((request as any).user?.role !== 'admin') {
+    // El historial de uso de la app es exclusivo de Administración, incluso si
+    // el usuario conserva un valor heredado en `role`.
+    if (!(request as any).user?.area?.includes('administracion')) {
       return reply.status(403).send({ error: 'Solo administradores' })
     }
     return listarActividadMovil()

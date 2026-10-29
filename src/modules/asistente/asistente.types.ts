@@ -19,11 +19,10 @@ export interface ContextoHerramienta {
 export interface UsuarioAsistente {
   id: string
   nombre: string
-  rol: string
   areas: string[]
   /**
    * Módulos accesibles con su nivel, resueltos con la MISMA regla que pinta el
-   * menú lateral (`checkAccess` + `permisos_rutas`). Un admin los tiene todos.
+   * menú lateral (`área` + `permisos_rutas`).
    */
   modulos: ReadonlyMap<string, AccessLevel>
 }
@@ -66,8 +65,6 @@ export interface Herramienta {
    * común el modelo veía 25 de 50 y ofrecía «mostrar el resto» en otro turno.
    */
   salidaMaxima?: { lista?: number; caracteres?: number }
-  /** Restricción extra por rol (p. ej. solo `admin`). */
-  soloRoles?: string[]
   /**
    * Dónde se ofrece. Por defecto en ambos; las que dependen del navegador
    * (navegar a una pantalla) se marcan `['app']`.
@@ -85,7 +82,6 @@ const JERARQUIA: readonly AccessLevel[] = ['limited', 'read', 'full']
 
 export function puedeUsar(h: Herramienta, u: UsuarioAsistente, canal: Canal): boolean {
   if (h.canales && !h.canales.includes(canal)) return false
-  if (h.soloRoles && !h.soloRoles.includes(u.rol)) return false
   if (h.requiere === null) return true
   const nivel = u.modulos.get(h.requiere)
   if (!nivel) return false
@@ -105,18 +101,20 @@ export function puedeUsar(h: Herramienta, u: UsuarioAsistente, canal: Canal): bo
 export async function cargarUsuarioAsistente(userId: string): Promise<UsuarioAsistente | null> {
   const u = await prisma.usuarios.findUnique({
     where: { id: userId },
-    select: { id: true, nombre: true, role: true, area: true, permisos_rutas: true, activo: true },
+    select: { id: true, nombre: true, area: true, permisos_rutas: true, activo: true },
   })
   if (!u || !u.activo) return null
 
-  const rol = String(u.role ?? 'usuario')
   const areas = Array.isArray(u.area) ? (u.area as string[]) : []
-  const accesibles = getAccessibleModules(rol, areas as Area[], normalizarRutasOverride(u.permisos_rutas))
+  const accesibles = getAccessibleModules(
+    areas as Area[],
+    normalizarRutasOverride(u.permisos_rutas),
+    u.id
+  )
 
   return {
     id: u.id,
     nombre: u.nombre,
-    rol,
     areas,
     modulos: new Map(Object.entries(accesibles)),
   }

@@ -102,9 +102,9 @@ export const AuthController = {
         /// que decide los 403, para que el sidebar no tenga que reimplementarlo.
         permisos_rutas: fullUser.permisos_rutas ?? null,
         modulos_accesibles: getAccessibleModules(
-          fullUser.role,
           (fullUser.area || []) as Area[],
-          normalizarRutasOverride(fullUser.permisos_rutas)
+          normalizarRutasOverride(fullUser.permisos_rutas),
+          fullUser.id
         ),
         ultimo_acceso: fullUser.ultimo_acceso
       })

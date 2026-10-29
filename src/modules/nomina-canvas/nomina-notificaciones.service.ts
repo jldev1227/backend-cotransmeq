@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma';
+import { avisarDesprendibleEquipo } from '../avisos-equipo/avisos-equipo.service';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const MESES = [
@@ -120,6 +121,16 @@ export const NominaNotificacionesService = {
           cuerpo,
           datos,
         },
+      });
+      /// El aviso web va solo al personal de Administración o Talento Humano
+      /// que conserva acceso efectivo a Nómina; el inbox/push del conductor
+      /// se procesa por separado y no depende de esta lista.
+      await avisarDesprendibleEquipo({
+        liquidacionId: liquidacion.id,
+        nombreConductor: `${conductor.nombre} ${conductor.apellido}`.trim(),
+        periodo,
+        anio: params.anio,
+        mes: params.mes,
       });
       const dispositivos = await prisma.conductor_push_device.findMany({
         where: { conductor_id: conductor.id, activo: true },

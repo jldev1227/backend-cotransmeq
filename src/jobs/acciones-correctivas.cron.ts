@@ -34,7 +34,7 @@ function toDateOnly(value: Date | string | null | undefined): Date | null {
 
 /**
  * Operaciones no recibe avisos de acciones correctivas: son de HSEQ y administración. Cuenta como
- * operaciones quien tiene esa área sin HSEQ ni administración (varios son `role: 'admin'` y antes
+ * operaciones quien tiene esa área sin HSEQ ni administración (algunos tienen `role: 'admin'` y antes
  * les llegaban todos los recordatorios). Tampoco si son quienes la crearon.
  */
 async function usuariosDeOperaciones(): Promise<Set<string>> {
@@ -140,7 +140,7 @@ export async function ejecutarCronAccionesCorrectivasRecordatorios() {
   }
 
   const admins = await prisma.usuarios.findMany({
-    where: { role: 'admin' },
+    where: { activo: true, area: { has: 'administracion' } },
     select: { id: true }
   })
   const adminIds = admins.map((a) => a.id)

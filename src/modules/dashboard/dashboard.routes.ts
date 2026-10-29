@@ -45,7 +45,7 @@ const CONSTRUCTORES: Partial<Record<IdSeccion, (ctx: ContextoSeccion) => Promise
 
 async function modulosDe(user: any): Promise<Record<string, AccessLevel>> {
   const override = await obtenerPermisosRutas(user.id ?? user.sub)
-  return getAccessibleModules(user.role, user.area, override)
+  return getAccessibleModules(user.area, override, user.id ?? user.sub)
 }
 
 export async function dashboardRoutes(app: FastifyInstance) {

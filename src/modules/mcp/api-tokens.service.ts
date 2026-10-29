@@ -26,7 +26,7 @@ export class ErrorApiToken extends Error {
 
 /**
  * Tokens personales con los que Claude (u otra herramienta MCP) actúa en nombre
- * de un usuario. Heredan exactamente sus permisos: rol, áreas y `permisos_rutas`
+ * de un usuario. Heredan exactamente sus permisos por área y `permisos_rutas`
  * se leen en cada llamada (ver `cargarUsuarioAsistente`), así que un cambio de
  * permisos o desactivar al usuario aplica de inmediato.
  *

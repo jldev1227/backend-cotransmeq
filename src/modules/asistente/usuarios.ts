@@ -65,13 +65,12 @@ function dispositivo(userAgent: string | null): string {
 export const buscarUsuarios: Herramienta = {
   nombre: 'buscar_usuarios',
   descripcion:
-    'Busca usuarios de la plataforma (el equipo administrativo, no conductores) por nombre, correo o cargo, y filtra por área (administración, operaciones, contabilidad, facturación, talento humano, HSEQ, mantenimiento), rol, activos o inactivos y quién está conectado ahora. Devuelve nombre, correo, teléfono, cargo, áreas, rol, si está activo, último acceso, si está en línea y sus sesiones abiertas, además del total por área. Para permisos, sesiones y enlaces de la app de una persona usa detalle_usuario.',
+    'Busca usuarios de la plataforma (el equipo administrativo, no conductores) por nombre, correo o cargo, y filtra por área (administración, operaciones, contabilidad, facturación, talento humano, HSEQ, mantenimiento), activos o inactivos y quién está conectado ahora. Devuelve nombre, correo, teléfono, cargo, áreas, si está activo, último acceso, si está en línea y sus sesiones abiertas, además del total por área. Para permisos, sesiones y enlaces de la app de una persona usa detalle_usuario.',
   parametros: {
     type: 'object',
     properties: {
       texto: { type: 'string', description: 'Nombre, correo o cargo' },
       area: { type: 'string', description: 'Área: administracion, operaciones, contabilidad, facturacion, talento_humano, hseq, mantenimiento' },
-      rol: { type: 'string', enum: ['admin', 'usuario'] },
       activos: { type: 'boolean', description: 'true solo activos, false solo inactivos; omitido trae todos' },
       en_linea: { type: 'boolean', description: 'true para ver solo quién está conectado ahora' },
       limite: { type: 'integer', minimum: 1, maximum: LIMITE_MAXIMO }
@@ -93,7 +92,6 @@ export const buscarUsuarios: Herramienta = {
       ])
     }
     if (area) where.area = { has: area }
-    if (args.rol === 'admin' || args.rol === 'usuario') where.role = args.rol
     if (typeof args.activos === 'boolean') where.activo = args.activos
     if (args.en_linea === true) where.id = { in: [...enLinea] }
 
@@ -106,7 +104,6 @@ export const buscarUsuarios: Herramienta = {
         telefono: true,
         cargo: true,
         area: true,
-        role: true,
         activo: true,
         es_invitado: true,
         ultimo_acceso: true,
@@ -131,7 +128,6 @@ export const buscarUsuarios: Herramienta = {
         telefono: u.telefono,
         cargo: u.cargo,
         areas: areas(u.area),
-        rol: u.role === 'admin' ? 'Administrador' : 'Usuario',
         activo: u.activo !== false,
         llego_por_invitacion: u.es_invitado || undefined,
         en_linea: enLinea.has(u.id),
@@ -146,7 +142,7 @@ export const buscarUsuarios: Herramienta = {
 export const detalleUsuario: Herramienta = {
   nombre: 'detalle_usuario',
   descripcion:
-    'Trae un usuario del equipo por id, correo o nombre: datos de contacto, cargo, áreas, rol, estado, a qué pantallas tiene acceso y con qué nivel (completo, lectura o limitado, incluidos los recortes individuales), sus sesiones abiertas (dispositivo y última actividad), si tiene un enlace vigente a la app móvil y las invitaciones que ha enviado. Si el nombre coincide con varios, devuelve las opciones para elegir.',
+    'Trae un usuario del equipo por id, correo o nombre: datos de contacto, cargo, áreas, estado, a qué pantallas tiene acceso y con qué nivel (completo, lectura o limitado, incluidos los recortes individuales), sus sesiones abiertas (dispositivo y última actividad), si tiene un enlace vigente a la app móvil y las invitaciones que ha enviado. Si el nombre coincide con varios, devuelve las opciones para elegir.',
   parametros: {
     type: 'object',
     properties: {
@@ -185,7 +181,6 @@ export const detalleUsuario: Herramienta = {
         telefono: true,
         cargo: true,
         area: true,
-        role: true,
         activo: true,
         es_invitado: true,
         ultimo_acceso: true,
@@ -213,7 +208,7 @@ export const detalleUsuario: Herramienta = {
     if (!u) return { error: 'El usuario ya no existe' }
 
     const recortes = normalizarRutasOverride(u.permisos_rutas)
-    const accesos = getAccessibleModules(u.role, (u.area ?? []) as Area[], recortes)
+    const accesos = getAccessibleModules((u.area ?? []) as Area[], recortes, u.id)
     const NIVEL = { full: 'completo', read: 'lectura', limited: 'limitado' } as const
     const enlace = u.enlaces_app[0]
 
@@ -224,7 +219,6 @@ export const detalleUsuario: Herramienta = {
       telefono: u.telefono,
       cargo: u.cargo,
       areas: areas(u.area),
-      rol: u.role === 'admin' ? 'Administrador (acceso completo a todo)' : 'Usuario',
       activo: u.activo !== false,
       llego_por_invitacion: u.es_invitado,
       tiene_firma: Boolean(u.firma_url),
@@ -232,7 +226,7 @@ export const detalleUsuario: Herramienta = {
       ultimo_acceso: u.ultimo_acceso ? `${fechaCorta(u.ultimo_acceso)} (${hace(u.ultimo_acceso)})` : 'nunca',
       en_linea: getOnlineUserIds().includes(u.id),
       accesos: Object.fromEntries(Object.entries(accesos).map(([modulo, nivel]) => [modulo, NIVEL[nivel] ?? nivel])),
-      tiene_recortes_individuales: Boolean(recortes && Object.keys(recortes).length),
+      tiene_recortes_individuales: recortes !== null,
       sesiones_abiertas: u.sesiones.map((s) => ({
         dispositivo: dispositivo(s.user_agent),
         ultima_actividad: `${fechaCorta(s.last_activity)} (${hace(s.last_activity)})`,

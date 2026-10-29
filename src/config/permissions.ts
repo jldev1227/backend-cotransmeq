@@ -67,47 +67,40 @@ export interface RoutePermission {
   read?: Area[]
   /** Áreas con acceso limitado (funcionalidad específica) */
   limited?: Area[]
-  /** Permite asignar `limited` en la lista blanca individual para acciones puntuales. */
+  /** Permite asignar `limited` en la personalización individual para acciones puntuales. */
   allowLimited?: boolean
-  /** Si es true, cualquier usuario autenticado puede acceder */
-  general?: boolean
   /** Descripción para documentación */
   description?: string
 }
 
 /**
- * Mapa de permisos por módulo/ruta
- * admin siempre tiene acceso total (se valida aparte)
+ * Mapa de permisos por módulo/ruta. Las áreas conceden el nivel base y el
+ * campo heredado `role` no puede elevar permisos.
  */
 export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   // Panel de inicio y registro de actividad: entran todos. Lo que cada uno ve
   // adentro lo decide `modules/dashboard/secciones.ts` por área y por módulo.
   dashboard: {
-    full: [],
-    general: true,
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     description: 'Panel de inicio'
   },
   actividad: {
-    full: [],
-    general: true,
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     description: 'Actividad reciente del equipo'
   },
 
   perfil: {
     full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
-    general: true,
     description: 'Mi perfil'
   },
 
   flota: {
     full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
-    general: true,
     description: 'Gestión de flota vehicular'
   },
 
   conductores: {
     full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
-    general: true,
     description: 'Gestión de conductores'
   },
 
@@ -125,8 +118,7 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   },
 
   clientes: {
-    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'hseq', 'mantenimiento'],
-    general: true,
+    full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
     description: 'Gestión de clientes/empresas'
   },
 
@@ -193,7 +185,7 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   /**
    * Diligenciar lo que a uno le asignaron.
    *
-   * Módulo APARTE de `formularios` y `general: true` a propósito. `formularios`
+   * Módulo APARTE de `formularios`. `formularios`
    * es el constructor: publicar una versión o cambiar una asignación afecta a
    * cientos de personas y por eso solo lo tienen `administracion` y `hseq`.
    * Rellenar un formato que alguien te asignó no tiene nada de eso, y si
@@ -208,7 +200,6 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
    */
   'mis-formularios': {
     full: ['administracion', 'operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
-    general: true,
     description: 'Diligenciar los formularios asignados a mí'
   },
 
@@ -231,28 +222,29 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   },
 
   // El canvas de RECORRIDOS es un módulo aparte de `conductores` a propósito.
-  // `conductores` es `general: true` (cualquier área autenticada tiene `full`),
-  // y eso vale para consultar la ficha de un conductor, pero no para reescribir
+  // `conductores` es `full` para las áreas del equipo, pero eso vale para
+  // consultar la ficha de un conductor, no para reescribir
   // sus recorridos: la hoja alimenta los bonos y el pernocte que acaban en la
   // nómina, así que editarla es una operación contable, no una consulta.
   //
-  //  - `full` Administración y Operaciones: editan tramos, horarios, cliente,
-  //           placa, pernocte y marcan bonos.
-  //  - `read` el resto: abren el canvas y exportan, pero cada celda rechaza la
-  //           escritura.
-  //
-  // Marcar bonos exige ADEMÁS el permiso individual `bonos-planilla`
-  // (`middlewares/bonos.middleware.ts`), que es independiente del área.
+  // Administración edita. Operaciones consulta. Los bonos conservan su guard
+  // individual `bonos-planilla` además del acceso al canvas.
   recorridos: {
-    full: ['administracion', 'operaciones'],
-    read: ['contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
-    description: 'Canvas de recorridos y bonos de planilla'
+    full: ['administracion'],
+    read: ['operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
+    description: 'Canvas de recorridos, días laborados de conductores y bonos de planilla'
   },
 
   'liquidaciones-servicios': {
     full: ['administracion', 'operaciones'],
     limited: ['facturacion'], // Solo puede registrar facturas, no editar/anular liquidaciones
     description: 'Liquidaciones de servicios'
+  },
+
+  'liquidaciones-servicios-seccion06': {
+    full: ['administracion'],
+    read: ['operaciones', 'facturacion'],
+    description: 'SECCIÓN 06 — Hoja 4: liquidación de terceros'
   },
 
   // Espejo EXACTO de `ingreso-svelte/src/lib/config/permissions.ts`.
@@ -342,6 +334,14 @@ const MODULO_SIEMPRE_ACCESIBLE = 'perfil'
 
 const NIVELES_VALIDOS: readonly AccessLevel[] = ['full', 'read', 'limited']
 
+export const OMAR_OPERACIONES_ID = '77c70289-a726-4b4d-bde9-d1997f9e471f'
+export const PERMISOS_RUTA_ESPECIALES: Record<string, Record<string, AccessLevel>> = {
+  [OMAR_OPERACIONES_ID]: {
+    recorridos: 'full',
+    'liquidaciones-servicios-seccion06': 'full'
+  }
+}
+
 /**
  * Normaliza `permisos_rutas` tal como viene de la BD (JSONB, sin garantías de
  * forma). Descarta claves que no son módulos conocidos y niveles que no son
@@ -357,116 +357,57 @@ export function normalizarRutasOverride(valor: unknown): RutasOverride | null {
   const limpio: RutasOverride = {}
   for (const [moduleId, nivel] of Object.entries(valor as Record<string, unknown>)) {
     const permiso = ROUTE_PERMISSIONS[moduleId]
-    if (!permiso) continue
-    if (!NIVELES_VALIDOS.includes(nivel as AccessLevel)) continue
+    if (!permiso || !NIVELES_VALIDOS.includes(nivel as AccessLevel)) continue
     if (nivel === 'limited' && !permiso.allowLimited && !permiso.limited?.length) continue
     limpio[moduleId] = nivel as AccessLevel
   }
-
-  return Object.keys(limpio).length > 0 ? limpio : null
+  /// `{}` también es una decisión persistida: deja solo `perfil`.
+  return limpio
 }
 
-/**
- * Verifica si un usuario tiene acceso a un módulo dado su role y area.
- *
- * @param rutasOverride Lista blanca por usuario (`users.permisos_rutas`).
- *
- * Semántica del override — esto es lo importante:
- *
- *  - `null`, `undefined` o `{}` → NO hay override. Se aplican las reglas por
- *    área de siempre, tal cual estaban antes de existir esta columna.
- *
- *  - Con ≥1 clave → **sustituye por completo** a las reglas por área. No suma
- *    ni resta sobre ellas: sólo los módulos listados son accesibles, y con
- *    exactamente el nivel que diga el valor. Un usuario de `administracion`
- *    con `{"flota":"read"}` pierde todo lo demás y sobre flota sólo lee.
- *    Se hizo así a propósito: la alternativa (mezclar área + override) obliga
- *    a razonar sobre dos fuentes a la vez para responder «¿por qué ve esto?»,
- *    y era justo lo que se quería quitar de encima.
- *
- *  - Excepciones a la lista blanca:
- *      · `perfil` sigue accesible siempre (si no, el usuario no puede ni
- *        cambiar su contraseña ni subir su firma).
- *      · `role === 'admin'` conserva acceso total. Un admin bloqueado por su
- *        propio JSON no tendría cómo desbloquearse.
- *      · `general: true` NO exime: la gracia del override es poder recortar
- *        también los módulos que hoy ve todo el mundo (flota, conductores…).
- */
+/** Resuelve acceso únicamente con las áreas asignadas y su límite por ruta. */
 export function checkAccess(
-  userRole: string | null | undefined,
   userAreas: Area[] | Area | null | undefined,
   moduleId: string,
-  rutasOverride?: RutasOverride | null
+  rutasOverride?: RutasOverride | null,
+  userId?: string | null
 ): { allowed: boolean; level: AccessLevel | null } {
   const permission = ROUTE_PERMISSIONS[moduleId]
-  if (!permission) {
-    return { allowed: false, level: null }
-  }
+  if (!permission) return { allowed: false, level: null }
+
+  const areas: Area[] = !userAreas ? [] : Array.isArray(userAreas) ? userAreas : [userAreas]
+  if (areas.length === 0) return { allowed: false, level: null }
+
+  let nivelArea: AccessLevel | null = null
+  if (areas.some(a => permission.full.includes(a))) nivelArea = 'full'
+  const permisoEspecial = userId ? PERMISOS_RUTA_ESPECIALES[userId]?.[moduleId] : undefined
+  if (!nivelArea && permisoEspecial && areas.includes('operaciones')) nivelArea = permisoEspecial
+  if (!nivelArea && permission.read && areas.some(a => permission.read!.includes(a))) nivelArea = 'read'
+  if (!nivelArea && permission.limited && areas.some(a => permission.limited!.includes(a))) nivelArea = 'limited'
+  if (!nivelArea) return { allowed: false, level: null }
 
   const override = normalizarRutasOverride(rutasOverride)
-  if (override) {
-    // Un admin nunca se queda fuera, aunque su JSON no liste el módulo.
-    if (userRole === 'admin') {
-      return { allowed: true, level: 'full' }
-    }
-    if (moduleId === MODULO_SIEMPRE_ACCESIBLE) {
-      return { allowed: true, level: 'full' }
-    }
+  if (!override || moduleId === MODULO_SIEMPRE_ACCESIBLE) return { allowed: true, level: nivelArea }
 
-    const nivel = override[moduleId]
-    return nivel ? { allowed: true, level: nivel } : { allowed: false, level: null }
+  const nivelUsuario = override[moduleId]
+  if (!nivelUsuario) return { allowed: false, level: null }
+  const jerarquia: AccessLevel[] = ['limited', 'read', 'full']
+  return {
+    allowed: true,
+    level: jerarquia[Math.min(jerarquia.indexOf(nivelArea), jerarquia.indexOf(nivelUsuario))],
   }
-
-  // Si es general, cualquier usuario autenticado tiene acceso
-  if (permission.general) {
-    return { allowed: true, level: 'full' }
-  }
-
-  // Normalize to array
-  const areas: Area[] = !userAreas ? [] : Array.isArray(userAreas) ? userAreas : [userAreas]
-  if (areas.length === 0) {
-    return { allowed: false, level: null }
-  }
-
-  // Verificar acceso full — si alguna de las áreas del usuario tiene acceso full
-  if (areas.some(a => permission.full.includes(a))) {
-    return { allowed: true, level: 'full' }
-  }
-
-  // Verificar acceso read
-  if (permission.read && areas.some(a => permission.read!.includes(a))) {
-    return { allowed: true, level: 'read' }
-  }
-
-  // Verificar acceso limited
-  if (permission.limited && areas.some(a => permission.limited!.includes(a))) {
-    return { allowed: true, level: 'limited' }
-  }
-
-  return { allowed: false, level: null }
 }
 
-/**
- * Obtiene todos los módulos accesibles para un usuario.
- *
- * `rutasOverride` se respeta con la misma semántica que en `checkAccess`, y por
- * eso se recorre `ROUTE_PERMISSIONS` en vez del propio override: así las claves
- * que alguien haya metido a mano y no correspondan a ningún módulo real se caen
- * solas, y el sidebar del frontend nunca pinta una entrada que la API no sirve.
- */
+/** Obtiene módulos efectivos con la misma regla que REST, sockets, MCP y el asistente. */
 export function getAccessibleModules(
-  userRole: string | null | undefined,
   userAreas: Area[] | Area | null | undefined,
-  rutasOverride?: RutasOverride | null
+  rutasOverride?: RutasOverride | null,
+  userId?: string | null
 ): Record<string, AccessLevel> {
   const modules: Record<string, AccessLevel> = {}
-
-  for (const [moduleId] of Object.entries(ROUTE_PERMISSIONS)) {
-    const { allowed, level } = checkAccess(userRole, userAreas, moduleId, rutasOverride)
-    if (allowed && level) {
-      modules[moduleId] = level
-    }
+  for (const moduleId of Object.keys(ROUTE_PERMISSIONS)) {
+    const { allowed, level } = checkAccess(userAreas, moduleId, rutasOverride, userId)
+    if (allowed && level) modules[moduleId] = level
   }
-
   return modules
 }

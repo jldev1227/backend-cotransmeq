@@ -21,8 +21,7 @@ const nivelAccesoSchema = z.enum(['full', 'read', 'limited'])
  * `"formulario"` guardado tal cual dejaría al usuario sin ese módulo sin que
  * nadie entendiera por qué.
  *
- * `null` y `{}` significan lo mismo: sin lista blanca, mandan las reglas por
- * área.
+ * `null` hereda el nivel del área; `{}` deja solo el acceso al perfil.
  */
 const permisosRutasSchema = z
   .record(nivelAccesoSchema)
@@ -46,7 +45,6 @@ export const createUsuarioSchema = z.object({
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
   telefono: z.string().optional(),
   cargo: z.string().optional().nullable(),
-  role: z.string().optional(),
   area: z.array(areaSchema).optional(),
   permisos_rutas: permisosRutasSchema.optional(),
 })
@@ -55,7 +53,6 @@ export const updateUsuarioSchema = z.object({
   nombre: z.string().min(2).optional(),
   telefono: z.string().optional(),
   correo: z.string().email().optional(),
-  role: z.string().optional(),
   cargo: z.string().optional().nullable(),
   area: z.array(areaSchema).optional(),
   activo: z.boolean().optional(),

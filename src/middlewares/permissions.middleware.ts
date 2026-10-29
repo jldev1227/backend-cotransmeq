@@ -86,13 +86,12 @@ export function requirePermission(moduleId: string, requiredLevel: AccessLevel =
     const modo = permissionsMode()
     const areas: string[] = !user.area ? [] : Array.isArray(user.area) ? user.area : [user.area]
 
-    /// Lista blanca por usuario. Si la tiene, sustituye por completo a las
-    /// reglas por área (ver `checkAccess`); si no, esto es `null` y todo se
-    /// comporta como antes.
+    /// Personalización por usuario. Solo puede retirar módulos o bajar su
+    /// nivel efectivo; el área sigue siendo la fuente de acceso máximo.
     const rutasOverride = await obtenerPermisosRutas(user.id)
     ;(request as any).permisosRutas = rutasOverride
 
-    const { allowed, level } = checkAccess(user.role, user.area, moduleId, rutasOverride)
+    const { allowed, level } = checkAccess(user.area, moduleId, rutasOverride, user.id)
 
     const denegar = (payload: { error: string; message: string }) => {
       /// `PERMISSIONS_MODE=warn` sólo indulta las reglas por ÁREA, que llevan
@@ -115,7 +114,7 @@ export function requirePermission(moduleId: string, requiredLevel: AccessLevel =
         ;(request as any).accessLevel = level ?? 'full'
         return
       }
-      /// La whitelist individual hace que el módulo se comporte como una ruta inexistente.
+      /// Un módulo excluido por la personalización se comporta como una ruta inexistente.
       return reply.status(estadoDenegacionPermisos(rutasOverride)).send(
         rutasOverride ? { error: 'No encontrado' } : payload
       )
@@ -192,7 +191,7 @@ export function requireAlgunPermiso(...permisos: Array<[moduleId: string, nivel:
     if (!user) return reply.status(401).send({ error: 'No autenticado' })
     const rutasOverride = await obtenerPermisosRutas(user.id)
     const alguno = permisos.some(([m, n]) => {
-      const { allowed, level } = checkAccess(user.role, user.area, m, rutasOverride)
+      const { allowed, level } = checkAccess(user.area, m, rutasOverride, user.id)
       return allowed && nivelSuficiente(level, n)
     })
     if (alguno) return
@@ -206,9 +205,8 @@ export function requireAlgunPermiso(...permisos: Array<[moduleId: string, nivel:
  * Middleware que requiere nivel `full` en el módulo de sesiones (área
  * administracion). Protege la gestión de usuarios, sesiones e invitaciones.
  *
- * Hasta oct-2026 bastaba con tener acceso, de cualquier nivel: un
- * `{"sesiones": "read"}` en la lista blanca de alguien le daba poder para
- * cambiar áreas, rol y permisos de cualquiera, los suyos incluidos.
+ * Un nivel `read` no permite cambiar áreas ni permisos. El rol heredado no
+ * eleva acceso; se exige nivel `full` efectivo por área y personalización.
  */
 export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   const user = (request as any).user
@@ -216,7 +214,7 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
     return reply.status(401).send({ error: 'No autenticado' })
   }
   const rutasOverride = await obtenerPermisosRutas(user.id)
-  const { allowed, level } = checkAccess(user.role, user.area, 'sesiones', rutasOverride)
+  const { allowed, level } = checkAccess(user.area, 'sesiones', rutasOverride, user.id)
   if (!allowed || level !== 'full') {
     return reply.status(estadoDenegacionPermisos(rutasOverride)).send(
       rutasOverride ? { error: 'No encontrado' } : { error: 'Sin permisos para esta acción' }

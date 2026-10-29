@@ -171,9 +171,9 @@ export async function canjearCodigo(codigo: string, meta: { ip: string | null; u
       area: usuario.area,
       cargo: usuario.cargo,
       modulos_accesibles: getAccessibleModules(
-        usuario.role,
         (usuario.area || []) as Area[],
-        normalizarRutasOverride(usuario.permisos_rutas)
+        normalizarRutasOverride(usuario.permisos_rutas),
+        usuario.id
       )
     }
   }

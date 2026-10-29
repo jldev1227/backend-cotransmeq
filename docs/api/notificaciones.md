@@ -12,6 +12,14 @@ módulo solo expone la lectura y el marcado de las propias, y la suscripción a
 socket `nueva-notificacion` a la sala `user-<id>` y, además, Web Push a los
 navegadores donde el destinatario activó los avisos.
 
+La lista, el contador y la entrega en Socket.IO/Web Push se filtran con las áreas
+actuales y el permiso personalizado de la ruta vinculada. Solo `full` y
+`limited` reciben un aviso; `read` sirve para consultar el módulo, pero no para
+recibir actividad sobre él. Las referencias no asociadas a una ruta conocida se
+descartan. Los avisos de desprendibles web se restringen además a Administración
+y Talento Humano; las notificaciones de firma dirigidas al conductor siguen en
+el canal móvil independiente.
+
 Reglas que un integrador necesita saber:
 
 - **Todo actúa sobre el usuario de la sesión**: ninguna ruta recibe destinatario.
@@ -121,8 +129,8 @@ sesión (al apagar los avisos o al cerrar sesión). **Respuesta 200** —
 
 ### `POST /api/notificaciones/web-push/prueba`
 
-Sin body. Reenvía como aviso la última notificación del usuario (o una de
-cortesía, «Avisos activados», si no tiene ninguna) a todos sus navegadores
+Sin body. Reenvía como aviso la última notificación visible para el usuario (o
+una de cortesía, «Avisos activados», si no tiene ninguna visible) a sus navegadores
 activos, con `forzar: true` para que el service worker la muestre aunque el
 dashboard esté a la vista. Solo le llega a él.
 

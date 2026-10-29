@@ -1,7 +1,7 @@
-import { getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 import { prisma } from '../../config/prisma'
 import { emitNotificacion } from '../../sockets'
 import { logger } from '../../utils/logger'
+import { puedeOperarModuloParaAvisos } from '../notificaciones/permisos-notificaciones'
 
 /**
  * Avisos al equipo administrativo de cosas que pasan en la operación: un servicio nuevo, un
@@ -25,23 +25,62 @@ const AREAS: Record<Exclude<EventoEquipo, 'servicio_creado'>, string[]> = {
   fuec_creado: ['operaciones'],
 }
 
+const MODULO_POR_EVENTO: Record<EventoEquipo, string> = {
+  servicio_creado: 'servicios',
+  preoperacional: 'formularios',
+  dias_laborados: 'recorridos',
+  fuec_creado: 'extractos',
+}
+
 async function destinatarios(evento: EventoEquipo, excluir?: string | null): Promise<string[]> {
   const usuarios = await prisma.usuarios.findMany({
     where: { activo: true, ...(excluir ? { id: { not: excluir } } : {}) },
-    select: { id: true, role: true, area: true, permisos_rutas: true },
+    select: { id: true, area: true, permisos_rutas: true },
   })
-  if (evento === 'servicio_creado') {
-    return usuarios
-      .filter((u) => Boolean(getAccessibleModules(u.role, (u.area ?? []) as Area[], normalizarRutasOverride(u.permisos_rutas)).servicios))
-      .map((u) => u.id)
+  return usuarios
+    .filter((u) => {
+      if (!puedeOperarModuloParaAvisos(u, MODULO_POR_EVENTO[evento])) return false
+      if (evento === 'servicio_creado') return true
+      const areas = AREAS[evento]
+      return (u.area ?? []).some((area) => areas.includes(area))
+    })
+    .map((u) => u.id)
+}
+
+/** Desprendible disponible: aviso web al equipo de nómina, separado del inbox móvil del conductor. */
+export async function avisarDesprendibleEquipo(params: {
+  liquidacionId: string
+  nombreConductor: string
+  periodo: string
+  anio: number
+  mes: number
+}): Promise<void> {
+  try {
+    const usuarios = await prisma.usuarios.findMany({
+      where: { activo: true },
+      select: { id: true, area: true, permisos_rutas: true },
+    })
+    const ids = usuarios.filter((usuario) => {
+      const areas = Array.isArray(usuario.area) ? usuario.area : []
+      if (!areas.some((area) => area === 'administracion' || area === 'talento_humano')) return false
+      return puedeOperarModuloParaAvisos(usuario, 'nomina')
+    }).map((usuario) => usuario.id)
+    if (!ids.length) return
+
+    const creadas = await prisma.notificacion.createManyAndReturn({
+      data: ids.map((usuario_id) => ({
+        usuario_id,
+        tipo: 'GENERAL' as const,
+        titulo: `Desprendible disponible: ${params.nombreConductor}`.slice(0, 255),
+        mensaje: `${params.nombreConductor} ya tiene disponible su desprendible de nómina de ${params.periodo}.`,
+        referencia_id: params.liquidacionId,
+        referencia_tipo: `nomina_desprendible_disponible:${params.anio}:${params.mes}`,
+      })),
+    })
+    for (const notificacion of creadas) emitNotificacion(notificacion)
+  } catch (error) {
+    logger.error({ err: error, liquidacionId: params.liquidacionId }, 'No se pudo avisar al equipo del desprendible disponible')
   }
-  if (evento === 'fuec_creado') {
-    return usuarios
-      .filter((u) => (u.area ?? []).includes('operaciones') && Boolean(getAccessibleModules(u.role, (u.area ?? []) as Area[], normalizarRutasOverride(u.permisos_rutas)).extractos))
-      .map((u) => u.id)
-  }
-  const areas = AREAS[evento]
-  return usuarios.filter((u) => (u.area ?? []).some((a) => areas.includes(a))).map((u) => u.id)
 }
 
 export async function avisarEquipo(params: {

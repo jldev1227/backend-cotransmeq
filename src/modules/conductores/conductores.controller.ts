@@ -438,7 +438,7 @@ export const ConductoresController = {
     try {
       // Verificar que sea admin o de las áreas autorizadas
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -481,7 +481,7 @@ export const ConductoresController = {
     try {
       // Verificar que sea admin o de las áreas autorizadas
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -529,7 +529,7 @@ export const ConductoresController = {
   ) {
     try {
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -568,7 +568,7 @@ export const ConductoresController = {
   ) {
     try {
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 
@@ -605,7 +605,7 @@ export const ConductoresController = {
   ) {
     try {
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      if (!user || !user.area?.includes('administracion')) {
         return reply.status(403).send({
           success: false,
           message: 'No autorizado. Solo administradores pueden eliminar permanentemente.'
@@ -639,7 +639,7 @@ export const ConductoresController = {
   ) {
     try {
       const user = (request as any).user
-      if (!user || user.role !== 'admin') {
+      if (!user || !user.area?.includes('administracion')) {
         return reply.status(403).send({
           success: false,
           message: 'No autorizado.'
@@ -674,7 +674,7 @@ export const ConductoresController = {
   ) {
     try {
       const user = (request as any).user
-      const isAuthorized = user?.role === 'admin' || 
+      const isAuthorized = user?.area?.includes('administracion') ||
                           user?.area?.includes('operaciones') || 
                           user?.area?.includes('talento_humano');
 

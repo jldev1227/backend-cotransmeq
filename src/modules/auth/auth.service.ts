@@ -85,9 +85,9 @@ export const AuthService = {
     /// resuelto qué módulos ve el usuario y con qué nivel: quien decide el 403
     /// es quien dice qué se pinta, y no pueden discrepar.
     const modulos_accesibles = getAccessibleModules(
-      user.role,
       user.area as Area[],
-      normalizarRutasOverride(user.permisos_rutas)
+      normalizarRutasOverride(user.permisos_rutas),
+      user.id
     )
 
     return { user: { ...userSinPassword, modulos_accesibles }, token }

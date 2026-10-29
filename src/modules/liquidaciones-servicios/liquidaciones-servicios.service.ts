@@ -110,6 +110,34 @@ export interface CrearLiquidacionInput {
   terceros_items?: any[];
 }
 
+/** Mantiene los datos de Hoja 4 intactos si el usuario solo tiene consulta. */
+function protegerSeccion06(data: CrearLiquidacionInput, actual?: any): CrearLiquidacionInput {
+  const seguro: CrearLiquidacionInput = { ...data, terceros_items: undefined };
+
+  if (data.recargos_data && typeof data.recargos_data === 'object' && !Array.isArray(data.recargos_data)) {
+    const recargos = { ...data.recargos_data };
+    const filasAnteriores = actual?.recargos_data?.terceroRows;
+    if (Array.isArray(filasAnteriores)) recargos.terceroRows = filasAnteriores;
+    else delete recargos.terceroRows;
+    seguro.recargos_data = recargos;
+  } else if (actual?.recargos_data && typeof actual.recargos_data === 'object' && !Array.isArray(actual.recargos_data)) {
+    seguro.recargos_data = actual.recargos_data;
+  }
+
+  if (Array.isArray(data.items)) {
+    const filasAnteriores: any[] = actual?.items ?? [];
+    seguro.items = data.items.map((item: any) => {
+      const anterior = filasAnteriores.find((fila) =>
+        (item.id && fila.id === item.id) ||
+        (item.client_key && fila.client_key === item.client_key)
+      );
+      return { ...item, tercero_id: anterior?.tercero_id ?? null };
+    });
+  }
+
+  return seguro;
+}
+
 export interface FiltrosLiquidacionServicios {
   page?: number;
   limit?: number;
@@ -1068,7 +1096,24 @@ export const LiquidacionesServiciosService = {
       base_version?: number | null;
     },
     userId: string,
+    puedeEditarSeccion06 = false,
   ) {
+    if (!puedeEditarSeccion06) {
+      const actual = data.borrador_id
+        ? await prisma.liquidacion_servicio.findUnique({
+            where: { id: data.borrador_id },
+            select: {
+              recargos_data: true,
+              items: {
+                where: { deleted_at: null },
+                select: { id: true, client_key: true, tercero_id: true },
+              },
+            },
+          })
+        : null;
+      data = protegerSeccion06(data, actual);
+    }
+
     const {
       itemsData,
       valorServicios,
@@ -1099,6 +1144,7 @@ export const LiquidacionesServiciosService = {
           return this.autoguardar(
             { ...data, borrador_id: yaCreada.id, base_version: yaCreada.version },
             userId,
+            puedeEditarSeccion06,
           );
         }
       }
@@ -1163,6 +1209,7 @@ export const LiquidacionesServiciosService = {
             return this.autoguardar(
               { ...data, borrador_id: otra.id, base_version: otra.version },
               userId,
+              puedeEditarSeccion06,
             );
           }
         }
@@ -1285,7 +1332,8 @@ export const LiquidacionesServiciosService = {
     return { ...actualizada, creada: false };
   },
 
-  async crear(data: CrearLiquidacionInput, userId: string) {
+  async crear(data: CrearLiquidacionInput, userId: string, puedeEditarSeccion06 = false) {
+    if (!puedeEditarSeccion06) data = protegerSeccion06(data);
     // Use provided consecutivo or generate one
     const consecutivo =
       data.consecutivo || (await generarConsecutivo(data.anio));
@@ -2016,7 +2064,7 @@ export const LiquidacionesServiciosService = {
     });
   },
 
-  async actualizar(id: string, data: CrearLiquidacionInput, userId: string) {
+  async actualizar(id: string, data: CrearLiquidacionInput, userId: string, puedeEditarSeccion06 = false) {
     /**
      * Una liquidación eliminada no se edita.
      *
@@ -2034,8 +2082,18 @@ export const LiquidacionesServiciosService = {
       throw err;
     }
 
-    const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } });
+    const liq = await prisma.liquidacion_servicio.findUnique({
+      where: { id },
+      include: {
+        items: {
+          where: { deleted_at: null },
+          select: { id: true, client_key: true, tercero_id: true },
+        },
+      },
+    });
     if (!liq) throw new Error("Liquidación no encontrada");
+
+    if (!puedeEditarSeccion06) data = protegerSeccion06(data, liq);
 
     console.log(data, "data que llega")
 

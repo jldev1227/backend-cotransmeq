@@ -31,6 +31,7 @@ import {
   obtenerEjecucion
 } from './ejecucion-servicio.service'
 import { env } from '../../config/env'
+import { getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 import { EmailService } from '../../services/email.service'
 import { LiquidacionesService } from '../liquidaciones/liquidaciones.service'
 import { obtenerLiquidacionConFirmas } from '../liquidaciones/liquidaciones.controller'
@@ -138,23 +139,18 @@ async function notificarFirmaDesprendible(liquidacion: {
 }) {
   const usuarios = await prisma.usuarios.findMany({
     where: { activo: true },
-    select: { id: true, role: true, area: true, permisos: true }
+    select: { id: true, area: true, permisos_rutas: true }
   })
   const destinatarios = usuarios.filter((usuario: any) => {
     const areas = Array.isArray(usuario.area) ? usuario.area : []
-    const permisos = usuario.permisos && typeof usuario.permisos === 'object'
-      ? usuario.permisos as Record<string, unknown>
-      : {}
-    /// Operaciones no recibe este aviso (es de nómina): varios de sus usuarios tienen
-    /// `role: 'admin'` y les llegaba cada firma. Cuenta como operaciones quien tiene esa área
-    /// sin administración ni talento humano.
-    const deOperaciones = areas.includes('operaciones') && !areas.includes('administracion') && !areas.includes('talento_humano')
-    if (deOperaciones) return false
-    return usuario.role === 'admin' ||
-      usuario.role === 'gestor_nomina' ||
-      areas.includes('talento_humano') ||
-      areas.includes('administracion') ||
-      permisos.nomina === true
+    /// El equipo recibe el aviso web solo si pertenece a Administración o
+    /// Talento Humano y todavía conserva acceso efectivo a Nómina.
+    return areas.some((area: string) => area === 'talento_humano' || area === 'administracion') &&
+      Boolean(getAccessibleModules(
+        areas as Area[],
+        normalizarRutasOverride(usuario.permisos_rutas),
+        usuario.id
+      ).nomina)
   })
   const nombre = `${liquidacion.conductores?.nombre ?? ''} ${liquidacion.conductores?.apellido ?? ''}`.trim() || 'Un conductor'
   const inicio = new Date(`${String(liquidacion.periodo_start).slice(0, 10)}T12:00:00Z`)
