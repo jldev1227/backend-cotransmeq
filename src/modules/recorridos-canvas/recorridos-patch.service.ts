@@ -18,6 +18,7 @@ import {
   exigirNoFutura,
   hoyISO,
   clasificarFilaNueva,
+  separarHoraYDesfase,
   type FilaNuevaEntrada,
 } from './recorridos-reglas'
 import { RecorridosCanvasService } from './recorridos-canvas.service'
@@ -81,6 +82,7 @@ export interface ResultadoPatchRecorrido {
    * día, y los demás recorridos de esa jornada se mueven con ella.
    */
   afectados?: string[]
+  recargar?: boolean
 }
 
 export class RecorridosPatchService {
@@ -194,6 +196,8 @@ export class RecorridosPatchService {
         version: true,
         hora_inicio: true,
         hora_fin: true,
+        dias_offset_inicio: true,
+        dias_offset_fin: true,
         pernocte: true,
         km_inicial: true,
         km_final: true,
@@ -234,8 +238,16 @@ export class RecorridosPatchService {
       derivados.vehiculo_id = id
       derivados.vehiculo_placa = placa
     } else {
-      data[campo] = this.conReglas(() => normalizar(campo, valor, coercion))
+      const esHora = campo === 'hora_inicio' || campo === 'hora_fin'
+      const horaSeparada = esHora ? separarHoraYDesfase(valor) : null
+      data[campo] = this.conReglas(() => normalizar(campo, horaSeparada?.hora ?? valor, coercion))
       if (data[campo] !== valor) derivados[campo] = data[campo]
+      if (esHora && horaSeparada?.diasOffset != null) {
+        const campoOffset = campo === 'hora_inicio' ? 'dias_offset_inicio' : 'dias_offset_fin'
+        this.conReglas(() => exigirOffsetEnRango(campoOffset, horaSeparada.diasOffset))
+        data[campoOffset] = horaSeparada.diasOffset
+        derivados[campoOffset] = horaSeparada.diasOffset
+      }
     }
 
     // Se valida contra la fila RESULTANTE (lo que ya había más lo que se está
@@ -245,6 +257,8 @@ export class RecorridosPatchService {
       validarCoherencia({
         hora_inicio: (data.hora_inicio as string | null) ?? actual.hora_inicio,
         hora_fin: (data.hora_fin as string | null) ?? actual.hora_fin,
+        dias_offset_inicio: (data.dias_offset_inicio as number | undefined) ?? actual.dias_offset_inicio,
+        dias_offset_fin: (data.dias_offset_fin as number | undefined) ?? actual.dias_offset_fin,
         pernocte: (data.pernocte as boolean | undefined) ?? actual.pernocte,
         km_inicial: (data.km_inicial as number | null | undefined) ?? actual.km_inicial,
         km_final: (data.km_final as number | null | undefined) ?? actual.km_final,
@@ -322,16 +336,16 @@ export class RecorridosPatchService {
     return { version: Number(fresco?.version ?? 0), derivados }
   }
 
-  // ── Fecha: mover el día ──────────────────────────────────────────────────
+  // ── Fecha: mover un tramo o el día completo ───────────────────────────────
 
   /**
    * Cambia la FECHA de un día. Se mueve la jornada entera —todos sus tramos y
    * sus bonos van con ella—, porque la fecha es del día y no del tramo.
    *
-   * El destino tiene que estar libre: `(conductor_id, fecha)` es único y la
-   * unicidad incluye los días retirados, que conservan su fecha para poder
-   * revivirlos. Un destino ocupado, vivo o retirado, se rechaza con la
-   * instrucción de qué hacer en vez de fundir dos días a ciegas.
+   * Un segmento puede pasar a un día ya existente: se mueve solo ese tramo,
+   * con sus bonos, y se conserva el resto de la jornada de origen. Un día sin
+   * segmentos se retira. Los días sin recorrido y los destinos retirados
+   * conservan sus reglas propias.
    *
    * El CAS se hace sobre la ENTIDAD de la fila editada (el segmento o el día),
    * que es la versión que el cliente conoce; la versión del padre se sube
@@ -369,8 +383,73 @@ export class RecorridosPatchService {
 
     const ocupado = await prisma.registro_dia_laboral.findUnique({
       where: { conductor_id_fecha: { conductor_id: dia.conductor_id, fecha: this.aDate(fecha) } },
-      select: { id: true, deleted_at: true },
+      select: { id: true, deleted_at: true, tipo: true, segmentos: { where: { deleted_at: null }, select: { orden: true } } },
     })
+    if (ocupado && !ocupado.deleted_at && tipoFila === 'segmento') {
+      const version = await prisma.$transaction(async (tx) => {
+        const ahora = new Date()
+        const orden = Math.max(0, ...ocupado.segmentos.map((s) => s.orden)) + 1
+        const gano = await tx.registro_dia_laboral_segmento.updateMany({
+          where: {
+            id: entityId,
+            registro_dia_id: registroDiaId,
+            deleted_at: null,
+            ...(baseVersion != null ? { version: baseVersion } : {}),
+          },
+          data: {
+            registro_dia_id: ocupado.id,
+            orden,
+            version: { increment: 1 },
+            updated_at: ahora,
+          } as never,
+        })
+        if (gano.count === 0) return null
+
+        await tx.registro_dia_laboral_bono.updateMany({
+          where: { segmento_id: entityId, deleted_at: null },
+          data: { registro_dia_id: ocupado.id, updated_at: ahora },
+        })
+        await tx.registro_dia_laboral.update({
+          where: { id: ocupado.id },
+          data: {
+            tipo: 'LABORADO',
+            mantenimiento_vehiculo_id: null,
+            mantenimiento_vehiculo_placa: null,
+            version: { increment: 1 },
+            updated_at: ahora,
+          } as never,
+        })
+        if (ocupado.tipo !== 'LABORADO') await retirarAdjuntosDelDia(tx, ocupado.id)
+
+        const restantes = await tx.registro_dia_laboral_segmento.count({
+          where: { registro_dia_id: registroDiaId, deleted_at: null },
+        })
+        if (restantes === 0) {
+          await tx.registro_dia_laboral_bono.updateMany({
+            where: { registro_dia_id: registroDiaId, segmento_id: null, deleted_at: null },
+            data: { deleted_at: ahora, updated_at: ahora },
+          })
+          await retirarAdjuntosDelDia(tx, registroDiaId)
+        }
+        await tx.registro_dia_laboral.update({
+          where: { id: registroDiaId },
+          data: {
+            ...(restantes === 0 ? { deleted_at: ahora } : {}),
+            version: { increment: 1 },
+            updated_at: ahora,
+          } as never,
+        })
+        const fresco = await tx.registro_dia_laboral_segmento.findUnique({
+          where: { id: entityId },
+          select: { version: true },
+        })
+        return fresco?.version ?? 0
+      })
+      if (version == null) {
+        throw new ConflictoVersionRecorrido(entityId, await this.filaSegmento(entityId))
+      }
+      return { version, derivados: { fecha }, recargar: true }
+    }
     if (ocupado) {
       throw new PatchRecorridoError(
         ocupado.deleted_at
@@ -574,6 +653,8 @@ export class RecorridosPatchService {
             vehiculo_placa: vehiculo?.placa ?? fila.vehiculo_placa,
             hora_inicio: fila.hora_inicio,
             hora_fin: fila.hora_fin,
+            dias_offset_inicio: fila.dias_offset_inicio,
+            dias_offset_fin: fila.dias_offset_fin,
             horas_conducidas: fila.horas_conducidas,
             km_inicial: fila.km_inicial,
             km_final: fila.km_final,

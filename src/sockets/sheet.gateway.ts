@@ -592,6 +592,7 @@ export function registerSheetGateway(io: IOServer): void {
             // Mover una fecha mueve el día entero: las demás filas de esa
             // jornada se repintan con los mismos derivados.
             afectados: resultado.afectados ?? [],
+            recargar: resultado.recargar ?? false,
           })
           socket.to(sheetRoomKey(scope, Number(anio), Number(mes))).emit('sheet:patch:applied', {
             scope,
@@ -607,6 +608,7 @@ export function registerSheetGateway(io: IOServer): void {
             // ya resuelto y no lo que se escribió.
             derivados: resultado.derivados,
             afectados: resultado.afectados ?? [],
+            recargar: resultado.recargar ?? false,
             epoch: epochActual,
             by: { id: actor.id, name: actor.name },
           })

@@ -234,6 +234,36 @@ export function exigirOffsetEnRango(campo: string, valor: unknown): void {
   )
 }
 
+/**
+ * Separa la hora del sufijo opcional que se escribe en una celda del canvas.
+ * «06:00 +1» y «06:00 (+1 día)» significan las seis del día siguiente; el
+ * segundo formato coincide con lo que pinta la hoja y se puede volver a teclear.
+ */
+export function separarHoraYDesfase(valor: unknown): {
+  hora: unknown
+  diasOffset: number | null
+} {
+  if (typeof valor !== 'string') return { hora: valor, diasOffset: null }
+
+  const texto = valor.trim()
+  const m = /^(\d{1,2}:\d{2})(.*)$/.exec(texto)
+  if (!m) return { hora: valor, diasOffset: null }
+
+  const sufijo = m[2].trim()
+  if (!sufijo) return { hora: m[1], diasOffset: null }
+
+  const relativo = /^\+\s*(\d+)(?:\s+d[ií]as?)?$/i.exec(sufijo)
+  const entreParentesis = /^\(\s*\+\s*(\d+)(?:\s+d[ií]as?)?\s*\)$/i.exec(sufijo)
+  if (relativo || entreParentesis) {
+    return { hora: m[1], diasOffset: Number((relativo ?? entreParentesis)![1]) }
+  }
+  if (/^\(\s*d[ií]a\s+sig(?:uiente)?\.?\s*\)$/i.test(sufijo)) {
+    return { hora: m[1], diasOffset: 1 }
+  }
+
+  return { hora: valor, diasOffset: null }
+}
+
 export function exigirNoVacio(campo: string, valor: unknown): void {
   if (!NO_VACIABLES.has(campo)) return
   if (valor !== null && valor !== undefined && valor !== '') return
@@ -262,18 +292,41 @@ export function exigirNoVacio(campo: string, valor: unknown): void {
 export function validarCoherencia(fila: {
   hora_inicio: string | null
   hora_fin: string | null
+  dias_offset_inicio?: number
+  dias_offset_fin?: number
   pernocte: boolean
   km_inicial: number | null
   km_final: number | null
 }): void {
-  const { hora_inicio, hora_fin, pernocte, km_inicial, km_final } = fila
+  const {
+    hora_inicio,
+    hora_fin,
+    dias_offset_inicio = 0,
+    dias_offset_fin = 0,
+    pernocte,
+    km_inicial,
+    km_final,
+  } = fila
 
-  // Con pernocte el turno cruza la medianoche, así que la hora de fin PUEDE ser
-  // menor que la de inicio; sin él, no.
-  if (!pernocte && hora_inicio && hora_fin && hora_fin <= hora_inicio) {
+  if (dias_offset_fin < dias_offset_inicio) {
+    throw new ValorInvalido(
+      'El desfase de la hora final no puede ser anterior al de la hora inicial.',
+      'REGLA_NEGOCIO',
+    )
+  }
+
+  // El desfase permite un cruce de medianoche sin marcar pernocte: dormir fuera
+  // de base y terminar al día siguiente son condiciones distintas.
+  if (
+    !pernocte &&
+    hora_inicio &&
+    hora_fin &&
+    dias_offset_fin === dias_offset_inicio &&
+    hora_fin <= hora_inicio
+  ) {
     throw new ValorInvalido(
       `La hora de fin (${hora_fin}) debe ser posterior a la de inicio (${hora_inicio}), ` +
-        `salvo que el recorrido tenga pernocte.`,
+        `en el mismo día. Si termina al día siguiente, escribe +1 (por ejemplo 06:00 +1).`,
       'REGLA_NEGOCIO',
     )
   }
@@ -351,6 +404,8 @@ export interface FilaNuevaEntrada {
   vehiculo_placa?: unknown
   hora_inicio?: unknown
   hora_fin?: unknown
+  dias_offset_inicio?: unknown
+  dias_offset_fin?: unknown
   horas_conducidas?: unknown
   cliente_nombre?: unknown
   km_inicial?: unknown
@@ -369,6 +424,8 @@ export type FilaNuevaClasificada =
       vehiculo_placa: string
       hora_inicio: string
       hora_fin: string
+      dias_offset_inicio: number
+      dias_offset_fin: number
       horas_conducidas: number
       cliente_nombre: string | null
       km_inicial: number | null
@@ -402,8 +459,18 @@ export type FilaNuevaClasificada =
 export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasificada {
   const fecha = normalizar('fecha', entrada.fecha, 'fecha') as string
   const placa = aTexto(entrada.vehiculo_placa)?.toUpperCase().replace(/\s+/g, '') || null
-  const horaIni = normalizar('hora_inicio', entrada.hora_inicio, 'hora') as string | null
-  const horaFin = normalizar('hora_fin', entrada.hora_fin, 'hora') as string | null
+  const inicio = separarHoraYDesfase(entrada.hora_inicio)
+  const fin = separarHoraYDesfase(entrada.hora_fin)
+  const horaIni = normalizar('hora_inicio', inicio.hora, 'hora') as string | null
+  const horaFin = normalizar('hora_fin', fin.hora, 'hora') as string | null
+  const offsetInicio = Number(
+    inicio.diasOffset ?? normalizar('dias_offset_inicio', entrada.dias_offset_inicio, 'entero') ?? 0,
+  )
+  const offsetFin = Number(
+    fin.diasOffset ?? normalizar('dias_offset_fin', entrada.dias_offset_fin, 'entero') ?? 0,
+  )
+  exigirOffsetEnRango('dias_offset_inicio', offsetInicio)
+  exigirOffsetEnRango('dias_offset_fin', offsetFin)
   const pernocte = aBooleano(entrada.pernocte)
   const descripcion = normalizar('descripcion', entrada.descripcion, 'texto') as string | null
   const tipoCrudo = (aTexto(entrada.tipo_dia) ?? '').toUpperCase()
@@ -439,6 +506,8 @@ export function clasificarFilaNueva(entrada: FilaNuevaEntrada): FilaNuevaClasifi
       vehiculo_placa: placa!,
       hora_inicio: horaIni!,
       hora_fin: horaFin!,
+      dias_offset_inicio: offsetInicio,
+      dias_offset_fin: offsetFin,
       horas_conducidas: normalizar('horas_conducidas', entrada.horas_conducidas, 'decimal') as number,
       cliente_nombre: normalizar('cliente_nombre', entrada.cliente_nombre, 'texto') as string | null,
       km_inicial: normalizar('km_inicial', entrada.km_inicial, 'entero') as number | null,

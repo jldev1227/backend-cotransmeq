@@ -135,6 +135,11 @@ ordenados por placa.
 | `tipo_dia` | string | para un día sin recorridos | `DISPONIBLE`, `DESCANSO` o `MANTENIMIENTO` (este, con placa). `LABORADO` solo con recorrido |
 | `bonos` | string[] | no | `config_id` a marcar en la fila nueva; exige `bonos-planilla`. Las configuraciones inactivas o retiradas se ignoran |
 
+En `hora_inicio` y `hora_fin` se puede indicar el día con `HH:MM +1` o
+`HH:MM (+1 día)` (también `+2` para dos días después de la fecha). Por ejemplo,
+para un recorrido de 17:00 a 06:00 del día siguiente, escribe `06:00 +1` en
+`hora_fin`. El canvas lo mostrará como `06:00 (+1 día)` al guardar.
+
 Si ya hay un día vivo en esa fecha, una fila de día se rechaza (422) y un
 recorrido se añade como tramo nuevo; si ese día no era LABORADO, pasa a serlo,
 se retiran sus soportes de mantenimiento y la respuesta trae `recargar: true`.
