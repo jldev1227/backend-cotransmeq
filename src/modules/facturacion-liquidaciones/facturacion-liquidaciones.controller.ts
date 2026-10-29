@@ -157,12 +157,30 @@ export class FacturacionLiquidacionesController {
       const entrada = anularFacturaSchema.parse(request.body ?? {})
       const userId = (request as any).user?.id
       const userName = (request as any).user?.nombre || 'Usuario'
-      /// Los nuevos resultados incluyen volver liquidaciones a APROBADA o
-      /// marcar una como ANULADA por duplicidad; son cambios de estado de
-      /// liquidaciones y quedan restringidos a Administración.
-      if (!esAdministracion(request)) {
+      const nivelAcceso = (request as any).accessLevel
+      /// El middleware acepta niveles superiores al umbral `limited`; `read`
+      /// también lo supera en el orden general, pero aquí no debe habilitar escritura.
+      if (nivelAcceso !== 'limited' && nivelAcceso !== 'full') {
         return reply.status(403).send({
-          error: 'Solo Administración puede aplicar el resultado de anulación a las liquidaciones.'
+          error: 'Se requiere permiso Limitado o Completo para anular facturas.'
+        })
+      }
+      const puedeElegirDestinoEspecial =
+        esFacturacion(request) || (esAdministracion(request) && nivelAcceso === 'full')
+      /// Facturación puede escoger el destino de las liquidaciones al anular;
+      /// Administración conserva esa opción cuando su acceso efectivo es Completo.
+      const requiereAjusteEspecial =
+        entrada.tipo !== 'SIN_MODIFICAR' ||
+        entrada.liquidaciones_a_liquidar.length > 0 ||
+        Boolean(entrada.liquidacion_duplicada_id)
+      if (!esAdministracion(request) && !esFacturacion(request)) {
+        return reply.status(403).send({
+          error: 'Solo Administración o Facturación pueden anular facturas.'
+        })
+      }
+      if (!puedeElegirDestinoEspecial && requiereAjusteEspecial) {
+        return reply.status(403).send({
+          error: 'Solo Facturación o Administración con permiso Completo pueden elegir el resultado de las liquidaciones.'
         })
       }
       const opciones: AnularFacturaInput = {

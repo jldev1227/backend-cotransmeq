@@ -7,9 +7,9 @@ export async function facturacionLiquidacionesRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authMiddleware)
   /// Hasta oct-2026 este archivo solo pedía sesión: cualquiera del equipo (o un
   /// conductor con su enlace) leía y escribía aquí. Lectura y escritura del módulo `liquidaciones-servicios`.
-  /// Escritura con limited para el flujo de Facturación. Al editar, Facturación
-  /// y Administración pueden devolver liquidaciones del lote a APROBADA; la
-  /// anulación y el retiro individual siguen restringidos a Administración.
+  /// Escritura con limited para el flujo de Facturación. Facturación puede
+  /// anular facturas y elegir el destino de sus liquidaciones; el retiro
+  /// individual de liquidaciones de una factura sigue restringido a Administración.
   app.addHook('preHandler', permisoPorMetodo('liquidaciones-servicios', { lectura: 'limited', escritura: 'limited' }))
 
   // CRUD Facturas

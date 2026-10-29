@@ -28,9 +28,10 @@ Reglas del módulo:
   (30 por defecto, máximo 365) y `fecha_vencimiento`; si llega el vencimiento,
   manda él y el plazo se recalcula. Mismas reglas que cartera
   (`cartera.condiciones.ts`). Las fechas salen como `YYYY-MM-DD`.
-- Al anular, el motivo define el destino: sin cambios requeridos, todas quedan
-  `APROBADA`; si hay que corregir, solo las seleccionadas vuelven a `LIQUIDADA`;
-  por duplicidad, el servicio indicado queda `ANULADA` y el resto `APROBADA`.
+- Al anular, el motivo define el destino: por defecto todas las liquidaciones
+  asociadas quedan `APROBADA`; Facturación y Administración con permiso Completo
+  también pueden elegir que algunas vuelvan a `LIQUIDADA` para corregirlas o
+  marcar una como `ANULADA` por duplicidad.
   Una factura con abonos vivos no se anula. Eliminar es lógico y solo para anuladas; al eliminar, el número
   recibe el sufijo `_ELIMINADA` para poder reutilizarlo, y restaurar se lo quita.
 - Quitar una liquidación de su factura **marca** el pivote (`deleted_at`): su
@@ -44,7 +45,7 @@ Reglas del módulo:
 | Todas | `sesión` (hook `onRequest` del plugin) |
 | Todas | `liquidaciones-servicios:limited` (`permisoPorMetodo` con `lectura` y `escritura` en `limited`): Administración, Operaciones y Facturación |
 | `PATCH /:id/editar` al quitar liquidaciones | además, área `administracion` o `facturacion` (403) |
-| `PATCH /:id/anular` | además, área `administracion` (403) |
+| `PATCH /:id/anular` | Facturación con permiso limitado o Administración con acceso efectivo; Facturación y Administración con permiso Completo pueden elegir destinos especiales (403) |
 | `DELETE /:id/items/:liquidacionId` | además, área `administracion` (403) |
 
 ## Endpoints
@@ -59,7 +60,7 @@ Reglas del módulo:
 | POST | `/api/facturacion-liquidaciones/:id/items` | `liquidaciones-servicios:limited` | Asocia liquidaciones a una factura existente |
 | DELETE | `/api/facturacion-liquidaciones/:id/items/:liquidacionId` | `liquidaciones-servicios:limited` (+ administración) | Quita una liquidación de la factura y la devuelve a aprobada |
 | PATCH | `/api/facturacion-liquidaciones/:id/condiciones` | `liquidaciones-servicios:limited` | Corrige valor, emisión, plazo o vencimiento |
-| PATCH | `/api/facturacion-liquidaciones/:id/anular` | `liquidaciones-servicios:limited` (+ administración) | Anula la factura y aplica el destino de cada liquidación según el motivo |
+| PATCH | `/api/facturacion-liquidaciones/:id/anular` | `liquidaciones-servicios:limited` (Facturación; opciones especiales también para Administración con Completo) | Anula la factura y aplica el destino elegido a cada liquidación |
 | DELETE | `/api/facturacion-liquidaciones/:id` | `liquidaciones-servicios:limited` | Elimina (lógico) una factura anulada |
 | PATCH | `/api/facturacion-liquidaciones/:id/restaurar` | `liquidaciones-servicios:limited` | Saca una factura de la papelera |
 | POST | `/api/facturacion-liquidaciones/batch-info` | `liquidaciones-servicios:limited` | Factura activa de cada liquidación de una lista |
