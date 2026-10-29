@@ -41,7 +41,6 @@ import {
   type EntradaLiquidacion,
   type ParametrosNomina,
   RESULTADO_VACIO,
-  DIAS_VILLANUEVA_COMPLETO,
 } from '../../lib/nomina/liquidar';
 import {
   CODIGOS_RECARGO,
@@ -2259,7 +2258,8 @@ export class NominaCanvasService {
        */
       aplicaAjusteVillanueva:
         dec(l?.ajuste_salarial) > 0 || Number(l?.dias_laborados_villanueva ?? 0) > 0,
-      ajusteVillanuevaPorDia: !!l?.ajuste_salarial_por_dia,
+      /// En el canvas la nivelación siempre se liquida a prorrata de los días.
+      ajusteVillanuevaPorDia: true,
       /// El INTERRUPTOR, no el importe. Se conserva el importe en el OR
       /// para las liquidaciones viejas que nunca pasaron por la columna.
       /**
@@ -2464,12 +2464,6 @@ export class NominaCanvasService {
               valor: totales.bonificacionVillanueva,
               editable: true,
               baseMensual: Math.max(0, dec(parametros.salarioVillanueva) - salarioBase),
-              /// El tope de los 17 días no aplica cuando la liquidación
-              /// prorratea siempre; mandarlo igual haría que la fórmula pagara
-              /// el mes entero donde el servidor prorratea.
-              ...(entrada.ajusteVillanuevaPorDia
-                ? {}
-                : { umbralCompleto: DIAS_VILLANUEVA_COMPLETO }),
             },
           ]
         : []),

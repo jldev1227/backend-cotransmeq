@@ -23,11 +23,15 @@ import { ESTADOS_BLOQUEADOS } from './nomina-estado.service';
 /**
  * Campos editables y cómo se validan.
  *
- * `dias` son enteros de 0 a 31; `moneda` son importes no negativos; `flag` son
- * booleanos. Los importes se guardan como número, nunca como texto — una celda
- * de texto no suma ni ordena, y acaba llegando como NaN a la base.
+ * `dias` son enteros de 0 a 31; `dias1` admite una cifra decimal; `moneda` son
+ * importes no negativos; `flag` son booleanos. Los importes se guardan como
+ * número, nunca como texto — una celda de texto no suma ni ordena, y acaba
+ * llegando como NaN a la base.
  */
-const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | 'fecha'> = {
+const CAMPOS_EDITABLES: Record<
+  string,
+  'dias' | 'dias1' | 'moneda' | 'flag' | 'entero' | 'decimal1' | 'fecha'
+> = {
   /// Las dos fechas de vacaciones y el salario con el que se liquidan. Los
   /// DÍAS no están aquí a propósito: salen de restar las fechas y guardarlos
   /// permitiría dejar un número que contradiga a sus propias fechas.
@@ -42,9 +46,9 @@ const CAMPOS_EDITABLES: Record<string, 'dias' | 'moneda' | 'flag' | 'entero' | '
   periodo_end_licencia: 'fecha',
   salario_licencia: 'moneda',
   dias_laborados: 'dias',
-  dias_laborados_villanueva: 'dias',
+  dias_laborados_villanueva: 'dias1',
   dias_laborados_anual: 'entero',
-  dias_ajuste_deducciones: 'entero',
+  dias_ajuste_deducciones: 'decimal1',
   total_vacaciones: 'moneda',
   interes_cesantias: 'moneda',
   /// Lo que se imputa a disponibilidad. NO es dinero nuevo: se descuenta de la
@@ -270,6 +274,18 @@ function normalizar(campo: string, valor: unknown): number | boolean | string | 
   if (tipo === 'dias') {
     if (n < 0 || n > 31) throw new PatchNominaError('Los días van de 0 a 31.', 'VALOR_INVALIDO');
     return Math.round(n);
+  }
+  if (tipo === 'dias1') {
+    if (n < 0 || n > 31) throw new PatchNominaError('Los días van de 0 a 31.', 'VALOR_INVALIDO');
+    return Number(n.toFixed(1));
+  }
+  if (tipo === 'decimal1') {
+    if (n < 0 || n > 30) {
+      throw new PatchNominaError('Los días a la base van de 0 a 30.', 'VALOR_INVALIDO');
+    }
+    /// PostgreSQL también fija escala 1; normalizar antes evita que la celda
+    /// se guarde como 13.5 y vuelva como 14 por el antiguo tipo entero.
+    return Number(n.toFixed(1));
   }
   if (tipo === 'entero') {
     if (n < 0) throw new PatchNominaError('No puede ser negativo.', 'VALOR_INVALIDO');
@@ -1023,7 +1039,7 @@ export const NominaPatchService = {
       salarioBase:
         l.salario_basico != null ? dec(l.salario_basico) : dec(l.conductores?.salario_base),
       diasLaborados: l.dias_laborados,
-      diasLaboradosVillanueva: l.dias_laborados_villanueva,
+      diasLaboradosVillanueva: Number(l.dias_laborados_villanueva),
       detallesVehiculos: [
         {
           bonos,
@@ -1088,8 +1104,10 @@ export const NominaPatchService = {
       /// Los días encienden el bono, igual que en el canvas: ver el comentario
       /// largo en `nomina-canvas.service`. Las dos lecturas tienen que coincidir
       /// o la hoja enseñaría un bono que el recálculo no paga.
-      aplicaAjusteVillanueva: dec(l.ajuste_salarial) > 0 || l.dias_laborados_villanueva > 0,
-      ajusteVillanuevaPorDia: l.ajuste_salarial_por_dia,
+      aplicaAjusteVillanueva:
+        dec(l.ajuste_salarial) > 0 || Number(l.dias_laborados_villanueva) > 0,
+      /// El canvas siempre prorratea la nivelación por los días de Villanueva.
+      ajusteVillanuevaPorDia: true,
       /// El INTERRUPTOR, no el importe. Se conserva el importe en el OR
       /// para las liquidaciones viejas que nunca pasaron por la columna.
       /**
@@ -1108,7 +1126,8 @@ export const NominaPatchService = {
       aplicaAjusteGeopark: !!(l as any).aplica_ajuste_geopark,
       ajusteRecargosCompletos: l.ajuste_parex_recargos_completos,
       aplicaIncapacidad: !!l.periodo_start_incapacidad,
-      diasAjusteDeducciones: l.dias_ajuste_deducciones,
+      diasAjusteDeducciones:
+        l.dias_ajuste_deducciones == null ? null : Number(l.dias_ajuste_deducciones),
       noDescontarSalud: false,
       noDescontarPension: false,
       descontarSaludSalario: l.descontar_salud_salario,

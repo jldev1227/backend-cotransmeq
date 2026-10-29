@@ -320,7 +320,11 @@ export const LiquidacionesService = {
         ajuste_geopark: Number((liq as any).ajuste_geopark ?? 0),
         ajuste_parex_recargos_completos:
           (liq as any).ajuste_parex_recargos_completos ?? false,
-        dias_ajuste_deducciones: (liq as any).dias_ajuste_deducciones ?? null,
+        dias_laborados_villanueva: Number(liq.dias_laborados_villanueva),
+        dias_ajuste_deducciones:
+          (liq as any).dias_ajuste_deducciones == null
+            ? null
+            : Number((liq as any).dias_ajuste_deducciones),
         disponibilidad: Number((liq as any).disponibilidad ?? 0),
         /// Una por bloque del desprendible: la de arriba es la de OTROS.
         disponibilidad_parex: Number((liq as any).disponibilidad_parex ?? 0),
@@ -499,8 +503,11 @@ export const LiquidacionesService = {
       ajuste_geopark: Number((liquidacion as any).ajuste_geopark ?? 0),
       ajuste_parex_recargos_completos:
         (liquidacion as any).ajuste_parex_recargos_completos ?? false,
+      dias_laborados_villanueva: Number(liquidacion.dias_laborados_villanueva),
       dias_ajuste_deducciones:
-        (liquidacion as any).dias_ajuste_deducciones ?? null,
+        (liquidacion as any).dias_ajuste_deducciones == null
+          ? null
+          : Number((liquidacion as any).dias_ajuste_deducciones),
       disponibilidad: Number((liquidacion as any).disponibilidad ?? 0),
       /// Una por bloque del desprendible: la de arriba es la de OTROS.
       disponibilidad_parex: Number((liquidacion as any).disponibilidad_parex ?? 0),
@@ -848,7 +855,7 @@ export const LiquidacionesService = {
           data.dias_laborados ?? liquidacionExistente.dias_laborados,
         dias_laborados_villanueva:
           data.dias_laborados_villanueva ??
-          liquidacionExistente.dias_laborados_villanueva,
+          Number(liquidacionExistente.dias_laborados_villanueva),
         dias_laborados_anual:
           data.dias_laborados_anual ??
           liquidacionExistente.dias_laborados_anual,
@@ -2351,7 +2358,7 @@ export const LiquidacionesService = {
     if (n(l.ajuste_salarial) > 0) {
       devengos.push({
         concepto: "BONO NIVELACION DE SALARIO",
-        cantidad: l.dias_laborados_villanueva,
+        cantidad: Number(l.dias_laborados_villanueva),
         valor: n(l.ajuste_salarial),
         grupo: "basico",
       });

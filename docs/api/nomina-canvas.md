@@ -562,6 +562,8 @@ sin ids o periodo inválido; 413; 500.
 
 ## Observaciones
 
+- El bono de nivelación se calcula siempre a prorrata de los días trabajados en
+  Villanueva (`base mensual / 30 × días`); el canvas no aplica el corte de 17 días.
 - **Revertir una versión solo reescribe las columnas de totales.** No restaura
   las filas de `recargos`, `bonificaciones` ni la copia de días, así que después
   de revertir los totales pueden no cuadrar con esas filas hasta el siguiente

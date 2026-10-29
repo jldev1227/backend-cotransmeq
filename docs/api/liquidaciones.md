@@ -215,7 +215,8 @@ igual se imprima por donde se imprima.
 | `conductor_id` | uuid | sí | 400 si falta |
 | `periodo_inicio`, `periodo_fin` | string | sí | 400 si falta alguno. Se guardan tal cual |
 | `estado` | string | no | `'Liquidado'`; cualquier otro valor guarda `Pendiente`. `estado_flujo` queda en su valor por defecto, `BORRADOR` |
-| `dias_laborados`, `dias_laborados_villanueva`, `dias_laborados_anual` | number | no | `0` por defecto |
+| `dias_laborados`, `dias_laborados_anual` | number entero | no | `0` por defecto |
+| `dias_laborados_villanueva` | number con una cifra decimal | no | `0` por defecto; admite de 0 a 31 días |
 | `salario_base` | number | no | Se guarda en `salario_devengado` |
 | `sueldo_total`, `salud`, `pension`, `cesantias`, `interes_cesantias`, `auxilio_transporte`, `total_bonificaciones`, `total_pernotes`, `total_recargos`, `total_anticipos`, `total_vacaciones`, `valor_incapacidad`, `disponibilidad` | number | no | Totales ya calculados por el cliente; `0` por defecto |
 | `no_descontar_salud`, `no_descontar_pension`, `descontar_transporte` | boolean | no | Fuerzan a `0` `salud`, `pension` y `auxilio_transporte` |
@@ -223,7 +224,7 @@ igual se imprima por donde se imprima.
 | `ajuste_parex`, `ajuste_parex_recargos_completos`, `ajuste_parex_valor` | boolean, boolean, number | no | `ajuste_parex` guarda `ajuste_parex_valor` solo si alguna de las dos marcas viene activa |
 | `ajuste_geopark`, `ajuste_geopark_valor` | boolean, number | no | Igual que PAREX, con una sola marca |
 | `ajuste_recargos_config`, `conceptos_adicionales` | JSON | no | Se guardan tal cual. El rótulo de cada concepto adicional va en su `observaciones` |
-| `dias_ajuste_deducciones` | number \| null | no | `null` es «sin decidir», distinto de `0` |
+| `dias_ajuste_deducciones` | number \| null | no | Hasta una cifra decimal (p. ej. `13.5`); `null` es «sin decidir», distinto de `0` |
 | `descontar_salud_salario`, `descontar_pension_salario` | boolean | no | |
 | `periodo_vacaciones_inicio`, `periodo_vacaciones_fin`, `periodo_incapacidad_inicio`, `periodo_incapacidad_fin` | string | no | |
 | `observaciones` | string | no | |
