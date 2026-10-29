@@ -69,6 +69,8 @@ export interface RoutePermission {
   limited?: Area[]
   /** Permite asignar `limited` en la personalización individual para acciones puntuales. */
   allowLimited?: boolean
+  /** Áreas que permiten asignar un nivel superior mediante permisos individuales. */
+  elevableAreas?: Area[]
   /** Descripción para documentación */
   description?: string
 }
@@ -227,11 +229,13 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   // sus recorridos: la hoja alimenta los bonos y el pernocte que acaban en la
   // nómina, así que editarla es una operación contable, no una consulta.
   //
-  // Administración edita. Operaciones consulta. Los bonos conservan su guard
-  // individual `bonos-planilla` además del acceso al canvas.
+  // Operaciones consulta por defecto; Administración puede asignar edición a
+  // personas concretas de Operaciones desde su lista personalizada de rutas.
+  // Los bonos conservan su guarda individual `bonos-planilla`.
   recorridos: {
     full: ['administracion'],
     read: ['operaciones', 'contabilidad', 'facturacion', 'talento_humano', 'hseq', 'mantenimiento'],
+    elevableAreas: ['operaciones'],
     description: 'Canvas de recorridos, días laborados de conductores y bonos de planilla'
   },
 
@@ -244,6 +248,7 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   'liquidaciones-servicios-seccion06': {
     full: ['administracion'],
     read: ['operaciones', 'facturacion'],
+    elevableAreas: ['operaciones'],
     description: 'SECCIÓN 06 — Hoja 4: liquidación de terceros'
   },
 
@@ -334,7 +339,9 @@ const MODULO_SIEMPRE_ACCESIBLE = 'perfil'
 
 const NIVELES_VALIDOS: readonly AccessLevel[] = ['full', 'read', 'limited']
 
+/** Asignación histórica de Omar, mantenida por compatibilidad. */
 export const OMAR_OPERACIONES_ID = '77c70289-a726-4b4d-bde9-d1997f9e471f'
+/** Asignaciones históricas de compatibilidad; las nuevas se guardan por usuario. */
 export const PERMISOS_RUTA_ESPECIALES: Record<string, Record<string, AccessLevel>> = {
   [OMAR_OPERACIONES_ID]: {
     recorridos: 'full',
@@ -365,7 +372,7 @@ export function normalizarRutasOverride(valor: unknown): RutasOverride | null {
   return limpio
 }
 
-/** Resuelve acceso únicamente con las áreas asignadas y su límite por ruta. */
+/** Resuelve acceso con áreas y asignaciones explícitas en las rutas delegables. */
 export function checkAccess(
   userAreas: Area[] | Area | null | undefined,
   moduleId: string,
@@ -380,6 +387,8 @@ export function checkAccess(
 
   let nivelArea: AccessLevel | null = null
   if (areas.some(a => permission.full.includes(a))) nivelArea = 'full'
+  // Conserva el acceso histórico de Omar mientras migra a la lista personal.
+  // Las nuevas asignaciones usan elevableAreas y ya no dependen de este UUID.
   const permisoEspecial = userId ? PERMISOS_RUTA_ESPECIALES[userId]?.[moduleId] : undefined
   if (!nivelArea && permisoEspecial && areas.includes('operaciones')) nivelArea = permisoEspecial
   if (!nivelArea && permission.read && areas.some(a => permission.read!.includes(a))) nivelArea = 'read'
@@ -391,6 +400,9 @@ export function checkAccess(
 
   const nivelUsuario = override[moduleId]
   if (!nivelUsuario) return { allowed: false, level: null }
+  if (permission.elevableAreas?.some(area => areas.includes(area))) {
+    return { allowed: true, level: nivelUsuario }
+  }
   const jerarquia: AccessLevel[] = ['limited', 'read', 'full']
   return {
     allowed: true,

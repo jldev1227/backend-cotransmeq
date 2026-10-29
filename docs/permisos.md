@@ -68,7 +68,7 @@ resuelve por área; `role` no concede permisos.
 | `extractos` | F | F | — | — | — | — | — | Extractos de contrato (FUEC) |
 | `recorridos` | F | R | R | R | R | R | R | Canvas de recorridos y días laborados; Administración edita |
 | `liquidaciones-servicios` | F | F | — | L | — | — | — | Liquidaciones de servicios |
-| `liquidaciones-servicios-seccion06` | F | R* | — | R | — | — | — | Hoja 4; Omar (Operaciones) tiene edición individual |
+| `liquidaciones-servicios-seccion06` | F | R* | — | R | — | — | — | Hoja 4; Operaciones puede recibir edición individual |
 | `liquidaciones-terceros` | F | F | L | L | — | — | — | Liquidaciones de terceros (propietarios) |
 | `liquidaciones-terceros-adicionales` | F | F | L | L | — | — | — | Adicionales (unificados) de cierres finales de terceros |
 | `certificados` | F | — | F | — | — | — | — | Certificados tributarios de terceros |
@@ -82,8 +82,8 @@ resuelve por área; `role` no concede permisos.
 | `cartera` | F | R | F | F | — | — | — | Cuentas por cobrar, abonos y edades de cartera |
 | `directorio` | F | — | — | — | — | — | — | Directorio del equipo — presencia e invitaciones |
 
-`R*` indica el nivel de Operaciones para la SECCIÓN 06; Omar tiene `full` por
-la excepción individual documentada en `PERMISOS_RUTA_ESPECIALES`.
+`R*` indica el nivel base de Operaciones para la SECCIÓN 06; cualquier usuario
+de Operaciones puede recibir `full` individualmente desde el modal de usuario.
 
 Notas sobre módulos concretos (el porqué está comentado en `permissions.ts`):
 
@@ -93,7 +93,8 @@ Notas sobre módulos concretos (el porqué está comentado en `permissions.ts`):
   permiso.
 - `recorridos` va aparte de `conductores`: la hoja alimenta bonos y pernoctes
   que terminan en la nómina, así que editarla es una operación contable.
-  Administración edita; Operaciones consulta. Marcar bonos pide además el
+  Administración edita; Operaciones consulta por defecto y puede recibir
+  `full` individualmente desde el modal de usuario. Marcar bonos pide además el
   permiso individual `bonos-planilla`.
 - `formularios` incluye datos de salud, fatiga y firmas de conductores; por eso
   tiene llave propia y operaciones solo lee.
@@ -111,7 +112,9 @@ Notas sobre módulos concretos (el porqué está comentado en `permissions.ts`):
 ¿alguna área tiene nivel en el módulo?             no → sin acceso
 ¿permisos_rutas es null?                          sí → conserva el nivel del área
   no → ¿el módulo está incluido?                  no → sin acceso
-       nivel efectivo = menor entre área y ruta
+       nivel efectivo = menor entre área y ruta, salvo `elevableAreas` declaradas
+         (actualmente Recorridos y Sección 06 para Operaciones), donde la ruta
+         individual puede conceder `full`
 ¿módulo 'perfil'?                                  siempre accesible
 ```
 
@@ -121,8 +124,10 @@ Con varias áreas gana la de nivel más alto.
 
 `usuarios.permisos_rutas` es un JSON `{ "<módulo>": "full" | "read" | "limited" }`
 que se edita dentro del modal de usuario. El área sigue siendo la base: cada
-entrada puede quitar una ruta o reducir su nivel, pero no conceder módulos a un
-área que no los tiene ni elevar `read` a `full`. Un usuario con área
+entrada puede quitar una ruta o reducir su nivel. En las rutas marcadas con
+`elevableAreas`, una asignación explícita puede elevar el nivel de un usuario
+que ya tiene acceso base; actualmente Operaciones puede recibir `full` en
+Recorridos y Sección 06. En los demás módulos no se eleva el nivel del área. Un usuario con área
 Administración y `{ "flota": "read" }` conserva solo perfil y consulta Flota.
 
 - `null` hereda del área; `{}` es una personalización vacía y deja solo

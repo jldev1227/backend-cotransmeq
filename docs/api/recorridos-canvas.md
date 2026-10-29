@@ -15,7 +15,8 @@ La hoja alimenta la nómina: los bonos que se marcan aquí son los que el
 liquidación. Por eso es un módulo de permiso propio, `recorridos`, y no
 `conductores`: Administración puede editarla; Operaciones y las demás áreas
 autorizadas solo consultan. Un límite personalizado `permisos_rutas` puede
-reducir ambos niveles, nunca elevarlos.
+reducir ambos niveles. En Recorridos, una asignación individual puede dar
+`full` a usuarios de Operaciones desde el modal de usuario.
 
 Reglas que un integrador necesita saber:
 

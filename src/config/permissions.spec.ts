@@ -12,21 +12,25 @@ describe('permisos por área y lista blanca personal', () => {
 		}
 	})
 
-	it('recorridos queda editable para administración y de consulta para operaciones', () => {
+	it('Operaciones puede recibir edición individual en Recorridos', () => {
 		expect(checkAccess('administracion', 'recorridos')).toEqual({ allowed: true, level: 'full' })
 		expect(checkAccess('operaciones', 'recorridos')).toEqual({ allowed: true, level: 'read' })
 		expect(checkAccess('operaciones', 'recorridos', { recorridos: 'full' })).toEqual({
 			allowed: true,
-			level: 'read'
+			level: 'full'
 		})
 		expect(checkAccess('operaciones', 'recorridos', {})).toEqual({ allowed: false, level: null })
 	})
 
-	it('Sección 06 permite consulta a Operaciones y Facturación; Omar y Administración pueden editar', () => {
+	it('Sección 06 permite asignar edición individual a usuarios de Operaciones', () => {
 		const modulo = 'liquidaciones-servicios-seccion06'
 		expect(checkAccess('administracion', modulo)).toEqual({ allowed: true, level: 'full' })
 		expect(checkAccess('operaciones', modulo, null, OMAR_OPERACIONES_ID)).toEqual({ allowed: true, level: 'full' })
 		expect(checkAccess('operaciones', modulo)).toEqual({ allowed: true, level: 'read' })
+		expect(checkAccess('operaciones', modulo, { [modulo]: 'full' }, 'otro-usuario')).toEqual({
+			allowed: true,
+			level: 'full'
+		})
 		expect(checkAccess('facturacion', modulo)).toEqual({ allowed: true, level: 'read' })
 		expect(checkAccess('contabilidad', modulo)).toEqual({ allowed: false, level: null })
 		expect(checkAccess('operaciones', modulo, { [modulo]: 'read' }, OMAR_OPERACIONES_ID)).toEqual({

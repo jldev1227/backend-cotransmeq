@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma'
-import { getAccessibleModules, normalizarRutasOverride } from '../../config/permissions'
+import { AREAS, getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 import { filtroNotificacionesPermitidas } from './permisos-notificaciones'
 
 async function whereNotificacionesPermitidas(usuario_id: string) {
@@ -8,7 +8,12 @@ async function whereNotificacionesPermitidas(usuario_id: string) {
     select: { id: true, area: true, permisos_rutas: true },
   })
   if (!usuario) return { usuario_id, referencia_tipo: '__sin_permiso__' }
-  const modulos = getAccessibleModules(usuario.area, normalizarRutasOverride(usuario.permisos_rutas), usuario.id)
+  const areas = usuario.area.filter((area): area is Area => AREAS.includes(area as Area))
+  const modulos = getAccessibleModules(
+    areas,
+    normalizarRutasOverride(usuario.permisos_rutas),
+    usuario.id,
+  )
   return { usuario_id, ...filtroNotificacionesPermitidas(modulos) }
 }
 
