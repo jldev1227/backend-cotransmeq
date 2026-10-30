@@ -126,6 +126,12 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
     description: 'Gestión de servicios de transporte'
   },
 
+  rastreo_servicios: {
+    full: ['administracion'],
+    read: ['operaciones', 'hseq', 'mantenimiento', 'talento_humano'],
+    description: 'Seguimiento GPS consentido de servicios activos'
+  },
+
   recargos: {
     full: ['administracion', 'operaciones'],
     read: ['talento_humano'],

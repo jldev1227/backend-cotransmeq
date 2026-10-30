@@ -52,6 +52,7 @@ resuelve por área; `role` no concede permisos.
 | `flota` | F | F | F | F | F | F | F | Gestión de flota vehicular |
 | `conductores` | F | F | F | F | F | F | F | Gestión de conductores |
 | `personal` | F | F | F | F | F | F | F | Directorio unificado de personal |
+| `rastreo_servicios` | F | R | — | — | R | R | R | Seguimiento GPS consentido de servicios activos |
 | `servicios` | F | F | — | R | R | R | — | Gestión de servicios de transporte |
 | `recargos` | F | F | — | — | R | — | — | Gestión de recargos/planillas |
 | `clientes` | F | F | F | F | F | F | F | Gestión de clientes/empresas |
