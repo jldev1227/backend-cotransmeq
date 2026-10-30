@@ -101,6 +101,166 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Cursos privados para personal administrativo y conductores.
+model CapCurso {
+  id                 String          @id @default(uuid()) @db.Uuid
+  codigo             String?         @unique @db.VarChar(50)
+  slug               String?         @unique @db.VarChar(200)
+  titulo             String          @db.VarChar(180)
+  descripcion        String?         @db.Text
+  portadaUrl         String?         @map("portada_url") @db.Text
+  duracionHoras      Int             @default(0) @map("duracion_horas")
+  configuracion      Json            @default("{}")
+  estado             String          @default("borrador") @db.VarChar(20)
+  puntajeAprobacion  Int             @default(80) @map("puntaje_aprobacion")
+  requiereBiometria  Boolean         @default(false) @map("requiere_biometria")
+  vigenciaDias       Int?            @map("vigencia_dias")
+  creadoPor          String?         @map("creado_por") @db.Uuid
+  publicadoAt        DateTime?       @map("publicado_at") @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  modulos            CapModulo[]
+  preguntas          CapPregunta[]
+  asignaciones       CapAsignacion[]
+  archivos           CapArchivo[]
+
+  @@map("cap_cursos")
+}
+
+model CapArchivo {
+  id         String    @id @default(uuid()) @db.Uuid
+  cursoId    String    @map("curso_id") @db.Uuid
+  nombre     String    @db.VarChar(255)
+  tipo       String    @db.VarChar(20)
+  mime       String    @db.VarChar(120)
+  tamano     Int
+  clave      String    @unique @db.Text
+  estado     String    @default("pendiente") @db.VarChar(20)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  curso      CapCurso  @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+
+  @@index([cursoId, createdAt])
+  @@map("cap_archivos")
+}
+
+model CapModulo {
+  id         String       @id @default(uuid()) @db.Uuid
+  cursoId    String       @map("curso_id") @db.Uuid
+  titulo     String       @db.VarChar(180)
+  orden      Int          @default(0)
+  curso      CapCurso     @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  lecciones  CapLeccion[]
+
+  @@index([cursoId, orden])
+  @@map("cap_modulos")
+}
+
+model CapLeccion {
+  id              String         @id @default(uuid()) @db.Uuid
+  moduloId        String         @map("modulo_id") @db.Uuid
+  titulo          String         @db.VarChar(180)
+  tipo            String         @db.VarChar(30)
+  contenido       Json
+  duracionSeg     Int            @default(0) @map("duracion_seg")
+  obligatoria     Boolean        @default(true)
+  orden           Int            @default(0)
+  modulo          CapModulo      @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  progresos       CapProgreso[]
+
+  @@index([moduloId, orden])
+  @@map("cap_lecciones")
+}
+
+model CapAsignacion {
+  id                    String           @id @default(uuid()) @db.Uuid
+  cursoId               String           @map("curso_id") @db.Uuid
+  personaTipo           String           @map("persona_tipo") @db.VarChar(20)
+  personaId             String           @map("persona_id") @db.Uuid
+  estado                String           @default("pendiente") @db.VarChar(20)
+  asignadoAt            DateTime         @default(now()) @map("asignado_at") @db.Timestamptz(6)
+  completadoAt          DateTime?        @map("completado_at") @db.Timestamptz(6)
+  biometriaVerificadaAt DateTime?        @map("biometria_verificada_at") @db.Timestamptz(6)
+  curso                 CapCurso         @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  progresos             CapProgreso[]
+  intentos              CapIntento[]
+  certificado           CapCertificado?
+
+  @@unique([cursoId, personaTipo, personaId])
+  @@index([personaTipo, personaId])
+  @@map("cap_asignaciones")
+}
+
+model CapProgreso {
+  id             String        @id @default(uuid()) @db.Uuid
+  asignacionId   String        @map("asignacion_id") @db.Uuid
+  leccionId      String        @map("leccion_id") @db.Uuid
+  porcentaje     Int           @default(0)
+  segundosVistos Int           @default(0) @map("segundos_vistos")
+  completadoAt   DateTime?     @map("completado_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  asignacion     CapAsignacion @relation(fields: [asignacionId], references: [id], onDelete: Cascade)
+  leccion        CapLeccion    @relation(fields: [leccionId], references: [id], onDelete: Cascade)
+
+  @@unique([asignacionId, leccionId])
+  @@map("cap_progresos")
+}
+
+model CapPregunta {
+  id               String      @id @default(uuid()) @db.Uuid
+  cursoId          String      @map("curso_id") @db.Uuid
+  enunciado        String      @db.Text
+  opciones         Json
+  respuestaIndice  Int         @map("respuesta_indice")
+  orden            Int         @default(0)
+  curso            CapCurso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+
+  @@index([cursoId, orden])
+  @@map("cap_preguntas")
+}
+
+model CapIntento {
+  id           String        @id @default(uuid()) @db.Uuid
+  asignacionId String        @map("asignacion_id") @db.Uuid
+  respuestas   Json
+  puntaje      Int
+  aprobado     Boolean
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  asignacion   CapAsignacion @relation(fields: [asignacionId], references: [id], onDelete: Cascade)
+
+  @@index([asignacionId, createdAt])
+  @@map("cap_intentos")
+}
+
+model CapCertificado {
+  id           String        @id @default(uuid()) @db.Uuid
+  asignacionId String        @unique @map("asignacion_id") @db.Uuid
+  codigo       String        @unique @db.VarChar(36)
+  nombre       String        @db.VarChar(200)
+  emitidoAt    DateTime      @default(now()) @map("emitido_at") @db.Timestamptz(6)
+  vigenteHasta DateTime?     @map("vigente_hasta") @db.Timestamptz(6)
+  asignacion   CapAsignacion @relation(fields: [asignacionId], references: [id], onDelete: Cascade)
+
+  @@map("cap_certificados")
+}
+
+/// Solo se guarda el vector cifrado; nunca una imagen del rostro.
+model CapBiometria {
+  id          String   @id @default(uuid()) @db.Uuid
+  personaTipo String   @map("persona_tipo") @db.VarChar(20)
+  personaId   String   @map("persona_id") @db.Uuid
+  cifrado     String   @db.Text
+  iv          String   @db.VarChar(40)
+  authTag     String   @map("auth_tag") @db.VarChar(40)
+  modelo      String   @db.VarChar(80)
+  calidad     Float
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([personaTipo, personaId])
+  @@map("cap_biometria")
+}
+
 model SequelizeMeta {
   name String @id @db.VarChar(255)
 }

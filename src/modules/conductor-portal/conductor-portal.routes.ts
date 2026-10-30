@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
 import { registrarViaticosPortal } from '../viaticos/viaticos-portal.routes'
+import { capacitacionesPortalRoutes } from '../capacitaciones/capacitaciones.routes'
 import { registrarExtractosPortal } from './extractos-portal.routes'
 import { crearLimitador, limitesEnvioDeEnlace, MINUTO, preHandlerLimite } from '../../utils/limitador'
 
@@ -417,6 +418,7 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
 
   app.register(async function protectedRoutes(protectedApp) {
     protectedApp.addHook('onRequest', portalAuthMiddleware)
+    protectedApp.register(capacitacionesPortalRoutes)
 
     protectedApp.post('/conductor-portal/dispositivos-push', {
       schema: {

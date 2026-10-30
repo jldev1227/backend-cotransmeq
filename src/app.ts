@@ -83,6 +83,7 @@ import { mcpRoutes } from './modules/mcp/mcp.routes'
 import { viaticosRoutes } from './modules/viaticos/viaticos.routes'
 import { appUsuariosRoutes } from './modules/app-usuarios/app-usuarios.routes'
 import { misCapacitacionesRoutes } from './modules/mis-capacitaciones/mis-capacitaciones.routes'
+import { capacitacionesRoutes, capacitacionesPublicRoutes } from './modules/capacitaciones/capacitaciones.routes'
 import { mapsRoutes } from './modules/maps/maps.routes'
 import { solicitudesWebPublicRoutes, solicitudesWebRoutes } from './modules/solicitudes-web/solicitudes-web.routes'
 import { encuestasPublicRoutes, encuestasRoutes } from './modules/encuestas/encuestas.routes'
@@ -185,6 +186,8 @@ export function buildApp() {
     app.register(usuariosRoutes, { prefix: '/api' })
     app.register(actividadRoutes, { prefix: '/api' })
     app.register(dashboardRoutes, { prefix: '/api' })
+    app.register(capacitacionesRoutes, { prefix: '/api' })
+    app.register(capacitacionesPublicRoutes, { prefix: '/api' })
     app.register(vehiculosRoutes, { prefix: '/api' })
     app.register(vehiculosDocumentosRoutes, { prefix: '/api' })
     app.register(incidentesRoutes, { prefix: '/api' })
