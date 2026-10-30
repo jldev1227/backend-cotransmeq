@@ -353,7 +353,7 @@ describe('avisos', () => {
     const periodo = resolverPeriodo({ desde: `${HOY.slice(0, 7)}-01`, hasta: HOY })
     const comoMantenimiento = (await seccionMantenimiento({
       periodo,
-      modulos: getAccessibleModules('usuario', ['mantenimiento'], null),
+      modulos: getAccessibleModules(['mantenimiento'], null, mant.id),
       user: { id: mant.id, role: 'usuario', area: ['mantenimiento'] },
     })) as any
     expect(comoMantenimiento.planes.items.some((p: any) => p.id === planB && p.estado === 'vencido')).toBe(true)
@@ -365,7 +365,7 @@ describe('avisos', () => {
 
     const comoAdmin = (await seccionMantenimiento({
       periodo,
-      modulos: getAccessibleModules('admin', ['administracion'], null),
+      modulos: getAccessibleModules(['administracion'], null, 'x'),
       user: { id: 'x', role: 'admin', area: ['administracion'] },
     })) as any
     expect(comoAdmin.enlaces.envios).toBe('/dashboard/formularios?vista=envios')

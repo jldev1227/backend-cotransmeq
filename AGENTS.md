@@ -89,11 +89,9 @@ no existe; `npm run docs:inventario` regenera `docs/api/inventario.md`.
 **CI antes de desplegar** (`.github/workflows/deploy.yml`). `verificar` corre en
 `ubuntu-latest` —no en el runner del servidor, para no quitarle RAM a
 producción—: `npm ci`, `prisma generate`, `npm run typecheck` y las suites puras
-(`vitest.nomina`, `vitest.formularios`, `vitest.declaracion`). `deploy` lleva
-`needs: verificar`. `suite-con-base` corre la suite completa contra un Postgres
-del propio runner (`TEST_DB_SIN_DOCKER=1 npm run test:setup`), pero es
-**informativa** (`continue-on-error`) mientras arrastre fallos viejos; cuando
-esté en verde, va a `needs`.
+(`vitest.nomina`, `vitest.formularios`, `vitest.declaracion`). `suite-con-base`
+corre la suite completa contra un Postgres del propio runner
+(`TEST_DB_SIN_DOCKER=1 npm run test:setup`) y también es requisito de `deploy`.
 
 **Apagado ordenado** (`src/lib/apagado.ts`). Docker manda SIGTERM en cada
 despliegue; el proceso deja de aceptar peticiones, cierra sockets, espera a que

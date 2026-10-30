@@ -145,7 +145,7 @@ describe('órdenes de trabajo', () => {
 
 describe('sección «Mantenimiento» del panel', () => {
   const visibles = (area: string[], role = 'usuario') =>
-    seccionesVisibles({ id: 'x', role, area }, getAccessibleModules(role, area as any, null)).map((s) => s.id)
+    seccionesVisibles({ id: 'x', role, area }, getAccessibleModules(area as any, null, 'x')).map((s) => s.id)
 
   it('el área mantenimiento ve su propia sección (antes exigía `formularios`)', () => {
     expect(visibles(['mantenimiento'])).toContain('mantenimiento')

@@ -121,7 +121,8 @@ desfase).
 
 El formulario con `creado_por`, `_count.respuestas` y todas sus `respuestas`
 (de la más reciente a la más antigua, completas: firma, IP, user agent,
-huella). No filtra formularios eliminados. 404 `Formulario no encontrado`.
+huella). Los formularios retirados no se exponen; responden 404 `Formulario no
+encontrado`. Sus firmas históricas permanecen guardadas.
 
 ### `PUT /api/asistencias/formularios/:id`
 
@@ -134,7 +135,8 @@ si el formulario no existe.
 
 ### `DELETE /api/asistencias/formularios/:id`
 
-Borrado lógico (`deleted_at`). No toca `activo` ni las firmas. Responde
+Borrado lógico (`deleted_at`). No toca `activo` ni destruye las firmas. El
+detalle y el enlace público dejan de exponer el formulario retirado. Responde
 `{ success, message }`; 500 si no existe.
 
 ### `PATCH /api/asistencias/formularios/estado`
@@ -164,10 +166,10 @@ No comprueba que el formulario exista: con un id desconocido devuelve `[]`.
 
 - `GET /api/asistencias/formularios/:id/exportar`: Excel con la hoja
   «Información» (datos del evento y total de asistentes) y, si hay firmas, la
-  hoja «Asistentes» (sin las imágenes de firma).
+  hoja «Asistentes» (sin las imágenes de firma ni su contenido Base64).
   `Content-Disposition: attachment; filename="asistencia_<temática>_<fecha>.xlsx"`.
-- `GET /api/asistencias/formularios/:id/exportar-pdf`: PDF del evento con las firmas (pdfkit,
-  `pdf-generator.service.ts`). Aquí `:id` no se valida como uuid.
+- `GET /api/asistencias/formularios/:id/exportar-pdf`: PDF del evento con las
+  firmas (`pdf-generator.service.ts`). Aquí `:id` no se valida como uuid.
 - `GET /api/asistencias/formularios/ids`: mismos filtros que el listado (aquí `desde` y
   `hasta` con otro formato dan 400). Responde
   `{ success, data: [ids], activos: [ids de los activos] }`, para que la barra
@@ -196,7 +198,7 @@ salen 500, también el de un formulario inexistente.
   "tipo_evento_otro": null, "lugar_sede": "…", "nombre_instructor": "…", "activo": true, "created_at": "…" } }
 ```
 
-**Errores**: 404 `Formulario no encontrado`; 403
+**Errores**: 404 `Formulario no encontrado` (incluye formularios retirados); 403
 `Este formulario ya no está disponible` si está cerrado.
 
 ### `GET /api/public/asistencias/:token/verificar`

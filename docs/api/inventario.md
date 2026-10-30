@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-786 rutas en 64 módulos, más `GET /` (salud) y las que
+841 rutas en 66 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -17,6 +17,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`asistente`](./asistente.md) | 2 |
 | [`auth`](./auth.md) | 11 |
 | [`canvas-anotaciones`](./canvas-anotaciones.md) | 1 |
+| `capacitaciones` | 43 |
 | [`cartera`](./cartera.md) | 7 |
 | [`certificados-tributarios`](./certificados-tributarios.md) | 22 |
 | [`clientes`](./clientes.md) | 15 |
@@ -29,10 +30,10 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`dashboard`](./dashboard.md) | 5 |
 | [`dias-laborados`](./dias-laborados.md) | 19 |
 | [`documentos`](./documentos.md) | 5 |
-| [`encuestas`](./encuestas.md) | 14 |
+| [`encuestas`](./encuestas.md) | 16 |
 | [`evaluaciones`](./evaluaciones.md) | 14 |
 | [`extractos`](./extractos.md) | 14 |
-| [`facturacion-liquidaciones`](./facturacion-liquidaciones.md) | 11 |
+| [`facturacion-liquidaciones`](./facturacion-liquidaciones.md) | 12 |
 | [`formularios-dinamicos`](./formularios-dinamicos.md) | 62 |
 | [`formularios-sarlaft`](./formularios-sarlaft.md) | 13 |
 | [`incidentes`](./incidentes.md) | 17 |
@@ -67,9 +68,10 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`salidas-nc`](./salidas-nc.md) | 8 |
 | [`servicios`](./servicios.md) | 19 |
 | [`sesiones`](./sesiones.md) | 6 |
+| [`simit`](./simit.md) | 8 |
 | [`solicitudes-web`](./solicitudes-web.md) | 5 |
 | [`terceros`](./terceros.md) | 7 |
-| [`usuarios`](./usuarios.md) | 13 |
+| [`usuarios`](./usuarios.md) | 14 |
 | [`vehiculos`](./vehiculos.md) | 11 |
 | [`vehiculos-documentos`](./vehiculos-documentos.md) | 6 |
 | [`viaticos`](./viaticos.md) | 30 |
@@ -109,8 +111,8 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/actividad` | `src/modules/actividad/actividad.routes.ts:47` |
-| GET | `/api/actividad/opciones` | `src/modules/actividad/actividad.routes.ts:105` |
+| GET | `/api/actividad` | `src/modules/actividad/actividad.routes.ts:62` |
+| GET | `/api/actividad/opciones` | `src/modules/actividad/actividad.routes.ts:120` |
 
 ## analitica-individual
 
@@ -178,6 +180,54 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | Método | Ruta | Declarada en |
 |---|---|---|
 | GET | `/api/canvas-anotaciones` | `src/modules/canvas-anotaciones/canvas-anotaciones.routes.ts:15` |
+
+## capacitaciones
+
+| Método | Ruta | Declarada en |
+|---|---|---|
+| GET | `/api/capacitaciones/archivos/:id/contenido` | `src/modules/capacitaciones/capacitaciones.routes.ts:178` |
+| DELETE | `/api/capacitaciones/biometria` | `src/modules/capacitaciones/capacitaciones.routes.ts:96` |
+| GET | `/api/capacitaciones/biometria` | `src/modules/capacitaciones/capacitaciones.routes.ts:92` |
+| POST | `/api/capacitaciones/biometria/enrolar` | `src/modules/capacitaciones/capacitaciones.routes.ts:93` |
+| GET | `/api/capacitaciones/certificados/verificar/:codigo` | `src/modules/capacitaciones/capacitaciones.routes.ts:214` |
+| GET | `/api/capacitaciones/cursos` | `src/modules/capacitaciones/capacitaciones.routes.ts:85` |
+| GET | `/api/capacitaciones/cursos/:id` | `src/modules/capacitaciones/capacitaciones.routes.ts:86` |
+| POST | `/api/capacitaciones/cursos/:id/biometria/verificar` | `src/modules/capacitaciones/capacitaciones.routes.ts:94` |
+| GET | `/api/capacitaciones/cursos/:id/certificado` | `src/modules/capacitaciones/capacitaciones.routes.ts:97` |
+| GET | `/api/capacitaciones/cursos/:id/certificado/pdf` | `src/modules/capacitaciones/capacitaciones.routes.ts:102` |
+| POST | `/api/capacitaciones/cursos/:id/evaluacion` | `src/modules/capacitaciones/capacitaciones.routes.ts:90` |
+| PUT | `/api/capacitaciones/cursos/:id/lecciones/:leccionId/progreso` | `src/modules/capacitaciones/capacitaciones.routes.ts:88` |
+| GET | `/api/capacitaciones/gestion/acceso` | `src/modules/capacitaciones/capacitaciones.routes.ts:128` |
+| POST | `/api/capacitaciones/gestion/archivos/:id/confirmar` | `src/modules/capacitaciones/capacitaciones.routes.ts:137` |
+| POST | `/api/capacitaciones/gestion/archivos/:id/contenido` | `src/modules/capacitaciones/capacitaciones.routes.ts:143` |
+| POST | `/api/capacitaciones/gestion/archivos/:id/multipart/abortar` | `src/modules/capacitaciones/capacitaciones.routes.ts:140` |
+| POST | `/api/capacitaciones/gestion/archivos/:id/multipart/completar` | `src/modules/capacitaciones/capacitaciones.routes.ts:138` |
+| GET | `/api/capacitaciones/gestion/archivos/:id/url` | `src/modules/capacitaciones/capacitaciones.routes.ts:142` |
+| GET | `/api/capacitaciones/gestion/cursos` | `src/modules/capacitaciones/capacitaciones.routes.ts:129` |
+| POST | `/api/capacitaciones/gestion/cursos` | `src/modules/capacitaciones/capacitaciones.routes.ts:155` |
+| GET | `/api/capacitaciones/gestion/cursos/:id` | `src/modules/capacitaciones/capacitaciones.routes.ts:153` |
+| PUT | `/api/capacitaciones/gestion/cursos/:id` | `src/modules/capacitaciones/capacitaciones.routes.ts:156` |
+| GET | `/api/capacitaciones/gestion/cursos/:id/archivos` | `src/modules/capacitaciones/capacitaciones.routes.ts:134` |
+| POST | `/api/capacitaciones/gestion/cursos/:id/archivos/iniciar` | `src/modules/capacitaciones/capacitaciones.routes.ts:135` |
+| POST | `/api/capacitaciones/gestion/cursos/:id/asignaciones` | `src/modules/capacitaciones/capacitaciones.routes.ts:168` |
+| POST | `/api/capacitaciones/gestion/cursos/:id/modulos` | `src/modules/capacitaciones/capacitaciones.routes.ts:157` |
+| PUT | `/api/capacitaciones/gestion/cursos/:id/modulos/:moduloId` | `src/modules/capacitaciones/capacitaciones.routes.ts:158` |
+| PUT | `/api/capacitaciones/gestion/cursos/:id/preguntas` | `src/modules/capacitaciones/capacitaciones.routes.ts:166` |
+| DELETE | `/api/capacitaciones/gestion/lecciones/:id` | `src/modules/capacitaciones/capacitaciones.routes.ts:165` |
+| DELETE | `/api/capacitaciones/gestion/modulos/:id` | `src/modules/capacitaciones/capacitaciones.routes.ts:160` |
+| POST | `/api/capacitaciones/gestion/modulos/:moduloId/lecciones` | `src/modules/capacitaciones/capacitaciones.routes.ts:161` |
+| PUT | `/api/capacitaciones/gestion/modulos/:moduloId/lecciones/:leccionId` | `src/modules/capacitaciones/capacitaciones.routes.ts:163` |
+| GET | `/api/capacitaciones/gestion/personas` | `src/modules/capacitaciones/capacitaciones.routes.ts:133` |
+| DELETE | `/api/conductor-portal/capacitaciones/biometria` | `src/modules/capacitaciones/capacitaciones.routes.ts:96` |
+| GET | `/api/conductor-portal/capacitaciones/biometria` | `src/modules/capacitaciones/capacitaciones.routes.ts:92` |
+| POST | `/api/conductor-portal/capacitaciones/biometria/enrolar` | `src/modules/capacitaciones/capacitaciones.routes.ts:93` |
+| GET | `/api/conductor-portal/capacitaciones/cursos` | `src/modules/capacitaciones/capacitaciones.routes.ts:85` |
+| GET | `/api/conductor-portal/capacitaciones/cursos/:id` | `src/modules/capacitaciones/capacitaciones.routes.ts:86` |
+| POST | `/api/conductor-portal/capacitaciones/cursos/:id/biometria/verificar` | `src/modules/capacitaciones/capacitaciones.routes.ts:94` |
+| GET | `/api/conductor-portal/capacitaciones/cursos/:id/certificado` | `src/modules/capacitaciones/capacitaciones.routes.ts:97` |
+| GET | `/api/conductor-portal/capacitaciones/cursos/:id/certificado/pdf` | `src/modules/capacitaciones/capacitaciones.routes.ts:102` |
+| POST | `/api/conductor-portal/capacitaciones/cursos/:id/evaluacion` | `src/modules/capacitaciones/capacitaciones.routes.ts:90` |
+| PUT | `/api/conductor-portal/capacitaciones/cursos/:id/lecciones/:leccionId/progreso` | `src/modules/capacitaciones/capacitaciones.routes.ts:88` |
 
 ## cartera
 
@@ -258,48 +308,48 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| POST | `/api/conductor-portal/acceso-revision` | `src/modules/conductor-portal/conductor-portal.routes.ts:202` |
-| GET | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2377` |
-| POST | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2393` |
-| GET | `/api/conductor-portal/capacitaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2362` |
-| GET | `/api/conductor-portal/desprendibles` | `src/modules/conductor-portal/conductor-portal.routes.ts:467` |
-| GET | `/api/conductor-portal/desprendibles/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:861` |
-| GET | `/api/conductor-portal/desprendibles/:id/datos` | `src/modules/conductor-portal/conductor-portal.routes.ts:618` |
-| POST | `/api/conductor-portal/desprendibles/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1021` |
-| GET | `/api/conductor-portal/desprendibles/:id/pdf` | `src/modules/conductor-portal/conductor-portal.routes.ts:666` |
-| GET | `/api/conductor-portal/dias-laborados/clientes` | `src/modules/conductor-portal/conductor-portal.routes.ts:1988` |
-| GET | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1648` |
-| POST | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1728` |
-| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha` | `src/modules/conductor-portal/conductor-portal.routes.ts:1841` |
-| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:1971` |
-| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id/complete` | `src/modules/conductor-portal/conductor-portal.routes.ts:1950` |
-| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init` | `src/modules/conductor-portal/conductor-portal.routes.ts:1934` |
-| GET | `/api/conductor-portal/dias-laborados/vehiculos` | `src/modules/conductor-portal/conductor-portal.routes.ts:2003` |
-| DELETE | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:456` |
-| POST | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:425` |
-| GET | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2414` |
-| POST | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2430` |
+| POST | `/api/conductor-portal/acceso-revision` | `src/modules/conductor-portal/conductor-portal.routes.ts:199` |
+| GET | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2375` |
+| POST | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2391` |
+| GET | `/api/conductor-portal/capacitaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2360` |
+| GET | `/api/conductor-portal/desprendibles` | `src/modules/conductor-portal/conductor-portal.routes.ts:465` |
+| GET | `/api/conductor-portal/desprendibles/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:859` |
+| GET | `/api/conductor-portal/desprendibles/:id/datos` | `src/modules/conductor-portal/conductor-portal.routes.ts:616` |
+| POST | `/api/conductor-portal/desprendibles/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1019` |
+| GET | `/api/conductor-portal/desprendibles/:id/pdf` | `src/modules/conductor-portal/conductor-portal.routes.ts:664` |
+| GET | `/api/conductor-portal/dias-laborados/clientes` | `src/modules/conductor-portal/conductor-portal.routes.ts:1986` |
+| GET | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1646` |
+| POST | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1726` |
+| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha` | `src/modules/conductor-portal/conductor-portal.routes.ts:1839` |
+| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:1969` |
+| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id/complete` | `src/modules/conductor-portal/conductor-portal.routes.ts:1948` |
+| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init` | `src/modules/conductor-portal/conductor-portal.routes.ts:1932` |
+| GET | `/api/conductor-portal/dias-laborados/vehiculos` | `src/modules/conductor-portal/conductor-portal.routes.ts:2001` |
+| DELETE | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:454` |
+| POST | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:423` |
+| GET | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2412` |
+| POST | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2428` |
 | GET | `/api/conductor-portal/extractos` | `src/modules/conductor-portal/extractos-portal.routes.ts:42` |
 | GET | `/api/conductor-portal/extractos/:id` | `src/modules/conductor-portal/extractos-portal.routes.ts:50` |
 | GET | `/api/conductor-portal/extractos/:id/pdf` | `src/modules/conductor-portal/extractos-portal.routes.ts:61` |
-| GET | `/api/conductor-portal/notificaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2026` |
-| POST | `/api/conductor-portal/notificaciones/:id/leida` | `src/modules/conductor-portal/conductor-portal.routes.ts:2074` |
-| GET | `/api/conductor-portal/prima/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:749` |
-| GET | `/api/conductor-portal/primas` | `src/modules/conductor-portal/conductor-portal.routes.ts:1216` |
-| GET | `/api/conductor-portal/primas/:id/enriquecida` | `src/modules/conductor-portal/conductor-portal.routes.ts:1412` |
-| GET | `/api/conductor-portal/primas/:id/firma` | `src/modules/conductor-portal/conductor-portal.routes.ts:1549` |
-| POST | `/api/conductor-portal/primas/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1286` |
-| GET | `/api/conductor-portal/servicios` | `src/modules/conductor-portal/conductor-portal.routes.ts:2097` |
-| GET | `/api/conductor-portal/servicios/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2206` |
-| GET | `/api/conductor-portal/servicios/:id/ejecucion` | `src/modules/conductor-portal/conductor-portal.routes.ts:2469` |
-| POST | `/api/conductor-portal/servicios/:id/iniciar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2485` |
-| POST | `/api/conductor-portal/servicios/:id/liberar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2501` |
-| POST | `/api/conductor-portal/servicios/:id/recomendaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2517` |
-| GET | `/api/conductor-portal/servicios/:id/via` | `src/modules/conductor-portal/conductor-portal.routes.ts:2317` |
-| POST | `/api/conductor-portal/solicitar-acceso` | `src/modules/conductor-portal/conductor-portal.routes.ts:275` |
+| GET | `/api/conductor-portal/notificaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2024` |
+| POST | `/api/conductor-portal/notificaciones/:id/leida` | `src/modules/conductor-portal/conductor-portal.routes.ts:2072` |
+| GET | `/api/conductor-portal/prima/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:747` |
+| GET | `/api/conductor-portal/primas` | `src/modules/conductor-portal/conductor-portal.routes.ts:1214` |
+| GET | `/api/conductor-portal/primas/:id/enriquecida` | `src/modules/conductor-portal/conductor-portal.routes.ts:1410` |
+| GET | `/api/conductor-portal/primas/:id/firma` | `src/modules/conductor-portal/conductor-portal.routes.ts:1547` |
+| POST | `/api/conductor-portal/primas/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1284` |
+| GET | `/api/conductor-portal/servicios` | `src/modules/conductor-portal/conductor-portal.routes.ts:2095` |
+| GET | `/api/conductor-portal/servicios/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2204` |
+| GET | `/api/conductor-portal/servicios/:id/ejecucion` | `src/modules/conductor-portal/conductor-portal.routes.ts:2467` |
+| POST | `/api/conductor-portal/servicios/:id/iniciar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2483` |
+| POST | `/api/conductor-portal/servicios/:id/liberar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2499` |
+| POST | `/api/conductor-portal/servicios/:id/recomendaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2515` |
+| GET | `/api/conductor-portal/servicios/:id/via` | `src/modules/conductor-portal/conductor-portal.routes.ts:2315` |
+| POST | `/api/conductor-portal/solicitar-acceso` | `src/modules/conductor-portal/conductor-portal.routes.ts:272` |
 | GET | `/api/conductor-portal/vehiculos/:vehiculoId/documentos/:documentoId/url` | `src/modules/conductor-portal/extractos-portal.routes.ts:82` |
 | GET | `/api/conductor-portal/vehiculos/documentos` | `src/modules/conductor-portal/extractos-portal.routes.ts:74` |
-| GET | `/api/conductor-portal/verificar-token` | `src/modules/conductor-portal/conductor-portal.routes.ts:356` |
+| GET | `/api/conductor-portal/verificar-token` | `src/modules/conductor-portal/conductor-portal.routes.ts:353` |
 
 ## conductores
 
@@ -354,35 +404,35 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/dashboard/secciones` | `src/modules/dashboard/dashboard.routes.ts:57` |
-| GET | `/api/dashboard/secciones/:id` | `src/modules/dashboard/dashboard.routes.ts:69` |
-| GET | `/api/dashboard/talento-humano/seguridad-social` | `src/modules/dashboard/dashboard.routes.ts:98` |
-| PUT | `/api/dashboard/talento-humano/seguridad-social` | `src/modules/dashboard/dashboard.routes.ts:102` |
-| POST | `/api/dashboard/talento-humano/seguridad-social/aplicar` | `src/modules/dashboard/dashboard.routes.ts:113` |
+| GET | `/api/dashboard/secciones` | `src/modules/dashboard/dashboard.routes.ts:63` |
+| GET | `/api/dashboard/secciones/:id` | `src/modules/dashboard/dashboard.routes.ts:75` |
+| GET | `/api/dashboard/talento-humano/seguridad-social` | `src/modules/dashboard/dashboard.routes.ts:104` |
+| PUT | `/api/dashboard/talento-humano/seguridad-social` | `src/modules/dashboard/dashboard.routes.ts:108` |
+| POST | `/api/dashboard/talento-humano/seguridad-social/aplicar` | `src/modules/dashboard/dashboard.routes.ts:119` |
 
 ## dias-laborados
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| DELETE | `/api/dias-laborados/admin/registro/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:443` |
-| PUT | `/api/dias-laborados/admin/registro/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:395` |
-| POST | `/api/dias-laborados/admin/registros-masivos` | `src/modules/dias-laborados/dias-laborados.routes.ts:112` |
-| DELETE | `/api/dias-laborados/admin/segmento/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:375` |
-| PUT | `/api/dias-laborados/admin/segmento/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:342` |
-| GET | `/api/dias-laborados/bonos` | `src/modules/dias-laborados/dias-laborados.routes.ts:188` |
-| POST | `/api/dias-laborados/bonos` | `src/modules/dias-laborados/dias-laborados.routes.ts:236` |
-| GET | `/api/dias-laborados/bonos-config-visual` | `src/modules/dias-laborados/dias-laborados.routes.ts:280` |
-| PUT | `/api/dias-laborados/bonos-config-visual` | `src/modules/dias-laborados/dias-laborados.routes.ts:296` |
-| DELETE | `/api/dias-laborados/bonos/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:256` |
-| POST | `/api/dias-laborados/bonos/sync` | `src/modules/dias-laborados/dias-laborados.routes.ts:207` |
-| GET | `/api/dias-laborados/calendar-admin` | `src/modules/dias-laborados/dias-laborados.routes.ts:84` |
-| GET | `/api/dias-laborados/clientes` | `src/modules/dias-laborados/dias-laborados.routes.ts:320` |
-| GET | `/api/dias-laborados/registros` | `src/modules/dias-laborados/dias-laborados.routes.ts:490` |
-| POST | `/api/dias-laborados/registros` | `src/modules/dias-laborados/dias-laborados.routes.ts:467` |
-| DELETE | `/api/dias-laborados/registros/:fecha` | `src/modules/dias-laborados/dias-laborados.routes.ts:506` |
-| POST | `/api/dias-laborados/solicitar-acceso` | `src/modules/dias-laborados/dias-laborados.routes.ts:51` |
-| GET | `/api/dias-laborados/vehiculos` | `src/modules/dias-laborados/dias-laborados.routes.ts:328` |
-| GET | `/api/dias-laborados/verificar-token` | `src/modules/dias-laborados/dias-laborados.routes.ts:67` |
+| DELETE | `/api/dias-laborados/admin/registro/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:449` |
+| PUT | `/api/dias-laborados/admin/registro/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:401` |
+| POST | `/api/dias-laborados/admin/registros-masivos` | `src/modules/dias-laborados/dias-laborados.routes.ts:115` |
+| DELETE | `/api/dias-laborados/admin/segmento/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:381` |
+| PUT | `/api/dias-laborados/admin/segmento/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:348` |
+| GET | `/api/dias-laborados/bonos` | `src/modules/dias-laborados/dias-laborados.routes.ts:190` |
+| POST | `/api/dias-laborados/bonos` | `src/modules/dias-laborados/dias-laborados.routes.ts:239` |
+| GET | `/api/dias-laborados/bonos-config-visual` | `src/modules/dias-laborados/dias-laborados.routes.ts:283` |
+| PUT | `/api/dias-laborados/bonos-config-visual` | `src/modules/dias-laborados/dias-laborados.routes.ts:300` |
+| DELETE | `/api/dias-laborados/bonos/:id` | `src/modules/dias-laborados/dias-laborados.routes.ts:259` |
+| POST | `/api/dias-laborados/bonos/sync` | `src/modules/dias-laborados/dias-laborados.routes.ts:210` |
+| GET | `/api/dias-laborados/calendar-admin` | `src/modules/dias-laborados/dias-laborados.routes.ts:86` |
+| GET | `/api/dias-laborados/clientes` | `src/modules/dias-laborados/dias-laborados.routes.ts:324` |
+| GET | `/api/dias-laborados/registros` | `src/modules/dias-laborados/dias-laborados.routes.ts:496` |
+| POST | `/api/dias-laborados/registros` | `src/modules/dias-laborados/dias-laborados.routes.ts:473` |
+| DELETE | `/api/dias-laborados/registros/:fecha` | `src/modules/dias-laborados/dias-laborados.routes.ts:512` |
+| POST | `/api/dias-laborados/solicitar-acceso` | `src/modules/dias-laborados/dias-laborados.routes.ts:52` |
+| GET | `/api/dias-laborados/vehiculos` | `src/modules/dias-laborados/dias-laborados.routes.ts:333` |
+| GET | `/api/dias-laborados/verificar-token` | `src/modules/dias-laborados/dias-laborados.routes.ts:68` |
 
 ## documentos
 
@@ -398,20 +448,22 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/encuestas` | `src/modules/encuestas/encuestas.routes.ts:57` |
-| POST | `/api/encuestas` | `src/modules/encuestas/encuestas.routes.ts:61` |
-| DELETE | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:112` |
-| GET | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:88` |
-| PUT | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:92` |
-| POST | `/api/encuestas/:id/cerrar` | `src/modules/encuestas/encuestas.routes.ts:102` |
-| POST | `/api/encuestas/:id/duplicar` | `src/modules/encuestas/encuestas.routes.ts:106` |
-| GET | `/api/encuestas/:id/exportar.pdf` | `src/modules/encuestas/encuestas.routes.ts:130` |
-| GET | `/api/encuestas/:id/exportar.xlsx` | `src/modules/encuestas/encuestas.routes.ts:122` |
-| POST | `/api/encuestas/:id/publicar` | `src/modules/encuestas/encuestas.routes.ts:98` |
-| GET | `/api/encuestas/:id/resultados` | `src/modules/encuestas/encuestas.routes.ts:116` |
-| POST | `/api/encuestas/generar` | `src/modules/encuestas/encuestas.routes.ts:68` |
-| GET | `/api/public/encuestas/:token` | `src/modules/encuestas/encuestas.routes.ts:33` |
-| POST | `/api/public/encuestas/:token/respuestas` | `src/modules/encuestas/encuestas.routes.ts:39` |
+| GET | `/api/encuestas` | `src/modules/encuestas/encuestas.routes.ts:85` |
+| POST | `/api/encuestas` | `src/modules/encuestas/encuestas.routes.ts:89` |
+| DELETE | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:144` |
+| GET | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:116` |
+| PUT | `/api/encuestas/:id` | `src/modules/encuestas/encuestas.routes.ts:120` |
+| POST | `/api/encuestas/:id/abrir` | `src/modules/encuestas/encuestas.routes.ts:134` |
+| POST | `/api/encuestas/:id/cerrar` | `src/modules/encuestas/encuestas.routes.ts:130` |
+| POST | `/api/encuestas/:id/duplicar` | `src/modules/encuestas/encuestas.routes.ts:138` |
+| GET | `/api/encuestas/:id/exportar.pdf` | `src/modules/encuestas/encuestas.routes.ts:162` |
+| GET | `/api/encuestas/:id/exportar.xlsx` | `src/modules/encuestas/encuestas.routes.ts:154` |
+| POST | `/api/encuestas/:id/publicar` | `src/modules/encuestas/encuestas.routes.ts:126` |
+| GET | `/api/encuestas/:id/resultados` | `src/modules/encuestas/encuestas.routes.ts:148` |
+| POST | `/api/encuestas/generar` | `src/modules/encuestas/encuestas.routes.ts:96` |
+| GET | `/api/public/encuestas/:token` | `src/modules/encuestas/encuestas.routes.ts:34` |
+| GET | `/api/public/encuestas/:token/eventos` | `src/modules/encuestas/encuestas.routes.ts:40` |
+| POST | `/api/public/encuestas/:token/respuestas` | `src/modules/encuestas/encuestas.routes.ts:67` |
 
 ## evaluaciones
 
@@ -455,17 +507,18 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/facturacion-liquidaciones` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:14` |
-| POST | `/api/facturacion-liquidaciones` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:15` |
-| DELETE | `/api/facturacion-liquidaciones/:id` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:32` |
-| GET | `/api/facturacion-liquidaciones/:id` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:20` |
-| PATCH | `/api/facturacion-liquidaciones/:id/anular` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:31` |
-| PATCH | `/api/facturacion-liquidaciones/:id/condiciones` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:29` |
-| POST | `/api/facturacion-liquidaciones/:id/items` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:24` |
-| DELETE | `/api/facturacion-liquidaciones/:id/items/:liquidacionId` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:25` |
-| PATCH | `/api/facturacion-liquidaciones/:id/restaurar` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:33` |
-| POST | `/api/facturacion-liquidaciones/batch-info` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:36` |
-| GET | `/api/facturacion-liquidaciones/eliminadas` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:18` |
+| GET | `/api/facturacion-liquidaciones` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:16` |
+| POST | `/api/facturacion-liquidaciones` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:17` |
+| DELETE | `/api/facturacion-liquidaciones/:id` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:37` |
+| GET | `/api/facturacion-liquidaciones/:id` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:22` |
+| PATCH | `/api/facturacion-liquidaciones/:id/anular` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:36` |
+| PATCH | `/api/facturacion-liquidaciones/:id/condiciones` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:34` |
+| PATCH | `/api/facturacion-liquidaciones/:id/editar` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:25` |
+| POST | `/api/facturacion-liquidaciones/:id/items` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:29` |
+| DELETE | `/api/facturacion-liquidaciones/:id/items/:liquidacionId` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:30` |
+| PATCH | `/api/facturacion-liquidaciones/:id/restaurar` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:38` |
+| POST | `/api/facturacion-liquidaciones/batch-info` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:41` |
+| GET | `/api/facturacion-liquidaciones/eliminadas` | `src/modules/facturacion-liquidaciones/facturacion-liquidaciones.routes.ts:20` |
 
 ## formularios-dinamicos
 
@@ -677,10 +730,10 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/liquidaciones-terceros` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:14` |
-| GET | `/api/liquidaciones-terceros/:liquidacion_id` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:20` |
-| PUT | `/api/liquidaciones-terceros/:liquidacion_id` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:23` |
-| POST | `/api/liquidaciones-terceros/migrar` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:17` |
+| GET | `/api/liquidaciones-terceros` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:9` |
+| GET | `/api/liquidaciones-terceros/:liquidacion_id` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:23` |
+| PUT | `/api/liquidaciones-terceros/:liquidacion_id` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:30` |
+| POST | `/api/liquidaciones-terceros/migrar` | `src/modules/liquidaciones-terceros/liquidaciones-terceros.routes.ts:16` |
 
 ## liquidaciones-terceros-adicionales
 
@@ -1078,6 +1131,19 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | GET | `/api/sesiones/mis-sesiones` | `src/modules/sesiones/sesiones.routes.ts:26` |
 | DELETE | `/api/sesiones/usuario/:usuarioId` | `src/modules/sesiones/sesiones.routes.ts:23` |
 
+## simit
+
+| Método | Ruta | Declarada en |
+|---|---|---|
+| GET | `/api/simit/conductores/:id` | `src/modules/simit/simit.routes.ts:111` |
+| POST | `/api/simit/conductores/:id/consultar` | `src/modules/simit/simit.routes.ts:48` |
+| GET | `/api/simit/ejecuciones/:id` | `src/modules/simit/simit.routes.ts:91` |
+| POST | `/api/simit/ejecutar-ahora` | `src/modules/simit/simit.routes.ts:79` |
+| GET | `/api/simit/programacion` | `src/modules/simit/simit.routes.ts:24` |
+| PUT | `/api/simit/programacion` | `src/modules/simit/simit.routes.ts:66` |
+| GET | `/api/simit/vehiculos/:id` | `src/modules/simit/simit.routes.ts:100` |
+| POST | `/api/simit/vehiculos/:id/consultar` | `src/modules/simit/simit.routes.ts:30` |
+
 ## solicitudes-web
 
 | Método | Ruta | Declarada en |
@@ -1104,18 +1170,19 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/conductores/basicos` | `src/modules/usuarios/usuarios.routes.ts:32` |
+| GET | `/api/conductores/basicos` | `src/modules/usuarios/usuarios.routes.ts:33` |
 | GET | `/api/usuarios` | `src/modules/usuarios/usuarios.routes.ts:20` |
 | POST | `/api/usuarios` | `src/modules/usuarios/usuarios.routes.ts:17` |
 | GET | `/api/usuarios/:id` | `src/modules/usuarios/usuarios.routes.ts:24` |
 | PUT | `/api/usuarios/:id` | `src/modules/usuarios/usuarios.routes.ts:25` |
-| PATCH | `/api/usuarios/:id/activo` | `src/modules/usuarios/usuarios.routes.ts:26` |
-| DELETE | `/api/usuarios/:id/firma` | `src/modules/usuarios/usuarios.routes.ts:31` |
-| POST | `/api/usuarios/:id/firma` | `src/modules/usuarios/usuarios.routes.ts:30` |
-| PATCH | `/api/usuarios/:id/permisos` | `src/modules/usuarios/usuarios.routes.ts:27` |
+| PATCH | `/api/usuarios/:id/activo` | `src/modules/usuarios/usuarios.routes.ts:27` |
+| DELETE | `/api/usuarios/:id/firma` | `src/modules/usuarios/usuarios.routes.ts:32` |
+| POST | `/api/usuarios/:id/firma` | `src/modules/usuarios/usuarios.routes.ts:31` |
+| PATCH | `/api/usuarios/:id/password` | `src/modules/usuarios/usuarios.routes.ts:26` |
+| PATCH | `/api/usuarios/:id/permisos` | `src/modules/usuarios/usuarios.routes.ts:28` |
 | GET | `/api/usuarios/firmantes` | `src/modules/usuarios/usuarios.routes.ts:21` |
 | GET | `/api/usuarios/online-ids` | `src/modules/usuarios/usuarios.routes.ts:23` |
-| POST | `/api/usuarios/permisos/bonos-planilla` | `src/modules/usuarios/usuarios.routes.ts:29` |
+| POST | `/api/usuarios/permisos/bonos-planilla` | `src/modules/usuarios/usuarios.routes.ts:30` |
 | GET | `/api/usuarios/presencia` | `src/modules/usuarios/usuarios.routes.ts:22` |
 
 ## vehiculos

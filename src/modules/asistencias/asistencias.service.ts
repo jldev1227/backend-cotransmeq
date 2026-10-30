@@ -183,8 +183,8 @@ export class AsistenciasService {
    * Obtener un formulario por ID
    */
   static async obtenerPorId(id: string) {
-    const formulario = await prisma.formularios_asistencia.findUnique({
-      where: { id },
+    const formulario = await prisma.formularios_asistencia.findFirst({
+      where: { id, deleted_at: null },
       include: {
         creado_por: {
           select: {
@@ -225,8 +225,8 @@ export class AsistenciasService {
    * Obtener un formulario por token (público)
    */
   static async obtenerPorToken(token: string) {
-    const formulario = await prisma.formularios_asistencia.findUnique({
-      where: { token }
+    const formulario = await prisma.formularios_asistencia.findFirst({
+      where: { token, deleted_at: null }
     })
 
     if (!formulario) return null
@@ -346,8 +346,8 @@ export class AsistenciasService {
     userAgent: string
   ) {
     // Verificar que el formulario existe y está activo
-    const formulario = await prisma.formularios_asistencia.findUnique({
-      where: { id: formularioId }
+    const formulario = await prisma.formularios_asistencia.findFirst({
+      where: { id: formularioId, deleted_at: null }
     })
 
     if (!formulario) {
@@ -412,9 +412,12 @@ export class AsistenciasService {
   /**
    * Exportar respuestas a Excel
    */
-  static async exportarRespuestas(formularioId: string) {
-    const formulario = await prisma.formularios_asistencia.findUnique({
-      where: { id: formularioId },
+  static async exportarRespuestas(
+    formularioId: string,
+    opciones: { incluirFirmas?: boolean } = {},
+  ) {
+    const formulario = await prisma.formularios_asistencia.findFirst({
+      where: { id: formularioId, deleted_at: null },
       include: {
         respuestas: {
           orderBy: {
@@ -431,16 +434,16 @@ export class AsistenciasService {
     return {
       formulario: {
         tematica: formulario.tematica,
-        objetivo: formulario.objetivo,
+        objetivo: formulario.objetivo ?? undefined,
         fecha: formulario.fecha.toISOString(),
-        hora_inicio: formulario.hora_inicio,
-        hora_finalizacion: formulario.hora_finalizacion,
-        duracion_minutos: formulario.duracion_minutos,
+        hora_inicio: formulario.hora_inicio ?? undefined,
+        hora_finalizacion: formulario.hora_finalizacion ?? undefined,
+        duracion_minutos: formulario.duracion_minutos ?? undefined,
         tipo_evento: formulario.tipo_evento,
-        tipo_evento_otro: formulario.tipo_evento_otro,
-        lugar_sede: formulario.lugar_sede,
-        nombre_instructor: formulario.nombre_instructor,
-        observaciones: formulario.observaciones
+        tipo_evento_otro: formulario.tipo_evento_otro ?? undefined,
+        lugar_sede: formulario.lugar_sede ?? undefined,
+        nombre_instructor: formulario.nombre_instructor ?? undefined,
+        observaciones: formulario.observaciones ?? undefined
       },
       respuestas: formulario.respuestas.map(r => ({
         nombre_completo: r.nombre_completo,
@@ -449,7 +452,7 @@ export class AsistenciasService {
         numero_telefono: r.numero_telefono,
         pertenece_comite: r.pertenece_comite,
         fecha_respuesta: r.created_at.toISOString(),
-        firma: r.firma // Incluir la firma en Base64
+        ...(opciones.incluirFirmas ? { firma: r.firma } : {})
       }))
     }
   }

@@ -362,7 +362,8 @@ describe('guardas en los módulos reales', () => {
   it('usuarios: `sesiones` con nivel de lectura en la lista blanca no administra', async () => {
     const lector = await crearUsuario(['operaciones'], undefined, { role: 'usuario', permisos_rutas: { sesiones: 'read' } })
     const admin = await crearUsuario(['administracion'], undefined, { role: 'usuario' })
-    expect((await pedir('GET', '/api/usuarios', await tokenConSesion(lector.id))).statusCode).toBe(403)
+    /// La lista blanca hace que los módulos denegados parezcan rutas inexistentes.
+    expect((await pedir('GET', '/api/usuarios', await tokenConSesion(lector.id))).statusCode).toBe(404)
     expect((await pedir('GET', '/api/usuarios', await tokenConSesion(admin.id))).statusCode).not.toBe(403)
   })
 

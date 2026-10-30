@@ -462,7 +462,7 @@ export class AsistenciasController {
     try {
       const { id } = request.params as { id: string }
 
-      const data = await AsistenciasService.exportarRespuestas(id)
+      const data = await AsistenciasService.exportarRespuestas(id, { incluirFirmas: true })
 
       // Generar PDF
       const pdfBuffer = await PDFGeneratorService.generarPDFAsistencia(

@@ -129,7 +129,7 @@ afterAll(async () => {
 })
 
 describe('Anular la factura dejando una liquidación en APROBADA', () => {
-  it('la elegida queda APROBADA con su aprobación original; las demás, LIQUIDADA', async () => {
+  it('la elegida queda APROBADA y las seleccionadas para corregir vuelven a LIQUIDADA', async () => {
     const elegida = await crearFacturada(100, aprobadorId)
     const otra = await crearFacturada(200, aprobadorId)
     const facturaId = await crearFactura([
@@ -138,7 +138,8 @@ describe('Anular la factura dejando una liquidación en APROBADA', () => {
     ])
 
     const r = await FacturacionLiquidacionesService.anular(facturaId, usuarioId, 'Error en NIT', {
-      mantenerAprobada: elegida,
+      tipo: 'MODIFICAR_LIQUIDACIONES',
+      liquidaciones_a_liquidar: [otra],
     })
 
     expect(r.estado).toBe('ANULADA')
@@ -161,14 +162,14 @@ describe('Anular la factura dejando una liquidación en APROBADA', () => {
     ])
   })
 
-  it('sin la opción, anular sigue devolviendo todo a LIQUIDADA', async () => {
+  it('sin opciones de corrección, anular conserva la aprobación', async () => {
     const id = await crearFacturada(100, aprobadorId)
     const facturaId = await crearFactura([{ id, valor: 100 }])
 
     await FacturacionLiquidacionesService.anular(facturaId, usuarioId, 'x')
 
     const liq = await prisma.liquidacion_servicio.findUnique({ where: { id } })
-    expect(liq?.estado).toBe('LIQUIDADA')
+    expect(liq?.estado).toBe('APROBADA')
   })
 })
 

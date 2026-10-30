@@ -26,6 +26,8 @@ import {
 } from './seccion-talento-humano'
 import { z } from 'zod'
 import { seccionContabilidad, seccionFacturacion } from './seccion-facturacion'
+import { areasDe } from './secciones'
+import { estadoSimitDashboard } from '../simit/simit.service'
 
 export interface ContextoSeccion {
   periodo: Periodo
@@ -41,6 +43,10 @@ const CONSTRUCTORES: Partial<Record<IdSeccion, (ctx: ContextoSeccion) => Promise
   talento_humano: seccionTalentoHumano,
   facturacion: seccionFacturacion,
   contabilidad: seccionContabilidad,
+  simit: async (ctx) => ({
+    ...await estadoSimitDashboard(),
+    puedeConfigurar: areasDe(ctx.user).includes('administracion'),
+  }),
 }
 
 async function modulosDe(user: any): Promise<Record<string, AccessLevel>> {

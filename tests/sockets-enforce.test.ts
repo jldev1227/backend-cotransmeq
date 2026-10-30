@@ -26,16 +26,21 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import jwt from 'jsonwebtoken'
 import { io as clienteIo, type Socket } from 'socket.io-client'
+import { randomUUID } from 'node:crypto'
 
 vi.mock('pdfmake/build/pdfmake', () => ({ default: {}, createPdf: () => ({}) }))
 vi.mock('pdfmake/build/vfs_fonts', () => ({ default: {}, vfs: {} }))
 
 import { env } from '../src/config/env'
+import { prisma } from '../src/config/prisma'
+import { emitirTokenPortal } from '../src/modules/conductor-portal/portal-token.service'
 import { abrirBanco, type Banco } from './helpers/canvas-servicios'
 import { cerrarPrisma, limpiarUsuariosSembrados, sembrarUsuario } from './helpers/usuarios-prueba'
 
 let banco: Banco
 let tokenDashboard: string
+let tokenPortal: string
+let portalConductorId: string
 
 const abiertos: Socket[] = []
 
@@ -67,6 +72,24 @@ beforeAll(async () => {
 	await limpiarUsuariosSembrados()
 	const usuario = await sembrarUsuario('enforce')
 	tokenDashboard = usuario.token
+	portalConductorId = randomUUID()
+	await prisma.conductores.create({
+		data: {
+			id: portalConductorId,
+			nombre: 'Conductor',
+			apellido: 'Prueba',
+			tipo_identificacion: 'CC',
+			numero_identificacion: `ZZTEST-PORTAL-${portalConductorId}`,
+			created_at: new Date(),
+			updated_at: new Date(),
+		} as any,
+	})
+	tokenPortal = await emitirTokenPortal({
+		id: portalConductorId,
+		numero_identificacion: `ZZTEST-PORTAL-${portalConductorId}`,
+		nombre: 'Conductor',
+		apellido: 'Prueba',
+	})
 	banco = await abrirBanco()
 }, 30_000)
 
@@ -80,6 +103,10 @@ afterAll(async () => {
 		}
 	}
 	await banco?.cerrar()
+	if (portalConductorId) {
+		await prisma.conductores.deleteMany({ where: { id: portalConductorId } })
+	}
+	await prisma.$disconnect()
 	await limpiarUsuariosSembrados()
 	await cerrarPrisma()
 })
@@ -108,23 +135,7 @@ describe('Handshake en modo enforce', () => {
 		expect(r.ok).toBe(true)
 	})
 
-	it('acepta el token del portal del conductor', async () => {
-		/**
-		 * Misma forma que emite `portal-token.service.ts`: `tipo` distinto y sin
-		 * `area` ni `role`, pero firmado con el MISMO `JWT_SECRET`. Es lo que
-		 * hace que `enforce` no rompa el portal.
-		 */
-		const tokenPortal = jwt.sign(
-			{
-				sub: 'conductor-de-prueba',
-				cedula: '1234567890',
-				nombre: 'Conductor Prueba',
-				tipo: 'conductor_portal'
-			},
-			env.JWT_SECRET,
-			{ expiresIn: '30d' }
-		)
-
+	it('acepta un token del portal registrado y vigente', async () => {
 		const r = await conectarCon(tokenPortal)
 		expect(r.ok).toBe(true)
 	})

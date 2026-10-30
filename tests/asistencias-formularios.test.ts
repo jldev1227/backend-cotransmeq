@@ -131,7 +131,7 @@ describe('Asistencias - Formularios CRUD', () => {
     })
 
     it('debe obtener todos los formularios', async () => {
-      const formularios = await AsistenciasService.obtenerTodos()
+      const formularios = (await AsistenciasService.obtenerTodos({ page: 1, limit: 100 })).data
 
       expect(formularios).toBeDefined()
       expect(formularios.length).toBeGreaterThanOrEqual(2)
@@ -141,7 +141,7 @@ describe('Asistencias - Formularios CRUD', () => {
     })
 
     it('debe obtener formulario por ID', async () => {
-      const formularios = await AsistenciasService.obtenerTodos()
+      const formularios = (await AsistenciasService.obtenerTodos({ page: 1, limit: 100 })).data
       const formularioId = formularios[0].id
 
       const formulario = await AsistenciasService.obtenerPorId(formularioId)
@@ -152,7 +152,7 @@ describe('Asistencias - Formularios CRUD', () => {
     })
 
     it('debe obtener formulario por token (público)', async () => {
-      const formularios = await AsistenciasService.obtenerTodos()
+      const formularios = (await AsistenciasService.obtenerTodos({ page: 1, limit: 100 })).data
       const token = formularios[0].token
 
       const formulario = await AsistenciasService.obtenerPorToken(token)
@@ -246,7 +246,7 @@ describe('Asistencias - Formularios CRUD', () => {
       expect(deleted).toBeNull()
     })
 
-    it('debe eliminar formulario y todas sus respuestas (CASCADE)', async () => {
+    it('retira el formulario sin destruir sus respuestas históricas', async () => {
       const formulario = await AsistenciasService.crear({
         tematica: 'Formulario con Respuestas',
         fecha: new Date('2026-02-05').toISOString(),
@@ -291,7 +291,7 @@ describe('Asistencias - Formularios CRUD', () => {
       const respuestasDespues = await prisma.respuestas_asistencia.count({
         where: { formulario_id: formulario.id }
       })
-      expect(respuestasDespues).toBe(0)
+      expect(respuestasDespues).toBe(2)
     })
   })
 

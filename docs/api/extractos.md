@@ -36,6 +36,9 @@ Reglas que un integrador necesita saber:
   en la misma transacción: el extracto es la fuente primaria de esa vigencia.
   `actualizar_fichas: false` solo omite los demás datos de las fichas
   (vehículo y cédula del conductor).
+- Cada conductor debe tener un nombre que identifique a una persona. Se rechazan
+  celdas vacías, marcadores como `N/A` y valores sin letras como `0`; así el
+  sincronizador no crea fichas fantasma a partir de celdas mal parseadas.
 - El convenio se imprime `N/A` si viene vacío o es la propia empresa
   (variantes en `FUEC.afiliacion_propia`).
 - Al emitir, cada conductor vinculado por `conductor_id` recibe un aviso

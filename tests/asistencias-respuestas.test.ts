@@ -4,6 +4,17 @@ import { prisma } from './setup'
 import type { CreateRespuestaAsistenciaInput } from '../src/modules/asistencias/asistencias.schema'
 import { randomUUID } from 'node:crypto'
 
+/** Adapta los fixtures históricos a la firma que usa el controlador público. */
+function crearRespuesta(input: any) {
+  const { formulario_id, ip_address, user_agent, ...data } = input
+  return AsistenciasService.crearRespuesta(
+    formulario_id,
+    data as CreateRespuestaAsistenciaInput,
+    ip_address ?? '127.0.0.1',
+    user_agent ?? 'test'
+  )
+}
+
 describe('Asistencias - Respuestas CRUD', () => {
   let testUserId: string
   let testFormularioId: string
@@ -69,7 +80,7 @@ describe('Asistencias - Respuestas CRUD', () => {
         device_fingerprint: 'fp_12345abcde'
       }
 
-      const respuesta = await AsistenciasService.crearRespuesta(input)
+      const respuesta = await crearRespuesta(input)
 
       expect(respuesta).toBeDefined()
       expect(respuesta.id).toBeDefined()
@@ -110,8 +121,8 @@ describe('Asistencias - Respuestas CRUD', () => {
         device_fingerprint: 'fp_device2'
       }
 
-      const r1 = await AsistenciasService.crearRespuesta(respuesta1)
-      const r2 = await AsistenciasService.crearRespuesta(respuesta2)
+      const r1 = await crearRespuesta(respuesta1)
+      const r2 = await crearRespuesta(respuesta2)
 
       expect(r1.id).not.toBe(r2.id)
       expect(r1.device_fingerprint).toBe('fp_device1')
@@ -136,7 +147,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       // Primera respuesta exitosa
-      await AsistenciasService.crearRespuesta(input)
+      await crearRespuesta(input)
 
       // Segunda respuesta con el mismo fingerprint debe fallar
       const input2: CreateRespuestaAsistenciaInput = {
@@ -147,7 +158,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input2)
+        await crearRespuesta(input2)
       }).rejects.toThrow()
     })
 
@@ -168,7 +179,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input)
+        await crearRespuesta(input)
       }).rejects.toThrow()
     })
   })
@@ -198,7 +209,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       ]
 
       for (const r of respuestas) {
-        await AsistenciasService.crearRespuesta({
+        await crearRespuesta({
           formulario_id: testFormularioId,
           nombre_completo: r.nombre_completo,
           numero_documento: r.numero_documento,
@@ -261,7 +272,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input)
+        await crearRespuesta(input)
       }).rejects.toThrow()
     })
 
@@ -278,7 +289,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input)
+        await crearRespuesta(input)
       }).rejects.toThrow()
     })
 
@@ -295,7 +306,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input)
+        await crearRespuesta(input)
       }).rejects.toThrow()
     })
 
@@ -312,7 +323,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input)
+        await crearRespuesta(input)
       }).rejects.toThrow()
     })
 
@@ -330,15 +341,15 @@ describe('Asistencias - Respuestas CRUD', () => {
       }
 
       await expect(async () => {
-        await AsistenciasService.crearRespuesta(input)
+        await crearRespuesta(input)
       }).rejects.toThrow()
     })
   })
 
   describe('Eliminación de Respuestas', () => {
-    it('debe eliminar respuestas al eliminar formulario', async () => {
+    it('conserva las respuestas cuando se retira el formulario', async () => {
       // Crear respuesta
-      await AsistenciasService.crearRespuesta({
+      await crearRespuesta({
         formulario_id: testFormularioId,
         nombre_completo: 'Test Usuario',
         numero_documento: '1234567890',
@@ -360,7 +371,7 @@ describe('Asistencias - Respuestas CRUD', () => {
       const respuestasDespues = await prisma.respuestas_asistencia.findMany({
         where: { formulario_id: testFormularioId }
       })
-      expect(respuestasDespues.length).toBe(0)
+      expect(respuestasDespues.length).toBe(1)
     })
   })
 })

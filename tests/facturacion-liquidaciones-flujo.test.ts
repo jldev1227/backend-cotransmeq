@@ -187,7 +187,7 @@ describe('Crear una factura', () => {
 })
 
 describe('Anular una factura', () => {
-  it('devuelve sus liquidaciones a LIQUIDADA, con historial y motivo, y se pueden volver a facturar', async () => {
+  it('devuelve sus liquidaciones a APROBADA, con historial y motivo, y se pueden volver a facturar', async () => {
     const a = await liquidacion('LIQUIDADA', 100)
     const b = await liquidacion('APROBADA', 200)
     const factura = await Facturas.crear({ numero_factura: numero(), liquidacion_ids: [a, b] }, esc.adminId)
@@ -196,21 +196,20 @@ describe('Anular una factura', () => {
     expect(anulada.estado).toBe('ANULADA')
     expect(anulada.motivo_anulacion).toBe('número equivocado')
     expect(anulada.anulado_por?.id).toBe(esc.adminId)
-    // Sin la opción `mantenerAprobada`, todas vuelven a LIQUIDADA, también la
-    // que llegó APROBADA: anular no adivina estados anteriores.
-    expect(anulada.estados_resultantes).toEqual({ [a]: 'LIQUIDADA', [b]: 'LIQUIDADA' })
+    // Al anular por defecto se conserva la aprobación de todas las liquidaciones.
+    expect(anulada.estados_resultantes).toEqual({ [a]: 'APROBADA', [b]: 'APROBADA' })
 
     for (const id of [a, b]) {
       const e = await estadoDe(id)
-      expect(e.estado).toBe('LIQUIDADA')
+      expect(e.estado).toBe('APROBADA')
       expect(e.fecha_facturacion).toBeNull()
     }
     const vuelta = await prisma.historial_estado_liquidacion.findMany({
-      where: { liquidacion_id: { in: [a, b] }, estado_anterior: 'FACTURADA', estado_nuevo: 'LIQUIDADA' },
+      where: { liquidacion_id: { in: [a, b] }, estado_anterior: 'FACTURADA', estado_nuevo: 'APROBADA' },
       select: { motivo: true },
     })
     expect(vuelta).toHaveLength(2)
-    expect(vuelta.every((h) => h.motivo === 'número equivocado')).toBe(true)
+    expect(vuelta.every((h) => h.motivo === `Factura ${factura.numero_factura} anulada: número equivocado`)).toBe(true)
 
     // El pivote de la factura anulada ya no la cuenta como facturada.
     const otra = await Facturas.crear({ numero_factura: numero(), liquidacion_ids: [a, b] }, esc.adminId)

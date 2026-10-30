@@ -153,7 +153,8 @@ describe('acceso', () => {
     expect((await get(`/api/conductores/${c}/documentos`, soloLectura.token)).statusCode).toBe(200)
     expect((await get('/api/conductores/documentos/catalogo', soloLectura.token)).statusCode).toBe(200)
     const r = await subir(soloLectura.token, c, { categoria: 'CEDULA' })
-    expect(r.statusCode).toBe(403)
+    /// Las restricciones por usuario ocultan la ruta y responden 404.
+    expect(r.statusCode).toBe(404)
     expect(subidas).toHaveLength(0)
   })
 

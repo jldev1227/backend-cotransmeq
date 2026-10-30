@@ -46,7 +46,21 @@ const EMITIDOS_INDIRECTAMENTE: Record<string, string> = {
 	'asistencias:formulario:updated':
 		'asistencias.controller.ts elige el nombre con un ternario y lo pasa en una variable',
 	'asistencias:formulario:disabled':
-		'asistencias.controller.ts elige el nombre con un ternario y lo pasa en una variable'
+		'asistencias.controller.ts elige el nombre con un ternario y lo pasa en una variable',
+	'recargo-actualizado':
+		'recargos.controller.ts pasa el evento como variable a avisarRecargos',
+	'recargo-eliminado':
+		'recargos.controller.ts pasa el evento como variable a avisarRecargos',
+	'recargos-eliminados':
+		'recargos.controller.ts pasa el evento como variable a avisarRecargos',
+	'recargos-estado-actualizado':
+		'recargos.controller.ts pasa el evento como variable a avisarRecargos',
+	'config-salario-creada':
+		'recargos.routes.ts pasa el evento como variable a avisarRecargos',
+	'config-salario-actualizada':
+		'recargos.routes.ts pasa el evento como variable a avisarRecargos',
+	'config-salario-eliminada':
+		'recargos.routes.ts pasa el evento como variable a avisarRecargos'
 }
 
 /**

@@ -99,8 +99,8 @@ function payloadBase(extra: Partial<Payload> = {}): Payload {
   }
 }
 
-function crearLiq(extra: Partial<Payload> = {}) {
-  return LiquidacionesServiciosService.crear(payloadBase(extra), esc.creadorId)
+function crearLiq(extra: Partial<Payload> = {}, puedeEditarSeccion06 = false) {
+  return LiquidacionesServiciosService.crear(payloadBase(extra), esc.creadorId, puedeEditarSeccion06)
 }
 
 /** `listar` acotado al cliente de esta suite y sin paginar. */
@@ -284,8 +284,8 @@ describe('Crear · cálculo de totales', () => {
     /// Es lo que alimenta el filtro «con terceros» del listado. Una fila de
     /// terceros vacía la añade el editor por defecto y no es una liquidación
     /// de terceros.
-    const con = await crearLiq({ recargos_data: { terceroRows: [{ vr_unit: '1000', cant: '2' }] } })
-    const vacia = await crearLiq({ recargos_data: { terceroRows: [{ vr_unit: '', cant: '1' }] } })
+    const con = await crearLiq({ recargos_data: { terceroRows: [{ vr_unit: '1000', cant: '2' }] } }, true)
+    const vacia = await crearLiq({ recargos_data: { terceroRows: [{ vr_unit: '', cant: '1' }] } }, true)
     expect(con.tercero_liquidado).toBe(true)
     expect(vacia.tercero_liquidado).toBe(false)
   })
@@ -305,7 +305,7 @@ describe('Crear · cálculo de totales', () => {
           src_index: 1,
         },
       ],
-    })
+    }, true)
 
     const leida = await LiquidacionesServiciosService.obtenerPorId(liq.id)
     expect(leida.terceros_items).toHaveLength(1)

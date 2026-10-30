@@ -14,7 +14,7 @@
  */
 import type { AccessLevel, Area } from '../../config/permissions'
 
-export type IdSeccion = 'operaciones' | 'hseq' | 'mantenimiento' | 'talento_humano' | 'facturacion' | 'contabilidad'
+export type IdSeccion = 'operaciones' | 'hseq' | 'mantenimiento' | 'talento_humano' | 'facturacion' | 'contabilidad' | 'simit'
 
 export interface Seccion {
   id: IdSeccion
@@ -70,6 +70,13 @@ export const SECCIONES: readonly Seccion[] = [
     descripcion: 'Liquidaciones de terceros mes a mes, pagos previstos y terceros con datos incompletos.',
     areas: ['contabilidad', 'administracion'],
     modulos: ['terceros'],
+  },
+  {
+    id: 'simit',
+    titulo: 'Estado de cuenta SIMIT',
+    descripcion: 'Consultas recientes de las placas y conductores con servicios en los últimos 30 días.',
+    areas: ['operaciones', 'administracion'],
+    modulos: ['servicios', 'flota', 'conductores'],
   },
 ]
 

@@ -321,6 +321,12 @@ no la planilla.
 | `certificados:import-progress` | S→C | `user-<id>` | `certificados.import.service.ts` | `{ jobId, phase, processed, total, … }` |
 | `progress:start`, `progress:update`, `progress:complete`, `progress:error` | S→C | `<socketId>` | ZIP de desprendibles (`liquidaciones.service.ts`) | `{ total }`, `{ current, total }`… |
 
+### Consultas SIMIT
+
+| Evento | Dir. | Destino | Origen | Payload / notas |
+|---|---|---|---|---|
+| `simit:consulta:actualizada` | S→C | todos | `simit.events.ts` | `{ tipo, entidad_id, consulta_id, consultado_at, estado_consulta }`; no incluye saldo ni detalle de comparendos |
+
 ### Liquidaciones de servicios y facturación
 
 | Evento | Dir. | Destino | Origen | Payload / notas |

@@ -360,6 +360,7 @@ model conductores {
   liquidacion_tercero_concepto           liquidacion_tercero_concepto[]
   liquidacion_tercero_final_concepto     liquidacion_tercero_final_concepto[]
   liquidacion_tercero_ocasional_concepto liquidacion_tercero_ocasional_concepto[] @relation("ocasional_concepto_conductor")
+  simit_consultas                        simit_consulta[]                       @relation("simit_conductor")
 
   // ── PESV ─ relaciones inversas
   pesv_siniestros_conductor        pesv_incident[]       @relation("pesv_siniestro_conductor")
@@ -1737,6 +1738,34 @@ model notificacion {
   @@index([created_at(sort: Desc)])
 }
 
+/// Historial inmutable de consultas al estado de cuenta SIMIT.
+/// Conserva el identificador consultado aunque se retire la ficha asociada.
+model simit_consulta {
+  id              String    @id @default(uuid()) @db.Uuid
+  tipo_entidad    String    @db.VarChar(20)
+  identificador   String    @db.VarChar(255)
+  proveedor       String?   @db.VarChar(40)
+  estado_consulta String    @db.VarChar(30)
+  comparendos     Int?
+  multas          Int?
+  acuerdos_pago   Int?
+  saldo_total     Decimal?  @db.Decimal(14, 2)
+  detalle         Json?
+  error           String?
+  consultado_at   DateTime  @default(now()) @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  vehiculo_id     String?   @db.Uuid
+  conductor_id    String?   @db.Uuid
+
+  vehiculo  vehiculos?  @relation("simit_vehiculo", fields: [vehiculo_id], references: [id], onDelete: SetNull)
+  conductor conductores? @relation("simit_conductor", fields: [conductor_id], references: [id], onDelete: SetNull)
+
+  @@index([vehiculo_id, consultado_at(sort: Desc)])
+  @@index([conductor_id, consultado_at(sort: Desc)])
+  @@index([consultado_at(sort: Desc)])
+  @@map("simit_consultas")
+}
+
 /// Último uso real de la app por persona; la presencia actual vive en Socket.IO.
 model mobile_app_activity {
   id             String   @id @default(uuid()) @db.Uuid
@@ -1811,6 +1840,7 @@ model vehiculos {
   tercero_propietario                       terceros?                                 @relation("vehiculo_tercero_propietario", fields: [tercero_propietario_id], references: [id], onDelete: SetNull)
   form_assignment_targets                   form_assignment_target[]                  @relation("form_assignment_target_vehiculo")
   form_submissions                          form_submission[]                         @relation("form_submission_vehiculo")
+  simit_consultas                            simit_consulta[]                          @relation("simit_vehiculo")
   excesos_velocidad                         excesos_velocidad[]
   liquidacion_tercero_final                 liquidacion_tercero_final[]
   liquidaciones_tercero_ocasional_adicional liquidacion_tercero_ocasional_adicional[] @relation("ocasional_adicional_vehiculo")

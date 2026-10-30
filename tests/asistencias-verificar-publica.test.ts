@@ -14,7 +14,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { confirmacionPublica } from '../src/modules/asistencias/asistencia-publica'
 
 const db = vi.hoisted(() => ({
-  formularios_asistencia: { findUnique: vi.fn() },
+  formularios_asistencia: { findFirst: vi.fn() },
   respuestas_asistencia: { findUnique: vi.fn() }
 }))
 
@@ -79,7 +79,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  db.formularios_asistencia.findUnique.mockResolvedValue(formulario)
+  db.formularios_asistencia.findFirst.mockResolvedValue(formulario)
   db.respuestas_asistencia.findUnique.mockResolvedValue(null)
 })
 
@@ -115,7 +115,7 @@ describe('GET /api/public/asistencias/:token/verificar', () => {
 
   it('400 sin huella y 404 con un token desconocido', async () => {
     expect((await app.inject({ method: 'GET', url: url(), headers: otraIp() })).statusCode).toBe(400)
-    db.formularios_asistencia.findUnique.mockResolvedValue(null)
+    db.formularios_asistencia.findFirst.mockResolvedValue(null)
     expect((await app.inject({ method: 'GET', url: url('h'), headers: otraIp() })).statusCode).toBe(404)
   })
 

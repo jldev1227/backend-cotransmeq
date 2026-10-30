@@ -143,7 +143,13 @@ describe('Sockets — aislamiento del room privado por usuario', () => {
 		const deAna = recolectar(socketAna, 'nueva-notificacion', 900)
 		const deBeto = recolectar(socketBeto, 'nueva-notificacion', 900)
 
-		emitNotificacion({ usuario_id: beto.id, titulo: 'solo-beto', mensaje: 'x' })
+		emitNotificacion({
+			usuario_id: beto.id,
+			tipo: 'LIQUIDACION_CREADA',
+			referencia_tipo: 'factura:prueba',
+			titulo: 'solo-beto',
+			mensaje: 'x'
+		})
 
 		expect(await deAna).toEqual([])
 		expect((await deBeto).map((n: any) => n.titulo)).toEqual(['solo-beto'])

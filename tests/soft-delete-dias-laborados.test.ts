@@ -98,6 +98,7 @@ async function crearSegmento(orden: number) {
       hora_inicio: '06:00',
       hora_fin: '14:00',
       horas_conducidas: 8,
+      descripcion_servicio: `Servicio de prueba ${orden}`,
       orden
     } as any
   })

@@ -49,16 +49,11 @@ jobs:
       - name: Tests de la declaración de transporte (puros)
         run: npx vitest run --config vitest.declaracion.config.ts
 
-  # La suite completa contra un Postgres desechable del propio runner.
-  # INFORMATIVA de momento (`continue-on-error` y fuera de `needs`): hoy arrastra
-  # fallos viejos de suites ajenas a lo que se despliega (asistencias,
-  # recargos-vigencias, días laborados, sockets de servicios…). Cuando esté en
-  # verde, se quita `continue-on-error` y se añade a `needs` de `deploy`.
+  # Suite completa contra un Postgres desechable del propio runner.
   suite-con-base:
-    name: Suite con base (informativa)
+    name: Suite con base
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
     services:
       postgres:
         # Misma major que producción, como `docker-compose.test.yml`.
@@ -98,7 +93,7 @@ jobs:
         run: npx vitest run
 
   deploy:
-    needs: verificar
+    needs: [verificar, suite-con-base]
     runs-on: [self-hosted, linux, x64, cotransmeq-ct123, backend-cotransmeq]
     timeout-minutes: 90
     environment: production

@@ -46,8 +46,14 @@ const FILTROS_POR_MODULO: Record<string, Prisma.notificacionWhereInput[]> = {
     { tipo: { in: TIPOS_ACCIONES as any } },
   ],
   incidentes: [{ referencia_tipo: { in: ['incidente', 'incidente_investigacion_pendiente'] } }],
-  flota: [{ referencia_tipo: { startsWith: 'docveh:' } }],
-  conductores: [{ referencia_tipo: { startsWith: 'doccond:' } }],
+  flota: [
+    { referencia_tipo: { startsWith: 'docveh:' } },
+    { referencia_tipo: { startsWith: 'simit:veh:' } },
+  ],
+  conductores: [
+    { referencia_tipo: { startsWith: 'doccond:' } },
+    { referencia_tipo: { startsWith: 'simit:con:' } },
+  ],
   'liquidaciones-servicios': [
     { referencia_tipo: { startsWith: 'factura:' } },
     { tipo: { in: TIPOS_LIQUIDACIONES as any } },
@@ -76,6 +82,10 @@ export function moduloDeNotificacion(notificacion: NotificacionConReferencia): s
   if (referencia === 'incidente' || referencia === 'incidente_investigacion_pendiente') return 'incidentes'
   if (referencia.startsWith('docveh:')) return 'flota'
   if (referencia.startsWith('doccond:')) return 'conductores'
+  if (referencia.startsWith('simit:veh:')) return 'flota'
+  if (referencia.startsWith('simit:con:')) return 'conductores'
+  if (referencia.startsWith('simit:veh:')) return 'flota'
+  if (referencia.startsWith('simit:con:')) return 'conductores'
   if (referencia === 'liquidaciones-servicios-seccion06') return 'liquidaciones-servicios-seccion06'
   if (referencia.startsWith('liquidaciones-terceros')) return 'liquidaciones-terceros'
   if (referencia.startsWith('factura:') || TIPOS_LIQUIDACIONES.includes(notificacion.tipo)) return 'liquidaciones-servicios'

@@ -42,6 +42,14 @@ export function normalizar(s: string | null | undefined): string {
     .trim()
 }
 
+/** Rechaza celdas vacías y marcadores que no pueden identificar a una persona. */
+export function pareceNombreDePersona(valor: string | null | undefined): boolean {
+  if (!valor) return false
+  const limpio = valor.trim()
+  if (limpio.length < 3 || /^#+$/.test(limpio) || !/\p{L}/u.test(limpio)) return false
+  return !/^(n\/?a|na|sin|null|none|ninguno|-+)$/i.test(limpio)
+}
+
 export function normalizarPlaca(s: string): string {
   return s.toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
@@ -410,6 +418,9 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
   if (input.vigencia_hasta < input.vigencia_desde) throw new ExtractosError('La fecha de vencimiento no puede ser anterior a la inicial')
   const conductores = input.conductores.filter((c) => c.nombre?.trim()).slice(0, 3)
   if (!conductores.length) throw new ExtractosError('El extracto necesita al menos un conductor')
+  if (conductores.some((c) => !pareceNombreDePersona(c.nombre))) {
+    throw new ExtractosError('El nombre de cada conductor debe identificar a una persona')
+  }
   const placa = normalizarPlaca(input.vehiculo.placa ?? '')
   if (placa.length < 5) throw new ExtractosError('La placa del vehículo no es válida')
   const objeto = limpio(input.objeto_contrato, 2000)

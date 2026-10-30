@@ -135,6 +135,7 @@ actualicen. Cada módulo los lista en «Efectos»; el catálogo completo está e
 | [vehiculos-documentos](./vehiculos-documentos.md) | Documentos de vehículos con vencimiento |
 | [conductores](./conductores.md) | Conductores |
 | [conductores-documentos](./conductores-documentos.md) | Documentos de conductores con vencimiento |
+| [simit](./simit.md) | Estado de cuenta e historial de consultas SIMIT |
 | [mantenimiento](./mantenimiento.md) | Planes y órdenes de mantenimiento |
 | [combustible](./combustible.md) | Tanqueos y rendimiento |
 | [terceros](./terceros.md) | Propietarios y proveedores |

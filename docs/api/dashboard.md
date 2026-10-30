@@ -20,6 +20,7 @@ pasa dos filtros, los dos obligatorios (`secciones.ts`):
 | `talento_humano` | Talento humano | `talento_humano`, `administracion` | `conductores` |
 | `facturacion` | Financiero | `facturacion`, `administracion` | `liquidaciones-servicios` |
 | `contabilidad` | Contabilidad | `contabilidad`, `administracion` | `terceros` |
+| `simit` | Estado de cuenta SIMIT | `operaciones`, `administracion` | `servicios`, `flota`, `conductores` |
 
 Dentro de cada sección, los bloques que leen de **otro** módulo se omiten uno a
 uno si el usuario no lo tiene (la clave no aparece en la respuesta). Conviven dos
@@ -68,13 +69,13 @@ contrato y fecha de ingreso, y que no esté `inactivo`, `retirado` ni
 }
 ```
 
-`disponible` dice si la sección ya tiene constructor (hoy, las seis). `modulos` es
+`disponible` dice si la sección ya tiene constructor (hoy, las siete). `modulos` es
 `getAccessibleModules` con la lista blanca del usuario.
 
 ### `GET /api/dashboard/secciones/:id`
 
 **Parámetro**: `id`, uno de `operaciones`, `hseq`, `mantenimiento`,
-`talento_humano`, `facturacion`, `contabilidad`.
+`talento_humano`, `facturacion`, `contabilidad`, `simit`.
 
 **Query**
 

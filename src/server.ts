@@ -25,6 +25,7 @@ import { startVencimientosDocumentosConductorCron } from './jobs/vencimientos-do
 import { startIncidentesInvestigacionCron } from './jobs/incidentes-investigacion.cron'
 import { startRecorridosSnapshotJob } from './jobs/snapshot-recorridos.job'
 import { startNominaSnapshotJob } from './jobs/snapshot-nomina.job'
+import { startConsultarSimitCron } from './jobs/consultar-simit.cron'
 
 async function start() {
   try {
@@ -60,6 +61,7 @@ async function start() {
     registrarCron('mantenimiento-planes', startMantenimientoPlanesCron())
     registrarCron('vencimientos-documentos-conductor', startVencimientosDocumentosConductorCron())
     registrarCron('incidentes-investigacion', startIncidentesInvestigacionCron())
+    registrarCron('consultar-simit', startConsultarSimitCron())
     logger.info({ crons: cronsRegistrados() }, '⏰ Crons registrados para el apagado ordenado')
 
     const address = await app.listen({ port: env.PORT, host: '0.0.0.0' })

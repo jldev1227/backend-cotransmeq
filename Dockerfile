@@ -29,7 +29,7 @@ RUN NODE_OPTIONS=--max-old-space-size=3072 npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install OpenSSL + Chromium (needed by Puppeteer in /api/pdf/from-html)
+# Install OpenSSL + Chromium (Puppeteer for PDF rendering and Playwright for SIMIT)
 # - openssl, libc6-compat: Prisma runtime deps
 # - chromium: headless browser for Puppeteer; provides /usr/bin/chromium-browser
 # - chromium's recommended shared libs: nss, freetype, harfbuzz, ca-certificates, dumb-init
