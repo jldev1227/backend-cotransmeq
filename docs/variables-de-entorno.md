@@ -234,7 +234,8 @@ variables `PRISMA_MIGRATE_ON_START` y `PRISMA_AUTO_RESOLVE_FAILED` del gemelo.
 | `PORTAL_SESSION_STORAGE_KEY` | `cotransmeq_portal_token` | `transmeralda_portal_token` |
 | `LIQ_EMAIL_FROM_NAME` | `Contabilidad Cotransmeq S.A.S.` | `Contabilidad Transmeralda S.A.S.` |
 | `LIQ_EMAIL_REPLY_TO`, `LIQ_EMAIL_BCC` | Vacías | El Gmail de contabilidad de Transmeralda |
-| `TRANSMERALDA_DATABASE_URL` | Solo aquí | No existe |
+| `TRANSMERALDA_DATABASE_URL` | Base de Transmeralda para importar hacia Cotransmeq | No existe |
+| `COTRANSMEQ_DATABASE_URL` | No existe | Base de Cotransmeq para importar hacia Transmeralda |
 | `SARLAFT_EMPRESA_NOMBRE`, `SARLAFT_TELEFONO`, `SARLAFT_TELEFONO_WA`, `SARLAFT_EMAILS_*` | Solo aquí | No existen: nombre, teléfonos y buzones están escritos en el código |
 | `PRISMA_MIGRATE_ON_START`, `PRISMA_AUTO_RESOLVE_FAILED` | No existen | Las lee su `docker-entrypoint.sh` |
 | `FORMS_S3_NATIVE_CHECKSUM` | En `env.ts` | También, en otra posición del archivo y con el mismo uso |

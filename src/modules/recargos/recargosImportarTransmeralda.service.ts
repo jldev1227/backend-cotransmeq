@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { getPrismaTransmeralda } from '../../config/prismaTransmeralda'
 import { RecargosService } from './recargos.service'
@@ -7,7 +8,9 @@ import { RecargosService } from './recargos.service'
  * Servicio de importación de recargos desde Transmeralda → Cotransmeq.
  *
  * Reglas de negocio:
- *   - Se muestran TODAS las planillas de Transmeralda del mes/año.
+ *   - Se omiten las planillas de Transmeralda que ya llegaron desde Cotransmeq
+ *     (`imported_from_cotransmeq_id`) para evitar el ciclo de regreso.
+ *   - El resto de planillas del mes/año se revisa por conductor y empresa.
  *   - Para cada planilla, match por `numero_identificacion` contra Cotransmeq.
  *   - Si el conductor NO existe en Cotransmeq → no importable (no se crean
  *     conductores automáticamente: hay temas legales/contractuales).
@@ -365,6 +368,8 @@ export interface PreviewImportResult {
   importables: number
   ya_importadas: number
   no_importables: number
+  /** Planillas de Transmeralda que ya llegaron desde Cotransmeq y no deben regresar. */
+  excluidas_por_origen: number
   /** Cantidad de planillas filtradas por no tener el conductor activo en CM */
   filtradas_por_conductor_inactivo: number
   /** Cantidad de placas que se crearán al importar */
@@ -467,43 +472,58 @@ export const RecargosImportarTransmeraldaService = {
     // 1. TODAS las planillas de TM para ese mes/año (sin filtrar por
     //    estado del conductor). El usuario puede ver conductores
     //    inactivos en TM para entender qué falta.
-    const planillasTM = await tm.recargos_planillas.findMany({
-      where: {
-        deleted_at: null,
-        mes,
-        a_o: año
-      },
-      /**
-       * Estas dos columnas NO EXISTEN en la base de Transmeralda.
-       *
-       * Son contabilidad nuestra —qué planilla vino de allí y cuándo— y su
-       * migración `reconciliar_schema` las borra a propósito. Pero el cliente
-       * con el que leemos allí se genera con NUESTRO esquema, así que sin
-       * excluirlas Prisma las mete en el SELECT y Postgres responde «la columna
-       * no existe». Se omiten en vez de enumerar las otras cuarenta con un
-       * `select`: así, una columna nueva en el futuro sigue llegando sola.
-       */
-      omit: { imported_from_transmeralda_id: true, imported_from_transmeralda_at: true },
-      include: {
-        conductores: {
-          select: {
-            id: true,
-            nombre: true,
-            apellido: true,
-            numero_identificacion: true,
-            estado: true
+    const [planillasTMOrigen, planillasQueVuelven] = await Promise.all([
+      tm.recargos_planillas.findMany({
+        where: {
+          deleted_at: null,
+          mes,
+          a_o: año
+        },
+        /**
+         * Estas dos columnas NO EXISTEN en la base de Transmeralda.
+         *
+         * Son contabilidad nuestra —qué planilla vino de allí y cuándo— y su
+         * migración `reconciliar_schema` las borra a propósito. Pero el cliente
+         * con el que leemos allí se genera con NUESTRO esquema, así que sin
+         * excluirlas Prisma las mete en el SELECT y Postgres responde «la columna
+         * no existe». Se omiten en vez de enumerar las otras cuarenta con un
+         * `select`: así, una columna nueva en el futuro sigue llegando sola.
+         */
+        omit: { imported_from_transmeralda_id: true, imported_from_transmeralda_at: true },
+        include: {
+          conductores: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              numero_identificacion: true,
+              estado: true
+            }
+          },
+          vehiculos: { select: { id: true, placa: true } },
+          clientes: { select: { id: true, nombre: true } },
+          dias_laborales_planillas: {
+            where: { deleted_at: null },
+            select: { id: true, dia: true },
+            orderBy: { dia: 'asc' }
           }
         },
-        vehiculos: { select: { id: true, placa: true } },
-        clientes: { select: { id: true, nombre: true } },
-        dias_laborales_planillas: {
-          where: { deleted_at: null },
-          select: { id: true, dia: true },
-          orderBy: { dia: 'asc' }
-        }
-      },
-      orderBy: [{ created_at: 'desc' }]
-    })
+        orderBy: [{ created_at: 'desc' }]
+      }),
+      tm.$queryRaw<Array<{ id: string }>>`
+        SELECT p."id"::text AS id
+        FROM "recargos_planillas" AS p
+        WHERE p."deleted_at" IS NULL
+          AND p."mes" = ${mes}
+          AND p."año" = ${año}
+          AND to_jsonb(p)->>'imported_from_cotransmeq_id' IS NOT NULL
+      `
+    ])
+    /// El cliente remoto se genera con el esquema de Cotransmeq. `to_jsonb`
+    /// permite leer esta marca de Transmeralda sin seleccionarla con Prisma.
+    const idsQueVuelven = new Set(planillasQueVuelven.map((p) => p.id))
+    const planillasTM = planillasTMOrigen.filter((p) => !idsQueVuelven.has(p.id))
+    const excluidasPorOrigen = planillasTMOrigen.length - planillasTM.length
 
     if (planillasTM.length === 0) {
       return {
@@ -513,6 +533,7 @@ export const RecargosImportarTransmeraldaService = {
         importables: 0,
         ya_importadas: 0,
         no_importables: 0,
+        excluidas_por_origen: excluidasPorOrigen,
         filtradas_por_conductor_inactivo: 0,
         vehiculos_a_crear: 0,
         empresas_a_crear: 0,
@@ -827,6 +848,7 @@ export const RecargosImportarTransmeraldaService = {
       importables,
       ya_importadas: yaImportadas,
       no_importables: noImportables,
+      excluidas_por_origen: excluidasPorOrigen,
       filtradas_por_conductor_inactivo: filtradasPorConductorInactivo,
       vehiculos_a_crear: vehiculosACrear.size,
       empresas_a_crear: empresasACrear.size,
@@ -985,32 +1007,63 @@ export const RecargosImportarTransmeraldaService = {
     const tm = getPrismaTransmeralda()
 
     // 1. Leer las planillas TM con sus dias
-    const planillasTM = await tm.recargos_planillas.findMany({
-      where: {
-        id: { in: cleanIds },
-        deleted_at: null
-      },
-      /**
-       * Estas dos columnas NO EXISTEN en la base de Transmeralda.
-       *
-       * Son contabilidad nuestra —qué planilla vino de allí y cuándo— y su
-       * migración `reconciliar_schema` las borra a propósito. Pero el cliente
-       * con el que leemos allí se genera con NUESTRO esquema, así que sin
-       * excluirlas Prisma las mete en el SELECT y Postgres responde «la columna
-       * no existe». Se omiten en vez de enumerar las otras cuarenta con un
-       * `select`: así, una columna nueva en el futuro sigue llegando sola.
-       */
-      omit: { imported_from_transmeralda_id: true, imported_from_transmeralda_at: true },
-      include: {
-        dias_laborales_planillas: {
-          where: { deleted_at: null },
-          orderBy: { dia: 'asc' }
+    const [planillasSolicitadas, idsQueVuelven] = await Promise.all([
+      tm.recargos_planillas.findMany({
+        where: {
+          id: { in: cleanIds },
+          deleted_at: null
+        },
+        /**
+         * Estas dos columnas NO EXISTEN en la base de Transmeralda.
+         *
+         * Son contabilidad nuestra —qué planilla vino de allí y cuándo— y su
+         * migración `reconciliar_schema` las borra a propósito. Pero el cliente
+         * con el que leemos allí se genera con NUESTRO esquema, así que sin
+         * excluirlas Prisma las mete en el SELECT y Postgres responde «la columna
+         * no existe». Se omiten en vez de enumerar las otras cuarenta con un
+         * `select`: así, una columna nueva en el futuro sigue llegando sola.
+         */
+        omit: { imported_from_transmeralda_id: true, imported_from_transmeralda_at: true },
+        include: {
+          dias_laborales_planillas: {
+            where: { deleted_at: null },
+            orderBy: { dia: 'asc' }
+          }
         }
-      }
-    })
+      }),
+      tm.$queryRaw<Array<{ id: string }>>`
+        SELECT p."id"::text AS id
+        FROM "recargos_planillas" AS p
+        WHERE p."id" IN (${Prisma.join(cleanIds.map((id) => Prisma.sql`${id}::uuid`))})
+          AND p."deleted_at" IS NULL
+          AND to_jsonb(p)->>'imported_from_cotransmeq_id' IS NOT NULL
+      `
+    ])
+
+    if (planillasSolicitadas.length === 0) {
+      throw new Error('Ninguna de las planillas solicitadas existe en Transmeralda')
+    }
+
+    const idsQueVuelvenSet = new Set(idsQueVuelven.map((p) => p.id))
+    const planillasTM = planillasSolicitadas.filter((p) => !idsQueVuelvenSet.has(p.id))
+    const omitidas: Array<{ source_id: string; motivo: string }> = planillasSolicitadas
+      .filter((p) => idsQueVuelvenSet.has(p.id))
+      .map((p) => ({
+        source_id: p.id,
+        motivo: 'Omitida: planilla importada originalmente desde Cotransmeq'
+      }))
 
     if (planillasTM.length === 0) {
-      throw new Error('Ninguna de las planillas solicitadas existe en Transmeralda')
+      return {
+        solicitadas: cleanIds.length,
+        importadas: 0,
+        omitidas: omitidas.length,
+        errores: 0,
+        vehiculos_creados: 0,
+        empresas_creadas: 0,
+        recalculoBatchId: null,
+        detalle: { importadas: [], omitidas, errores: [] }
+      }
     }
 
     // 2. Batch: TM vehiculos, clientes y conductores en un solo round-trip
@@ -1092,7 +1145,6 @@ export const RecargosImportarTransmeraldaService = {
 
     const now = new Date()
     const importadas: Array<{ source_id: string; new_id: string; numero_planilla: string }> = []
-    const omitidas: Array<{ source_id: string; motivo: string }> = []
     const errores: Array<{ source_id: string; error: string }> = []
     const idsParaRecalcular: string[] = []
     let vehiculosCreados = 0

@@ -608,7 +608,9 @@ de Prisma. Los demás enums con `@map` (tipos de sangre,
 - **Mismos 171 modelos, mismos `@@map`, mismo `deleted_at`.** Cambian algunas
   columnas: aquí existen además `liquidaciones.share_token` y
   `share_token_expires_at`, `recargos_planillas.imported_from_transmeralda_id` y
-  `_at`, y columnas viejas de `registro_dia_laboral` (`cliente_id`,
+  `_at`; Transmeralda tiene los campos inversos
+  `recargos_planillas.imported_from_cotransmeq_id` y `_at`, y columnas viejas de
+  `registro_dia_laboral` (`cliente_id`,
   `vehiculo_placa`, `hora_inicio`, `hora_fin`…) que en Transmeralda viven solo
   en los tramos. `municipios` y `tipos_recargos` no tienen id por defecto aquí
   (allí, `uuid()`), y `tipos_recargos` tampoco tiene `@updatedAt`.

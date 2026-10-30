@@ -420,7 +420,9 @@ clientes de Expo son iguales en `backend-nest`. Lo que cambia:
   `LIQ_EMAIL_BCC` tienen valores por defecto que apuntan a su Gmail de
   contabilidad.
 - **MCP:** el prefijo de los tokens es `tme_`.
-- **Base de la otra empresa:** Transmeralda no tiene un cliente equivalente.
+- **Base de la otra empresa:** Transmeralda tiene una conexión equivalente a
+  Cotransmeq (`COTRANSMEQ_DATABASE_URL`) para importar planillas en sentido
+  inverso.
 - **Chromium:** su imagen exporta `CHROME_PATH=/usr/bin/chromium`, y su
   `pdf.service.ts` admite pie de página (`footerTemplate`) y, con
   `preferCSSPageSize`, quita los márgenes del servidor para que mande el

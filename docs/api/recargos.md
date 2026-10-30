@@ -335,6 +335,9 @@ Reglas:
 - La planilla importada nace en `pendiente`, sin servicio, con las
   observaciones precedidas de «[Importado de Transmeralda]», la vía, los
   riesgos y los días de origen. Después se recalculan todas en un lote.
+- El preview y la importación omiten las planillas de Transmeralda marcadas
+  como importadas originalmente desde Cotransmeq. Así una planilla no vuelve
+  a su base de origen; el preview informa el conteo en `excluidas_por_origen`.
 
 **`POST /importar-desde-transmeralda/sincronizar-conductores-cotransmeq`** (sin
 body). En la base de **Transmeralda**: pasa a `inactivo` a los conductores
@@ -357,6 +360,7 @@ los dos pasos.
 ```json
 { "success": true, "data": {
   "mes": 9, "año": 2026, "total": 26, "importables": 20, "ya_importadas": 4, "no_importables": 2,
+  "excluidas_por_origen": 3,
   "filtradas_por_conductor_inactivo": 6, "vehiculos_a_crear": 1, "empresas_a_crear": 0, "incluir_no_importables": false,
   "planillas": [ { "source_id": "uuid", "conductor_nombre": "…", "conductor_identificacion": "…",
                    "empresa_nombre": "…", "vehiculo_placa": "…", "numero_planilla_original": "7176",
@@ -533,16 +537,17 @@ mensaje de Prisma.
 
 ## Diferencias con Transmeralda
 
-- **Rutas.** Solo aquí: las cinco de `importar-desde-transmeralda`. Solo en
-  Transmeralda: `GET /api/recargos/:id/historial` (historial de cambios con
-  quién, IP, versión y antes/después) y `POST /api/recargos/planilla/upload`
-  (documento de la planilla en S3).
+- **Rutas.** Solo aquí: las cinco de `importar-desde-transmeralda`. Transmeralda
+  tiene las cuatro rutas `importar-desde-cotransmeq` para la dirección inversa,
+  además de `GET /api/recargos/:id/historial` (historial de cambios con quién,
+  IP, versión y antes/después) y `POST /api/recargos/planilla/upload` (documento
+  de la planilla en S3).
 - **`planilla_s3key` y `motivo`**: Transmeralda los acepta en las escrituras
   (el documento y el motivo que va al historial); aquí se descartan.
 - **Días repetidos**: Transmeralda los rechaza con un 400 legible antes de
   tocar la base.
-- **Listado**: el filtro y los campos `imported_from_transmeralda*` solo
-  existen aquí.
+- **Listado**: cada app filtra por el origen de la otra y expone los campos
+  `imported_from_*` correspondientes.
 - **Reporte**: Transmeralda valida `mes` y `anio` (400) y lo pinta Chromium con
   el nombre de quien lo generó.
 - **Cálculo**: Transmeralda paga `RNDF` completo (valor hora × (1 + %)); al
