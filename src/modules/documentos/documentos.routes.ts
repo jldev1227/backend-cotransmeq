@@ -16,7 +16,9 @@ export async function documentosRoutes(app: FastifyInstance) {
   /// Las dos rutas entregan cualquier objeto del bucket a quien conozca su key,
   /// y hasta oct-2026 no pedían sesión. El único cliente es el dashboard.
   app.addHook('onRequest', authMiddleware);
-  app.addHook('preHandler', requirePermission('recargos', 'read'));
+  // Quien tiene permiso limitado para adjuntar una planilla también debe poder
+  // abrirla en el visor. La validación de abajo conserva el acceso solo a planillas.
+  app.addHook('preHandler', requirePermission('recargos', 'limited'));
   app.addHook('preHandler', async (request, reply) => {
     const key = (request.params as any)?.['*'] ?? (request.query as any)?.key;
     if (!keyPermitida(key)) {
