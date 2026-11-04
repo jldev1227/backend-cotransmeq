@@ -84,7 +84,7 @@ descendentes, luego `orden`.
 ```json
 {
   "items": [
-    { "id": "uuid", "liquidacion_id": "uuid", "placa": "ABC123", "recorrido": "…",
+    { "id": "uuid", "liquidacion_id": "uuid", "placa": "ABC123", "recorrido": "…", "observaciones": null,
       "valor_unitario": 0, "cantidad": 1, "total_facturado": 0, "valor_admin": 0,
       "valor_liquidar": 0, "ingreso_empresa": 0,
       "tercero": { "id": "…", "nombre_completo": "…", "identificacion": "…", "tipo_persona": "…" },
@@ -119,6 +119,7 @@ devuelve `[]`.
 | `valor_unitario`, `cantidad`, `porcentaje_admin` | number | sí (de facto) | Base del recálculo |
 | `recorrido` | string | no | `'N/A'` si falta |
 | `fechas` | string | no | `''` si falta |
+| `observaciones` | string | no | Nota libre de la fila de terceros |
 | `tercero_id`, `item_id` | uuid | no | `item_id` es el ítem de la liquidación de servicio |
 | `ingreso_extra_global`, `ingresos_extra_aval`, `ingreso_empresa` | number | no | Ver la fórmula de arriba |
 | `src_index` | number | no | Índice del ítem de servicio de origen; por defecto la posición |

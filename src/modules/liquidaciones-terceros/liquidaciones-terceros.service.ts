@@ -12,6 +12,7 @@ export interface ItemLiquidacionTerceroInput {
   placa: string;
   recorrido: string;
   fechas: string;
+  observaciones?: string | null;
   valor_unitario: number;
   cantidad: number;
   porcentaje_admin: number;
@@ -86,6 +87,7 @@ export const LiquidacionesTercerosService = {
         placa: item.placa,
         recorrido: item.recorrido || 'N/A',
         fechas: item.fechas || '',
+        observaciones: item.observaciones ?? null,
         valor_unitario: item.valor_unitario,
         cantidad: item.cantidad,
         total_facturado: c.totalFacturado,
@@ -272,6 +274,7 @@ export const LiquidacionesTercerosService = {
           placa: t.placa || '',
           recorrido: t.recorrido || 'N/A',
           fechas: t.fechas || '',
+          observaciones: t.observaciones ?? null,
           valor_unitario: vrUnit,
           cantidad: cant,
           total_facturado: totalFacturado,

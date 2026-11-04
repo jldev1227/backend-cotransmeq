@@ -2561,6 +2561,7 @@ model liquidacion_tercero {
   placa                String                     @db.VarChar(20)
   recorrido            String                     @db.VarChar(500)
   fechas               String                     @db.VarChar(100)
+  observaciones        String?                    @db.Text
   valor_unitario       Decimal                    @default(0) @db.Decimal(15, 2)
   cantidad             Decimal                    @default(1) @db.Decimal(10, 2)
   total_facturado      Decimal                    @default(0) @db.Decimal(15, 2)
