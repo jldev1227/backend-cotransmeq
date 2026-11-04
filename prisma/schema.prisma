@@ -3873,6 +3873,9 @@ model liquidacion_tercero_final {
   items                    liquidacion_tercero_final_item[]
   conceptos                liquidacion_tercero_final_concepto[]
   propietarios             liquidacion_tercero_final_propietario[]
+  /// Placas y cierres fuente reunidos en esta hoja al agrupar varios borradores.
+  vehiculos_agrupados      liquidacion_tercero_final_vehiculo[] @relation("lt_final_vehiculo_cierre")
+  grupo_como_origen        liquidacion_tercero_final_vehiculo[] @relation("lt_final_vehiculo_origen")
   adicionales_filas        liquidacion_tercero_final_adicional[]
   chat_mensajes            liquidacion_chat_mensaje[]
   recordatorios_origen     liquidacion_recordatorio[]                   @relation("recordatorio_origen")
@@ -4078,6 +4081,23 @@ model liquidacion_tercero_final_item {
   @@index([liquidacion_tercero_final_id])
   @@index([liquidacion_tercero_id])
   @@index([liquidacion_tercero_final_id, trasladado_a], map: "idx_lt_final_item_trasladado")
+}
+
+/// Miembros de una hoja consolidada. Guarda el cierre de origen y la placa
+/// original para auditar el agrupamiento aunque su cabecera quede archivada.
+model liquidacion_tercero_final_vehiculo {
+  id                           String   @id @default(uuid()) @db.Uuid
+  liquidacion_tercero_final_id String   @db.Uuid
+  cierre_origen_id             String   @unique @db.Uuid
+  liquidacion_servicio_id      String   @db.Uuid
+  vehiculo_id                  String?  @db.Uuid
+  placa                        String   @db.VarChar(20)
+  created_at                   DateTime @default(now()) @db.Timestamptz(6)
+
+  cierre        liquidacion_tercero_final @relation("lt_final_vehiculo_cierre", fields: [liquidacion_tercero_final_id], references: [id], onDelete: Cascade)
+  cierre_origen liquidacion_tercero_final @relation("lt_final_vehiculo_origen", fields: [cierre_origen_id], references: [id], onDelete: Restrict)
+
+  @@index([liquidacion_tercero_final_id, placa], map: "idx_lt_final_vehiculo_cierre_placa")
 }
 
 model liquidacion_tercero_final_concepto {

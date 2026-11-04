@@ -3,7 +3,8 @@
 `/api/liquidaciones-terceros/*`, `/api/liquidaciones-terceros-descuentos`, `/api/configuracion-descuentos-tercero` · código en [`src/modules/liquidaciones-terceros-descuentos/`](../../src/modules/liquidaciones-terceros-descuentos/) · permiso [`liquidaciones-terceros`](../permisos.md#catálogo-de-módulos)
 
 El **cierre** (`liquidacion_tercero_final`) es lo que se le liquida a un
-propietario por una placa en un mes. Une, mediante un pivote
+propietario por una placa o por un grupo explícito de placas en un mes. Une,
+mediante un pivote
 (`liquidacion_tercero_final_item`), filas de terceros de una o varias
 liquidaciones de servicio (ver [liquidaciones de terceros](./liquidaciones-terceros.md)
 para el reparto del dominio) y les resta sus propios conceptos
@@ -13,7 +14,10 @@ cada conductor), `GASTO_OPERATIVO` (papelería, gastos diversos, combustible…)
 `IMPUESTO` y `ANTICIPO`. El consecutivo es `LIQ-TERC-<año>-NNNNN`, generado bajo
 `pg_advisory_xact_lock`. Una placa puede tener dos cierres en el mes si se
 liquida a dos propietarios; cada uno es una hoja del canvas del periodo. La
-carpeta se llama «descuentos» por historia: es el CRUD completo del cierre.
+tabla `liquidacion_tercero_final_vehiculo` conserva las placas y cierres de
+origen de una hoja agrupada; en ese caso la cabecera usa `placa: "VARIAS PLACAS"`.
+La carpeta se llama «descuentos» por historia: es el CRUD completo
+del cierre.
 
 Reglas de cálculo que un integrador tiene que conocer:
 
@@ -92,6 +96,7 @@ cierre entero.
 | GET | `/api/liquidaciones-terceros/borrador-status/:jobId` | `liquidaciones-terceros:limited` | Estado de un job de borradores |
 | DELETE | `/api/liquidaciones-terceros/borrador-job/:jobId` | `liquidaciones-terceros:limited` | Cancela un job de borradores propio |
 | POST | `/api/liquidaciones-terceros/guardar-borrador` | `liquidaciones-terceros:limited` | Crea el cierre (o varios en modo lote) con pivote y conceptos |
+| POST | `/api/liquidaciones-terceros/agrupar-borradores` | `liquidaciones-terceros:limited` | Agrupa borradores del mismo propietario y periodo en una hoja |
 | POST | `/api/liquidaciones-terceros/guardar-borrador-bulk-async` | `liquidaciones-terceros:limited` | Guardado masivo en segundo plano |
 | GET | `/api/liquidaciones-terceros/save-bulk/:batchId` | `liquidaciones-terceros:limited` | Estado de un guardado masivo propio |
 | DELETE | `/api/liquidaciones-terceros/save-bulk-job/:batchId` | `liquidaciones-terceros:limited` | Marca como cancelado un guardado masivo propio |
@@ -235,7 +240,8 @@ trasladados, que la vista de edición muestra tachados).
 `factura_anulada` y solo las facturas visibles), `facturas` (números
 consolidados del cierre), `items` (pivote con `aplica_impuestos`, `deleted_at`,
 `trasladado_a`, `trasladado_at`, `liquidacion_tercero` anidado, `facturas` y
-`factura_anulada`, ordenado por número de factura), `items_adicionales` (tabla
+`factura_anulada`, ordenado por número de factura), `placas` (placas fuente
+del grupo, o la placa única en cierres individuales), `items_adicionales` (tabla
 primero, JSONB como respaldo), `conceptos` (vivos, con `conductor` y
 `propietario`), `es_multi_propietario` y `propietarios` (con
 `porcentaje_efectivo`). Una factura anulada solo se muestra si la liquidación no
@@ -259,7 +265,7 @@ consecutivo, con **todos** los estados:
 
 ```json
 { "anio": 2026, "mes": 7, "modo": "lite", "total": 41,
-  "hojas": [{ "id": "uuid", "consecutivo": "…", "placa": "ABC123", "tercero_id": "uuid",
+  "hojas": [{ "id": "uuid", "consecutivo": "…", "placa": "ABC123", "placas": ["ABC123"], "tercero_id": "uuid",
     "tercero_nombre": "…", "tercero_correo": "…", "tercero_identificacion": "…",
     "tercero_tipo_persona": "PERSONA", "estado": "BORRADOR", "es_multi_propietario": false,
     "total_pagar": 0, "valor_liquidar": 0, "version": 3, "color_hoja": null,
@@ -372,6 +378,23 @@ solo falla entero si fallan todas las placas.
 |---|---|---|
 | 409 | Existe un cierre bloqueado y no se mandó `force_new` | `{ "error": "Ya existe una liquidación APROBADA para la placa … Usa force_new=true…" }` |
 | 500 | Ítems que no pertenecen a la liquidación, consecutivo imposible tras 5 intentos y el resto | `{ "error": "<mensaje>" }` |
+
+### `POST /api/liquidaciones-terceros/agrupar-borradores`
+
+**Body** `{ "cierre_ids": ["uuid", "uuid"] }`. El primer id determina la
+cabecera que conserva su consecutivo. Solo admite cierres `BORRADOR` del mismo
+tercero y periodo, con al menos dos placas distintas; por ahora rechaza hojas
+con copropietarios. Responde **200** `{ ok: true, id, cierre }`, donde el cierre
+canónico lleva `placa: "VARIAS PLACAS"`, `placas: string[]` e ítems con su
+placa de origen. La tabla `liquidacion_tercero_final_vehiculo` conserva los
+cierres fuente y sus placas, mientras sus cabeceras se archivan lógicamente.
+Los items repetidos se incluyen una sola vez, nómina y anticipos se acumulan y
+DOTACION, EXAMEN_MEDICO, COMBUSTIBLE, PAPELERIA y GASTOS_DIVERSOS quedan en una
+fila general por concepto; los automáticos se recalculan sobre el grupo completo.
+Los impuestos se regeneran una sola vez sobre la base agregada. Responde **400**
+por selección inválida o propietario/periodo
+distinto y **409** si algún cierre no está en `BORRADOR` o ya pertenece a otro
+grupo.
 
 ### `POST /api/liquidaciones-terceros/guardar-borrador-bulk-async`, `GET /api/liquidaciones-terceros/save-bulk/:batchId` y `DELETE /api/liquidaciones-terceros/save-bulk-job/:batchId`
 
@@ -502,6 +525,7 @@ activos y, si el cierre está en BORRADOR o LIQUIDADA, actualiza en sitio la
 fila de cada impuesto (empareja por concepto para conservar su `id`, que es lo
 que atan las celdas del canvas), crea las que falten, marca las sobrantes y
 actualiza `total_impuestos`. Responde el arreglo de impuestos calculados
+y recalcula los totales derivados, incluido `total_pagar`.
 `[{ tipo: "IMPUESTO", concepto, porcentaje, base_calculo, valor_total, calculado: true }]`.
 Con copropietarios delega en el reparto por copropietario y responde todos los
 conceptos vivos del cierre. Cierre inexistente → 500.

@@ -235,8 +235,8 @@ export const LiquidacionesTercerosDescuentosService = {
 
   // ── CONFIGURACIÓN DE DESCUENTOS ──
 
-  async obtenerConfiguracion() {
-    return await prisma.configuracion_descuento_tercero.findMany({
+  async obtenerConfiguracion(db: any = prisma) {
+    return await db.configuracion_descuento_tercero.findMany({
       where: { activo: true },
       orderBy: [{ categoria: 'asc' }, { orden: 'asc' }],
     });
@@ -1898,8 +1898,8 @@ export const LiquidacionesTercerosDescuentosService = {
 
   // ── CALCULAR IMPUESTOS DESDE VALOR LIQUIDAR ──
 
-  async calcularImpuestos(liquidacionTerceroFinalId: string) {
-    const cierre = await prisma.liquidacion_tercero_final.findUnique({
+  async calcularImpuestos(liquidacionTerceroFinalId: string, db: any = prisma) {
+    const cierre = await db.liquidacion_tercero_final.findUnique({
       where: { id: liquidacionTerceroFinalId },
       select: { valor_liquidar: true, adicionales: true, estado: true, es_multi_propietario: true },
     });
@@ -1914,7 +1914,7 @@ export const LiquidacionesTercerosDescuentosService = {
       return await this.recalcularImpuestosPorPropietario(liquidacionTerceroFinalId);
     }
 
-    const allItems = await prisma.liquidacion_tercero_final_item.findMany({
+    const allItems = await db.liquidacion_tercero_final_item.findMany({
       where: {
         liquidacion_tercero_final_id: liquidacionTerceroFinalId,
         deleted_at: null,
@@ -1956,14 +1956,14 @@ export const LiquidacionesTercerosDescuentosService = {
     // Antes se leía el JSONB directamente, así que los adicionales creados
     // desde el canvas (que van a la tabla) no entraban en la base y los
     // impuestos salían cortos.
-    const adicionalesSum = await sumarAdicionalesGravados(prisma, liquidacionTerceroFinalId);
+    const adicionalesSum = await sumarAdicionalesGravados(db, liquidacionTerceroFinalId);
 
     // Para RETENCION_ICA y similares: base = items con impuestos + adicionales que aplican.
     // Para RETENCION_FUENTE: base = TODOS los items + adicionales que aplican.
     const baseConImpuestosTotal = baseConImpuestos + adicionalesSum;
     const baseTotalConAdicionales = baseTotalItems + adicionalesSum;
 
-    const configDescuentos = await this.obtenerConfiguracion();
+    const configDescuentos = await this.obtenerConfiguracion(db);
     // Orden canónico de los 4 impuestos (override del `orden` de la BD).
     // El usuario pide: RETENCION_ICA → AVISOS_TABLEROS → SOBRETASA_BOMBERIL → RETENCION_FUENTE.
     const ORDEN_IMPUESTOS = [
@@ -2039,7 +2039,7 @@ export const LiquidacionesTercerosDescuentosService = {
     // Se emparejan por CONCEPTO, que es la clave natural: hay a lo sumo una
     // fila auto por impuesto en un cierre de un solo propietario.
     if (['BORRADOR', 'LIQUIDADA'].includes(cierre.estado) && conceptosImpuestos.length > 0) {
-      const existentes = await prisma.liquidacion_tercero_final_concepto.findMany({
+      const existentes = await db.liquidacion_tercero_final_concepto.findMany({
         where: {
           liquidacion_tercero_final_id: liquidacionTerceroFinalId,
           tipo: 'IMPUESTO',
@@ -2063,7 +2063,7 @@ export const LiquidacionesTercerosDescuentosService = {
         if (id) {
           porConcepto.delete(c.concepto);
           operaciones.push(
-            prisma.liquidacion_tercero_final_concepto.update({
+            db.liquidacion_tercero_final_concepto.update({
               where: { id },
               data: {
                 valor_unitario: 0,
@@ -2080,7 +2080,7 @@ export const LiquidacionesTercerosDescuentosService = {
           );
         } else {
           operaciones.push(
-            prisma.liquidacion_tercero_final_concepto.create({
+            db.liquidacion_tercero_final_concepto.create({
               data: {
                 id: randomUUID(),
                 liquidacion_tercero_final_id: liquidacionTerceroFinalId,
@@ -2103,14 +2103,15 @@ export const LiquidacionesTercerosDescuentosService = {
       const aBorrar = [...porConcepto.values(), ...sobrantes];
       if (aBorrar.length > 0) {
         operaciones.push(
-          prisma.liquidacion_tercero_final_concepto.updateMany({
+          db.liquidacion_tercero_final_concepto.updateMany({
             where: { id: { in: aBorrar } },
             data: { deleted_at: new Date() },
           })
         );
       }
 
-      await prisma.$transaction(operaciones);
+      if (typeof db.$transaction === 'function') await db.$transaction(operaciones);
+      else await Promise.all(operaciones);
 
       // Actualizar el total_impuestos del cierre para que el resumen se vea
       // consistente con los conceptos recién creados.
@@ -2118,10 +2119,13 @@ export const LiquidacionesTercerosDescuentosService = {
         (s: number, c: any) => s + toNumber(c.valor_total),
         0
       );
-      await prisma.liquidacion_tercero_final.update({
+      await db.liquidacion_tercero_final.update({
         where: { id: liquidacionTerceroFinalId },
         data: { total_impuestos: totalImpuestos },
       });
+      // El canvas recarga la cabecera después de este endpoint; actualizarla
+      // aquí evita dejar total_pagar con el valor anterior al recálculo.
+      await recalcularTotalesCierre(db, liquidacionTerceroFinalId);
     }
 
     return conceptosImpuestos;
@@ -2813,6 +2817,10 @@ export const LiquidacionesTercerosDescuentosService = {
             propietario_id: true,
           },
         },
+        vehiculos_agrupados: {
+          select: { cierre_origen_id: true, liquidacion_servicio_id: true, vehiculo_id: true, placa: true },
+          orderBy: { placa: 'asc' },
+        },
         liquidacion_servicio: {
           select: {
             id: true, consecutivo: true, mes: true, anio: true, estado: true,
@@ -2923,6 +2931,9 @@ export const LiquidacionesTercerosDescuentosService = {
         0
       ),
       tercero: item.tercero,
+      placas: item.vehiculos_agrupados?.length
+        ? item.vehiculos_agrupados.map((vehiculo: any) => vehiculo.placa)
+        : [item.placa],
       // Números de factura consolidados del cierre: une los de la liquidación
       // de servicio principal + los de cada item del pivote, deduplicados.
       // Solo los VISIBLES —ver `_facturasVisibles`—, así que una anulada entra
@@ -3260,6 +3271,7 @@ export const LiquidacionesTercerosDescuentosService = {
         anio: true,
         tercero_id: true,
         estado: true,
+        vehiculos_agrupados: { select: { placa: true } },
       },
     });
     if (!cierre) {
@@ -3270,7 +3282,10 @@ export const LiquidacionesTercerosDescuentosService = {
         `No se pueden refrescar items en un cierre en estado ${cierre.estado}. Solo se permiten borradores.`
       );
     }
-    if (!cierre.mes || !cierre.anio || !cierre.placa) {
+    const placasCierre = cierre.vehiculos_agrupados?.length
+      ? [...new Set(cierre.vehiculos_agrupados.map((vehiculo: any) => vehiculo.placa))]
+      : [cierre.placa];
+    if (!cierre.mes || !cierre.anio || placasCierre.length === 0 || placasCierre.includes('VARIAS PLACAS')) {
       throw new Error('El cierre no tiene mes/año/placa definidos');
     }
 
@@ -3292,7 +3307,7 @@ export const LiquidacionesTercerosDescuentosService = {
     //    sin el filtro, el cierre las contaría todas.
     const ltWhere: any = {
       deleted_at: null,
-      placa: { equals: cierre.placa, mode: 'insensitive' as any },
+      placa: { in: placasCierre, mode: 'insensitive' as any },
       mes: cierre.mes,
       anio: cierre.anio,
     };
@@ -3338,6 +3353,7 @@ export const LiquidacionesTercerosDescuentosService = {
 
     // 6. Recalcular totales para que `valor_liquidar`/`total_pagar`/base
     //    imponible reflejen los nuevos items.
+    await this.calcularImpuestos(liquidacionTerceroFinalId);
     await this.recalcularTotales(liquidacionTerceroFinalId);
 
     // 7. Snapshot post-refresh.
@@ -3418,13 +3434,19 @@ export const LiquidacionesTercerosDescuentosService = {
       select: {
         id: true, placa: true, mes: true, anio: true,
         tercero_id: true, estado: true, consecutivo: true,
+        vehiculos_agrupados: { select: { placa: true } },
       },
     });
     if (!cierre) throw new Error('Liquidación final de tercero no encontrada');
-    if (!cierre.placa) throw new Error('El cierre no tiene placa definida');
+    const placasCierre = cierre.vehiculos_agrupados?.length
+      ? [...new Set(cierre.vehiculos_agrupados.map((vehiculo: any) => vehiculo.placa))]
+      : [cierre.placa];
+    if (placasCierre.length === 0 || placasCierre.includes('VARIAS PLACAS')) {
+      throw new Error('El cierre no tiene placas definidas');
+    }
 
     const candidatos = await prisma.liquidacion_tercero.findMany({
-      where: { placa: { equals: cierre.placa, mode: 'insensitive' as any }, deleted_at: null },
+      where: { placa: { in: placasCierre, mode: 'insensitive' as any }, deleted_at: null },
       select: {
         id: true,
         placa: true,
@@ -3518,6 +3540,7 @@ export const LiquidacionesTercerosDescuentosService = {
       cierre: {
         id: cierre.id,
         placa: cierre.placa,
+        placas: placasCierre,
         mes: cierre.mes,
         anio: cierre.anio,
         estado: cierre.estado,
@@ -3546,7 +3569,12 @@ export const LiquidacionesTercerosDescuentosService = {
 
     const cierre = await prisma.liquidacion_tercero_final.findFirst({
       where: { id: liquidacionTerceroFinalId, deleted_at: null },
-      select: { id: true, placa: true, estado: true },
+      select: {
+        id: true,
+        placa: true,
+        estado: true,
+        vehiculos_agrupados: { select: { placa: true } },
+      },
     });
     if (!cierre) throw new Error('Liquidación final de tercero no encontrada');
     if (cierre.estado && cierre.estado !== 'BORRADOR') {
@@ -3575,11 +3603,17 @@ export const LiquidacionesTercerosDescuentosService = {
       throw new Error(`${faltan.length} item(s) ya no existen en la base`);
     }
 
-    const placaCierre = (cierre.placa || '').trim().toUpperCase();
+    const placasCierre = new Set(
+      (cierre.vehiculos_agrupados?.length
+        ? cierre.vehiculos_agrupados.map((vehiculo: any) => vehiculo.placa)
+        : [cierre.placa]
+      ).map((placa: string) => placa.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')),
+    );
     for (const c of candidatos as any[]) {
-      if ((c.placa || '').trim().toUpperCase() !== placaCierre) {
+      const clavePlacaItem = (c.placa || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!placasCierre.has(clavePlacaItem)) {
         throw new Error(
-          `El item "${c.recorrido || c.id}" es de la placa ${c.placa} y este cierre es de ${cierre.placa}`
+          `El item "${c.recorrido || c.id}" es de la placa ${c.placa} y no pertenece a este cierre`
         );
       }
       const enUso = (c.finales || []).find(
@@ -3612,6 +3646,7 @@ export const LiquidacionesTercerosDescuentosService = {
       )
     );
 
+    await this.calcularImpuestos(liquidacionTerceroFinalId);
     await this.recalcularTotales(liquidacionTerceroFinalId);
 
     try {

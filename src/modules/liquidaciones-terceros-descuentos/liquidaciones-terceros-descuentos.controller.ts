@@ -9,6 +9,7 @@ import { CierreFinalCeldasService } from './cierre-final-celdas.service';
 import { ErrorTraslado, TrasladoItemsService } from './traslado-items.service';
 import { borradorQueueService } from '../../queue/borrador-queue.service';
 import { bulkSaveLiquidacionTerceroService } from '../../queue/bulk-save-liquidacion-tercero.service';
+import { agruparBorradores } from './agrupar-borradores.service';
 
 export class LiquidacionesTercerosDescuentosController {
 
@@ -287,6 +288,36 @@ export class LiquidacionesTercerosDescuentosController {
     } catch (error: any) {
       const status = /Ya existe una liquidación/.test(error.message) ? 409 : 500;
       return reply.status(status).send({ error: error.message });
+    }
+  }
+
+  static async agruparBorradores(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { cierre_ids } = request.body as any;
+      if (!Array.isArray(cierre_ids)) {
+        return reply.status(400).send({ error: 'cierre_ids debe ser un array de IDs' });
+      }
+      const userId = (request as any).user?.id;
+      const result = await agruparBorradores(cierre_ids, userId);
+      const cierre = result.cierre as any;
+
+      emitSheetInvalidate({
+        scope: 'cierres-finales',
+        anio: cierre.anio,
+        mes: cierre.mes,
+        cierreId: cierre.id,
+        accion: 'agrupar',
+      });
+
+      return reply.send(result);
+    } catch (error: any) {
+      const msg = error.message || 'No se pudieron agrupar los borradores';
+      const status = /estado|ya pertenece|archivados|copropietarios/i.test(msg)
+        ? 409
+        : /selecciona|borradores|mes y año|propietario|placas|cierres no existen/i.test(msg)
+          ? 400
+          : 500;
+      return reply.status(status).send({ error: msg });
     }
   }
 

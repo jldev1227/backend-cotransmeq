@@ -39,6 +39,9 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   //    transacción) ──
   app.post('/liquidaciones-terceros/guardar-borrador', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarBorrador);
 
+  // Agrupa cierres BORRADOR del mismo propietario y periodo en una sola hoja.
+  app.post('/liquidaciones-terceros/agrupar-borradores', puedeEscribir, LiquidacionesTercerosDescuentosController.agruparBorradores);
+
   // ── Autocompletar desde nómina (puede ser por placa/mes/anio sin necesidad de cierre) ──
   app.get('/liquidaciones-terceros/autocompletar-nomina', puedeLeer, LiquidacionesTercerosDescuentosController.autocompletarNomina);
 
