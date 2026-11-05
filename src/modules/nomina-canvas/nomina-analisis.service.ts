@@ -10,10 +10,10 @@
  *   · el periodo resuelto —el mes de nómina es el mes en que TERMINA el
  *     corte, que es como lo nombra el canvas—,
  *   · el estado del flujo y si el desprendible está firmado,
- *   · los totales que imprime el desprendible (devengado, bonificaciones,
- *     recargos, pernoctes, deducciones y neto),
- *   · y el detalle por vehículo de bonificaciones, recargos, pernoctes y
- *     mantenimientos, que es lo que alimenta las pestañas del análisis.
+ *   · los totales del desprendible para salario, pernoctes y deducciones,
+ *   · las marcas de bonificación en Recorridos y los días/tipos/importes de
+ *     Recargos Planillas,
+ *   · y el detalle por vehículo de pernoctes y mantenimientos.
  *
  * Los filtros de conductor, estado y placa van en el `where`. Año y mes tienen
  * dos significados distintos: el resumen usa el mes en que termina el corte,
@@ -30,7 +30,6 @@ export interface FiltrosAnalisisNomina {
   placas: string[];
   conductores: string[];
   estados: string[];
-  incluirRecargosJornada?: boolean;
 }
 
 export interface VehiculoAnalisis {
@@ -43,24 +42,43 @@ export interface BonificacionAnalisis {
   placa: string | null;
   nombre: string;
   valor_unitario: number;
-  /** `{ mes: 'Septiembre', cantidad }` por mes del año de la liquidación. */
+  /** `{ mes: '2026-09', cantidad }` por mes de la marca en Recorridos. */
   valores: { mes: string; cantidad: number }[];
 }
 
-export interface RecargoAnalisis {
-  vehiculo_id: string | null;
+export interface BonificacionRecorridoAnalisis {
+  conductor_id: string;
+  conductor: string;
   placa: string | null;
-  valor: number;
-  paga_cliente: boolean;
-  cliente_id: string | null;
-  cliente: string;
+  nombre: string;
   mes: string;
-  porcentaje_propietario: number;
+  cantidad: number;
+  valor_unitario: number;
+  total: number;
+  fechas: string[];
 }
 
 export interface RecargoJornadaDiaAnalisis {
   fecha: string;
-  valor: number;
+}
+
+export interface RecargoPlanillaDiaAnalisis {
+  fecha: string;
+}
+
+export interface RecargoPlanillaAnalisis {
+  planilla_id: string;
+  numero_planilla: string | null;
+  estado: string;
+  conductor_id: string;
+  conductor: string;
+  vehiculo_id: string | null;
+  placa: string | null;
+  empresa_id: string;
+  empresa: string;
+  mes: string;
+  dias: RecargoPlanillaDiaAnalisis[];
+  valor_pagar: number;
 }
 
 export interface RecargoJornadaAnalisis {
@@ -117,7 +135,6 @@ export interface LiquidacionAnalisis {
   sueldo_total: number;
   vehiculos: VehiculoAnalisis[];
   bonificaciones: BonificacionAnalisis[];
-  recargos: RecargoAnalisis[];
   recargos_jornada: RecargoJornadaAnalisis[];
   pernotes: PernocteAnalisis[];
   mantenimientos: MantenimientoAnalisis[];
@@ -132,6 +149,10 @@ export interface CatalogosAnalisis {
 
 export interface ResultadoAnalisisNomina {
   liquidaciones: LiquidacionAnalisis[];
+  /** Marcas de Recorridos agrupadas por conductor, placa, bono y mes calendario. */
+  bonificaciones_recorridos: BonificacionRecorridoAnalisis[];
+  /** Días, tipos e importes calculados a partir de Recargos Planillas. */
+  recargos_planillas: RecargoPlanillaAnalisis[];
   catalogos: CatalogosAnalisis;
   total: number;
   meta: { recargos_jornada_grupos: number };
@@ -190,171 +211,6 @@ function mesesEntre(desde: string, hasta: string): { a_o: number; mes: number }[
   return meses;
 }
 
-/** Cuenta planillas que aportan grupos al detalle, sin enviar sus días al resumen. */
-async function contarGruposRecargosJornada(liquidaciones: any[], f: FiltrosAnalisisNomina) {
-  const periodos = new Map<string, {
-    conductorId: string;
-    a_o: number;
-    mes: number;
-    rangos: { desde: number; hasta: number }[];
-  }>();
-  for (const liquidacion of liquidaciones) {
-    if (!liquidacion.conductor_id) continue;
-    const inicio = String(liquidacion.periodo_start ?? '').slice(0, 10);
-    const fin = String(liquidacion.periodo_end ?? '').slice(0, 10);
-    for (const periodo of mesesEntre(inicio, fin)) {
-      if (f.anios.length && !f.anios.includes(periodo.a_o)) continue;
-      if (f.meses.length && !f.meses.includes(periodo.mes)) continue;
-
-      const prefijo = `${periodo.a_o}-${String(periodo.mes).padStart(2, '0')}`;
-      const ultimoDia = new Date(Date.UTC(periodo.a_o, periodo.mes, 0)).getUTCDate();
-      const desdeDia = inicio.startsWith(prefijo) ? Number(inicio.slice(8, 10)) : 1;
-      const hastaDia = fin.startsWith(prefijo) ? Number(fin.slice(8, 10)) : ultimoDia;
-      if (desdeDia > hastaDia) continue;
-
-      const clave = [liquidacion.conductor_id, periodo.a_o, periodo.mes].join('|');
-      const grupo = periodos.get(clave) ?? {
-        conductorId: liquidacion.conductor_id,
-        a_o: periodo.a_o,
-        mes: periodo.mes,
-        rangos: [],
-      };
-      grupo.rangos.push({ desde: desdeDia, hasta: hastaDia });
-      periodos.set(clave, grupo);
-    }
-  }
-
-  if (!periodos.size) return 0;
-  const condiciones = Array.from(periodos.values()).map((grupo) => {
-    const rangos = grupo.rangos.sort((a, b) => a.desde - b.desde).reduce(
-      (unidos, rango) => {
-        const ultimo = unidos.at(-1);
-        if (ultimo && rango.desde <= ultimo.hasta + 1) ultimo.hasta = Math.max(ultimo.hasta, rango.hasta);
-        else unidos.push({ ...rango });
-        return unidos;
-      },
-      [] as { desde: number; hasta: number }[],
-    );
-    return {
-      conductor_id: grupo.conductorId,
-      a_o: grupo.a_o,
-      mes: grupo.mes,
-      dias_laborales_planillas: {
-        some: {
-          deleted_at: null,
-          OR: rangos.map(({ desde, hasta }) => ({ dia: { gte: desde, lte: hasta } })),
-          detalles_recargos_dias: {
-            some: {
-              activo: true,
-              deleted_at: null,
-              tipos_recargos: { codigo: { in: CODIGOS_RECARGO as unknown as string[] } },
-              OR: [{ horas: { gt: 0 } }, { valor_calculado: { gt: 0 } }],
-            },
-          },
-        },
-      },
-    };
-  });
-  return prisma.recargos_planillas.count({
-    where: {
-      deleted_at: null,
-      OR: condiciones,
-      ...(f.placas.length ? { vehiculos: { placa: { in: f.placas } } } : {}),
-    },
-  });
-}
-
-/** Consolida por planilla, empresa, mes y día los valores registrados en Recargos. */
-function agruparRecargosJornada(
-  liquidaciones: any[],
-  planillas: any[],
-  f: FiltrosAnalisisNomina,
-): Map<string, RecargoJornadaAnalisis[]> {
-  const planillasPorConductor = new Map<string, any[]>();
-  for (const planilla of planillas) {
-    const lista = planillasPorConductor.get(planilla.conductor_id) ?? [];
-    lista.push(planilla);
-    planillasPorConductor.set(planilla.conductor_id, lista);
-  }
-
-  const resultado = new Map<string, RecargoJornadaAnalisis[]>();
-  for (const liquidacion of liquidaciones) {
-    const desde = String(liquidacion.periodo_start ?? '').slice(0, 10);
-    const hasta = String(liquidacion.periodo_end ?? '').slice(0, 10);
-    const grupos = new Map<string, RecargoJornadaAnalisis>();
-    const agregarDia = (planilla: any, dia: any, fecha: string) => {
-      if (fecha < desde || fecha > hasta) return;
-      const anio = Number(fecha.slice(0, 4));
-      const mes = Number(fecha.slice(5, 7));
-      if (f.anios.length && !f.anios.includes(anio)) return;
-      if (f.meses.length && !f.meses.includes(mes)) return;
-      const placa = planilla.vehiculos?.placa ?? null;
-      if (f.placas.length && (!placa || !f.placas.includes(placa))) return;
-
-      let valorDia = 0;
-      let tieneRecargo = false;
-      for (const detalle of dia.detalles_recargos_dias ?? []) {
-        const codigo = String(detalle.tipos_recargos?.codigo ?? '').toUpperCase();
-        if (!(CODIGOS_RECARGO as readonly string[]).includes(codigo)) continue;
-        const horas = num(detalle.horas);
-        const valor = num(detalle.valor_calculado);
-        if (horas <= 0 && valor <= 0) continue;
-        tieneRecargo = true;
-        valorDia += valor;
-      }
-      if (!tieneRecargo) return;
-
-      const mesReferencia = String(anio) + '-' + String(mes).padStart(2, '0');
-      const vehiculoId = planilla.vehiculo_id ?? null;
-      const clienteId = planilla.empresa_id ?? null;
-      const clave = [planilla.id, vehiculoId, placa, clienteId, mesReferencia].join('|');
-      const valorRedondeado = Math.round(valorDia * 100) / 100;
-      const existente = grupos.get(clave);
-      if (existente) {
-        existente.dias.push({ fecha, valor: valorRedondeado });
-        existente.valor = Math.round((existente.valor + valorRedondeado) * 100) / 100;
-      } else {
-        grupos.set(clave, {
-          planilla_id: planilla.id,
-          numero_planilla: planilla.numero_planilla ?? null,
-          vehiculo_id: vehiculoId,
-          placa,
-          cliente_id: clienteId,
-          cliente: planilla.clientes?.nombre ?? '',
-          mes: mesReferencia,
-          dias: [{ fecha, valor: valorRedondeado }],
-          valor: valorRedondeado,
-        });
-      }
-    };
-
-    /// Esta pestaña contrasta con lo que está registrado en Recargos:
-    /// no sustituir esos datos por las horas editables del snapshot del canvas.
-    for (const planilla of planillasPorConductor.get(liquidacion.conductor_id) ?? []) {
-      for (const dia of planilla.dias_laborales_planillas ?? []) {
-        const fecha =
-          String(planilla.a_o) +
-          '-' +
-          String(planilla.mes).padStart(2, '0') +
-          '-' +
-          String(dia.dia).padStart(2, '0');
-        agregarDia(planilla, dia, fecha);
-      }
-    }
-
-    resultado.set(
-      liquidacion.id,
-      Array.from(grupos.values()).sort(
-        (a, b) =>
-          a.mes.localeCompare(b.mes) ||
-          (a.numero_planilla ?? '').localeCompare(b.numero_planilla ?? '') ||
-          (a.cliente ?? '').localeCompare(b.cliente ?? '', 'es'),
-      ),
-    );
-  }
-  return resultado;
-}
-
 function periodoDe(periodoEnd: string, periodoStart: string) {
   const fin = String(periodoEnd ?? '').slice(0, 10);
   const ini = String(periodoStart ?? '').slice(0, 10);
@@ -363,6 +219,297 @@ function periodoDe(periodoEnd: string, periodoStart: string) {
     mes: Number(fin.slice(5, 7)) || 0,
     corte: Number(ini.slice(8, 10)) || 0,
   };
+}
+
+function mesesDeLiquidaciones(liquidaciones: any[], f: FiltrosAnalisisNomina) {
+  const meses = new Map<string, { a_o: number; mes: number }>();
+  for (const liquidacion of liquidaciones) {
+    for (const periodo of mesesEntre(liquidacion.periodo_start, liquidacion.periodo_end)) {
+      if (f.anios.length && !f.anios.includes(periodo.a_o)) continue;
+      if (f.meses.length && !f.meses.includes(periodo.mes)) continue;
+      meses.set(`${periodo.a_o}-${periodo.mes}`, periodo);
+    }
+  }
+  return Array.from(meses.values());
+}
+
+/** Los conceptos usan meses calendario explícitos aunque el corte de nómina los cruce. */
+function mesesFuente(liquidaciones: any[], f: FiltrosAnalisisNomina) {
+  if (f.anios.length) {
+    const meses = f.meses.length ? f.meses : Array.from({ length: 12 }, (_, i) => i + 1);
+    return f.anios.flatMap((a_o) => meses.map((mes) => ({ a_o, mes })));
+  }
+  return mesesDeLiquidaciones(liquidaciones, f);
+}
+
+function mesClave(anio: number, mes: number) {
+  return `${anio}-${String(mes).padStart(2, '0')}`;
+}
+
+function destinoDeConcepto(
+  liquidaciones: any[],
+  conductorId: string,
+  anio: number,
+  mes: number,
+  desde: string,
+  hasta: string,
+) {
+  const candidatas = liquidaciones.filter((l) => l.conductor_id === conductorId);
+  const mismoMes = candidatas.find((l) => {
+    const periodo = periodoDe(l.periodo_end, l.periodo_start);
+    return periodo.anio === anio && periodo.mes === mes;
+  });
+  if (mismoMes) return mismoMes;
+
+  const queCruzan = candidatas
+    .map((l) => {
+      const inicio = String(l.periodo_start ?? '').slice(0, 10);
+      const fin = String(l.periodo_end ?? '').slice(0, 10);
+      const inicioComun = inicio > desde ? inicio : desde;
+      const finComun = fin < hasta ? fin : hasta;
+      const dias = inicioComun <= finComun
+        ? (Date.parse(`${finComun}T00:00:00Z`) - Date.parse(`${inicioComun}T00:00:00Z`)) / 86_400_000 + 1
+        : 0;
+      return { liquidacion: l, dias };
+    })
+    .filter((x) => x.dias > 0)
+    .sort((a, b) => b.dias - a.dias);
+  return queCruzan[0]?.liquidacion ?? candidatas[0] ?? null;
+}
+
+/** Agrupa las marcas de Recorridos por la liquidación del mismo mes de referencia. */
+function agruparBonosRecorridos(
+  liquidaciones: any[],
+  marcas: any[],
+  f: FiltrosAnalisisNomina,
+): Map<string, BonificacionAnalisis[]> {
+  const acumulados = new Map<string, Map<string, any>>();
+  for (const marca of marcas) {
+    if (marca.segmento?.deleted_at) continue;
+    const conductorId = marca.registro_dia?.conductor_id;
+    if (!conductorId) continue;
+    const fecha = marca.registro_dia.fecha.toISOString().slice(0, 10);
+    const anio = Number(fecha.slice(0, 4));
+    const mes = Number(fecha.slice(5, 7));
+    if (f.anios.length && !f.anios.includes(anio)) continue;
+    if (f.meses.length && !f.meses.includes(mes)) continue;
+
+    const placa = marca.segmento?.vehiculo_placa ?? marca.segmento?.vehiculo?.placa ?? null;
+    if (f.placas.length && (!placa || !f.placas.includes(placa))) continue;
+    const destino = destinoDeConcepto(
+      liquidaciones,
+      conductorId,
+      anio,
+      mes,
+      `${mesClave(anio, mes)}-01`,
+      `${mesClave(anio, mes)}-${String(new Date(Date.UTC(anio, mes, 0)).getUTCDate()).padStart(2, '0')}`,
+    );
+    if (!destino) continue;
+
+    /// En Recorridos la existencia de la marca define la cantidad. El valor
+    /// monetario sale de la configuración vigente asociada, no del snapshot de pago.
+    const nombre = String(marca.config_liquidacion?.nombre ?? '').trim() || 'BONO';
+    const valorUnitario = num(marca.config_liquidacion?.valor);
+    const vehiculoId = marca.segmento?.vehiculo_id ?? null;
+    const clave = `${vehiculoId ?? ''}|${nombre}|${valorUnitario.toFixed(2)}`;
+    const porLiquidacion = acumulados.get(destino.id) ?? new Map<string, any>();
+    const bono = porLiquidacion.get(clave) ?? {
+      vehiculo_id: vehiculoId,
+      placa,
+      nombre,
+      valor_unitario: valorUnitario,
+      valores: new Map<string, number>(),
+    };
+    const mesReferencia = mesClave(anio, mes);
+    bono.valores.set(mesReferencia, (bono.valores.get(mesReferencia) ?? 0) + 1);
+    porLiquidacion.set(clave, bono);
+    acumulados.set(destino.id, porLiquidacion);
+  }
+
+  return new Map(
+    Array.from(acumulados, ([liquidacionId, bonos]) => [
+      liquidacionId,
+      Array.from(bonos.values()).map((bono) => ({
+        ...bono,
+        valores: Array.from(bono.valores, ([mes, cantidad]) => ({ mes, cantidad })),
+      })),
+    ]),
+  );
+}
+
+/** Mantiene el detalle por mes de calendario sin depender de que exista una nómina. */
+function agruparBonosCalendario(marcas: any[], f: FiltrosAnalisisNomina): BonificacionRecorridoAnalisis[] {
+  const acumulados = new Map<string, BonificacionRecorridoAnalisis>();
+  for (const marca of marcas) {
+    if (marca.segmento?.deleted_at) continue;
+    const registro = marca.registro_dia;
+    const conductorId = registro?.conductor_id;
+    if (!conductorId) continue;
+    const fecha = registro.fecha.toISOString().slice(0, 10);
+    const anio = Number(fecha.slice(0, 4));
+    const mesNumero = Number(fecha.slice(5, 7));
+    if (f.anios.length && !f.anios.includes(anio)) continue;
+    if (f.meses.length && !f.meses.includes(mesNumero)) continue;
+
+    const placa = marca.segmento?.vehiculo_placa ?? marca.segmento?.vehiculo?.placa ?? null;
+    if (f.placas.length && (!placa || !f.placas.includes(placa))) continue;
+    const nombre = String(marca.config_liquidacion?.nombre ?? '').trim() || 'BONO';
+    const valorUnitario = num(marca.config_liquidacion?.valor);
+    const mes = mesClave(anio, mesNumero);
+    const conductor = `${registro.conductor?.nombre ?? ''} ${registro.conductor?.apellido ?? ''}`.trim() || 'Sin conductor';
+    const clave = [conductorId, placa ?? '', nombre, valorUnitario.toFixed(2), mes].join('|');
+    const fila = acumulados.get(clave) ?? {
+      conductor_id: conductorId,
+      conductor,
+      placa,
+      nombre,
+      mes,
+      cantidad: 0,
+      valor_unitario: valorUnitario,
+      total: 0,
+      fechas: [],
+    };
+    fila.cantidad += 1;
+    fila.total = Math.round((fila.total + valorUnitario) * 100) / 100;
+    fila.fechas.push(fecha);
+    acumulados.set(clave, fila);
+  }
+  return Array.from(acumulados.values()).map((fila) => ({
+    ...fila,
+    fechas: Array.from(new Set(fila.fechas)).sort(),
+  })).sort((a, b) =>
+    (a.placa ?? '').localeCompare(b.placa ?? '') ||
+    a.mes.localeCompare(b.mes) ||
+    a.conductor.localeCompare(b.conductor, 'es') ||
+    a.nombre.localeCompare(b.nombre, 'es'),
+  );
+}
+
+/** Agrupa el importe calculado en cada planilla por corte de nómina. */
+function agruparRecargosJornada(
+  liquidaciones: any[],
+  planillas: any[],
+  f: FiltrosAnalisisNomina,
+): Map<string, RecargoJornadaAnalisis[]> {
+  const resultado = new Map<string, RecargoJornadaAnalisis[]>();
+  for (const planilla of planillas) {
+    const anio = Number(planilla.a_o);
+    const mes = Number(planilla.mes);
+    if (f.anios.length && !f.anios.includes(anio)) continue;
+    if (f.meses.length && !f.meses.includes(mes)) continue;
+    const placa = planilla.vehiculos?.placa ?? null;
+    if (f.placas.length && (!placa || !f.placas.includes(placa))) continue;
+
+    const mesReferencia = mesClave(anio, mes);
+    const desdeMes = `${mesReferencia}-01`;
+    const hastaMes = `${mesReferencia}-${String(new Date(Date.UTC(anio, mes, 0)).getUTCDate()).padStart(2, '0')}`;
+    const destino = destinoDeConcepto(
+      liquidaciones,
+      planilla.conductor_id,
+      anio,
+      mes,
+      desdeMes,
+      hastaMes,
+    );
+    if (!destino) continue;
+
+    const diasConRecargos = (planilla.dias_laborales_planillas ?? []).filter((dia: any) =>
+      (dia.detalles_recargos_dias ?? []).some((detalle: any) => {
+        const codigo = String(detalle.tipos_recargos?.codigo ?? '').toUpperCase();
+        return (CODIGOS_RECARGO as readonly string[]).includes(codigo) && num(detalle.horas) > 0;
+      }),
+    );
+    const dias = diasConRecargos.map((dia: any) => ({
+      fecha: `${mesReferencia}-${String(dia.dia).padStart(2, '0')}`,
+    }));
+    if (!dias.length) continue;
+    const valor = Math.round(diasConRecargos.reduce((total: number, dia: any) =>
+      total + (dia.detalles_recargos_dias ?? []).reduce(
+        (suma: number, detalle: any) => suma + num(detalle.valor_calculado),
+        0,
+      ),
+    ) * 100) / 100;
+    const lista = resultado.get(destino.id) ?? [];
+    lista.push({
+      planilla_id: planilla.id,
+      numero_planilla: planilla.numero_planilla ?? null,
+      vehiculo_id: planilla.vehiculo_id ?? null,
+      placa,
+      cliente_id: planilla.empresa_id ?? null,
+      cliente: String(planilla.clientes?.nombre ?? '').trim(),
+      mes: mesReferencia,
+      dias,
+      valor,
+    });
+    resultado.set(destino.id, lista);
+  }
+
+  for (const [id, grupos] of resultado) {
+    resultado.set(id, grupos.sort(
+      (a, b) => a.mes.localeCompare(b.mes) ||
+        (a.numero_planilla ?? '').localeCompare(b.numero_planilla ?? '') ||
+        a.cliente.localeCompare(b.cliente, 'es'),
+    ));
+  }
+  return resultado;
+}
+
+/** Lista los días laborados y suma el valor calculado guardado en la planilla. */
+function agruparPlanillasConRecargos(
+  planillas: any[],
+  f: FiltrosAnalisisNomina,
+): RecargoPlanillaAnalisis[] {
+  const resultado: RecargoPlanillaAnalisis[] = [];
+  for (const planilla of planillas) {
+    const anio = Number(planilla.a_o);
+    const mesNumero = Number(planilla.mes);
+    if (f.anios.length && !f.anios.includes(anio)) continue;
+    if (f.meses.length && !f.meses.includes(mesNumero)) continue;
+    const placa = planilla.vehiculos?.placa ?? null;
+    if (f.placas.length && (!placa || !f.placas.includes(placa))) continue;
+
+    const mes = mesClave(anio, mesNumero);
+    const diasPlanilla = (planilla.dias_laborales_planillas ?? [])
+      .filter((dia: any) => !dia.deleted_at);
+    const tieneRecargos = diasPlanilla.some((dia: any) =>
+      (dia.detalles_recargos_dias ?? []).some((detalle: any) =>
+        detalle.activo && !detalle.deleted_at && num(detalle.horas) > 0,
+      ),
+    );
+    if (!tieneRecargos) continue;
+    const dias = diasPlanilla
+      .filter((dia: any) => !dia.disponibilidad && num(dia.total_horas) > 0)
+      .map((dia: any) => ({ fecha: `${mes}-${String(dia.dia).padStart(2, '0')}` }))
+      .sort((a: RecargoPlanillaDiaAnalisis, b: RecargoPlanillaDiaAnalisis) => a.fecha.localeCompare(b.fecha));
+    const valorPagar = diasPlanilla.reduce((total: number, dia: any) =>
+      total + (dia.detalles_recargos_dias ?? []).reduce(
+        (suma: number, detalle: any) => suma + num(detalle.valor_calculado),
+        0,
+      ),
+    0);
+
+    const conductor = planilla.conductores;
+    resultado.push({
+      planilla_id: planilla.id,
+      numero_planilla: planilla.numero_planilla ?? null,
+      estado: String(planilla.estado ?? ''),
+      conductor_id: planilla.conductor_id,
+      conductor: `${conductor?.nombre ?? ''} ${conductor?.apellido ?? ''}`.trim() || 'Sin conductor',
+      vehiculo_id: planilla.vehiculo_id ?? null,
+      placa,
+      empresa_id: planilla.empresa_id,
+      empresa: String(planilla.clientes?.nombre ?? '').trim() || 'Sin empresa en planilla',
+      mes,
+      dias,
+      valor_pagar: Math.round(valorPagar * 100) / 100,
+    });
+  }
+  return resultado.sort((a, b) =>
+    (a.placa ?? '').localeCompare(b.placa ?? '') ||
+    a.mes.localeCompare(b.mes) ||
+    (a.numero_planilla ?? '').localeCompare(b.numero_planilla ?? '') ||
+    a.empresa.localeCompare(b.empresa, 'es'),
+  );
 }
 
 export const NominaAnalisisService = {
@@ -404,13 +551,31 @@ export const NominaAnalisisService = {
       const porPlaca = {
         OR: [
           { liquidacion_vehiculo: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
-          { bonificaciones: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
-          { recargos: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
           { pernotes: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
           { mantenimientos: { some: { deleted_at: null, vehiculos: { placa: { in: f.placas } } } } },
-          ...(f.incluirRecargosJornada
-            ? [{ conductores: { is: { recargos_planillas: { some: filtroPlanillas } } } }]
-            : []),
+          {
+            conductores: {
+              is: {
+                registros_dia_laboral: {
+                  some: {
+                    deleted_at: null,
+                    bonos: {
+                      some: {
+                        deleted_at: null,
+                        segmento: {
+                          is: {
+                            deleted_at: null,
+                            vehiculo: { placa: { in: f.placas } },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          { conductores: { is: { recargos_planillas: { some: filtroPlanillas } } } },
         ],
       };
       const condiciones = where.OR ? [{ OR: where.OR }, porPlaca] : [porPlaca];
@@ -427,14 +592,6 @@ export const NominaAnalisisService = {
           liquidacion_vehiculo: {
             where: { deleted_at: null },
             include: { vehiculos: { select: { id: true, placa: true } } },
-          },
-          bonificaciones: { where: { deleted_at: null }, include: { vehiculos: { select: { id: true, placa: true } } } },
-          recargos: {
-            where: { deleted_at: null },
-            include: {
-              clientes: { select: { id: true, nombre: true } },
-              vehiculos: { select: { id: true, placa: true } },
-            },
           },
           pernotes: {
             where: { deleted_at: null },
@@ -465,62 +622,99 @@ export const NominaAnalisisService = {
       }),
     ]);
 
-    const recargosJornadaGrupos = await contarGruposRecargosJornada(filas, f);
+    const bonosPorLiquidacion = new Map<string, BonificacionAnalisis[]>();
     const recargosJornadaPorLiquidacion = new Map<string, RecargoJornadaAnalisis[]>();
-    if (f.incluirRecargosJornada && filas.length) {
-      const conductores = Array.from(new Set(filas.map((l: any) => l.conductor_id).filter(Boolean)));
-      const mesesPlanilla = new Map<string, { a_o: number; mes: number }>();
-      for (const liquidacion of filas as any[]) {
-        for (const periodo of mesesEntre(liquidacion.periodo_start, liquidacion.periodo_end)) {
-          if (f.anios.length && !f.anios.includes(periodo.a_o)) continue;
-          if (f.meses.length && !f.meses.includes(periodo.mes)) continue;
-          mesesPlanilla.set(`${periodo.a_o}-${periodo.mes}`, periodo);
-        }
-      }
+    const mesesPlanilla = mesesFuente(filas, f);
+    const condicionesFechas = mesesPlanilla.map(({ a_o, mes }) => {
+        const desde = `${mesClave(a_o, mes)}-01`;
+        const siguienteMes = mes === 12
+          ? `${a_o + 1}-01-01`
+          : `${a_o}-${String(mes + 1).padStart(2, '0')}-01`;
+        return { fecha: { gte: new Date(`${desde}T00:00:00.000Z`), lt: new Date(`${siguienteMes}T00:00:00.000Z`) } };
+      });
 
-      const planillas = conductores.length && mesesPlanilla.size
-        ? await prisma.recargos_planillas.findMany({
-            where: {
+    const [planillas, marcasBonos] = mesesPlanilla.length
+      ? await Promise.all([
+        prisma.recargos_planillas.findMany({
+          where: {
+            deleted_at: null,
+            OR: mesesPlanilla,
+            ...(f.conductores.length ? { conductor_id: { in: f.conductores } } : {}),
+            ...(f.placas.length ? { vehiculos: { placa: { in: f.placas } } } : {}),
+          },
+          include: {
+            conductores: { select: { nombre: true, apellido: true } },
+            clientes: { select: { nombre: true } },
+            vehiculos: { select: { id: true, placa: true } },
+            dias_laborales_planillas: {
+              where: { deleted_at: null },
+              include: {
+                detalles_recargos_dias: {
+                  where: { activo: true, deleted_at: null },
+                  select: {
+                    activo: true,
+                    deleted_at: true,
+                    horas: true,
+                    valor_calculado: true,
+                    tipos_recargos: { select: { codigo: true } },
+                  },
+                },
+              },
+            },
+          },
+        }),
+        prisma.registro_dia_laboral_bono.findMany({
+          where: {
+            deleted_at: null,
+            registro_dia: {
               deleted_at: null,
-              conductor_id: { in: conductores },
-              OR: Array.from(mesesPlanilla.values()),
-              ...(f.placas.length ? { vehiculos: { placa: { in: f.placas } } } : {}),
-              dias_laborales_planillas: {
-                some: {
+              ...(f.conductores.length ? { conductor_id: { in: f.conductores } } : {}),
+              OR: condicionesFechas,
+            },
+            ...(f.placas.length ? {
+              segmento: {
+                is: {
                   deleted_at: null,
-                  detalles_recargos_dias: {
-                    some: {
-                      activo: true,
-                      deleted_at: null,
-                      OR: [{ horas: { gt: 0 } }, { valor_calculado: { gt: 0 } }],
-                    },
-                  },
+                  OR: [
+                    { vehiculo_placa: { in: f.placas } },
+                    { vehiculo: { placa: { in: f.placas } } },
+                  ],
                 },
               },
-            },
-            include: {
-              vehiculos: { select: { id: true, placa: true } },
-              clientes: { select: { id: true, nombre: true } },
-              dias_laborales_planillas: {
-                where: { deleted_at: null },
-                include: {
-                  detalles_recargos_dias: {
-                    where: { activo: true, deleted_at: null },
-                    select: {
-                      horas: true,
-                      valor_calculado: true,
-                      tipos_recargos: { select: { codigo: true } },
-                    },
-                  },
-                },
+            } : {}),
+          },
+          select: {
+            registro_dia: {
+              select: {
+                conductor_id: true,
+                fecha: true,
+                conductor: { select: { nombre: true, apellido: true } },
               },
             },
-          })
-        : [];
-      for (const [id, recargos] of agruparRecargosJornada(filas, planillas, f)) {
-        recargosJornadaPorLiquidacion.set(id, recargos);
-      }
+            segmento: {
+              select: {
+                vehiculo_id: true,
+                vehiculo_placa: true,
+                deleted_at: true,
+                vehiculo: { select: { placa: true } },
+              },
+            },
+            config_liquidacion: { select: { nombre: true, valor: true } },
+          },
+        }),
+      ])
+      : [[], []];
+
+    const bonificacionesRecorridos = agruparBonosCalendario(marcasBonos, f);
+    for (const [id, bonos] of agruparBonosRecorridos(filas, marcasBonos, f)) {
+      bonosPorLiquidacion.set(id, bonos);
     }
+
+    const recargosPlanillas = agruparPlanillasConRecargos(planillas, f);
+    for (const [id, recargos] of agruparRecargosJornada(filas, planillas, f)) {
+      recargosJornadaPorLiquidacion.set(id, recargos);
+    }
+    const recargosJornadaGrupos = recargosPlanillas.length;
 
     const liquidaciones: LiquidacionAnalisis[] = filas.map((l: any) => {
       const { anio, mes, corte } = periodoDe(l.periodo_end, l.periodo_start);
@@ -529,11 +723,14 @@ export const NominaAnalisisService = {
         if (v?.id) vehiculosPorId.set(v.id, { id: v.id, placa: v.placa });
       };
       for (const lv of l.liquidacion_vehiculo ?? []) agregarVehiculo(lv.vehiculos);
-      for (const b of l.bonificaciones ?? []) agregarVehiculo(b.vehiculos);
-      for (const r of l.recargos ?? []) agregarVehiculo(r.vehiculos);
+      const bonificaciones = bonosPorLiquidacion.get(l.id) ?? [];
+      const recargosJornada = recargosJornadaPorLiquidacion.get(l.id) ?? [];
+      for (const b of bonificaciones) {
+        agregarVehiculo(b.vehiculo_id && b.placa ? { id: b.vehiculo_id, placa: b.placa } : null);
+      }
       for (const p of l.pernotes ?? []) agregarVehiculo(p.vehiculos);
       for (const m of l.mantenimientos ?? []) agregarVehiculo(m.vehiculos);
-      for (const r of recargosJornadaPorLiquidacion.get(l.id) ?? []) {
+      for (const r of recargosJornada) {
         agregarVehiculo(r.vehiculo_id && r.placa ? { id: r.vehiculo_id, placa: r.placa } : null);
       }
       const vehiculos = Array.from(vehiculosPorId.values());
@@ -561,8 +758,11 @@ export const NominaAnalisisService = {
         salario_basico: num(l.salario_basico),
         salario_devengado: num(l.salario_devengado),
         auxilio_transporte: num(l.auxilio_transporte),
-        total_bonificaciones: num(l.total_bonificaciones),
-        total_recargos: num(l.total_recargos),
+        total_bonificaciones: Math.round(bonificaciones.reduce(
+          (total, bono) => total + bono.valor_unitario * bono.valores.reduce((cantidad, v) => cantidad + v.cantidad, 0),
+          0,
+        ) * 100) / 100,
+        total_recargos: Math.round(recargosJornada.reduce((total, recargo) => total + recargo.valor, 0) * 100) / 100,
         total_pernotes: num(l.total_pernotes),
         total_vacaciones: num(l.total_vacaciones),
         total_licencia: num(l.total_licencia),
@@ -572,24 +772,8 @@ export const NominaAnalisisService = {
         pension: num(l.pension),
         sueldo_total: num(l.sueldo_total),
         vehiculos,
-        bonificaciones: (l.bonificaciones ?? []).map((b: any) => ({
-          vehiculo_id: b.vehiculo_id ?? null,
-          placa: placaDe(b.vehiculo_id ?? null),
-          nombre: String(b.name ?? b.nombre ?? ''),
-          valor_unitario: num(b.value ?? b.valor),
-          valores: valoresMensuales(b.values),
-        })),
-        recargos: (l.recargos ?? []).map((r: any) => ({
-          vehiculo_id: r.vehiculo_id ?? null,
-          placa: placaDe(r.vehiculo_id ?? null),
-          valor: num(r.valor),
-          paga_cliente: !!r.pag_cliente,
-          cliente_id: r.empresa_id ?? r.clientes?.id ?? null,
-          cliente: r.clientes?.nombre ?? '',
-          mes: String(r.mes ?? ''),
-          porcentaje_propietario: num(r.porcentaje_propietario),
-        })),
-        recargos_jornada: recargosJornadaPorLiquidacion.get(l.id) ?? [],
+        bonificaciones,
+        recargos_jornada: recargosJornada,
         pernotes: (l.pernotes ?? []).map((p: any) => ({
           vehiculo_id: p.vehiculo_id ?? null,
           placa: placaDe(p.vehiculo_id ?? null),
@@ -620,6 +804,8 @@ export const NominaAnalisisService = {
 
     return {
       liquidaciones,
+      bonificaciones_recorridos: bonificacionesRecorridos,
+      recargos_planillas: recargosPlanillas,
       catalogos: { anios, placas, conductores, estados: ESTADOS },
       total: liquidaciones.length,
       meta: { recargos_jornada_grupos: recargosJornadaGrupos },

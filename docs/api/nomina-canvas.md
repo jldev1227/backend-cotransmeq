@@ -168,7 +168,6 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
 | `placas` | Se pasan a mayúsculas |
 | `conductores` | Ids |
 | `estados` | `estado_flujo`, se pasan a mayúsculas |
-| `incluirRecargosJornada` | `true`: añade `recargos_jornada` con días y valores agrupados por empresa desde las planillas activas de Recargos |
 
 **Respuesta 200**
 
@@ -179,32 +178,40 @@ Respuesta: `{ anio, mes, corte, etiqueta, dias, conductores, conPlanilla, conLiq
                        "estado_flujo": "PAGADA", "firmado": true, "desprendible_visible": true,
                        "dias_laborados": 30, "salario_basico": 0, "salario_devengado": 0, "sueldo_total": 0, "…": "demás totales",
                        "vehiculos": [ { "id": "…", "placa": "…" } ], "bonificaciones": [], "recargos": [], "recargos_jornada": [], "pernotes": [], "mantenimientos": [] } ],
+  "bonificaciones_recorridos": [ { "conductor_id": "…", "conductor": "…", "placa": "…", "nombre": "Bono de alimentación", "mes": "2026-09", "cantidad": 0, "valor_unitario": 0, "total": 0, "fechas": [] } ],
+  "recargos_planillas": [ { "planilla_id": "…", "numero_planilla": "…", "estado": "liquidada", "conductor_id": "…", "conductor": "…", "placa": "…", "empresa": "…", "mes": "2026-09", "dias": [ { "fecha": "2026-09-10" } ], "valor_pagar": 0 } ],
   "catalogos": { "anios": [], "placas": [], "conductores": [ { "id": "…", "nombre": "…" } ], "estados": [] },
   "total": 0,
   "meta": { "recargos_jornada_grupos": 0 } }
 ```
 
-`meta.recargos_jornada_grupos` cuenta las planillas que aportan grupos al tab
-Recargos con los filtros actuales. Se devuelve aunque no se soliciten los días
-detallados, para que el contador de la pestaña no muestre cero antes de abrirla.
+`bonificaciones_recorridos` cuenta las marcas activas de `registro_dia_laboral_bono`
+por conductor, placa, bono y mes calendario. Su `total` multiplica la cantidad
+marcada por el valor de `configuraciones_liquidacion`; no usa el importe pagado
+en un corte de nómina. `fechas` permite auditar qué días generaron cada grupo.
+
+`recargos_planillas` consulta las planillas y sus detalles activos,
+independiente de que el conductor tenga una liquidación de nómina en el mes.
+`dias` lista las fechas laboradas (`total_horas > 0`), sin enumerar tipos ni
+horas de recargo. `valor_pagar` suma los `valor_calculado` activos de la
+planilla, igual que la columna «Valor a pagar» del canvas de Recargos. La
+empresa mostrada es la guardada en la planilla. El análisis no busca facturas
+ni ítems de liquidaciones de servicios.
+
+`meta.recargos_jornada_grupos` cuenta las planillas con detalles activos de
+recargo que pasan los filtros, aunque no tengan liquidación de nómina.
 
 `anio` y `mes` de cada fila identifican el periodo de nómina (el mes en que
-termina el corte). En las pestañas de bonificaciones, recargos, pernoctes y
-mantenimientos, los mismos filtros se aplican al mes/año del dato: `values` y
-`recargos.mes` guardan `AAAA-MM`, y los pernoctes usan sus fechas. La consulta
-incluye cortes que se cruzan con esos meses de referencia; por ejemplo,
-diciembre también puede encontrar conceptos en el corte que termina en enero.
+termina el corte). Los arreglos de origen `bonificaciones_recorridos` y
+`recargos_planillas` se filtran por mes calendario sin repartirlos entre cortes.
+Las pestañas de pernoctes y mantenimientos siguen los meses/fechas guardados en
+sus conceptos.
 El filtro por placa consulta tanto las placas vinculadas al corte como las
 placas de los vehículos asociados directamente a sus conceptos, para incluir
 detalles aunque falte la relación del corte en `liquidacion_vehiculo`.
-Al pedir `incluirRecargosJornada=true`, `recargos_jornada` consulta los detalles
-activos de `recargos_planillas`, los mismos registros de la sección Recargos.
-Cada fila agrupa la planilla, placa, empresa y mes calendario. Incluye los días
-con recargos y el valor total registrado para cada día, sin discriminar tipos ni
-horas; se limita al periodo de la liquidación y a los filtros de año, mes y placa.
-No usa el snapshot editable del canvas. Estos pagos de jornada se presentan aparte
-de recargos, que representa el reparto monetario guardado en la liquidación entre
-cliente y propietario.
+`recargos_jornada` dentro de una liquidación se conserva por compatibilidad y
+agrupa las mismas planillas por corte de nómina. La pestaña de origen usa
+`recargos_planillas`, con el detalle por día y su valor calculado.
 Sustituye a `GET /api/liquidaciones/analisis`. **Errores:** 500
 `{ "success": false, "error": "…" }`.
 
