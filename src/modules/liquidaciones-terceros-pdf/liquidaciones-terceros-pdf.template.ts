@@ -13,7 +13,7 @@ import fs from 'fs';
  *  3. Tabla de items de la liquidación
  *  4. Bloque de descuentos: conductores + gastos + anticipos + impuestos
  *  5. Resumen por copropietario (cards) cuando es_multi_propietario
- *  6. Totales finales (TOTAL DESCUENTOS / TOTAL A PAGAR)
+ *  6. Totales finales (DESCUENTOS ANTICIPOS / TOTAL A PAGAR)
  *  7. Firmas (LIQUIDADO POR / ACEPTADO POR)
  *
  * Renderizado por `pdfFromHtml()` de `services/pdf.service.ts`
@@ -1148,7 +1148,7 @@ function renderResumenPorCopropietario(item: any): string {
     .join('');
 
   // La facturación parte de V/LIQUIDAR menos nómina y gastos del vehículo.
-  // En el resumen, TOTAL DESCUENTOS contiene solo anticipos.
+  // En el resumen, DESCUENTOS ANTICIPOS contiene solo anticipos.
   const totalDescuentos = fmt.totalDescuentos(item);
   const valorAFacturar =
     fmt.valorTotalLiquidable(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
@@ -1164,7 +1164,7 @@ function renderResumenPorCopropietario(item: any): string {
         <td class="liq-servicio-val">${fmt.COP(valorAFacturar)}</td>
       </tr>
       <tr class="liq-servicio-row liq-servicio-row-disc">
-        <td class="liq-servicio-label">TOTAL DESCUENTOS</td>
+        <td class="liq-servicio-label">DESCUENTOS ANTICIPOS</td>
         <td class="liq-servicio-val">${fmt.COP(totalDescuentos)}</td>
       </tr>
       <tr class="liq-servicio-row">
@@ -1180,7 +1180,7 @@ function renderResumenPorCopropietario(item: any): string {
 }
 
 function renderResumenFinal(item: any): string {
-  // En multi-prop el TOTAL DESCUENTOS / TOTAL A PAGAR ya viene implícito
+  // En multi-prop los descuentos de anticipos y el total a pagar ya vienen implícitos
   // en la suma de las cards (cada prop muestra su VALOR A PAGAR). Mostrar
   // el bloque global aquí duplica info y rompe la claridad de la liquidación.
   if (item.es_multi_propietario) return '';
@@ -1200,7 +1200,7 @@ function renderResumenFinal(item: any): string {
           <td class="v">${fmt.COP(valorAFacturar)}</td>
         </tr>
         <tr class="desc">
-          <td class="lbl">TOTAL DESCUENTOS</td>
+          <td class="lbl">DESCUENTOS ANTICIPOS</td>
           <td class="v">${fmt.COP(totalDescuentos)}</td>
         </tr>
         <tr class="pagar">
