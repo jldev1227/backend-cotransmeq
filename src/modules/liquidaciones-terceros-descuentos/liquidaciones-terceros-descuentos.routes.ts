@@ -67,6 +67,7 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   // porque una fila insertada en la hoja no tiene id, ni binding, ni formato.
   app.post('/liquidaciones-terceros/:id/conceptos-fila', puedeEscribir, LiquidacionesTercerosDescuentosController.agregarConcepto);
   app.delete('/liquidaciones-terceros/conceptos-fila/:conceptoId', puedeEscribir, LiquidacionesTercerosDescuentosController.eliminarConcepto);
+  app.patch('/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual', puedeEscribir, LiquidacionesTercerosDescuentosController.actualizarDivisionIgualAnticipo);
 
   // Copropietarios (reparto porcentual del valor a pagar)
   app.get('/liquidaciones-terceros/:id/propietarios', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerPropietarios);

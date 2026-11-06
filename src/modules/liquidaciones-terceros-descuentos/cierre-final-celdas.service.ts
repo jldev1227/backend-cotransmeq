@@ -47,6 +47,12 @@ import { ConfigValoresTerceroService } from "./config-valores-tercero.service";
 
 const ESTADOS_BLOQUEADOS = ["APROBADA", "PAGADA", "FACTURADA", "ANULADA", "REEMPLAZADA"];
 
+/** Resuelve exportaciones dinámicas tanto ESM como CommonJS (`tsx`). */
+async function resolverServicio(modulo: Promise<any>, nombre: string): Promise<any> {
+  const exports = await modulo;
+  return exports[nombre] ?? exports.default?.[nombre] ?? exports["module.exports"]?.[nombre];
+}
+
 export interface FilaConcepto {
   id: string;
   tipo: string;
@@ -60,6 +66,7 @@ export interface FilaConcepto {
   base_calculo: number | null;
   calculado: boolean;
   observaciones: string | null;
+  dividir_igual_propietarios: boolean;
   orden: number;
   version: number;
 }
@@ -186,6 +193,18 @@ export function parsePorcentajeAdmin(valor: any): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Tarifa de impuesto por cierre, persistida con cuatro decimales. */
+export function parsePorcentajeImpuesto(valor: any): number {
+  const n = numeroDeCelda(valor);
+  if (n == null) {
+    throw new Error(`Porcentaje de impuesto no numérico: "${valor}"`);
+  }
+  if (n < 0 || n > 100) {
+    throw new Error(`El porcentaje de impuesto debe estar entre 0 y 100 (llegó ${n})`);
+  }
+  return Math.round(n * 10_000) / 10_000;
+}
+
 export interface ResultadoPatch {
   /** TODAS las filas que cambiaron, no solo la editada. */
   rows: FilaConcepto[];
@@ -225,6 +244,7 @@ function aFila(c: any): FilaConcepto {
     base_calculo: c.base_calculo == null ? null : num(c.base_calculo),
     calculado: c.calculado === true,
     observaciones: c.observaciones ?? null,
+    dividir_igual_propietarios: c.dividir_igual_propietarios === true,
     orden: c.orden ?? 0,
     version: c.version ?? 1,
   };
@@ -240,7 +260,8 @@ function difiere(antes: ConceptoLike, despues: ConceptoLike): boolean {
     num(antes.base_calculo) !== num(despues.base_calculo) ||
     antes.calculado !== despues.calculado ||
     antes.concepto !== despues.concepto ||
-    (antes as any).observaciones !== (despues as any).observaciones
+    (antes as any).observaciones !== (despues as any).observaciones ||
+    antes.dividir_igual_propietarios !== despues.dividir_igual_propietarios
   );
 }
 
@@ -274,10 +295,15 @@ export const CierreFinalCeldasService = {
         select: {
           id: true,
           liquidacion_tercero_final_id: true,
+          tipo: true,
           version: true,
         },
       });
       if (!actual) throw new Error(`Concepto ${id} no encontrado`);
+
+      const valorEditado = field === 'porcentaje' && actual.tipo === 'IMPUESTO'
+        ? parsePorcentajeImpuesto(value)
+        : value;
 
       const cierreId = actual.liquidacion_tercero_final_id;
 
@@ -339,7 +365,7 @@ export const CierreFinalCeldasService = {
       let trabajo: ConceptoLike[] = conceptosBD.map((c) => aFila(c) as ConceptoLike);
 
       // 3a. Aplicar la edición del usuario.
-      trabajo = trabajo.map((c) => (c.id === id ? aplicarCampo(c, field, value) : c));
+      trabajo = trabajo.map((c) => (c.id === id ? aplicarCampo(c, field, valorEditado) : c));
 
       // 3b. Bases de prestaciones y seguridad social.
       trabajo = recalcularBasesPrestacionesSS(trabajo);
@@ -570,8 +596,9 @@ export const CierreFinalCeldasService = {
     // `calcularImpuestos` y `recalcularTotalesCierre` van FUERA de la
     // transacción anterior: el primero abre la suya propia y anidarlas con el
     // `$transaction` interactivo de Prisma bloquea la conexión.
-    const { LiquidacionesTercerosDescuentosService } = await import(
-      "./liquidaciones-terceros-descuentos.service"
+    const LiquidacionesTercerosDescuentosService = await resolverServicio(
+      import("./liquidaciones-terceros-descuentos.service"),
+      "LiquidacionesTercerosDescuentosService",
     );
     await LiquidacionesTercerosDescuentosService.calcularImpuestos(cierreId);
     const totales = await recalcularTotalesCierre(prisma, cierreId, { userId: user_id });
@@ -655,8 +682,9 @@ export const CierreFinalCeldasService = {
     // Import diferido, igual que con `calcularImpuestos`: los dos módulos se
     // referencian entre sí y en carga estática uno de los dos queda a medio
     // inicializar.
-    const { LiquidacionesTercerosAdicionalesService } = await import(
-      "../liquidaciones-terceros-adicionales/liquidaciones-terceros-adicionales.service"
+    const LiquidacionesTercerosAdicionalesService = await resolverServicio(
+      import("../liquidaciones-terceros-adicionales/liquidaciones-terceros-adicionales.service"),
+      "LiquidacionesTercerosAdicionalesService",
     );
     const adicional =
       await LiquidacionesTercerosAdicionalesService.actualizarCampo(params);
@@ -666,8 +694,9 @@ export const CierreFinalCeldasService = {
     // `actualizarCampo` ya recalculó los TOTALES, pero no los impuestos: la
     // base imponible cambia con el valor a liquidar del adicional, así que hay
     // que rehacerlos y volver a totalizar sobre ellos.
-    const { LiquidacionesTercerosDescuentosService } = await import(
-      "./liquidaciones-terceros-descuentos.service"
+    const LiquidacionesTercerosDescuentosService = await resolverServicio(
+      import("./liquidaciones-terceros-descuentos.service"),
+      "LiquidacionesTercerosDescuentosService",
     );
     await LiquidacionesTercerosDescuentosService.calcularImpuestos(cierreId);
     const totales = await recalcularTotalesCierre(prisma, cierreId, {
@@ -751,8 +780,9 @@ export const CierreFinalCeldasService = {
       });
     }
 
-    const { LiquidacionesTercerosDescuentosService } = await import(
-      "./liquidaciones-terceros-descuentos.service"
+    const LiquidacionesTercerosDescuentosService = await resolverServicio(
+      import("./liquidaciones-terceros-descuentos.service"),
+      "LiquidacionesTercerosDescuentosService",
     );
     // La configuración es una lectura pura y no depende del cierre: fuera de
     // la transacción para no alargar la que sí bloquea filas.
@@ -1047,6 +1077,71 @@ export const CierreFinalCeldasService = {
     });
 
     return { ...resultado, totales };
+  },
+
+  /**
+   * Cambia si un anticipo se descuenta en cuotas iguales después de los
+   * impuestos de cada propietario. El total sigue dentro de los descuentos
+   * del cierre; solo sale del reparto porcentual previo a impuestos.
+   */
+  async actualizarDivisionIgualAnticipo(params: {
+    conceptoId: string;
+    dividir: boolean;
+    base_version: number;
+    user_id?: string;
+  }) {
+    const { conceptoId, dividir, base_version, user_id } = params;
+    const resultado = await prisma.$transaction(async (tx) => {
+      const fila = await tx.liquidacion_tercero_final_concepto.findFirst({
+        where: { id: conceptoId, tipo: "ANTICIPO", deleted_at: null },
+        select: { id: true, liquidacion_tercero_final_id: true, version: true },
+      });
+      if (!fila) throw new Error(`Anticipo ${conceptoId} no encontrado`);
+
+      const cierre = await tx.liquidacion_tercero_final.findFirst({
+        where: { id: fila.liquidacion_tercero_final_id, deleted_at: null },
+        select: { id: true, estado: true, anio: true, mes: true },
+      });
+      if (!cierre) throw new Error("Cierre no encontrado");
+      if (ESTADOS_BLOQUEADOS.includes(cierre.estado)) {
+        throw new Error(`No se puede editar un cierre en estado ${cierre.estado}`);
+      }
+
+      const actualizado = await tx.liquidacion_tercero_final_concepto.updateMany({
+        where: { id: conceptoId, tipo: "ANTICIPO", version: base_version, deleted_at: null },
+        data: {
+          dividir_igual_propietarios: dividir,
+          version: { increment: 1 },
+          updated_at: new Date(),
+        },
+      });
+      if (actualizado.count === 0) {
+        const server = await tx.liquidacion_tercero_final_concepto.findUnique({
+          where: { id: conceptoId },
+        });
+        throw new ConflictoVersionConcepto(conceptoId, server ? aFila(server) : null);
+      }
+
+      return { ...cierre, version: base_version + 1 };
+    });
+
+    const LiquidacionesTercerosDescuentosService = await resolverServicio(
+      import("./liquidaciones-terceros-descuentos.service"),
+      "LiquidacionesTercerosDescuentosService",
+    );
+    await LiquidacionesTercerosDescuentosService.recalcularImpuestosPorPropietario(resultado.id);
+    const totales = await recalcularTotalesCierre(prisma, resultado.id, { userId: user_id });
+    const concepto = await prisma.liquidacion_tercero_final_concepto.findUnique({
+      where: { id: conceptoId },
+    });
+
+    return {
+      cierreId: resultado.id,
+      anio: resultado.anio,
+      mes: resultado.mes,
+      concepto: concepto ? aFila(concepto) : null,
+      totales,
+    };
   },
 
   /**

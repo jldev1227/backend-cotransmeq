@@ -148,12 +148,18 @@ export async function sumarConceptosCierre(
 >> {
   const conceptos = await db.liquidacion_tercero_final_concepto.findMany({
     where: { liquidacion_tercero_final_id: cierreId, deleted_at: null },
-    select: { tipo: true, valor_total: true },
+    select: {
+      tipo: true,
+      valor_total: true,
+      propietario: { select: { exento_impuestos: true } },
+    },
   });
 
   const porTipo = (tipo: string) =>
     conceptos
-      .filter((c: any) => c.tipo === tipo)
+      .filter((c: any) =>
+        c.tipo === tipo && !(tipo === "IMPUESTO" && c.propietario?.exento_impuestos === true),
+      )
       .reduce((s: number, c: any) => s + toNumber(c.valor_total), 0);
 
   const total_costos_laborales = porTipo("COSTO_LABORAL");

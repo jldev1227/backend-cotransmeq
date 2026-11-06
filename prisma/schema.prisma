@@ -4113,6 +4113,8 @@ model liquidacion_tercero_final_concepto {
   base_calculo                 Decimal?                               @db.Decimal(12, 2)
   calculado                    Boolean                                @default(false)
   observaciones                String?
+  /// En ANTICIPO, descuenta una cuota igual a cada copropietario después de sus impuestos.
+  dividir_igual_propietarios   Boolean                                @default(false)
   /// Cuando el cierre es multi-propietario, esta FK agrupa cada fila de
   /// impuesto al copropietario que la paga. NULL cuando el cierre es de un
   /// solo propietario (legacy / single-propietario).
@@ -4157,6 +4159,8 @@ model liquidacion_tercero_final_propietario {
   /// facturar. FALSE para pagos internos por concepto (ej. abono a crédito):
   /// no generan egreso real y no tributan.
   aplica_retenciones           Boolean                              @default(true)
+  /// Exime los impuestos, pero conserva el pago normal en efectivo al propietario.
+  exento_impuestos             Boolean                              @default(false)
   orden                        Int                                  @default(0)
   created_at                   DateTime                             @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime                             @updatedAt @db.Timestamptz(6)

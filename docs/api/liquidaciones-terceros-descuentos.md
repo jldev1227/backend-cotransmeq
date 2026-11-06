@@ -37,6 +37,12 @@ Reglas de cálculo que un integrador tiene que conocer:
   copropietario según el porcentaje efectivo de la cascada (el primero toma su
   porcentaje y el resto reparte el remanente); los porcentajes no se validan
   contra 100 %.
+  En cierres de un solo propietario, la celda PORCENTAJE de cada impuesto
+  admite un override local entre 0 y 100 %, incluso en estado LIQUIDADA;
+  modificarla no cambia `configuracion_descuento_tercero`. El cero es válido.
+  Al cambiar items o adicionales, se conserva esa tarifa y se actualizan su
+  base y valor; AVISOS_TABLEROS y SOBRETASA_BOMBERIL siguen la RETENCION_ICA
+  resultante. En hojas LIQUIDADA, las demás celdas siguen bloqueadas.
 - **Gastos de vehículo**: papelería y gastos diversos salen de
   `configuracion_gastos_periodo` (una fila por mes); dotación y examen médico
   usan las tarifas globales de `configuracion_valores_tercero`. Un mes sin
@@ -110,6 +116,7 @@ cierre entero.
 | PUT | `/api/liquidaciones-terceros/:id/conductores` | `liquidaciones-terceros:limited` | Altas, bajas y días de los conductores del cierre |
 | POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `liquidaciones-terceros:limited` | Añade una fila de GASTOS DE VEHÍCULO o ANTICIPOS |
 | DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Quita (marca) una fila de gastos o anticipos |
+| PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual` | `liquidaciones-terceros:limited` | Decide si un anticipo se descuenta por igual después de impuestos |
 | GET | `/api/liquidaciones-terceros/:id/propietarios` | `liquidaciones-terceros:limited` | Copropietarios del cierre |
 | PUT | `/api/liquidaciones-terceros/:id/propietarios` | `liquidaciones-terceros:limited` | Reemplaza la lista de copropietarios |
 | GET | `/api/liquidaciones-terceros/:id/calcular-impuestos` | `liquidaciones-terceros:limited` | Calcula **y persiste** las filas de impuesto |
@@ -505,10 +512,10 @@ Responde `{ id, mes, anio, totales }`.
 
 ### `GET /api/liquidaciones-terceros/:id/propietarios` y `PUT /api/liquidaciones-terceros/:id/propietarios`
 
-`GET` responde `{ es_multi_propietario, propietarios: [{ id, tercero_id, nombre, identificacion, porcentaje, porcentaje_efectivo, nota, aplica_retenciones, orden, tercero, … }] }`;
+`GET` responde `{ es_multi_propietario, propietarios: [{ id, tercero_id, nombre, identificacion, porcentaje, porcentaje_efectivo, nota, aplica_retenciones, exento_impuestos, orden, tercero, … }] }`;
 404 si el cierre no existe.
 
-`PUT` **Body** `{ "propietarios": [{ id?, tercero_id?, nombre, identificacion?, porcentaje, nota?, aplica_retenciones?, orden? }] }`.
+`PUT` **Body** `{ "propietarios": [{ id?, tercero_id?, nombre, identificacion?, porcentaje, nota?, aplica_retenciones?, exento_impuestos?, orden? }] }`.
 Solo en BORRADOR. Con `id` actualiza, sin `id` crea, y los que faltan se marcan;
 los de nombre vacío se descartan. Lista vacía desactiva el modo
 multi-propietario y vuelve a las cuatro filas de impuesto globales. Recalcula
@@ -519,6 +526,25 @@ impuestos y totales y responde lo mismo que el `GET` más `anio` y `mes`.
 | 400 | `propietarios` no es un arreglo |
 | 404 | Cierre inexistente |
 | 409 | Cierre que no está en BORRADOR |
+
+`exento_impuestos: true` conserva el pago normal al propietario y evita
+calcularle impuestos. Es independiente de `aplica_retenciones: false`, que
+representa un pago interno por concepto.
+
+### `PATCH /api/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual`
+
+**Body** `{ "dividir_igual_propietarios": true, "base_version": 1 }`.
+Solo acepta filas ANTICIPO de cierres editables. Al activarlo, el anticipo se
+quita de los descuentos previos al reparto porcentual y se descuenta en partes
+iguales a cada propietario después de sus impuestos; el residuo de centavos se
+asigna al último según el orden del cierre. Recalcula impuestos y totales.
+Responde `{ cierreId, anio, mes, concepto, totales }`.
+
+| Código | Cuándo |
+|---|---|
+| 400 | `dividir_igual_propietarios` no es booleano o `base_version` no es entero |
+| 404 | Anticipo inexistente |
+| 409 | Cierre bloqueado o la fila cambió desde la versión enviada |
 
 ### `GET /api/liquidaciones-terceros/:id/calcular-impuestos`
 

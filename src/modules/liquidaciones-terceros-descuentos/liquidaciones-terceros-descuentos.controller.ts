@@ -542,6 +542,38 @@ export class LiquidacionesTercerosDescuentosController {
     }
   }
 
+  static async actualizarDivisionIgualAnticipo(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { conceptoId } = request.params as any;
+      const { dividir_igual_propietarios, base_version } = (request.body as any) || {};
+      if (typeof dividir_igual_propietarios !== 'boolean') {
+        return reply.status(400).send({ error: 'dividir_igual_propietarios debe ser boolean' });
+      }
+      if (!Number.isInteger(base_version)) {
+        return reply.status(400).send({ error: 'base_version debe ser entero' });
+      }
+
+      const result = await CierreFinalCeldasService.actualizarDivisionIgualAnticipo({
+        conceptoId,
+        dividir: dividir_igual_propietarios,
+        base_version,
+        user_id: (request as any).user?.id,
+      });
+      emitSheetInvalidate({
+        scope: 'cierres-finales',
+        anio: result.anio,
+        mes: result.mes,
+        cierreId: result.cierreId,
+        accion: 'anticipo-reparto-igual',
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      const msg = String(error?.message || 'Error al actualizar el reparto del anticipo');
+      const status = /no encontrado/i.test(msg) ? 404 : /estado|versión|modificada/i.test(msg) ? 409 : 500;
+      return reply.status(status).send({ error: msg });
+    }
+  }
+
   // ── TOGGLE EXCLUIR (SOFT DELETE) EN ITEM DEL PIVOTE ──
 
   static async toggleExcluirItem(request: FastifyRequest, reply: FastifyReply) {

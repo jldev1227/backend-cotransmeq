@@ -269,6 +269,7 @@ export interface ConceptoLike {
   valor_total?: any;
   base_calculo?: any;
   calculado?: boolean;
+	dividir_igual_propietarios?: boolean;
   orden?: number;
 }
 
@@ -455,6 +456,10 @@ export function aplicarCampo(
     case 'porcentaje':
       c.porcentaje = num(value);
       c.valor_total = num(c.base_calculo) * (num(c.porcentaje) / 100);
+      // Una tarifa de impuesto editada en el cierre es un override local.
+      // Si queda como calculada, el siguiente recálculo la reemplaza por la
+      // tarifa global y el cambio del usuario desaparece.
+      if (c.tipo === 'IMPUESTO') c.calculado = false;
       break;
 
     case 'concepto':

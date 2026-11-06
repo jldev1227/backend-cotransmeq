@@ -1981,9 +1981,37 @@ export const LiquidacionesTercerosDescuentosService = {
       .slice()
       .sort((a: any, b: any) => rankOrden(a.concepto) - rankOrden(b.concepto));
 
+    // Una tarifa manual pertenece al cierre y sobrevive a los recálculos que
+    // disparan los cambios de items o adicionales. Se leen antes de calcular
+    // porque AVISOS y SOBRETASA toman como base el valor efectivo de ICA.
+    const existentes = await db.liquidacion_tercero_final_concepto.findMany({
+      where: {
+        liquidacion_tercero_final_id: liquidacionTerceroFinalId,
+        tipo: 'IMPUESTO',
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        concepto: true,
+        porcentaje: true,
+        base_calculo: true,
+        valor_total: true,
+        calculado: true,
+      },
+    });
+    const manualesPorConcepto = new Map<string, any[]>();
+    for (const fila of existentes.filter((f: any) => f.calculado === false)) {
+      const filas = manualesPorConcepto.get(fila.concepto) ?? [];
+      filas.push(fila);
+      manualesPorConcepto.set(fila.concepto, filas);
+    }
+
     const conceptosImpuestos: ConceptoInput[] = [];
     for (const cfg of impuestosConfig) {
-      const porcentaje = toNumber(cfg.porcentaje);
+      const filasManuales = manualesPorConcepto.get(cfg.concepto) ?? [];
+      const porcentaje = filasManuales.length
+        ? toNumber(filasManuales[0].porcentaje)
+        : toNumber(cfg.porcentaje);
       // Determinar la base según la configuración del impuesto.
       // Por defecto: base imponible (items con aplica_impuestos=true + adicionales).
       // Si la config pide `TOTAL_VALOR_LIQUIDAR`, usar la suma de TODOS los
@@ -2004,18 +2032,52 @@ export const LiquidacionesTercerosDescuentosService = {
         cfg.concepto === 'AVISOS_TABLEROS' ||
         cfg.concepto === 'SOBRETASA_BOMBERIL'
       ) {
-        const retIca = conceptosImpuestos.find((c: any) => c.concepto === 'RETENCION_ICA');
-        if (retIca) baseCalculo = retIca.valor_total;
+        const retIca = conceptosImpuestos
+          .filter((c: any) => c.concepto === 'RETENCION_ICA')
+          .reduce((s: number, c: any) => s + toNumber(c.valor_total), 0);
+        if (conceptosImpuestos.some((c: any) => c.concepto === 'RETENCION_ICA')) {
+          baseCalculo = retIca;
+        }
       }
-      conceptosImpuestos.push({
-        tipo: 'IMPUESTO',
-        concepto: cfg.concepto,
-        porcentaje,
-        base_calculo: baseCalculo,
-        valor_total: baseCalculo * (porcentaje / 100),
-        calculado: true,
-      });
+      if (filasManuales.length) {
+        for (const manual of filasManuales) {
+          const porcentajeManual = toNumber(manual.porcentaje);
+          conceptosImpuestos.push({
+            id: manual.id,
+            tipo: 'IMPUESTO',
+            concepto: cfg.concepto,
+            porcentaje: porcentajeManual,
+            base_calculo: baseCalculo,
+            valor_total: baseCalculo * (porcentajeManual / 100),
+            calculado: false,
+          });
+        }
+      } else {
+        conceptosImpuestos.push({
+          tipo: 'IMPUESTO',
+          concepto: cfg.concepto,
+          porcentaje,
+          base_calculo: baseCalculo,
+          valor_total: baseCalculo * (porcentaje / 100),
+          calculado: true,
+        });
+      }
     }
+
+    const conceptosActivos = new Set(impuestosConfig.map((c: any) => c.concepto));
+    // Un override no se borra solo porque la configuración global desactive
+    // temporalmente ese impuesto. Se conserva con sus últimos importes.
+    const manualesInactivos = existentes
+      .filter((f: any) => f.calculado === false && !conceptosActivos.has(f.concepto))
+      .map((f: any) => ({
+        id: f.id,
+        tipo: 'IMPUESTO' as const,
+        concepto: f.concepto,
+        porcentaje: toNumber(f.porcentaje),
+        base_calculo: f.base_calculo == null ? null : toNumber(f.base_calculo),
+        valor_total: toNumber(f.valor_total),
+        calculado: false,
+      }));
 
     // Persistir automáticamente, ACTUALIZANDO EN SITIO la fila de cada
     // impuesto en vez de borrarlas todas y volver a crearlas. Esto garantiza
@@ -2038,27 +2100,33 @@ export const LiquidacionesTercerosDescuentosService = {
     //
     // Se emparejan por CONCEPTO, que es la clave natural: hay a lo sumo una
     // fila auto por impuesto en un cierre de un solo propietario.
-    if (['BORRADOR', 'LIQUIDADA'].includes(cierre.estado) && conceptosImpuestos.length > 0) {
-      const existentes = await db.liquidacion_tercero_final_concepto.findMany({
-        where: {
-          liquidacion_tercero_final_id: liquidacionTerceroFinalId,
-          tipo: 'IMPUESTO',
-          deleted_at: null,
-        },
-        select: { id: true, concepto: true },
-      });
-
+    if (['BORRADOR', 'LIQUIDADA'].includes(cierre.estado) && (conceptosImpuestos.length > 0 || existentes.length > 0)) {
       const porConcepto = new Map<string, string>();
       // Duplicados de datos viejos: se queda el primero y el resto se borra
       // más abajo, con los conceptos que ya no aplican.
       const sobrantes: string[] = [];
-      for (const f of existentes) {
+      for (const f of existentes.filter((fila: any) => fila.calculado !== false)) {
         if (porConcepto.has(f.concepto)) sobrantes.push(f.id);
         else porConcepto.set(f.concepto, f.id);
       }
 
       const operaciones: any[] = [];
       for (const c of conceptosImpuestos) {
+        if (c.calculado === false && c.id) {
+          operaciones.push(
+            db.liquidacion_tercero_final_concepto.update({
+              where: { id: c.id },
+              data: {
+                porcentaje: c.porcentaje,
+                valor_total: c.valor_total,
+                base_calculo: c.base_calculo,
+                calculado: false,
+                version: { increment: 1 },
+              },
+            })
+          );
+          continue;
+        }
         const id = porConcepto.get(c.concepto);
         if (id) {
           porConcepto.delete(c.concepto);
@@ -2115,7 +2183,7 @@ export const LiquidacionesTercerosDescuentosService = {
 
       // Actualizar el total_impuestos del cierre para que el resumen se vea
       // consistente con los conceptos recién creados.
-      const totalImpuestos = conceptosImpuestos.reduce(
+      const totalImpuestos = [...conceptosImpuestos, ...manualesInactivos].reduce(
         (s: number, c: any) => s + toNumber(c.valor_total),
         0
       );
@@ -2128,7 +2196,7 @@ export const LiquidacionesTercerosDescuentosService = {
       await recalcularTotalesCierre(db, liquidacionTerceroFinalId);
     }
 
-    return conceptosImpuestos;
+    return [...conceptosImpuestos, ...manualesInactivos];
   },
 
   // ── REPARTO PORCENTUAL POR COPROPIETARIOS ──
@@ -2174,6 +2242,7 @@ export const LiquidacionesTercerosDescuentosService = {
         porcentaje_efectivo: efectivoDePropietario(p, propietarios),
         nota: p.nota ?? null,
         aplica_retenciones: p.aplica_retenciones !== false,
+        exento_impuestos: p.exento_impuestos === true,
         orden: p.orden,
         created_at: p.created_at,
         updated_at: p.updated_at,
@@ -2192,6 +2261,7 @@ export const LiquidacionesTercerosDescuentosService = {
       porcentaje: number;
       nota?: string | null;
       aplica_retenciones?: boolean;
+      exento_impuestos?: boolean;
       orden?: number;
     }>
   ) {
@@ -2219,6 +2289,7 @@ export const LiquidacionesTercerosDescuentosService = {
         porcentaje: Number(p.porcentaje) || 0,
         nota: p.nota ? String(p.nota).trim().slice(0, 255) || null : null,
         aplica_retenciones: p.aplica_retenciones !== false,
+        exento_impuestos: p.exento_impuestos === true,
         orden: Number.isFinite(Number(p.orden)) ? Number(p.orden) : idx,
       }))
       .filter((p) => p.nombre.length > 0);
@@ -2248,6 +2319,7 @@ export const LiquidacionesTercerosDescuentosService = {
               porcentaje: p.porcentaje,
               nota: p.nota,
               aplica_retenciones: p.aplica_retenciones,
+              exento_impuestos: p.exento_impuestos,
               orden: p.orden,
               deleted_at: null,
             },
@@ -2263,6 +2335,7 @@ export const LiquidacionesTercerosDescuentosService = {
               porcentaje: p.porcentaje,
               nota: p.nota,
               aplica_retenciones: p.aplica_retenciones,
+              exento_impuestos: p.exento_impuestos,
               orden: p.orden,
             },
           });
@@ -2436,6 +2509,11 @@ export const LiquidacionesTercerosDescuentosService = {
       where: { liquidacion_tercero_final_id: liquidacionTerceroFinalId, deleted_at: null },
       orderBy: [{ orden: 'asc' }, { created_at: 'asc' }],
     });
+    const propietariosExentos = new Set(
+      propietariosActivos
+        .filter((p: any) => p.exento_impuestos === true)
+        .map((p: any) => p.id)
+    );
 
     const esMulti = !!cierre.es_multi_propietario && propietariosActivos.length > 0;
 
@@ -2551,10 +2629,13 @@ export const LiquidacionesTercerosDescuentosService = {
         deleted_at: null,
         tipo: { in: ['COSTO_LABORAL', 'GASTO_OPERATIVO', 'ANTICIPO'] },
       },
-      select: { valor_total: true },
+      select: { tipo: true, valor_total: true, dividir_igual_propietarios: true },
     });
     const descuentosGenerales = conceptosNoImpuesto.reduce(
-      (s: number, c: any) => s + toNumber(c.valor_total),
+      (s: number, c: any) =>
+        s + (c.tipo === 'ANTICIPO' && c.dividir_igual_propietarios
+          ? 0
+          : toNumber(c.valor_total)),
       0
     );
     const valorServicio = toNumber(cierre.valor_liquidar) - descuentosGenerales;
@@ -2568,8 +2649,11 @@ export const LiquidacionesTercerosDescuentosService = {
       }))
     );
 
+    const filasManualesAplicables = filasManuales.filter(
+      (r: any) => !r.propietario_id || !propietariosExentos.has(r.propietario_id)
+    );
     const manualKeys = new Set(
-      filasManuales.map((r: any) => `${r.concepto}|${r.propietario_id}`)
+      filasManualesAplicables.map((r: any) => `${r.concepto}|${r.propietario_id}`)
     );
     const filasNuevas: Array<{
       id: string;
@@ -2586,12 +2670,15 @@ export const LiquidacionesTercerosDescuentosService = {
     }> = [];
 
     for (const prop of propietariosActivos) {
-      if (prop.aplica_retenciones === false) continue;
+      if (prop.aplica_retenciones === false || prop.exento_impuestos === true) continue;
       const facturar = facturarMap.get(prop.id) ?? 0;
       // Si su RETENCION_ICA es manual, AVISOS y SOBRETASA gravan sobre ese
       // valor editado, no sobre cero.
       const manualIca = filasManuales.find(
-        (r: any) => r.concepto === 'RETENCION_ICA' && r.propietario_id === prop.id
+        (r: any) =>
+          r.concepto === 'RETENCION_ICA' &&
+          r.propietario_id === prop.id &&
+          !propietariosExentos.has(prop.id)
       );
       let retIcaProp = manualIca ? toNumber(manualIca.valor_total) : 0;
       for (const cfg of impuestosConfig) {
@@ -2619,29 +2706,20 @@ export const LiquidacionesTercerosDescuentosService = {
       }
     }
 
-    if (['BORRADOR', 'LIQUIDADA'].includes(cierre.estado) && filasNuevas.length > 0) {
-      await prisma.liquidacion_tercero_final_concepto.createMany({
-        data: filasNuevas,
-      });
+    if (['BORRADOR', 'LIQUIDADA'].includes(cierre.estado)) {
+      if (filasNuevas.length > 0) {
+        await prisma.liquidacion_tercero_final_concepto.createMany({
+          data: filasNuevas,
+        });
+      }
 
-      // total_impuestos del cierre = Σ de TODAS las filas (manuales + auto).
-      // - manuales: filas que el usuario editó en la sección de copropietarios.
-      // - auto: las que acabamos de crear.
+      // Una exención puede dejar el cierre con cero filas nuevas. Aun así
+      // hay que actualizar el total: las filas manuales del exento se
+      // conservan para no perder su tarifa si luego se revierte la decisión.
       const totalImpuestos = [
-        ...filasManuales,
+        ...filasManualesAplicables,
         ...filasNuevas
       ].reduce((s: number, c: any) => s + toNumber(c.valor_total), 0);
-      await prisma.liquidacion_tercero_final.update({
-        where: { id: liquidacionTerceroFinalId },
-        data: { total_impuestos: totalImpuestos },
-      });
-    } else if (filasManuales.length > 0) {
-      // Solo tenemos filas manuales (no se generaron auto nuevas). Solo
-      // actualizar el total_impuestos del cierre.
-      const totalImpuestos = filasManuales.reduce(
-        (s: number, r: any) => s + toNumber(r.valor_total),
-        0
-      );
       await prisma.liquidacion_tercero_final.update({
         where: { id: liquidacionTerceroFinalId },
         data: { total_impuestos: totalImpuestos },
