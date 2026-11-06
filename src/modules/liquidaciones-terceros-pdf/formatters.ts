@@ -157,10 +157,10 @@ function valorLiquidarPorPropietario(item: any) {
 }
 
 /**
- * TOTAL DE DESCUENTOS GLOBALES (sin impuestos) — suma global de LABORALES
- * + GASTOS DE VEHÍCULO + ANTICIPOS repartidos proporcionalmente entre los
- * copropietarios. Es el "TOTAL DESCUENTOS" que muestra el table 2-rows
- * previo a las cards de copropietarios.
+ * Descuentos globales (sin impuestos) — suma de laborales, gastos de vehículo
+ * y anticipos repartidos proporcionalmente entre los copropietarios. Se usa
+ * para calcular el neto de cada propietario; el resumen global solo muestra
+ * anticipos en TOTAL DESCUENTOS.
  */
 function totalDescuentosGlobales(item: any) {
   const det = descuentosGlobalesPorPropietarioDetallado(item);
@@ -237,18 +237,15 @@ function totalAnticipos(item: any) {
   return totalConceptos(item, 'ANTICIPO');
 }
 
-/** Total de conceptos descontados del cierre, incluidos impuestos. */
+/** Total descuentos del resumen: anticipos únicamente. */
 function totalDescuentos(item: any) {
-  return ['COSTO_LABORAL', 'GASTO_OPERATIVO', 'IMPUESTO', 'ANTICIPO'].reduce(
-    (total, tipo) => total + totalConceptos(item, tipo),
-    0
-  );
+  return totalAnticipos(item);
 }
 
-/** Valor a facturar por propietario: (servicios − nómina − gastos de vehículo) × %. */
+/** Valor a facturar por propietario: (V/LIQUIDAR − nómina − gastos de vehículo) × %. */
 function valorFacturarPorPropietario(item: any) {
   const totalFacturable =
-    valorTotalFacturado(item) - totalGastosVehiculo(item) - totalCostosLaborales(item);
+    valorTotalLiquidable(item) - totalGastosVehiculo(item) - totalCostosLaborales(item);
   const props = (item?.propietarios || []).filter((p: any) => !p.deleted_at);
   const out: Record<string, number> = {};
   for (const p of props) {

@@ -1147,11 +1147,12 @@ function renderResumenPorCopropietario(item: any): string {
     })
     .join('');
 
-  // El bruto facturado incluye la administración; el pago al tercero parte
-  // de V/LIQUIDAR y resta todos los conceptos vivos del cierre.
+  // La facturación parte de V/LIQUIDAR menos nómina y gastos del vehículo.
+  // En el resumen, TOTAL DESCUENTOS contiene solo anticipos.
   const totalDescuentos = fmt.totalDescuentos(item);
-  const totalLiquidable = fmt.valorTotalLiquidable(item);
-  const totalPagar = totalLiquidable - totalDescuentos;
+  const valorAFacturar =
+    fmt.valorTotalLiquidable(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
+  const totalPagar = valorAFacturar - totalDescuentos;
   const servicioTable = `<table class="desc-tbl liq-servicio-tbl">
     <colgroup>
       <col style="width:60%" />
@@ -1159,8 +1160,8 @@ function renderResumenPorCopropietario(item: any): string {
     </colgroup>
     <tbody>
       <tr class="liq-servicio-row liq-servicio-row-final">
-        <td class="liq-servicio-label">VALOR A LIQUIDAR</td>
-        <td class="liq-servicio-val">${fmt.COP(totalLiquidable)}</td>
+        <td class="liq-servicio-label">VALOR A FACTURAR</td>
+        <td class="liq-servicio-val">${fmt.COP(valorAFacturar)}</td>
       </tr>
       <tr class="liq-servicio-row liq-servicio-row-disc">
         <td class="liq-servicio-label">TOTAL DESCUENTOS</td>
@@ -1184,9 +1185,10 @@ function renderResumenFinal(item: any): string {
   // el bloque global aquí duplica info y rompe la claridad de la liquidación.
   if (item.es_multi_propietario) return '';
 
-  const totalLiquidable = fmt.valorTotalLiquidable(item);
   const totalDescuentos = fmt.totalDescuentos(item);
-  const totalPagar = totalLiquidable - totalDescuentos;
+  const valorAFacturar =
+    fmt.valorTotalLiquidable(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
+  const totalPagar = valorAFacturar - totalDescuentos;
   // Tabla, no divs con flex: los totales son cifras y tienen que alinearse
   // con las del resto del documento. Antes se salían de la rejilla por la
   // izquierda porque el ancho del `<span>` dependía del texto.
@@ -1194,8 +1196,8 @@ function renderResumenFinal(item: any): string {
     <table class="resumen-tbl">
       <tbody>
         <tr class="facturar">
-          <td class="lbl">VALOR A LIQUIDAR</td>
-          <td class="v">${fmt.COP(totalLiquidable)}</td>
+          <td class="lbl">VALOR A FACTURAR</td>
+          <td class="v">${fmt.COP(valorAFacturar)}</td>
         </tr>
         <tr class="desc">
           <td class="lbl">TOTAL DESCUENTOS</td>
