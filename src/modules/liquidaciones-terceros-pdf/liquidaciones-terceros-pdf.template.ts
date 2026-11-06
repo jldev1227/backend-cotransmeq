@@ -1147,12 +1147,11 @@ function renderResumenPorCopropietario(item: any): string {
     })
     .join('');
 
-  // El valor a facturar descuenta nómina de conductores y gastos del
-  // vehículo. Los anticipos son el único concepto del resumen de descuentos.
-  const totalDescuentos = fmt.totalAnticipos(item);
-  const totalFacturado =
-    fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
-  const totalPagar = totalFacturado - totalDescuentos;
+  // El bruto facturado incluye la administración; el pago al tercero parte
+  // de V/LIQUIDAR y resta todos los conceptos vivos del cierre.
+  const totalDescuentos = fmt.totalDescuentos(item);
+  const totalLiquidable = fmt.valorTotalLiquidable(item);
+  const totalPagar = totalLiquidable - totalDescuentos;
   const servicioTable = `<table class="desc-tbl liq-servicio-tbl">
     <colgroup>
       <col style="width:60%" />
@@ -1160,11 +1159,11 @@ function renderResumenPorCopropietario(item: any): string {
     </colgroup>
     <tbody>
       <tr class="liq-servicio-row liq-servicio-row-final">
-        <td class="liq-servicio-label">VALOR A FACTURAR</td>
-        <td class="liq-servicio-val">${fmt.COP(totalFacturado)}</td>
+        <td class="liq-servicio-label">VALOR A LIQUIDAR</td>
+        <td class="liq-servicio-val">${fmt.COP(totalLiquidable)}</td>
       </tr>
       <tr class="liq-servicio-row liq-servicio-row-disc">
-        <td class="liq-servicio-label">DESCUENTOS ANTICIPO</td>
+        <td class="liq-servicio-label">TOTAL DESCUENTOS</td>
         <td class="liq-servicio-val">${fmt.COP(totalDescuentos)}</td>
       </tr>
       <tr class="liq-servicio-row">
@@ -1185,10 +1184,9 @@ function renderResumenFinal(item: any): string {
   // el bloque global aquí duplica info y rompe la claridad de la liquidación.
   if (item.es_multi_propietario) return '';
 
-  const totalFacturado =
-    fmt.valorTotalFacturado(item) - fmt.totalGastosVehiculo(item) - fmt.totalCostosLaborales(item);
-  const totalAnticipos = fmt.totalAnticipos(item);
-  const totalPagar = totalFacturado - totalAnticipos;
+  const totalLiquidable = fmt.valorTotalLiquidable(item);
+  const totalDescuentos = fmt.totalDescuentos(item);
+  const totalPagar = totalLiquidable - totalDescuentos;
   // Tabla, no divs con flex: los totales son cifras y tienen que alinearse
   // con las del resto del documento. Antes se salían de la rejilla por la
   // izquierda porque el ancho del `<span>` dependía del texto.
@@ -1196,15 +1194,15 @@ function renderResumenFinal(item: any): string {
     <table class="resumen-tbl">
       <tbody>
         <tr class="facturar">
-          <td class="lbl">VALOR A FACTURAR</td>
-          <td class="v">${fmt.COP(totalFacturado)}</td>
+          <td class="lbl">VALOR A LIQUIDAR</td>
+          <td class="v">${fmt.COP(totalLiquidable)}</td>
         </tr>
         <tr class="desc">
-          <td class="lbl">DESCUENTOS ANTICIPO</td>
-          <td class="v">${fmt.COP(totalAnticipos)}</td>
+          <td class="lbl">TOTAL DESCUENTOS</td>
+          <td class="v">${fmt.COP(totalDescuentos)}</td>
         </tr>
         <tr class="pagar">
-          <td class="lbl">Total a pagar</td>
+          <td class="lbl">TOTAL A PAGAR</td>
           <td class="v">${fmt.COP(totalPagar)}</td>
         </tr>
       </tbody>

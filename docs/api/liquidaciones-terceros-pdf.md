@@ -15,7 +15,9 @@ Hay dos caminos y la diferencia importa:
   TERCEROS» (código GAF-FR-11), periodo, ítems, adicionales, conceptos,
   impuestos y, si aplica, el reparto por copropietario. Es **solo lectura**: no
   recalcula totales ni impuestos antes de imprimir, para no pisar lo que el
-  usuario veía con una lógica distinta.
+  usuario veía con una lógica distinta. El total pagable usa la suma de
+  V/LIQUIDAR de los ítems y adicionales menos los conceptos vivos del cierre;
+  TOTAL facturado no es su base.
 - **Canvas** (`POST /canvas/pdf` y `/canvas/pdf-zip`): el cuerpo lo manda el
   cliente ya renderizado (el mismo HTML y CSS del preview, según la hoja y las
   columnas elegidas) y el servidor solo añade las fuentes y Chromium. Así el

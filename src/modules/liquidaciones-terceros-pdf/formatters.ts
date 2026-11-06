@@ -53,7 +53,7 @@ function esc(v: any): string {
 
 /** Devuelve el total general a pagar (NETO) por copropietario. */
 function valorPagarPorPropietario(item: any) {
-  const valorLiquidar = Number(item?.valor_liquidar || 0);
+  const valorLiquidar = valorTotalLiquidable(item);
   const totalDescuentos = Number(item?.total_descuentos || 0);
   const baseReparto = valorLiquidar - totalDescuentos;
   const propietarios = (item?.propietarios || []).filter((p: any) => !p.deleted_at);
@@ -144,7 +144,7 @@ function descuentosGlobalesPorPropietarioDetallado(item: any) {
 
 /** Valor liquidable por propietario después de los descuentos globales. */
 function valorLiquidarPorPropietario(item: any) {
-  const vl = Number(item?.valor_liquidar || 0);
+  const vl = valorTotalLiquidable(item);
   const props = (item?.propietarios || []).filter((p: any) => !p.deleted_at);
   const desc = descuentosGlobalesPorPropietarioDetallado(item);
   const out: Record<string, number> = {};
@@ -188,6 +188,32 @@ function valorTotalFacturado(item: any) {
   return totalItems + totalAdicionales;
 }
 
+/**
+ * Suma la columna V/LIQUIDAR de los items vivos y el neto de adicionales.
+ * El TOTAL facturado incluye administración y no es la base del pago al tercero.
+ */
+function valorTotalLiquidable(item: any) {
+  const items = Array.isArray(item?.items) ? item.items : [];
+  const adicionales = Array.isArray(item?.items_adicionales) ? item.items_adicionales : [];
+  const totalItems = items.reduce(
+    (s: number, it: any) =>
+      s + (Number(it?.liquidacion_tercero?.valor_liquidar ?? it?.valor_liquidar) || 0),
+    0
+  );
+  const totalAdicionales = adicionales.reduce((s: number, a: any) => {
+    if (a?.valor_liquidar != null) return s + (Number(a.valor_liquidar) || 0);
+    const bruto = (Number(a?.valor_unitario) || 0) * (Number(a?.cantidad) || 1);
+    const admin = Number(a?.valor_admin) || 0;
+    return s + bruto - admin;
+  }, 0);
+
+  // Cierres legacy sin detalle: conservar el total liquidable cacheado.
+  if (items.length === 0 && adicionales.length === 0) {
+    return Number(item?.valor_liquidar) || 0;
+  }
+  return totalItems + totalAdicionales;
+}
+
 /** Suma los conceptos de un tipo, para los totales del resumen del PDF. */
 function totalConceptos(item: any, tipo: string) {
   const conceptos = Array.isArray(item?.conceptos) ? item.conceptos : [];
@@ -209,6 +235,14 @@ function totalCostosLaborales(item: any) {
 /** Anticipos que componen TOTAL DESCUENTOS en el resumen. */
 function totalAnticipos(item: any) {
   return totalConceptos(item, 'ANTICIPO');
+}
+
+/** Total de conceptos descontados del cierre, incluidos impuestos. */
+function totalDescuentos(item: any) {
+  return ['COSTO_LABORAL', 'GASTO_OPERATIVO', 'IMPUESTO', 'ANTICIPO'].reduce(
+    (total, tipo) => total + totalConceptos(item, tipo),
+    0
+  );
 }
 
 /** Valor a facturar por propietario: (servicios − nómina − gastos de vehículo) × %. */
@@ -239,7 +273,9 @@ export const fmt = {
   valorLiquidarPorPropietario,
   totalDescuentosGlobales,
   valorTotalFacturado,
+  valorTotalLiquidable,
   totalGastosVehiculo,
   totalCostosLaborales,
   totalAnticipos,
+  totalDescuentos,
 };

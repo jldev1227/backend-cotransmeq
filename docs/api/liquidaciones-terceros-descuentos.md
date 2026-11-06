@@ -25,7 +25,9 @@ Reglas de cálculo que un integrador tiene que conocer:
   `valor_liquidar` de los ítems vivos del pivote + Σ adicionales (tabla
   `liquidacion_tercero_final_adicional`; el JSONB `adicionales` solo cuenta si
   la tabla está vacía, nunca los dos); `total_descuentos` = Σ conceptos vivos;
-  `total_pagar` = `valor_liquidar − total_descuentos`.
+  `total_pagar` = `valor_liquidar − total_descuentos`. El índice del periodo
+  deriva `total_pagar` con esos campos para no exponer cachés antiguos basados
+  en el TOTAL facturado.
 - **Impuestos**: RETENCION_ICA grava los ítems con `aplica_impuestos` más los
   adicionales que aplican; RETENCION_FUENTE grava **todos** los ítems más esos
   adicionales; AVISOS_TABLEROS y SOBRETASA_BOMBERIL se calculan sobre el valor
