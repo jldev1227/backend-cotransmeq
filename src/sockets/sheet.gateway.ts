@@ -33,6 +33,7 @@
  */
 
 import { Server as IOServer, Socket } from 'socket.io'
+import { prisma } from '../config/prisma'
 import { getIo } from './index'
 import { resolveActor, type SocketUser } from './auth'
 import {
@@ -51,6 +52,7 @@ import {
   ConflictoVersionNomina,
 } from '../modules/nomina-canvas/nomina-patch.service'
 import { CanvasAnotacionesService } from '../modules/canvas-anotaciones/canvas-anotaciones.service'
+import { hojaDeCambio, leerValorCelda, registrarCambioCelda } from '../modules/canvas-cambios/canvas-cambios.service'
 
 /// Tipos de ancla de una anotación. Ver el docblock de `zona-libre.ts` en el
 /// front: `fila` es distancia CON SIGNO al final del bloque estructurado y
@@ -219,6 +221,18 @@ export function registerSheetGateway(io: IOServer): void {
           return responder('sheet:patch:error', { error: 'base_version obligatorio' })
         }
 
+        const registrar = async (tipo: string, antes: unknown, despues: unknown, sheetKey?: string | null) => {
+          const roomKey = sheetRoomKey(scope, Number(anio), Number(mes))
+          await registrarCambioCelda({
+            scope, anio: Number(anio), mes: Number(mes),
+            sheetKey: await hojaDeCambio(scope, tipo, String(entity_id),
+              sheetKey ?? payload?.cierre_id ?? rooms.get(roomKey)?.users.get(socket.id)?.sheetId ?? null),
+            entityType: tipo, entityId: String(entity_id), field,
+            anterior: antes, nuevo: despues,
+            usuarioId: actor.id, usuarioNombre: actor.name,
+          })
+        }
+
         // Guard de epoch: si alguien revirtió un snapshot de este periodo
         // mientras el patch iba en vuelo, aplicarlo reintroduciría un valor
         // de antes de la reversión.
@@ -267,6 +281,12 @@ export function registerSheetGateway(io: IOServer): void {
             return responder('sheet:patch:error', { error: 'ancla_tipo inválido' })
           }
 
+          const anotacionAnterior = await prisma.canvas_anotacion.findFirst({
+            where: { scope, anio: Number(anio), mes: Number(mes), sheet_key: sheetKey,
+              ancla_tipo: anclaTipo, ancla_ref: anclaRef, offset_fila: offsetFila, columna },
+            select: { valor: true },
+          })
+
           const res = await CanvasAnotacionesService.guardar({
             scope,
             anio: Number(anio),
@@ -292,6 +312,8 @@ export function registerSheetGateway(io: IOServer): void {
             })
           }
 
+          await registrar('anotacion', anotacionAnterior?.valor ?? null, res.fila.valor, sheetKey)
+
           responder('sheet:patch:ack', {
             entity_id,
             field,
@@ -316,6 +338,7 @@ export function registerSheetGateway(io: IOServer): void {
         }
 
         if (scope === 'adicionales') {
+          const anterior = await leerValorCelda(scope, 'adicional', String(entity_id), field)
           const row = await LiquidacionesTercerosAdicionalesService.actualizarCampo({
             id: String(entity_id),
             field,
@@ -323,6 +346,8 @@ export function registerSheetGateway(io: IOServer): void {
             base_version: Number(base_version),
             user_id: actor.id,
           })
+
+          await registrar('adicional', anterior, (row as any)[field] ?? value)
 
           responder('sheet:patch:ack', {
             entity_id,
@@ -362,12 +387,15 @@ export function registerSheetGateway(io: IOServer): void {
           // compare-and-swap. Para un booleano es asumible porque el servidor
           // difunde el estado resultante y los clientes convergen en él.
           if (tipo === 'item') {
+            const anterior = await leerValorCelda(scope, tipo, String(entity_id), field)
             const res = await CierreFinalCeldasService.actualizarCampoItem({
               pivoteId: String(entity_id),
               field,
               value,
               user_id: actor.id,
             })
+
+            await registrar(tipo, anterior, value)
 
             responder('sheet:patch:ack', {
               entity_id,
@@ -411,6 +439,7 @@ export function registerSheetGateway(io: IOServer): void {
           // celdas de adicional del canvas de cierres estaban bindeadas contra
           // un camino muerto y respondían «no soportado».
           if (tipo === 'adicional') {
+            const anterior = await leerValorCelda(scope, tipo, String(entity_id), field)
             const res = await CierreFinalCeldasService.actualizarCampoAdicional({
               id: String(entity_id),
               field,
@@ -418,6 +447,8 @@ export function registerSheetGateway(io: IOServer): void {
               base_version: Number(base_version),
               user_id: actor.id,
             })
+
+            await registrar(tipo, anterior, value)
 
             responder('sheet:patch:ack', {
               entity_id,
@@ -453,6 +484,7 @@ export function registerSheetGateway(io: IOServer): void {
             })
           }
 
+          const anterior = await leerValorCelda(scope, tipo, String(entity_id), field)
           const res = await CierreFinalCeldasService.actualizarCampoConcepto({
             id: String(entity_id),
             field,
@@ -460,6 +492,8 @@ export function registerSheetGateway(io: IOServer): void {
             base_version: Number(base_version),
             user_id: actor.id,
           })
+
+          await registrar(tipo, anterior, value)
 
           // `rows` en PLURAL: editar los días de un salario cascadea a las
           // prestaciones y seguridad social de ese conductor, a DOTACION, a
@@ -538,6 +572,7 @@ export function registerSheetGateway(io: IOServer): void {
             })
           }
 
+          const anterior = await leerValorCelda(scope, 'liquidacion', String(entity_id), field)
           const resultado = await NominaPatchService.aplicar({
             liquidacionId: String(entity_id),
             campo: String(field),
@@ -545,6 +580,9 @@ export function registerSheetGateway(io: IOServer): void {
             baseVersion: base_version == null ? null : Number(base_version),
             actorId: actor.id,
           })
+
+          const nuevo = await leerValorCelda(scope, 'liquidacion', String(entity_id), field)
+          await registrar('liquidacion', anterior, nuevo ?? value)
 
           responder('sheet:patch:ack', {
             entity_id,
@@ -575,6 +613,7 @@ export function registerSheetGateway(io: IOServer): void {
             })
           }
 
+          const anterior = await leerValorCelda(scope, entity_type, String(entity_id), field)
           const resultado = await RecorridosPatchService.aplicar({
             tipoFila: entity_type,
             entityId: String(entity_id),
@@ -583,6 +622,9 @@ export function registerSheetGateway(io: IOServer): void {
             baseVersion: base_version == null ? null : Number(base_version),
             actor,
           })
+
+          const nuevo = await leerValorCelda(scope, entity_type, String(entity_id), field)
+          await registrar(entity_type, anterior, nuevo ?? resultado.derivados[field] ?? value)
 
           responder('sheet:patch:ack', {
             entity_id,

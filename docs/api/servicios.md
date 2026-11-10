@@ -56,6 +56,8 @@ Pasar al mismo estado siempre es válido y no tiene efectos.
 | GET | `/api/servicios/:id` | sesión | Detalle de un servicio |
 | GET | `/api/servicios/:id/rutograma` | sesión | PDF del rutograma |
 | GET | `/api/servicios/:id/ejecucion` | sesión | Inicio y liberación del conductor, preoperacional y reporte |
+| GET | `/api/servicios/:id/rastreo` | `rastreo_servicios:read` | Sesiones y puntos GPS consentidos del servicio |
+| GET | `/api/rastreo-servicios` | `rastreo_servicios:read` | Servicios activos con seguimiento GPS para el mapa |
 | POST | `/api/servicios` | `servicios:full` | Crea un servicio |
 | PUT | `/api/servicios/:id` | `servicios:full` | Edita un servicio |
 | DELETE | `/api/servicios/:id` | `servicios:full` | Retira el servicio (borrado lógico) y sus planillas |
@@ -152,6 +154,15 @@ El rango es el mes en UTC, sin paginar, ordenado por el campo de fecha.
 vehículos: placa, marca o modelo; clientes: nombre o NIT). Devuelven
 `{ success, data }` con los no eliminados, ocultos incluidos (cada fila trae
 `oculto`): un selector sí puede elegir un recurso oculto.
+
+### Rastreo GPS consentido
+
+`GET /api/rastreo-servicios` y `GET /api/servicios/:id/rastreo` exigen
+`rastreo_servicios:read`. Administración tiene acceso completo; Operaciones,
+HSEQ, Mantenimiento y Talento Humano pueden consultar. El servicio móvil registra
+sesiones solo después de que el conductor acepte compartir ubicación para ese
+servicio. Se conservan los metadatos de consentimiento y los puntos se purgan 90
+días después de cerrar la sesión.
 
 ### `GET /api/servicios/:id`
 

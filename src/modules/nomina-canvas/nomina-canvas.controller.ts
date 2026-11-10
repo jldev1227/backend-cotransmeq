@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { NominaCanvasService } from './nomina-canvas.service';
 import { CORTE_DEFECTO, rangoValido } from '../../lib/nomina/periodo';
+import { guardarInicioCorte, leerInicioCorte } from '../dias-laborados/corte-diligenciamiento.service';
 
 /**
  * Tope de conductores por libro. Cada hoja son ~110 filas × 40 columnas y
@@ -23,6 +24,19 @@ function leerPeriodo(request: FastifyRequest) {
 }
 
 export class NominaCanvasController {
+  static async leerCorteDiligenciamiento(_request: FastifyRequest, reply: FastifyReply) {
+    return reply.send({ diaInicio: await leerInicioCorte() });
+  }
+
+  static async guardarCorteDiligenciamiento(request: FastifyRequest, reply: FastifyReply) {
+    const diaInicio = Number((request.body as { diaInicio?: unknown } | undefined)?.diaInicio);
+    if (!Number.isInteger(diaInicio) || diaInicio < 1 || diaInicio > 28) {
+      return reply.status(400).send({ error: 'El día inicial del corte debe estar entre 1 y 28.' });
+    }
+    const usuarioId = (request as any).user?.id ?? null;
+    return reply.send({ diaInicio: await guardarInicioCorte(diaInicio, usuarioId) });
+  }
+
   /**
    * GET /nomina/canvas?anio=&mes=[&desde=][&conductores=id,id]
    *

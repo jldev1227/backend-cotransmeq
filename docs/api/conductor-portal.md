@@ -128,6 +128,7 @@ Todo se filtra por el conductor del token en el propio controlador o servicio:
 | GET | `/api/conductor-portal/primas/:id/firma` | portal | URL firmada de la firma de la prima (propia o de nómina) |
 | POST | `/api/conductor-portal/primas/:id/firmar` | portal | Firma una prima |
 | GET | `/api/conductor-portal/dias-laborados/registros` | portal | Lista sus días con tramos y soportes |
+| GET | `/api/conductor-portal/dias-laborados/corte` | portal | Corte vigente y días pendientes hasta `fecha` (por defecto, hoy en Colombia) |
 | POST | `/api/conductor-portal/dias-laborados/registros` | portal | Crea o reemplaza un día |
 | DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha` | portal | Retira un día |
 | POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init` | portal | Inicia la subida de un soporte de mantenimiento |
@@ -137,10 +138,18 @@ Todo se filtra por el conductor del token en el propio controlador o servicio:
 | GET | `/api/conductor-portal/dias-laborados/vehiculos` | portal | Catálogo de vehículos para el formulario |
 | GET | `/api/conductor-portal/notificaciones` | portal | Avisos sin leer (máx. 20) |
 | POST | `/api/conductor-portal/notificaciones/:id/leida` | portal | Marca un aviso como leído |
+| GET | `/api/conductor-portal/mis-actividades` | portal | Lista actividades HSEQ/PESV asignadas al conductor autenticado |
+| POST | `/api/conductor-portal/mis-actividades/:id/completar` | conductor asignado | Cierra una ocurrencia; requiere evidencia si fue marcada obligatoria |
+| POST | `/api/conductor-portal/mis-actividades/:id/evidencias` | conductor asignado | Adjunta soporte multipart de máximo 8 MB |
+| GET | `/api/conductor-portal/mis-actividades/evidencias/:evidenciaId/url` | conductor asignado | Entrega URL firmada temporal del soporte propio |
 | GET | `/api/conductor-portal/servicios` | portal | Lista sus servicios |
 | GET | `/api/conductor-portal/servicios/:id` | portal | Detalle de un servicio con las observaciones administrativas |
 | GET | `/api/conductor-portal/servicios/:id/via` | portal | Ruta, tráfico, incidentes, peajes, paradas y riesgos |
 | GET | `/api/conductor-portal/servicios/:id/ejecucion` | portal | Estado de inicio y liberación, formatos y preoperacionales del día |
+| GET | `/api/conductor-portal/servicios/:id/rastreo` | portal | Sesiones y puntos GPS consentidos del servicio asignado |
+| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones` | portal | Registra consentimiento e inicia una sesión GPS |
+| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/puntos` | portal | Sincroniza ubicaciones GPS de forma idempotente |
+| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/detener` | portal | Detiene la sesión consentida |
 | POST | `/api/conductor-portal/servicios/:id/iniciar` | portal | Inicia el servicio con un preoperacional por etapas |
 | POST | `/api/conductor-portal/servicios/:id/liberar` | portal | Libera el servicio con la hora y el reporte del recorrido |
 | POST | `/api/conductor-portal/servicios/:id/recomendaciones` | portal | Guarda las recomendaciones posteriores a liberar |
@@ -380,7 +389,18 @@ presente; tramos vivos de los días `LABORADO`, `[]` en los demás) y `adjuntos`
 `{ id, client_attachment_id, mime_type, byte_size, original_name, url, uploaded_at }`,
 URL de 1 h).
 
+### `GET /api/conductor-portal/dias-laborados/corte`
+
+`fecha=AAAA-MM-DD` opcional. Devuelve `diaInicio`, `desde`, `hasta`,
+`inicioExigible`, `fecha` y `pendientes` en orden. El inicio exigible respeta la
+fecha de ingreso del conductor. El corte es el configurado desde Nómina; sin
+configuración es 21→20. La consulta sirve para señalar el primer día que falta.
+
 ### `POST /api/conductor-portal/dias-laborados/registros`
+
+Al crear un día, devuelve 409 con `primerPendiente` cuando existe una fecha
+anterior sin registro dentro de ese corte. Editar un día vivo sigue permitido.
+La validación se repite en el servidor para cubrir otros dispositivos.
 
 Crea o reemplaza el día del conductor (upsert por `(conductor_id, fecha)`). Lo
 valida el esquema de Fastify y después el mismo zod que el dashboard
@@ -537,6 +557,14 @@ Caché en memoria por par origen-destino: 5 min para ruta y tráfico; 24 h para
 peajes, paradas, obras y Distracom (5 min si Overpass falló).
 
 **Errores**: 404; 422 «El servicio no tiene origen y destino georreferenciados»; 500.
+
+### Rastreo GPS del servicio
+
+El conductor consulta el historial de su servicio y puede iniciar el rastreo
+cuando este está en curso y ya fue iniciado desde la app. La app pide permiso de
+ubicación en primer y segundo plano, registra el consentimiento, conserva puntos
+en una cola local durante cortes de red y los sincroniza sin duplicarlos. La
+ubicación se limita al servicio aceptado y la retención de puntos es de 90 días.
 
 ### `GET /api/conductor-portal/servicios/:id/ejecucion`
 

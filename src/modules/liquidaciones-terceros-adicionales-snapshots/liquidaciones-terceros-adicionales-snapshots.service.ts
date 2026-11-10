@@ -286,7 +286,7 @@ export const LiquidacionesTercerosAdicionalesSnapshotsService = {
    * Se salta los cierres en estado bloqueado: revertir no puede ser una vía
    * indirecta para modificar un cierre APROBADA o FACTURADA.
    */
-  async revertir(snapshotId: string, usuarioId: string) {
+  async revertir(snapshotId: string, usuarioId: string, placa?: string | null) {
     const snapshot = await prisma.liquidacion_tercero_adicional_periodo_snapshot.findUnique({
       where: { id: snapshotId },
     });
@@ -299,16 +299,20 @@ export const LiquidacionesTercerosAdicionalesSnapshotsService = {
       where: { anio, mes, deleted_at: null },
       select: { id: true, estado: true, consecutivo: true, placa: true, tercero_id: true },
     });
+    const alcance = placa ? cierres.filter((c) => c.placa === placa) : cierres;
+    if (placa && alcance.length === 0) throw new Error(`No hay cierres para la placa ${placa} en este periodo`);
     const editables = new Map(
-      cierres.filter((c) => !ESTADOS_BLOQUEADOS.includes(c.estado)).map((c) => [c.id, c]),
+      alcance.filter((c) => !ESTADOS_BLOQUEADOS.includes(c.estado)).map((c) => [c.id, c]),
     );
-    const bloqueados = cierres.filter((c) => ESTADOS_BLOQUEADOS.includes(c.estado));
+    const bloqueados = alcance.filter((c) => ESTADOS_BLOQUEADOS.includes(c.estado));
 
-    const filasARestaurar = (payload.filas || []).filter((f) => editables.has(f.cierre_id));
-    const cierresAfectados = Array.from(new Set(filasARestaurar.map((f) => f.cierre_id)));
+    const filasARestaurar = (payload.filas || []).filter((f) =>
+      editables.has(f.cierre_id) && (!placa || f.placa === placa),
+    );
     // Los cierres editables SIN filas en el snapshot también hay que vaciarlos:
     // si en el snapshot no tenían adicionales, restaurar significa quitarlos.
     const cierresAVaciar = Array.from(editables.keys());
+    const cierresAfectados = cierresAVaciar;
 
     await prisma.$transaction(async (tx) => {
       await tx.liquidacion_tercero_final_adicional.updateMany({

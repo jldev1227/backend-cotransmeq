@@ -38,7 +38,8 @@
     "test:formularios": "vitest run --config vitest.formularios.config.ts",
     "test:nomina": "vitest run --config vitest.nomina.config.ts",
     "test:web-push": "vitest run --config vitest.web-push.config.mts",
-    "nomina:contraste": "tsx scripts/nomina-contraste-excel.ts"
+    "nomina:contraste": "tsx scripts/nomina-contraste-excel.ts",
+    "plan-trabajo:importar": "tsx scripts/importar-plan-trabajo-hseq.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { ServiciosController } from './servicios.controller'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
+import { listarServiciosConRastreo, obtenerRastreoServicio, RastreoServicioError } from '../conductor-portal/rastreo-servicio.service'
 
 /**
  * Rutas del módulo que NO exigen sesión. Todo lo demás la exige.
@@ -35,6 +36,9 @@ export async function serviciosRoutes(app: FastifyInstance) {
    * `permisos_rutas` se aplica desde el primer día (ver el middleware).
    */
   const puedeEscribir = { preHandler: requirePermission('servicios', 'full') }
+  // El mapa central concede `full` a Administración y `read` a Operaciones,
+  // HSEQ, Mantenimiento y Talento Humano. Evita duplicar esa lista aquí.
+  const puedeConsultarRastreo = requirePermission('rastreo_servicios', 'read')
 
   // ⚠️ IMPORTANTE: Las rutas específicas DEBEN ir ANTES que las rutas con parámetros dinámicos
 
@@ -293,6 +297,47 @@ export async function serviciosRoutes(app: FastifyInstance) {
       }
     }
   }, ServiciosController.obtenerEjecucion)
+
+  // GPS es una capacidad separada: Mantenimiento obtiene esta lectura acotada,
+  // sin abrir el detalle completo ni el permiso general `servicios.read`.
+  app.get('/servicios/:id/rastreo', {
+    preHandler: puedeConsultarRastreo,
+    schema: {
+      description: 'Consultar el rastro GPS consentido de un servicio',
+      tags: ['servicios', 'rastreo-gps'],
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } }
+      }
+    }
+  }, async (request: any, reply: any) => {
+    try {
+      const data = await obtenerRastreoServicio(request.params.id)
+      return reply.send({ success: true, data })
+    } catch (error) {
+      if (error instanceof RastreoServicioError) {
+        return reply.status(error.status).send({ success: false, message: error.message, ...(error.code ? { code: error.code } : {}) })
+      }
+      request.log.error({ error }, 'No fue posible consultar el rastreo del servicio')
+      return reply.status(500).send({ success: false, message: 'No fue posible consultar el rastreo del servicio' })
+    }
+  })
+
+  app.get('/rastreo-servicios', {
+    preHandler: puedeConsultarRastreo,
+    schema: {
+      description: 'Lista mínima de servicios con seguimiento GPS para la vista de monitoreo',
+      tags: ['servicios', 'rastreo-gps']
+    }
+  }, async (request: any, reply: any) => {
+    try {
+      return reply.send({ success: true, data: await listarServiciosConRastreo() })
+    } catch (error) {
+      request.log.error({ error }, 'No fue posible listar los servicios con rastreo GPS')
+      return reply.status(500).send({ success: false, message: 'No fue posible consultar los servicios con rastreo GPS' })
+    }
+  })
 
   app.get('/servicios/:id', {
     schema: {

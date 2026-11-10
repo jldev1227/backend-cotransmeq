@@ -375,7 +375,7 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
    * `estado-ocasional.ts`. Y solo se revierte una cabecera viva y editable
    * (`ESTADOS_OCASIONAL_NO_EDITABLES`: antes ANULADA y REEMPLAZADA se colaban).
    */
-  async revertir(cabeceraId: string, snapshotId: string, usuarioId: string) {
+  async revertir(cabeceraId: string, snapshotId: string, usuarioId: string, placa?: string | null) {
     const snapshot = await prisma.liquidacion_tercero_ocasional_snapshot.findFirst({
       where: { id: snapshotId, liquidacion_ocasional_id: cabeceraId },
     });
@@ -396,25 +396,28 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
     }
 
     const payload = snapshot.payload as unknown as OcasionalSnapshotPayload;
+    const itemsSnapshot = (payload.items || []).filter((i) => !placa || i.placa === placa);
+    const adicionalesSnapshot = (payload.adicionales || []).filter((a) => !placa || a.placa === placa);
+    const conceptosSnapshot = (payload.conceptos || []).filter((c) => !placa || c.placa_aplicada === placa);
 
     await prisma.$transaction(async (tx) => {
       await tx.liquidacion_tercero_ocasional_item.updateMany({
-        where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null },
+        where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null, ...(placa ? { placa } : {}) },
         data: { deleted_at: new Date() },
       });
       await tx.liquidacion_tercero_ocasional_adicional.updateMany({
-        where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null },
+        where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null, ...(placa ? { placa } : {}) },
         data: { deleted_at: new Date() },
       });
       await tx.liquidacion_tercero_ocasional_concepto.updateMany({
-        where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null },
+        where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null, ...(placa ? { placa_aplicada: placa } : {}) },
         data: { deleted_at: new Date() },
       });
 
       // `liquidacion_tercero_id` es NOT NULL y parte del unique
       // `uniq_ocasional_item_pivote`: un item sin pivote no puede reinsertarse.
-      const itemsValidos = (payload.items || []).filter((i) => i.liquidacion_tercero_id);
-      const descartados = (payload.items || []).length - itemsValidos.length;
+      const itemsValidos = itemsSnapshot.filter((i) => i.liquidacion_tercero_id);
+      const descartados = itemsSnapshot.length - itemsValidos.length;
       if (descartados > 0) {
         console.warn(
           `[ocasional-snapshots] revert ${cabeceraId}: ${descartados} item(s) del snapshot ` +
@@ -499,7 +502,7 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
       // existe todavía —marcada justo arriba—: `skipDuplicates` se la saltaba
       // EN SILENCIO y la reversión dejaba la cabecera con los totales del
       // snapshot pero sin las filas que los explican. Se borran antes.
-      const idsAdicionales = (payload.adicionales || [])
+      const idsAdicionales = adicionalesSnapshot
         .map((a) => a.id)
         .filter((id): id is string => !!id);
       if (idsAdicionales.length > 0) {
@@ -507,7 +510,7 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
           where: { liquidacion_ocasional_id: cabeceraId, id: { in: idsAdicionales } },
         });
       }
-      const idsConceptos = (payload.conceptos || [])
+      const idsConceptos = conceptosSnapshot
         .map((c) => c.id)
         .filter((id): id is string => !!id);
       if (idsConceptos.length > 0) {
@@ -516,9 +519,9 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
         });
       }
 
-      if ((payload.adicionales || []).length > 0) {
+      if (adicionalesSnapshot.length > 0) {
         await tx.liquidacion_tercero_ocasional_adicional.createMany({
-          data: payload.adicionales.map((a) => ({
+          data: adicionalesSnapshot.map((a) => ({
             id: a.id || randomUUID(),
             liquidacion_ocasional_id: cabeceraId,
             cliente: a.cliente ?? "TRANSMERALDA",
@@ -540,9 +543,9 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
         });
       }
 
-      if ((payload.conceptos || []).length > 0) {
+      if (conceptosSnapshot.length > 0) {
         await tx.liquidacion_tercero_ocasional_concepto.createMany({
-          data: payload.conceptos.map((c) => ({
+          data: conceptosSnapshot.map((c) => ({
             id: c.id || randomUUID(),
             liquidacion_ocasional_id: cabeceraId,
             tipo: c.tipo,
@@ -565,21 +568,35 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
 
       /// Compare-and-swap sobre el estado leído: si otro usuario la aprobó o
       /// anuló mientras tanto, no se reescribe y se deshace todo lo de arriba.
+      const [itemsVivos, adicionalesVivos, conceptosVivos] = await Promise.all([
+        tx.liquidacion_tercero_ocasional_item.findMany({ where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null } }),
+        tx.liquidacion_tercero_ocasional_adicional.findMany({ where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null } }),
+        tx.liquidacion_tercero_ocasional_concepto.findMany({ where: { liquidacion_ocasional_id: cabeceraId, deleted_at: null } }),
+      ]);
+      const itemsActivos = itemsVivos.filter((i: any) => !i.excluido);
+      const totalFacturado = itemsActivos.reduce((sum: number, i: any) => sum + toNumber(i.total_facturado), 0);
+      const totalAdmin = itemsActivos.reduce((sum: number, i: any) => sum + toNumber(i.valor_admin), 0);
+      const totalLiquidar = itemsActivos.reduce((sum: number, i: any) => sum + toNumber(i.valor_liquidar), 0);
+      const totalAdicionales = adicionalesVivos.reduce((sum: number, a: any) => sum + toNumber(a.valor_liquidar), 0);
+      const totalGastos = conceptosVivos.filter((c: any) => c.tipo === "GASTO_OPERATIVO").reduce((sum: number, c: any) => sum + toNumber(c.valor_total), 0);
+      const totalImpuestos = conceptosVivos.filter((c: any) => c.tipo === "IMPUESTO").reduce((sum: number, c: any) => sum + toNumber(c.valor_total), 0);
+      const totalAnticipos = conceptosVivos.filter((c: any) => c.tipo === "ANTICIPO").reduce((sum: number, c: any) => sum + toNumber(c.valor_total), 0);
+      const totalDescuentos = totalGastos + totalImpuestos + totalAnticipos;
       const gano = await tx.liquidacion_tercero_ocasional.updateMany({
         where: { id: cabeceraId, deleted_at: null, estado: cabecera.estado },
         data: {
-          observaciones: payload.observaciones,
+          ...(!placa ? { observaciones: payload.observaciones } : {}),
           actualizado_por_id: usuarioId,
           updated_at: new Date(),
-          total_facturado_items: payload.totales.total_facturado_items,
-          total_admin_items: payload.totales.total_admin_items,
-          total_liquidar_items: payload.totales.total_liquidar_items,
-          total_adicionales: payload.totales.total_adicionales,
-          total_gastos_operativos: payload.totales.total_gastos_operativos,
-          total_impuestos: payload.totales.total_impuestos,
-          total_anticipos: payload.totales.total_anticipos,
-          total_descuentos: payload.totales.total_descuentos,
-          total_pagar: payload.totales.total_pagar,
+          total_facturado_items: totalFacturado,
+          total_admin_items: totalAdmin,
+          total_liquidar_items: totalLiquidar,
+          total_adicionales: totalAdicionales,
+          total_gastos_operativos: totalGastos,
+          total_impuestos: totalImpuestos,
+          total_anticipos: totalAnticipos,
+          total_descuentos: totalDescuentos,
+          total_pagar: totalLiquidar + totalAdicionales - totalDescuentos,
         },
       });
       if (gano.count === 0) {
@@ -607,7 +624,7 @@ export const LiquidacionesTercerosOcasionalSnapshotsService = {
     // viven en otra tabla y su fallo no debe tumbar el revert de los importes,
     // que es lo que el usuario realmente pidió deshacer.
     try {
-      await CanvasAnotacionesService.restaurar({
+      if (!placa) await CanvasAnotacionesService.restaurar({
         scope: "ocasional",
         anio: cabecera.anio,
         mes: cabecera.mes,

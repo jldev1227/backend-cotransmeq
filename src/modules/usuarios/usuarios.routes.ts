@@ -1,7 +1,7 @@
-import { FastifyInstance } from 'fastify'
-import { UsuariosController } from './usuarios.controller'
-import { authMiddleware } from '../../middlewares/auth.middleware'
-import { requireAdmin } from '../../middlewares/permissions.middleware'
+import { FastifyInstance } from "fastify";
+import { UsuariosController } from "./usuarios.controller";
+import { authMiddleware } from "../../middlewares/auth.middleware";
+import { requireAdmin } from "../../middlewares/permissions.middleware";
 
 export async function usuariosRoutes(app: FastifyInstance) {
   /// Alta manual y edición van protegidas: son las dos puertas por las que se
@@ -14,21 +14,87 @@ export async function usuariosRoutes(app: FastifyInstance) {
   /// los usuarios con correo y teléfono, se cambiaban permisos (escalada a
   /// admin en una petición) y se reemplazaban firmas. Leer pide sesión;
   /// cambiar permisos, estado o firma, además, ser admin, igual que el PUT.
-  app.post('/usuarios', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.create)
+  app.post(
+    "/usuarios",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.create,
+  );
   /// Listar y leer usuarios exponía a todo el equipo correos, teléfonos, áreas,
   /// permisos y firmas de todos. Solo lo usa la pantalla de Usuarios (admin).
-  app.get('/usuarios', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.list)
-  app.get('/usuarios/firmantes', { preHandler: authMiddleware }, UsuariosController.firmantes)
-  app.get('/usuarios/presencia', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.listConPresencia)
-  app.get('/usuarios/online-ids', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.getOnlineIds)
-  app.get('/usuarios/:id', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.getById)
-  app.put('/usuarios/:id', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.update)
-  app.patch('/usuarios/:id/password', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.cambiarPassword)
-  app.patch('/usuarios/:id/activo', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.toggleActivo)
-  app.patch('/usuarios/:id/permisos', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.updatePermisos)
+  app.get(
+    "/usuarios",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.list,
+  );
+  app.get(
+    "/usuarios/responsables-area",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.listarResponsablesArea,
+  );
+  app.put(
+    "/usuarios/responsables-area/:area",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.actualizarResponsableArea,
+  );
+  app.get(
+    "/usuarios/firmantes",
+    { preHandler: authMiddleware },
+    UsuariosController.firmantes,
+  );
+  app.get(
+    "/usuarios/presencia",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.listConPresencia,
+  );
+  app.get(
+    "/usuarios/online-ids",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.getOnlineIds,
+  );
+  app.get(
+    "/usuarios/:id",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.getById,
+  );
+  app.put(
+    "/usuarios/:id",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.update,
+  );
+  app.patch(
+    "/usuarios/:id/password",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.cambiarPassword,
+  );
+  app.patch(
+    "/usuarios/:id/activo",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.toggleActivo,
+  );
+  app.patch(
+    "/usuarios/:id/permisos",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.updatePermisos,
+  );
   // Permiso individual: bonos de planilla de días laborados
-  app.post('/usuarios/permisos/bonos-planilla', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.setBonosPlanilla)
-  app.post('/usuarios/:id/firma', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.uploadFirma)
-  app.delete('/usuarios/:id/firma', { preHandler: [authMiddleware, requireAdmin] }, UsuariosController.deleteFirma)
-  app.get('/conductores/basicos', { preHandler: authMiddleware }, UsuariosController.listConductoresBasicos)
+  app.post(
+    "/usuarios/permisos/bonos-planilla",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.setBonosPlanilla,
+  );
+  app.post(
+    "/usuarios/:id/firma",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.uploadFirma,
+  );
+  app.delete(
+    "/usuarios/:id/firma",
+    { preHandler: [authMiddleware, requireAdmin] },
+    UsuariosController.deleteFirma,
+  );
+  app.get(
+    "/conductores/basicos",
+    { preHandler: authMiddleware },
+    UsuariosController.listConductoresBasicos,
+  );
 }

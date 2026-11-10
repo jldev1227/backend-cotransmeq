@@ -32,6 +32,8 @@ export interface SnapshotPayload {
     liquidacion_tercero_id: string;
     orden: number;
   }>;
+  /** Valores visibles de los servicios al capturar; el pivote solo conserva IDs. */
+  items_detalle?: Array<Record<string, any>>;
   conceptos: Array<{
     tipo: string;
     concepto: string;
@@ -104,7 +106,19 @@ function deepDiff(objA: any, objB: any, prefix = ''): DiffResult['fields'] {
 async function buildPayload(cierre: any): Promise<SnapshotPayload> {
   const items = await prisma.liquidacion_tercero_final_item.findMany({
     where: { liquidacion_tercero_final_id: cierre.id, deleted_at: null },
-    select: { liquidacion_tercero_id: true, orden: true },
+    select: {
+      liquidacion_tercero_id: true, orden: true, aplica_impuestos: true,
+      liquidacion_tercero: {
+        select: {
+          placa: true, recorrido: true, fechas: true, valor_unitario: true,
+          cantidad: true, porcentaje_admin: true, valor_admin: true,
+          total_facturado: true, valor_liquidar: true, ingreso_extra_global: true,
+          ingresos_extra_aval: true, ingreso_empresa: true,
+          liquidacion: { select: { consecutivo: true, cliente: { select: { nombre: true } } } },
+          tercero: { select: { nombre_completo: true } },
+        },
+      },
+    },
     // Desempate explícito: `orden` se repite y sin él Postgres puede devolver
     // las filas en distinto orden entre consultas, con lo que dos payloads
     // idénticos parecen distintos (diffs falsos y deduplicación que no acierta).
@@ -150,6 +164,26 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
     items_pivote: items.map((i: any) => ({
       liquidacion_tercero_id: i.liquidacion_tercero_id,
       orden: i.orden,
+    })),
+    items_detalle: items.map((i: any) => ({
+      liquidacion_tercero_id: i.liquidacion_tercero_id,
+      orden: i.orden,
+      aplica_impuestos: i.aplica_impuestos,
+      cliente: i.liquidacion_tercero?.liquidacion?.cliente?.nombre ?? null,
+      consecutivo: i.liquidacion_tercero?.liquidacion?.consecutivo ?? null,
+      tercero: i.liquidacion_tercero?.tercero?.nombre_completo ?? null,
+      placa: i.liquidacion_tercero?.placa ?? null,
+      recorrido: i.liquidacion_tercero?.recorrido ?? null,
+      fechas: i.liquidacion_tercero?.fechas ?? null,
+      valor_unitario: toNumber(i.liquidacion_tercero?.valor_unitario),
+      cantidad: toNumber(i.liquidacion_tercero?.cantidad),
+      porcentaje_admin: toNumber(i.liquidacion_tercero?.porcentaje_admin),
+      valor_admin: toNumber(i.liquidacion_tercero?.valor_admin),
+      total_facturado: toNumber(i.liquidacion_tercero?.total_facturado),
+      valor_liquidar: toNumber(i.liquidacion_tercero?.valor_liquidar),
+      ingreso_extra_global: toNumber(i.liquidacion_tercero?.ingreso_extra_global),
+      ingresos_extra_aval: toNumber(i.liquidacion_tercero?.ingresos_extra_aval),
+      ingreso_empresa: toNumber(i.liquidacion_tercero?.ingreso_empresa),
     })),
     conceptos: conceptos.map((c: any) => ({
       tipo: c.tipo,
@@ -336,6 +370,9 @@ export const LiquidacionesSnapshotsService = {
     ]);
     if (!a) throw new Error('Snapshot A no encontrado');
     if (!b) throw new Error('Snapshot B no encontrado');
+    if (a.liquidacion_tercero_final_id !== b.liquidacion_tercero_final_id) {
+      throw new Error('Los snapshots pertenecen a cierres distintos');
+    }
 
     const fields = deepDiff(a.payload, b.payload);
     return { fields };

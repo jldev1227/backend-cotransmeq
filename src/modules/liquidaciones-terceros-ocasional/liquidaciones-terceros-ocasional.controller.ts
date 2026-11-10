@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { LiquidacionesTercerosOcasionalService } from "./liquidaciones-terceros-ocasional.service";
 import { ErrorEstadoOcasional } from "./estado-ocasional";
+import { LiquidacionesTercerosOcasionalSnapshotsService } from '../liquidaciones-terceros-ocasional-snapshots/liquidaciones-terceros-ocasional-snapshots.service';
 
 export class LiquidacionesTercerosOcasionalController {
   // ── LIST / DETAIL ──
@@ -213,6 +214,15 @@ export class LiquidacionesTercerosOcasionalController {
         user_id: userId,
         force_new: body.force_new === true,
       });
+      /// El guardado HTTP reemplaza filas en lote: la versión posterior deja
+      /// actor, momento y diff atribuibles a ese guardado confirmado.
+      try {
+        await LiquidacionesTercerosOcasionalSnapshotsService.capturar(result.id, {
+          origen: 'manual', usuarioId: userId ?? null,
+        });
+      } catch (snapshotError) {
+        console.warn('[ocasional-snapshots] no se pudo capturar después de guardar', snapshotError);
+      }
       return reply.send(result);
     } catch (error: any) {
       const status = /APROBADA|FACTURADA/.test(error.message) ? 409 : 500;

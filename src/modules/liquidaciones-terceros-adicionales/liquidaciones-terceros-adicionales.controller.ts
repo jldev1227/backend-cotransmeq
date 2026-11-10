@@ -1,4 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
+import { CierreFinalCeldasService } from "../liquidaciones-terceros-descuentos/cierre-final-celdas.service";
+import { emitSheetInvalidate } from "../../sockets/sheet.gateway";
 import { z } from "zod";
 import {
   LiquidacionesTercerosAdicionalesService,
@@ -93,14 +95,21 @@ export class LiquidacionesTercerosAdicionalesController {
     try {
       const { id } = idParamSchema.parse(request.params);
       const { field, value, base_version } = patchCampoSchema.parse(request.body);
-      const fila = await LiquidacionesTercerosAdicionalesService.actualizarCampo({
+      const result = await CierreFinalCeldasService.actualizarCampoAdicional({
         id,
         field,
         value,
         base_version,
         user_id: (request as any).user?.id,
       });
-      return reply.send(fila);
+      emitSheetInvalidate({
+        scope: "cierres-finales",
+        anio: result.anio,
+        mes: result.mes,
+        cierreId: result.cierreId,
+        accion: "adicional-editado",
+      });
+      return reply.send(result.adicional);
     } catch (error: any) {
       return responderError(reply, "actualizarCampo", error);
     }

@@ -65,6 +65,7 @@ export class RecorridosSnapshotsController {
         id,
         usuarioId: user?.id ?? null,
         actor: { id: user?.id ?? 'desconocido', name: user?.correo ?? 'desconocido' },
+        conductorId: (request.body as any)?.conductorId ?? null,
       })
       return reply.send(r)
     } catch (e: any) {

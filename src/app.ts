@@ -26,6 +26,7 @@ import { conductoresRoutes } from './modules/conductores/conductores.routes'
 import { conductoresDocumentosRoutes } from './modules/conductores-documentos/conductores-documentos.routes'
 import { asistenciasRoutes } from './modules/asistencias/asistencias.routes'
 import { accionesCorrectivasRoutes } from './modules/acciones-correctivas/acciones-correctivas.routes'
+import { planTrabajoRoutes } from './modules/plan-trabajo/plan-trabajo.routes'
 import { recargosRoutes } from './modules/recargos/recargos.routes'
 import { documentosRoutes } from './modules/documentos/documentos.routes'
 import { documentosCompartidosRoutes } from './modules/documentos/documentos-compartidos.routes'
@@ -65,6 +66,7 @@ import { liquidacionesTercerosPdfRoutes } from './modules/liquidaciones-terceros
 import { liquidacionesTercerosEnviosRoutes } from './modules/liquidaciones-terceros-envios/liquidaciones-terceros-envios.routes'
 import { liquidacionesTercerosOcasionalRoutes } from './modules/liquidaciones-terceros-ocasional/liquidaciones-terceros-ocasional.routes'
 import { canvasAnotacionesRoutes } from './modules/canvas-anotaciones/canvas-anotaciones.routes'
+import { canvasCambiosRoutes } from './modules/canvas-cambios/canvas-cambios.routes'
 import { liquidacionesTercerosOcasionalSnapshotsRoutes } from './modules/liquidaciones-terceros-ocasional-snapshots/liquidaciones-terceros-ocasional-snapshots.routes'
 import { liquidacionesTercerosAdicionalesRoutes } from './modules/liquidaciones-terceros-adicionales/liquidaciones-terceros-adicionales.routes'
 import { liquidacionesTercerosAdicionalesSnapshotsRoutes } from './modules/liquidaciones-terceros-adicionales-snapshots/liquidaciones-terceros-adicionales-snapshots.routes'
@@ -202,6 +204,7 @@ export function buildApp() {
     app.register(asistenciasRoutes, { prefix: '/api' })
     app.register(induccionesRoutes, { prefix: '/api' })
     app.register(accionesCorrectivasRoutes, { prefix: '/api' })
+    app.register(planTrabajoRoutes, { prefix: '/api' })
     app.register(recargosRoutes, { prefix: '/api' })
     app.register(documentosRoutes, { prefix: '/api' })
     app.register(documentosCompartidosRoutes, { prefix: '/api' })
@@ -230,6 +233,7 @@ export function buildApp() {
     app.register(liquidacionesTercerosEnviosRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosOcasionalRoutes, { prefix: '/api' })
     app.register(canvasAnotacionesRoutes, { prefix: '/api' })
+    app.register(canvasCambiosRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosOcasionalSnapshotsRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosAdicionalesRoutes, { prefix: '/api' })
     app.register(liquidacionesTercerosAdicionalesSnapshotsRoutes, { prefix: '/api' })

@@ -25,7 +25,9 @@ import { startVencimientosDocumentosConductorCron } from './jobs/vencimientos-do
 import { startIncidentesInvestigacionCron } from './jobs/incidentes-investigacion.cron'
 import { startRecorridosSnapshotJob } from './jobs/snapshot-recorridos.job'
 import { startNominaSnapshotJob } from './jobs/snapshot-nomina.job'
+import { startPurgarRastreoGpsCron } from './jobs/purgar-rastreo-gps.cron'
 import { startConsultarSimitCron } from './jobs/consultar-simit.cron'
+import { startPlanTrabajoRecordatoriosCron } from './jobs/plan-trabajo-recordatorios.cron'
 
 async function start() {
   try {
@@ -61,7 +63,9 @@ async function start() {
     registrarCron('mantenimiento-planes', startMantenimientoPlanesCron())
     registrarCron('vencimientos-documentos-conductor', startVencimientosDocumentosConductorCron())
     registrarCron('incidentes-investigacion', startIncidentesInvestigacionCron())
+    registrarCron('purgar-rastreo-gps', startPurgarRastreoGpsCron())
     registrarCron('consultar-simit', startConsultarSimitCron())
+    registrarCron('plan-trabajo-recordatorios', startPlanTrabajoRecordatoriosCron())
     logger.info({ crons: cronsRegistrados() }, '⏰ Crons registrados para el apagado ordenado')
 
     const address = await app.listen({ port: env.PORT, host: '0.0.0.0' })

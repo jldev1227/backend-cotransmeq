@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 import { prisma } from '../../config/prisma'
+import { cerrarRastreoPorLiberacion } from './rastreo-servicio.service'
 import { businessDateFor, isFormError } from '../formularios-dinamicos/domain'
 import { condicionAcceso } from '../formularios-dinamicos/formularios-portal.service'
 import { lockSubmissionPorId, TX_OPCIONES } from '../formularios-dinamicos/formularios-portal.locks'
@@ -621,6 +622,7 @@ export async function liberarServicio(servicioId: string, conductorId: string, b
         ...reporte
       }
     })
+    await cerrarRastreoPorLiberacion(tx, servicioId, input.liberado_at)
     await tx.servicio.update({
       where: { id: servicioId },
       data: { estado: 'realizado', fecha_finalizacion: input.liberado_at }

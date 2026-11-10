@@ -106,6 +106,9 @@ export interface ResultadoPatchAdicional {
   totales: TotalesCierre;
   /** Versión nueva de la fila, para el siguiente compare-and-swap. */
   version: number;
+  cierreId: string;
+  mes: number;
+  anio: number;
 }
 
 /** Campos del pivote que el canvas puede alternar. */
@@ -211,6 +214,9 @@ export interface ResultadoPatch {
   totales: TotalesCierre;
   /** Versión nueva de la fila que el usuario editó. */
   version: number;
+  cierreId: string;
+  mes: number;
+  anio: number;
 }
 
 /** Conflicto de concurrencia optimista, para responder 409 / `patch:conflict`. */
@@ -289,7 +295,7 @@ export const CierreFinalCeldasService = {
 
     const valoresUnitarios = await ConfigValoresTerceroService.obtener();
 
-    const { cierreId, cambiadas } = await prisma.$transaction(async (tx) => {
+    const { cierreId, mes, anio, cambiadas } = await prisma.$transaction(async (tx) => {
       const actual = await tx.liquidacion_tercero_final_concepto.findFirst({
         where: { id, deleted_at: null },
         select: {
@@ -422,7 +428,7 @@ export const CierreFinalCeldasService = {
         cambiadas.push(c);
       }
 
-      return { cierreId, cambiadas };
+      return { cierreId, mes: Number(cierre.mes), anio: Number(cierre.anio), cambiadas };
     },
     {
       // Los 5s por defecto se quedaron cortos en cuanto los cierres tuvieron
@@ -461,7 +467,63 @@ export const CierreFinalCeldasService = {
       rows: finales.map(aFila),
       totales,
       version: editada?.version ?? base_version + 1,
+      cierreId,
+      mes,
+      anio,
     };
+  },
+
+  /**
+   * Edita una fila de gastos de vehículo o anticipos desde el modal.
+   * El tipo de la fila es inmutable y cada sección solo expone sus columnas.
+   */
+  async actualizarFilaGastoAnticipo(params: {
+    id: string;
+    field: string;
+    value: any;
+    base_version: number;
+    user_id: string;
+  }): Promise<ResultadoPatch> {
+    const fila = await prisma.liquidacion_tercero_final_concepto.findFirst({
+      where: { id: params.id, deleted_at: null },
+      select: { tipo: true, liquidacion_tercero_final_id: true },
+    });
+    if (!fila) throw new Error("Concepto no encontrado");
+
+    const campos = fila.tipo === "GASTO_OPERATIVO"
+      ? new Set(["concepto", "dias", "valor_unitario"])
+      : fila.tipo === "ANTICIPO"
+        ? new Set(["concepto", "observaciones", "valor_unitario"])
+        : null;
+    if (!campos || !campos.has(params.field)) {
+      throw new Error(`Campo no editable para una fila de ${fila.tipo}`);
+    }
+
+    let value = params.value;
+    if (params.field === "concepto") {
+      value = String(value ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+      if (!value) throw new Error("El concepto no puede ir vacío");
+      const repetido = await prisma.liquidacion_tercero_final_concepto.findFirst({
+        where: {
+          liquidacion_tercero_final_id: fila.liquidacion_tercero_final_id,
+          tipo: fila.tipo,
+          concepto: value,
+          deleted_at: null,
+          id: { not: params.id },
+        },
+        select: { id: true },
+      });
+      if (repetido) throw new Error(`${value.replace(/_/g, " ")} ya está en esta sección`);
+    } else if (params.field === "dias" || params.field === "valor_unitario") {
+      value = Number(value);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`${params.field} debe ser un número mayor o igual a cero`);
+      }
+    } else if (params.field === "observaciones") {
+      value = value == null ? null : String(value).trim() || null;
+    }
+
+    return this.actualizarCampoConcepto({ ...params, value });
   },
 
   /**
@@ -711,12 +773,19 @@ export const CierreFinalCeldasService = {
       },
       orderBy: [{ orden: "asc" }, { concepto: "asc" }],
     });
+    const cierre = await prisma.liquidacion_tercero_final.findUnique({
+      where: { id: cierreId },
+      select: { mes: true, anio: true },
+    });
 
     return {
       rows: impuestos.map(aFila),
       adicional,
       totales,
       version: adicional.version,
+      cierreId,
+      mes: Number(cierre?.mes),
+      anio: Number(cierre?.anio),
     };
   },
 

@@ -14,6 +14,11 @@ pestaña; `diff` resume los cambios respecto al anterior (salvo en las capturas
 capturas las disparan las escrituras del módulo de cierres; aquí solo se
 listan, comparan y revierten, más el disparador del cron.
 
+Las capturas nuevas incluyen `items_detalle`: cliente, servicio, recorrido,
+fechas e importes tal como estaban al guardar la versión. Esto permite la
+vista previa histórica de la hoja. Las versiones anteriores carecen de ese
+detalle y no pueden reconstruir fielmente esas celdas a partir del pivote.
+
 Revertir marca los ítems y conceptos vivos y reinserta los del snapshot (los
 ítems que vuelven se borran antes en duro, porque el único `(cierre, ítem)`
 cuenta también las filas marcadas), restaura totales, el JSONB de adicionales

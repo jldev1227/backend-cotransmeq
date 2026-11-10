@@ -52,6 +52,8 @@ con 403 si falta alguna condición.
 |---|---|---|---|
 | POST | `/api/usuarios` | admin | Alta manual de un usuario |
 | GET | `/api/usuarios` | admin | Lista todos los usuarios |
+| GET | `/api/usuarios/responsables-area` | admin | Lista el responsable configurado para cada área |
+| PUT | `/api/usuarios/responsables-area/:area` | admin | Asigna una persona activa del área como su único responsable |
 | GET | `/api/usuarios/firmantes` | sesión | Usuarios con firma, con URL firmada de S3 |
 | GET | `/api/usuarios/presencia` | admin | Lista de usuarios con `en_linea` |
 | GET | `/api/usuarios/online-ids` | admin | Ids de los usuarios conectados por socket |
@@ -248,3 +250,9 @@ de los usuarios con rol `CONDUCTOR`. Responde siempre 500: ver Observaciones.
   la app de administrativos) la firma de todos, con URL válida 24 horas.
 - Las subidas de firma no validan tipo de archivo; el tope es el global de
   multipart (200 MB).
+
+## Responsables por área
+
+`GET /api/usuarios/responsables-area` devuelve las áreas canónicas y su responsable actual, si existe. `PUT /api/usuarios/responsables-area/:area` recibe `{ "usuario_id": "uuid" }`; la cuenta debe estar activa y pertenecer al área. Cada área admite una sola persona responsable. El cambio reasigna las tareas HSEQ/PESV abiertas de los cargos vinculados con esa área y conserva las asignaciones de tareas cerradas. En ocurrencias vencidas, el nuevo responsable empieza a recibir recordatorios desde la fecha del cambio.
+
+Una persona responsable de área no puede quedar inactiva ni perder esa área hasta asignar a otra persona desde `Personal → Responsables por área`.

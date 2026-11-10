@@ -1,6 +1,6 @@
-import { FastifyRequest, FastifyReply } from 'fastify'
-import { env } from '../../config/env'
-import { pdfFromHtml, pdfFromUrl } from '../../services/pdf.service'
+import { FastifyRequest, FastifyReply } from "fastify";
+import { env } from "../../config/env";
+import { pdfFromHtml, pdfFromUrl } from "../../services/pdf.service";
 
 /**
  * PDF del documento de un envío de formulario dinámico.
@@ -89,8 +89,31 @@ import { pdfFromHtml, pdfFromUrl } from '../../services/pdf.service'
  */
 
 /** Tope del cuerpo. Un preoperacional de 131 ítems ronda los 200 KB. */
-const MAX_HTML = 6_000_000
-const MAX_CSS = 400_000
+const MAX_HTML = 6_000_000;
+const MAX_CSS = 400_000;
+
+function escaparHtml(texto: string): string {
+  return texto
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Texto de identidad, saneado antes de insertarlo en la plantilla de Chromium. */
+function crearPieNativo(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const pie = value as Record<string, unknown>;
+  const left =
+    typeof pie.left === "string" ? pie.left.trim().slice(0, 180) : "";
+  const right =
+    typeof pie.right === "string" ? pie.right.trim().slice(0, 80) : "";
+  if (!left && !right) return undefined;
+
+  return `<div style="box-sizing:border-box;width:100%;padding:0 6mm;color:#64748b;font:5pt Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact"><div style="display:flex;justify-content:space-between;gap:4mm;border-top:.2mm solid #94a3b8;padding-top:.5mm"><span>${escaparHtml(left)}</span><span>${escaparHtml(right)}</span></div></div>`;
+}
 
 /**
  * Tipografía base del documento.
@@ -112,8 +135,7 @@ const TIPOGRAFIA = `
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-`
-
+`;
 
 /**
  * Origen del portal web que se va a navegar.
@@ -123,24 +145,24 @@ const TIPOGRAFIA = `
  * navegador con sesión, y aceptar destino sería un SSRF autenticado.
  */
 export function origenDelPortal(): string {
-  const lista = (env.FRONTEND_URL || '')
-    .split(',')
+  const lista = (env.FRONTEND_URL || "")
+    .split(",")
     .map((o) => o.trim())
-    .filter(Boolean)
-  const elegido = lista[0] || (env.EMAIL_FRONTEND_URL || '').trim()
-  return (elegido || 'http://localhost:5173').replace(/\/+$/, '')
+    .filter(Boolean);
+  const elegido = lista[0] || (env.EMAIL_FRONTEND_URL || "").trim();
+  return (elegido || "http://localhost:5173").replace(/\/+$/, "");
 }
 
 /** Sesión del portal tal y como la guarda `portalStore` del frontend. */
 export interface SesionDeImpresion {
-  token: string
+  token: string;
   conductor: {
-    id: string
-    nombre: string
-    apellido: string
-    numero_identificacion: string
-  }
-  expiresAt: string
+    id: string;
+    nombre: string;
+    apellido: string;
+    numero_identificacion: string;
+  };
+  expiresAt: string;
 }
 
 export const FormulariosDocumentoPdfService = {
@@ -148,24 +170,39 @@ export const FormulariosDocumentoPdfService = {
   async renderizar(request: FastifyRequest, reply: FastifyReply) {
     try {
       const body = (request.body ?? {}) as {
-        html?: unknown
-        css?: unknown
-        filename?: unknown
-      }
+        html?: unknown;
+        css?: unknown;
+        filename?: unknown;
+        footer?: unknown;
+      };
 
-      if (typeof body.html !== 'string' || !body.html.trim()) {
-        return reply.status(400).send({ error: 'Falta el campo "html" (cuerpo del documento).' })
+      if (typeof body.html !== "string" || !body.html.trim()) {
+        return reply
+          .status(400)
+          .send({ error: 'Falta el campo "html" (cuerpo del documento).' });
       }
-      if (typeof body.css !== 'string' || !body.css.trim()) {
-        return reply.status(400).send({ error: 'Falta el campo "css" (hoja de estilos del documento).' })
+      if (typeof body.css !== "string" || !body.css.trim()) {
+        return reply
+          .status(400)
+          .send({
+            error: 'Falta el campo "css" (hoja de estilos del documento).',
+          });
       }
       if (body.html.length > MAX_HTML || body.css.length > MAX_CSS) {
-        return reply.status(413).send({ error: 'El documento es demasiado grande para renderizarlo.' })
+        return reply
+          .status(413)
+          .send({
+            error: "El documento es demasiado grande para renderizarlo.",
+          });
       }
 
       /// El nombre viaja a una cabecera `Content-Disposition`: se restringe a
       /// caracteres seguros para que no pueda inyectar directivas propias.
-      const filename = String(body.filename || 'documento').replace(/[^a-z0-9_\-]/gi, '_')
+      const filename = String(body.filename || "documento").replace(
+        /[^a-z0-9_\-]/gi,
+        "_",
+      );
+      const footerTemplate = crearPieNativo(body.footer);
 
       const html = `<!DOCTYPE html>
 <html lang="es">
@@ -176,27 +213,33 @@ export const FormulariosDocumentoPdfService = {
 <style>${body.css}</style>
 </head>
 <body>${body.html}</body>
-</html>`
+</html>`;
 
       /// `preferCSSPageSize`: el `@page { size: letter; margin: 8mm }` viaja
       /// dentro del CSS del documento, que es donde el diseño lo decide.
       const pdf = await pdfFromHtml({
         html,
         landscape: false,
-        format: 'Letter',
+        format: "Letter",
         marginMm: 0,
         preferCSSPageSize: true,
-      })
+        footerTemplate,
+      });
 
       reply
-        .header('Content-Type', 'application/pdf')
-        .header('Content-Disposition', `inline; filename="${filename}.pdf"`)
-        .header('Content-Length', String(pdf.length))
-        .header('Cache-Control', 'private, max-age=0, no-store')
-        .send(pdf)
+        .header("Content-Type", "application/pdf")
+        .header("Content-Disposition", `inline; filename="${filename}.pdf"`)
+        .header("Content-Length", String(pdf.length))
+        .header("Cache-Control", "private, max-age=0, no-store")
+        .send(pdf);
     } catch (error: any) {
-      request.log.error({ err: error }, 'Error generando PDF de documento de formulario')
-      return reply.status(500).send({ error: error?.message || 'Error generando el PDF' })
+      request.log.error(
+        { err: error },
+        "Error generando PDF de documento de formulario",
+      );
+      return reply
+        .status(500)
+        .send({ error: error?.message || "Error generando el PDF" });
     }
   },
 
@@ -219,14 +262,19 @@ export const FormulariosDocumentoPdfService = {
    * el dashboard exporta este mismo documento. Con márgenes del servidor se
    * sumarían a los del CSS y el checklist dejaría de caber donde cabe.
    */
-  async imprimirDocumentoDeEnvio(submissionId: string, sesion: SesionDeImpresion): Promise<Buffer> {
+  async imprimirDocumentoDeEnvio(
+    submissionId: string,
+    sesion: SesionDeImpresion,
+  ): Promise<Buffer> {
     return pdfFromUrl({
       url: `${origenDelPortal()}/public/portal/formularios/envios/${encodeURIComponent(submissionId)}/documento`,
-      seedLocalStorage: { [env.PORTAL_SESSION_STORAGE_KEY]: JSON.stringify(sesion) },
+      seedLocalStorage: {
+        [env.PORTAL_SESSION_STORAGE_KEY]: JSON.stringify(sesion),
+      },
       waitForSelector: '[data-listo="si"]',
-      format: 'Letter',
+      format: "Letter",
       landscape: false,
       preferCSSPageSize: true,
-    })
+    });
   },
-}
+};

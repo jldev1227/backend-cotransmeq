@@ -27,6 +27,8 @@ export async function nominaCanvasRoutes(app: FastifyInstance) {
   // El libro del periodo.
   app.get('/nomina/canvas', puedeLeer, NominaCanvasController.periodo);
   app.get('/nomina/canvas/resumen', puedeLeer, NominaCanvasController.resumen);
+  app.get('/nomina/canvas/corte-diligenciamiento', puedeLeer, NominaCanvasController.leerCorteDiligenciamiento);
+  app.put('/nomina/canvas/corte-diligenciamiento', puedeEscribir, NominaCanvasController.guardarCorteDiligenciamiento);
   // Análisis: todas las liquidaciones con totales y detalle por vehículo,
   // filtrables por años, meses, placas, conductores y estados.
   app.get('/nomina/analisis', puedeLeer, NominaAnalisisController.consultar);

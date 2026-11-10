@@ -371,6 +371,8 @@ model conductores {
   viatico_gastos                   viatico_gasto[]         @relation("viatico_gasto_conductor")
   viatico_gasto_adjuntos           viatico_gasto_adjunto[] @relation("viatico_gasto_adjunto_conductor")
   gastos_empresa_viaticos viatico_gasto_empresa[] @relation("viatico_gasto_empresa_conductor")
+  tipo_vinculacion                       String                                   @default("por_definir") @db.VarChar(40)
+  sesiones_rastreo_servicio              servicio_rastreo_sesion[]                @relation("servicio_rastreo_conductor")
 }
 
 model conductor_token {
@@ -1367,6 +1369,7 @@ model servicio {
   creado_por    usuarios? @relation("servicio_creado_por", fields: [creado_por_id], references: [id], onDelete: SetNull)
 
   @@map("servicios")
+  sesiones_rastreo                           servicio_rastreo_sesion[]
 }
 
 /// Lo que hizo el CONDUCTOR con el servicio desde la app: cuándo lo inició, con
@@ -1698,6 +1701,12 @@ model usuarios {
   @@index([correo], map: "users_correo")
   @@index([role], map: "users_role")
   @@map("users")
+  areas_responsable                                                           usuario_area_responsable[]
+  tipo_vinculacion                                                            String                                           @default("por_definir") @db.VarChar(40)
+  creado_por_id                                                               String?                                          @db.Uuid
+  usuarios_creados                                                            usuarios[]                                       @relation("usuarios_creados")
+  creado_por                                                                  usuarios?                                        @relation("usuarios_creados", fields: [creado_por_id], references: [id], onDelete: SetNull)
+  form_import_batches_solicitados                                              form_import_batch[]                              @relation("form_import_batch_requested_by")
 }
 
 model sesiones {
@@ -1965,6 +1974,7 @@ enum enum_notificacion_tipo {
   FACTURA_ANULADA
   ACCION_CORRECTIVA_RECORDATORIO
   ACCION_CORRECTIVA_VENCIDA
+  PLAN_TRABAJO_RECORDATORIO
 }
 
 enum enum_configuraciones_liquidacion_tipo {
@@ -3238,6 +3248,7 @@ model form_submission {
   @@index([usuario_id, business_date(sort: Desc), status], map: "idx_form_submissions_usuario")
   @@index([version_id, submitted_at(sort: Desc)], map: "idx_form_submissions_version")
   @@map("form_submissions")
+  import_origin form_submission_import? @relation("form_submission_import_destination")
 }
 
 /// Una respuesta. Los escalares van en la columna tipada que corresponde al
@@ -3550,6 +3561,7 @@ model invitaciones_usuario {
   expires_at      DateTime @db.Timestamptz(6)
   created_at      DateTime @default(now()) @db.Timestamptz(6)
   invitado_por    usuarios @relation("invitaciones_enviadas", fields: [invitado_por_id], references: [id])
+  tipo_vinculacion String   @default("por_definir") @db.VarChar(40)
 }
 
 model salidas_no_conformes {
@@ -3895,6 +3907,7 @@ model liquidacion_tercero_final {
   /// placa. El `@@index([anio, mes])` existente no cubre el orden ni filtra
   /// los soft-deleted, que son la mayoría en periodos antiguos.
   @@index([anio, mes, placa], map: "idx_lt_final_periodo_placa")
+  novedades_conductores    Json                                         @default("{}") @db.JsonB
 }
 
 model historial_estado_liquidacion_tercero_final {
@@ -6583,4 +6596,348 @@ model encuesta_respuesta {
   @@index([encuesta_id, created_at(sort: Desc)])
   @@index([encuesta_id, ip_hash])
   @@index([encuesta_id, dispositivo_hash])
+}
+
+
+model servicio_rastreo_sesion {
+  id                     String    @id @db.Uuid
+  servicio_id            String    @db.Uuid
+  conductor_id           String    @db.Uuid
+  consentimiento_at      DateTime  @db.Timestamptz(6)
+  consentimiento_version String    @db.VarChar(40)
+  plataforma             String    @db.VarChar(10)
+  iniciado_at            DateTime  @db.Timestamptz(6)
+  finalizado_at          DateTime? @db.Timestamptz(6)
+  motivo_finalizacion    String?   @db.VarChar(80)
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  servicio  servicio                 @relation(fields: [servicio_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conductor conductores              @relation("servicio_rastreo_conductor", fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  puntos    servicio_rastreo_punto[]
+
+  @@index([servicio_id, iniciado_at], map: "servicio_rastreo_sesion_servicio_idx")
+  @@index([conductor_id, iniciado_at], map: "servicio_rastreo_sesion_conductor_idx")
+  @@index([finalizado_at], map: "servicio_rastreo_sesion_finalizado_idx")
+  @@map("servicio_rastreo_sesion")
+}
+
+
+model servicio_rastreo_punto {
+  id            String   @id @db.Uuid
+  sesion_id     String   @db.Uuid
+  latitud       Float    @db.DoublePrecision
+  longitud      Float    @db.DoublePrecision
+  precision_m   Float    @db.DoublePrecision
+  velocidad_mps Float?   @db.DoublePrecision
+  rumbo_grados  Float?   @db.DoublePrecision
+  capturado_at  DateTime @db.Timestamptz(6)
+  recibido_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  sesion servicio_rastreo_sesion @relation(fields: [sesion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([sesion_id, capturado_at], map: "servicio_rastreo_punto_sesion_capturado_idx")
+  @@map("servicio_rastreo_punto")
+}
+
+
+model liquidacion_ingreso_periodo_snapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  anio            Int
+  mes             Int
+  version         Int
+  rama            String   @default("main") @db.VarChar(60)
+  origen          String   @default("manual") @db.VarChar(20)
+  usuario_id      String?  @db.Uuid
+  revertido_de_id String?  @db.Uuid
+  payload         Json     @db.JsonB
+  diff            Json?    @db.JsonB
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([anio, mes, version])
+  @@index([anio, mes, rama])
+  @@index([created_at])
+  @@index([usuario_id])
+}
+
+
+model form_import_batch {
+  id              String    @id @default(uuid()) @db.Uuid
+  source_company  String    @db.VarChar(20)
+  status          String    @default("RUNNING") @db.VarChar(20)
+  requested_by_id String    @db.Uuid
+  selected_count  Int       @default(0)
+  imported_count  Int       @default(0)
+  skipped_count   Int       @default(0)
+  failed_count    Int       @default(0)
+  summary_json    Json      @default("{}")
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at     DateTime? @db.Timestamptz(6)
+
+  requested_by usuarios                 @relation("form_import_batch_requested_by", fields: [requested_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items        form_import_batch_item[]
+
+  @@index([source_company, created_at(sort: Desc)], map: "idx_form_import_batches_source_created")
+  @@map("form_import_batches")
+}
+
+
+model form_submission_import {
+  id                       String    @id @default(uuid()) @db.Uuid
+  source_company           String    @db.VarChar(20)
+  source_submission_id     String    @db.Uuid
+  source_form_id           String    @db.Uuid
+  source_version_id        String    @db.Uuid
+  source_assignment_id     String    @db.Uuid
+  destination_submission_id String?   @unique(map: "uq_form_submission_imports_destination") @db.Uuid
+  source_fingerprint       String?   @db.VarChar(64)
+  status                   String    @default("PENDING") @db.VarChar(20)
+  attempt_count            Int       @default(0)
+  last_error_code          String?   @db.VarChar(50)
+  last_error_message       String?
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  imported_at              DateTime? @db.Timestamptz(6)
+
+  destination_submission form_submission?       @relation("form_submission_import_destination", fields: [destination_submission_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attempts               form_import_batch_item[] @relation("form_import_attempts")
+
+  @@unique([source_company, source_submission_id], map: "uq_form_submission_imports_source")
+  @@index([source_company, source_version_id], map: "idx_form_submission_imports_version")
+  @@map("form_submission_imports")
+}
+
+
+model form_import_batch_item {
+  id                         String    @id @default(uuid()) @db.Uuid
+  batch_id                   String    @db.Uuid
+  form_submission_import_id  String?   @db.Uuid
+  source_submission_id       String    @db.Uuid
+  status                     String    @default("PENDING") @db.VarChar(24)
+  source_fingerprint         String?   @db.VarChar(64)
+  error_code                 String?   @db.VarChar(50)
+  error_message              String?
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at                DateTime? @db.Timestamptz(6)
+
+  batch   form_import_batch       @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  registro form_submission_import? @relation("form_import_attempts", fields: [form_submission_import_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([batch_id, source_submission_id], map: "uq_form_import_batch_items_source")
+  @@index([batch_id, status], map: "idx_form_import_batch_items_status")
+  @@map("form_import_batch_items")
+}
+
+
+model plan_trabajo_anual {
+  id                    String    @id @default(uuid()) @db.Uuid
+  codigo                String    @db.VarChar(100)
+  nombre                String    @db.VarChar(255)
+  anio                  Int
+  estado                String    @default("APROBADO") @db.VarChar(20)
+  recordatorios_activos Boolean   @default(false)
+  activado_at           DateTime? @db.Timestamptz(6)
+  fuente_archivo        String?   @db.VarChar(255)
+  fuente_sha256         String?   @db.VarChar(64)
+  importado_at          DateTime  @default(now()) @db.Timestamptz(6)
+  creado_por_id         String?   @db.Uuid
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(6)
+
+  actividades               plan_trabajo_actividad[]
+  cargos                    plan_trabajo_cargo_usuario[]
+  areas_cargo               plan_trabajo_cargo_area[]
+  indicadores               plan_trabajo_indicador_manual[]
+  configuracion_indicadores plan_trabajo_indicador_config[]
+
+  @@unique([codigo, anio])
+  @@index([anio, estado])
+}
+
+
+model plan_trabajo_indicador_config {
+  id                String   @id @default(uuid()) @db.Uuid
+  plan_id           String   @db.Uuid
+  numero_indicador  Int
+  nombre            String   @db.VarChar(500)
+  formula_fuente    String?
+  meta_principal    Float
+  bandas_referencia Json     @default("{}") @db.JsonB
+  unidad            String?  @db.VarChar(100)
+  frecuencia        String?  @db.VarChar(255)
+  vigencia          String?  @db.VarChar(255)
+  datos_fuente      Json     @default("{}") @db.JsonB
+  updated_at        DateTime @updatedAt @db.Timestamptz(6)
+
+  plan plan_trabajo_anual @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+
+  @@unique([plan_id, numero_indicador])
+  @@index([plan_id])
+}
+
+
+model plan_trabajo_actividad {
+  id                     String   @id @default(uuid()) @db.Uuid
+  plan_id                String   @db.Uuid
+  numero_fuente          Int
+  fila_fuente            Int
+  unidad_programa        String   @db.VarChar(500)
+  actividad              String
+  recursos               String?
+  responsable_cargos     String?
+  alcance                String?
+  metodo_seguimiento     String?
+  frecuencia_fuente      String?  @db.VarChar(100)
+  es_pesv                Boolean  @default(false)
+  paso_pesv              String?  @db.VarChar(100)
+  requiere_evidencia     Boolean  @default(false)
+  avance_fuente          String?  @db.VarChar(100)
+  estado_fuente          String?  @db.VarChar(100)
+  fecha_ejecucion_fuente String?  @db.VarChar(100)
+  asistentes_fuente      String?  @db.VarChar(100)
+  registro_fuente        String?
+  evidencia_fuente       String?
+  observacion_fuente     String?
+  datos_fuente           Json     @default("{}") @db.JsonB
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime @updatedAt @db.Timestamptz(6)
+
+  plan        plan_trabajo_anual        @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+  ocurrencias plan_trabajo_ocurrencia[]
+
+  @@unique([plan_id, numero_fuente])
+  @@index([plan_id, unidad_programa])
+  @@index([es_pesv])
+}
+
+
+model plan_trabajo_ocurrencia {
+  id                      String    @id @default(uuid()) @db.Uuid
+  actividad_id            String    @db.Uuid
+  mes                     Int
+  fecha_vencimiento       DateTime  @db.Date
+  estado                  String    @default("PENDIENTE") @db.VarChar(20)
+  ejecutada_en_mes_fuente Boolean   @default(false)
+  completada_at           DateTime? @db.Timestamptz(6)
+  completada_por_tipo     String?   @db.VarChar(15)
+  completada_por_id       String?   @db.Uuid
+  no_aplica_motivo        String?
+  no_aplica_aprobada_por  String?   @db.Uuid
+  no_aplica_aprobada_at   DateTime? @db.Timestamptz(6)
+  recordatorios_desde     DateTime? @db.Timestamptz(6)
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(6)
+
+  actividad     plan_trabajo_actividad      @relation(fields: [actividad_id], references: [id], onDelete: Cascade)
+  asignaciones  plan_trabajo_asignacion[]
+  recordatorios plan_trabajo_recordatorio[]
+
+  @@unique([actividad_id, mes])
+  @@index([estado, fecha_vencimiento])
+  @@index([actividad_id, mes])
+}
+
+
+model plan_trabajo_cargo_usuario {
+  id         String   @id @default(uuid()) @db.Uuid
+  plan_id    String   @db.Uuid
+  cargo      String   @db.VarChar(255)
+  usuario_id String   @db.Uuid
+  rol        String   @default("RESPONSABLE") @db.VarChar(20)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  plan plan_trabajo_anual @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+
+  @@unique([plan_id, cargo, usuario_id, rol])
+  @@index([plan_id, cargo])
+  @@index([usuario_id])
+}
+
+
+model plan_trabajo_cargo_area {
+  id         String   @id @default(uuid()) @db.Uuid
+  plan_id    String   @db.Uuid
+  cargo      String   @db.VarChar(255)
+  area       String   @db.VarChar(40)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  plan plan_trabajo_anual @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+
+  @@unique([plan_id, cargo])
+  @@index([plan_id, area])
+}
+
+
+model usuario_area_responsable {
+  area       String   @id @db.VarChar(40)
+  usuario_id String   @db.Uuid
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  usuario usuarios @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+
+  @@index([usuario_id])
+}
+
+
+model plan_trabajo_asignacion {
+  id                String   @id @default(uuid()) @db.Uuid
+  ocurrencia_id     String   @db.Uuid
+  destinatario_tipo String   @db.VarChar(15)
+  destinatario_id   String   @db.Uuid
+  rol               String   @default("RESPONSABLE") @db.VarChar(20)
+  origen_cargo      String?  @db.VarChar(255)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  ocurrencia plan_trabajo_ocurrencia @relation(fields: [ocurrencia_id], references: [id], onDelete: Cascade)
+
+  @@unique([ocurrencia_id, destinatario_tipo, destinatario_id, rol])
+  @@index([destinatario_tipo, destinatario_id])
+}
+
+
+model plan_trabajo_evidencia {
+  id              String   @id @default(uuid()) @db.Uuid
+  objetivo_tipo   String   @db.VarChar(20)
+  objetivo_id     String   @db.Uuid
+  s3_key          String   @db.VarChar(1024)
+  nombre_archivo  String   @db.VarChar(255)
+  mime_type       String   @db.VarChar(120)
+  tamano_bytes    Int
+  subido_por_tipo String   @db.VarChar(15)
+  subido_por_id   String   @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([objetivo_tipo, objetivo_id])
+  @@index([subido_por_tipo, subido_por_id])
+}
+
+
+model plan_trabajo_indicador_manual {
+  id                 String   @id @default(uuid()) @db.Uuid
+  plan_id            String   @db.Uuid
+  numero_indicador   Int
+  periodo            String   @db.VarChar(20)
+  cumple             Boolean
+  observacion        String?
+  actualizado_por_id String?  @db.Uuid
+  updated_at         DateTime @updatedAt @db.Timestamptz(6)
+
+  plan plan_trabajo_anual @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+
+  @@unique([plan_id, numero_indicador, periodo])
+}
+
+
+model plan_trabajo_recordatorio {
+  id                String   @id @default(uuid()) @db.Uuid
+  ocurrencia_id     String   @db.Uuid
+  destinatario_tipo String   @db.VarChar(15)
+  destinatario_id   String   @db.Uuid
+  regla             String   @db.VarChar(30)
+  enviado_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  ocurrencia plan_trabajo_ocurrencia @relation(fields: [ocurrencia_id], references: [id], onDelete: Cascade)
+
+  @@unique([ocurrencia_id, destinatario_tipo, destinatario_id, regla])
+  @@index([enviado_at])
 }

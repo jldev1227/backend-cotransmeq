@@ -101,7 +101,7 @@ export async function liquidacionesTercerosAdicionalesSnapshotsRoutes(app: Fasti
       const userId = (request as any).user?.id;
       if (!userId) return reply.status(401).send({ error: "No autenticado" });
       try {
-        return reply.send(await Snaps.revertir((request.params as any).id, userId));
+        return reply.send(await Snaps.revertir((request.params as any).id, userId, (request.body as any)?.placa ?? null));
       } catch (e) {
         return fallo(reply, "revertir", e);
       }

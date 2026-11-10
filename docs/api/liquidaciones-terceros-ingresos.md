@@ -1,5 +1,27 @@
 # Ingresos de la empresa (hojas de ingresos y adicionales)
 
+## Versiones históricas
+
+Los snapshots de `(anio, mes)` guardan el estado editable, las filas derivadas
+ya resueltas y las anotaciones de ambas hojas. Cada guardado del canvas intenta
+capturar una versión atribuida al usuario; una captura idéntica no la duplica.
+La vista previa lee el `payload` histórico.
+
+| Método | Ruta | Uso |
+| --- | --- | --- |
+| GET | `/api/liquidaciones-terceros-ingresos/snapshots?anio=&mes=` | Lista versiones y actor |
+| POST | `/api/liquidaciones-terceros-ingresos/snapshots` | Captura manual |
+| GET | `/api/liquidaciones-terceros-ingresos/snapshots/:id` | Payload histórico |
+| GET | `/api/liquidaciones-terceros-ingresos/snapshots/:id/diff?vs=` | Diferencias |
+| POST | `/api/liquidaciones-terceros-ingresos/snapshots/:id/revertir` | Restaura una placa o el periodo completo |
+
+Restaurar verifica que las filas derivadas de servicios sigan iguales a las
+capturadas. Si cambiaron responde `409`, ya que la capa editable por sí sola no
+reproduciría la hoja previsualizada. Body opcional `{ "placa": "FST006" }
+restaura solo sus overrides y conserva los valores compartidos; sin placa,
+restaura el periodo y las anotaciones. La migración
+`20261108170000_ingresos_periodo_snapshots` crea la tabla necesaria.
+
 `/api/liquidaciones-terceros-ingresos` · código en [`src/modules/liquidaciones-terceros-ingresos/`](../../src/modules/liquidaciones-terceros-ingresos/) · permiso [`liquidaciones-terceros`](../permisos.md#catálogo-de-módulos)
 
 Canvas anual de dos hojas por mes: **«OTROS INGRESOS»**, lo que la empresa

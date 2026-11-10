@@ -107,6 +107,23 @@ export interface GenerarBorradorInput {
 const nominaCache = new Map<string, { data: any; ts: number }>();
 const NOMINA_CACHE_TTL = 30_000;
 
+const TIPOS_NOVEDAD_CONDUCTOR = new Set([
+  'VACACIONES',
+  'INCAPACIDAD',
+  'LICENCIA_MATERNIDAD',
+  'LICENCIA_PATERNIDAD',
+]);
+
+function fechaIsoValida(valor: unknown): valor is string {
+  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false;
+  const fecha = new Date(`${valor}T00:00:00.000Z`);
+  return Number.isFinite(fecha.getTime()) && fecha.toISOString().slice(0, 10) === valor;
+}
+
+function diasEntreFechas(inicio: string, fin: string): number {
+  return Math.floor((Date.parse(`${fin}T00:00:00.000Z`) - Date.parse(`${inicio}T00:00:00.000Z`)) / 86_400_000) + 1;
+}
+
 async function getNominaCached(input: { placa: string; mes: number; anio: number }) {
   const key = `${input.placa}|${input.mes}|${input.anio}`;
   const cached = nominaCache.get(key);
@@ -464,24 +481,32 @@ export const LiquidacionesTercerosDescuentosService = {
      * 2026 el canvas traía 10 bonos y la nómina tenía 15 (10 del ciclo
      * 21/05→20/06 y 5 del 21/06→20/07).
      *
-     * De estos ciclos extra se usa ÚNICAMENTE la cantidad del mes objetivo.
-     * Ni días, ni salario, ni auxilio, ni recargos.
+     * La planilla puede acreditar uso de una placa aunque falte el vínculo
+     * directo entre esa placa y la liquidación de nómina. En ese caso, el ciclo
+     * que cierra dentro del mes aporta sus días y valores completos; el ciclo
+     * que cierra después se distribuye solo por las fechas activas de la placa.
+     * Bonos y recargos se atribuyen por sus datos del mes natural.
      */
-    if (liquidacionesNomina.length === 0) {
-      return {
-        vehiculo,
-        conductores: [],
-        conceptos: [],
-        resumen: { base_salarios: 0, base_auxilio_transporte: 0, base_recargos: 0, base_bonificaciones: 0, total_base: 0 },
-      };
-    }
-
     const idsDelMes = new Set(liquidacionesNomina.map((l: any) => l.id));
-    const liquidacionesSoloBonos: any[] = (
+    const planillasConductorPlaca = await prisma.recargos_planillas.findMany({
+      where: {
+        vehiculo_id: vehiculo.id,
+        mes,
+        a_o: anio,
+        deleted_at: null,
+        dias_laborales_planillas: { some: { deleted_at: null } },
+      },
+      select: { conductor_id: true },
+    });
+    const conductoresConPlanilla = [...new Set(planillasConductorPlaca.map((planilla) => planilla.conductor_id))];
+    let liquidacionesSoloBonos: any[] = (
       await prisma.liquidaciones.findMany({
         where: {
           deleted_at: null,
-          liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
+          OR: [
+            { liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } } },
+            ...(conductoresConPlanilla.length ? [{ conductor_id: { in: conductoresConPlanilla } }] : []),
+          ],
           // Solapamiento con el mes natural: empieza antes de que acabe y
           // acaba después de que empiece.
           periodo_start: { lte: periodoEnd },
@@ -490,6 +515,187 @@ export const LiquidacionesTercerosDescuentosService = {
         include: nominaInclude,
       })
     ).filter((l: any) => !idsDelMes.has(l.id));
+
+    const liquidacionesCandidatas = [...liquidacionesNomina, ...liquidacionesSoloBonos];
+    const idsLiquidacionesCandidatas = liquidacionesCandidatas.map((liq) => liq.id);
+    const conductorPorLiquidacion = new Map<string, string>();
+    for (const liq of liquidacionesCandidatas) {
+      if (liq.conductor_id) conductorPorLiquidacion.set(liq.id, liq.conductor_id);
+    }
+    const conductoresCandidatos = [...new Set(conductorPorLiquidacion.values())];
+    const inicioMes = new Date(`${periodoStart}T00:00:00.000Z`);
+    const siguienteMes = new Date(anio, mes, 1);
+    const [planillasDelMes, diasDeLiquidacion, recargosDelMes] = idsLiquidacionesCandidatas.length
+      ? await Promise.all([
+          prisma.recargos_planillas.findMany({
+            where: {
+              conductor_id: { in: conductoresCandidatos },
+              vehiculo_id: vehiculo.id,
+              mes,
+              a_o: anio,
+              deleted_at: null,
+              dias_laborales_planillas: { some: { deleted_at: null } },
+            },
+            select: {
+              conductor_id: true,
+              dias_laborales_planillas: {
+                where: { deleted_at: null },
+                select: { dia: true },
+              },
+            },
+          }),
+          prisma.liquidaciones_dias.findMany({
+            where: {
+              liquidacion_id: { in: idsLiquidacionesCandidatas },
+              fecha: { gte: inicioMes, lt: siguienteMes },
+              deleted_at: null,
+              OR: [{ vehiculo_id: vehiculo.id }, { placa: vehiculo.placa }],
+            },
+            select: { liquidacion_id: true, fecha: true },
+          }),
+          prisma.recargos.findMany({
+            where: {
+              liquidacion_id: { in: idsLiquidacionesCandidatas },
+              vehiculo_id: vehiculo.id,
+              mes: mesKey,
+              deleted_at: null,
+              incluir: true,
+            },
+            select: { liquidacion_id: true },
+            distinct: ['liquidacion_id'],
+          }),
+        ])
+      : [[], [], []];
+    const fechasActivasPorConductor = new Map<string, Set<string>>();
+    const agregarFechaActiva = (conductorId: string, fecha: string) => {
+      let fechas = fechasActivasPorConductor.get(conductorId);
+      if (!fechas) {
+        fechas = new Set<string>();
+        fechasActivasPorConductor.set(conductorId, fechas);
+      }
+      fechas.add(fecha.slice(0, 10));
+    };
+    for (const planilla of planillasDelMes) {
+      for (const dia of planilla.dias_laborales_planillas) {
+        if (dia.dia < 1 || dia.dia > lastDay) continue;
+        agregarFechaActiva(
+          planilla.conductor_id,
+          `${anio}-${String(mes).padStart(2, '0')}-${String(dia.dia).padStart(2, '0')}`,
+        );
+      }
+    }
+    for (const dia of diasDeLiquidacion) {
+      const conductorId = conductorPorLiquidacion.get(dia.liquidacion_id);
+      if (!conductorId) continue;
+      const fecha = dia.fecha instanceof Date
+        ? dia.fecha.toISOString().slice(0, 10)
+        : String(dia.fecha).slice(0, 10);
+      agregarFechaActiva(conductorId, fecha);
+    }
+
+    // El ciclo que cierra en el mes se copia completo cuando las planillas
+    // prueban actividad de esta placa. Solo el ciclo que cierra después se
+    // prorratea por fechas activas para no duplicar un periodo entero.
+    const nominaFueraDelCicloPorConductor = new Map<string, {
+      salario: number;
+      diasSalario: number;
+      auxilio: number;
+      diasAuxilio: number;
+    }>();
+    for (const [conductorId, fechas] of fechasActivasPorConductor) {
+      if (liquidacionesNomina.some((liq) => liq.conductor_id === conductorId)) continue;
+
+      const cicloPrincipal = liquidacionesSoloBonos.find((liq) =>
+        liq.conductor_id === conductorId &&
+        liq.periodo_end >= periodoStart &&
+        liq.periodo_end <= periodoEnd,
+      );
+      if (cicloPrincipal) {
+        const salario = toNumber(cicloPrincipal.salario_devengado);
+        const auxilio = toNumber(cicloPrincipal.auxilio_transporte);
+        nominaFueraDelCicloPorConductor.set(conductorId, {
+          salario,
+          diasSalario: cicloPrincipal.dias_laborados || 0,
+          auxilio,
+          diasAuxilio: auxilio > 0 ? cicloPrincipal.dias_laborados || 0 : 0,
+        });
+        continue;
+      }
+
+      for (const fecha of fechas) {
+        const ciclo = liquidacionesSoloBonos.find((liq) =>
+          liq.conductor_id === conductorId &&
+          liq.periodo_start <= fecha &&
+          liq.periodo_end >= fecha &&
+          !(liq.periodo_end >= periodoStart && liq.periodo_end <= periodoEnd),
+        );
+        if (!ciclo) continue;
+        const diasDelCiclo = ciclo.dias_laborados > 0 ? ciclo.dias_laborados : 30;
+        const salarioDevengado = toNumber(ciclo.salario_devengado);
+        const auxilioTransporte = toNumber(ciclo.auxilio_transporte);
+        const aporte = nominaFueraDelCicloPorConductor.get(conductorId) ?? {
+          salario: 0,
+          diasSalario: 0,
+          auxilio: 0,
+          diasAuxilio: 0,
+        };
+        if (salarioDevengado > 0) {
+          aporte.salario += salarioDevengado / diasDelCiclo;
+          aporte.diasSalario += 1;
+        }
+        if (auxilioTransporte > 0) {
+          aporte.auxilio += auxilioTransporte / diasDelCiclo;
+          aporte.diasAuxilio += 1;
+        }
+        nominaFueraDelCicloPorConductor.set(conductorId, aporte);
+      }
+    }
+    const conductoresConActividad = new Set<string>([
+      ...planillasDelMes.map((planilla) => planilla.conductor_id),
+      ...diasDeLiquidacion
+        .map((dia) => conductorPorLiquidacion.get(dia.liquidacion_id))
+        .filter((id): id is string => Boolean(id)),
+      ...recargosDelMes
+        .map((recargo) => recargo.liquidacion_id && conductorPorLiquidacion.get(recargo.liquidacion_id))
+        .filter((id): id is string => Boolean(id)),
+      ...liquidacionesCandidatas
+        .filter((liq) => (liq.bonificaciones ?? []).some((bono: any) => {
+          try {
+            const values = typeof bono.values === 'string' ? JSON.parse(bono.values) : bono.values;
+            return Array.isArray(values) && values.some((valor: any) =>
+              valor?.mes === mesKey && Number(valor?.quantity ?? valor?.cantidad) > 0,
+            );
+          } catch {
+            return false;
+          }
+        }))
+        .map((liq) => liq.conductor_id)
+        .filter((id): id is string => Boolean(id)),
+    ]);
+
+    // `liquidacion_vehiculo` vincula la placa al ciclo completo, aunque cruce
+    // dos meses naturales. Se conserva el salario del ciclo del mes solo si
+    // hay evidencia de uso de esa placa en el mes solicitado.
+    liquidacionesNomina = liquidacionesNomina.filter((liq) =>
+      liq.conductor_id && conductoresConActividad.has(liq.conductor_id),
+    );
+    liquidacionesSoloBonos = liquidacionesSoloBonos.filter((liq) =>
+      liq.conductor_id && conductoresConActividad.has(liq.conductor_id),
+    );
+    if (
+      liquidacionesNomina.length === 0 &&
+      liquidacionesSoloBonos.length === 0 &&
+      ![...nominaFueraDelCicloPorConductor.values()].some((aporte) =>
+        aporte.diasSalario > 0 || aporte.auxilio > 0,
+      )
+    ) {
+      return {
+        vehiculo,
+        conductores: [],
+        conceptos: [],
+        resumen: { base_salarios: 0, base_auxilio_transporte: 0, base_recargos: 0, base_bonificaciones: 0, total_base: 0 },
+      };
+    }
 
     // 3. Agregar datos de conductores
     const conductoresMap = new Map<string, any>();
@@ -511,6 +717,7 @@ export const LiquidacionesTercerosDescuentosService = {
           dias_laborados: 0,
           salario_devengado: 0,
           auxilio_transporte: 0,
+          dias_auxilio_transporte: 0,
           total_recargos: 0,
           total_bonificaciones: 0,
           // Bonificaciones de alimentación (consolidadas del JSON `values` por mes)
@@ -539,9 +746,50 @@ export const LiquidacionesTercerosDescuentosService = {
       cd.dias_laborados += diasLaborados;
       cd.salario_devengado += salarioDevengado;
       cd.auxilio_transporte += auxilioTransporte;
+      cd.dias_auxilio_transporte += diasLaborados;
       cd.total_bonificaciones += totalBonificacionesLiq;
 
       acumularBonosAlimentacion(cd, liq, mesKey, { puedeFijarTarifa: true });
+    }
+
+    // Si el ciclo que paga la actividad cierra el mes siguiente, atribuye a la
+    // placa solo los días activos respaldados por planillas, tanto en salario
+    // como en auxilio. Así no se pierde el salario al faltar el vínculo directo
+    // entre la hoja de nómina y la placa.
+    for (const [conductorId, aporte] of nominaFueraDelCicloPorConductor) {
+      if (aporte.diasSalario === 0 && aporte.auxilio <= 0) continue;
+      let destino = [...conductoresMap.values()].find((cd) => cd.conductor_id === conductorId);
+      const crearDestino = !destino;
+      if (!destino) {
+        const liq = liquidacionesSoloBonos.find((candidata) => candidata.conductor_id === conductorId);
+        const conductor = liq?.conductores;
+        if (!conductor) continue;
+        const periodoKey = `${conductorId}|${liq.periodo_start}|${liq.periodo_end}`;
+        destino = {
+          conductor_id: conductor.id,
+          nombre: `${conductor.nombre} ${conductor.apellido}`,
+          identificacion: conductor.numero_identificacion || '',
+          dias_laborados: aporte.diasSalario,
+          salario_devengado: aporte.salario,
+          auxilio_transporte: 0,
+          dias_auxilio_transporte: 0,
+          total_recargos: 0,
+          total_bonificaciones: 0,
+          bonos_alimentacion_cantidad: 0,
+          bonos_alimentacion_valor_unitario: 0,
+          bonos_alimentacion_liq_id: null,
+          bonos_alimentacion_periodo_end: '',
+          _periodos: new Set(),
+        };
+        conductoresMap.set(periodoKey, destino);
+      }
+      if (!crearDestino) {
+        destino.dias_laborados += aporte.diasSalario;
+        destino.salario_devengado += aporte.salario;
+      }
+      destino.auxilio_transporte += aporte.auxilio;
+      destino.dias_auxilio_transporte += aporte.diasAuxilio;
+      totalAuxilioTransporte += aporte.auxilio;
     }
 
     /**
@@ -620,14 +868,23 @@ export const LiquidacionesTercerosDescuentosService = {
           liquidacion_id: { in: idsTodosLosCiclos },
           vehiculo_id: vehiculo.id,
           mes: mesKey,
-          pag_cliente: false,
+          deleted_at: null,
           incluir: true,
         },
-        select: { id: true, valor: true, liquidacion_id: true },
+        select: {
+          id: true,
+          valor: true,
+          liquidacion_id: true,
+          pag_cliente: true,
+          clientes: { select: { paga_recargos: true } },
+        },
       });
 
       const recargosPorLiquidacion = new Map<string, number>();
       for (const r of recargosDelMes) {
+        // `pag_cliente` es nullable en datos legados: solo se excluye cuando
+        // está marcado explícitamente, igual que las empresas que pagan el recargo.
+        if (r.pag_cliente === true || r.clientes.paga_recargos === true) continue;
         if (!r.liquidacion_id) continue;
         recargosPorLiquidacion.set(
           r.liquidacion_id,
@@ -648,7 +905,7 @@ export const LiquidacionesTercerosDescuentosService = {
       const conAlgunaFila = new Set(
         (
           await prisma.recargos.findMany({
-            where: { liquidacion_id: { in: idsTodosLosCiclos } },
+            where: { liquidacion_id: { in: idsTodosLosCiclos }, deleted_at: null },
             select: { liquidacion_id: true },
             distinct: ['liquidacion_id'],
           })
@@ -746,8 +1003,10 @@ export const LiquidacionesTercerosDescuentosService = {
           concepto: 'AUXILIO_TRANSPORTE',
           conductor_id: cd.conductor_id,
           conductor: conductorInfo,
-          dias: cd.dias_laborados,
-          valor_unitario: cd.dias_laborados > 0 ? cd.auxilio_transporte / cd.dias_laborados : 0,
+          dias: cd.dias_auxilio_transporte ?? cd.dias_laborados,
+          valor_unitario: (cd.dias_auxilio_transporte ?? cd.dias_laborados) > 0
+            ? cd.auxilio_transporte / (cd.dias_auxilio_transporte ?? cd.dias_laborados)
+            : 0,
           valor_total: cd.auxilio_transporte,
           calculado: true,
         });
@@ -2876,6 +3135,104 @@ export const LiquidacionesTercerosDescuentosService = {
     }
     if (activas.length > 0) return { numeros: activas, anulada: false };
     return { numeros: anuladas, anulada: anuladas.length > 0 };
+  },
+
+  /** Guarda los periodos de novedad del personal que aparece en este cierre. */
+  async guardarNovedadesConductores(
+    liquidacionTerceroFinalId: string,
+    novedadesPorConductor: Record<string, Array<Record<string, any>>>,
+  ) {
+    if (!novedadesPorConductor || typeof novedadesPorConductor !== 'object' || Array.isArray(novedadesPorConductor)) {
+      throw new Error('novedades_conductores debe ser un mapa por conductor');
+    }
+
+    const normalizadas: Record<string, any[]> = {};
+    for (const [conductorId, novedades] of Object.entries(novedadesPorConductor)) {
+      if (!Array.isArray(novedades) || novedades.length > 30) {
+        throw new Error(`Lista de novedades inválida para ${conductorId}`);
+      }
+      normalizadas[conductorId] = novedades.map((novedad) => {
+        const tipo = String(novedad?.tipo ?? '');
+        if (!TIPOS_NOVEDAD_CONDUCTOR.has(tipo)) throw new Error(`Tipo de novedad inválido: ${tipo}`);
+
+        const inicio = novedad.fecha_inicio || null;
+        const fin = novedad.fecha_fin || null;
+        if ((inicio && !fin) || (!inicio && fin)) {
+          throw new Error('El periodo de la novedad requiere fecha inicial y final');
+        }
+        if (inicio && (!fechaIsoValida(inicio) || !fechaIsoValida(fin))) {
+          throw new Error('Las fechas de la novedad deben usar formato AAAA-MM-DD');
+        }
+        if (inicio && fin < inicio) throw new Error('La fecha final no puede ser anterior a la inicial');
+
+        const diasIngresados = novedad.dias == null || novedad.dias === '' ? null : Number(novedad.dias);
+        const dias = inicio && fin ? diasEntreFechas(inicio, fin) : diasIngresados;
+        if (dias == null || !Number.isInteger(dias) || dias <= 0) {
+          throw new Error('Indica un periodo o una cantidad de días mayor que cero');
+        }
+
+        return {
+          id: typeof novedad.id === 'string' && novedad.id ? novedad.id : randomUUID(),
+          tipo,
+          fecha_inicio: inicio,
+          fecha_fin: fin,
+          dias,
+          observaciones: typeof novedad.observaciones === 'string'
+            ? novedad.observaciones.trim().slice(0, 500) || null
+            : null,
+        };
+      });
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const cierre = await tx.liquidacion_tercero_final.findFirst({
+        where: { id: liquidacionTerceroFinalId, deleted_at: null },
+        select: {
+          id: true,
+          estado: true,
+          version: true,
+          mes: true,
+          anio: true,
+          conceptos: {
+            where: { tipo: 'COSTO_LABORAL', deleted_at: null, conductor_id: { not: null } },
+            select: { conductor_id: true },
+          },
+        },
+      });
+      if (!cierre) throw new Error('Cierre no encontrado');
+      if (['LIQUIDADA', 'APROBADA', 'PAGADA', 'FACTURADA', 'ANULADA', 'REEMPLAZADA'].includes(cierre.estado)) {
+        throw new Error(`No se pueden editar novedades en estado ${cierre.estado}`);
+      }
+
+      const conductoresActivos = new Set(cierre.conceptos.map((c) => c.conductor_id).filter(Boolean));
+      for (const conductorId of Object.keys(normalizadas)) {
+        if (!conductoresActivos.has(conductorId)) {
+          throw new Error(`El conductor ${conductorId} no pertenece a este cierre`);
+        }
+      }
+
+      const actualizado = await tx.liquidacion_tercero_final.updateMany({
+        where: {
+          id: cierre.id,
+          version: cierre.version,
+          estado: cierre.estado,
+          deleted_at: null,
+        },
+        data: {
+          novedades_conductores: normalizadas as any,
+          version: { increment: 1 },
+          updated_at: new Date(),
+        },
+      });
+      if (!actualizado.count) throw new Error('El cierre cambió mientras se guardaban las novedades; recarga e inténtalo de nuevo');
+
+      return {
+        cierreId: cierre.id,
+        anio: cierre.anio,
+        mes: cierre.mes,
+        novedades_conductores: normalizadas,
+      };
+    });
   },
 
   async obtenerPorId(liquidacionTerceroFinalId: string, opts: { includeDeleted?: boolean } = {}) {

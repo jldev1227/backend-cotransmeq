@@ -62,10 +62,12 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   // Conductores del cierre: altas, bajas y marca de propietario del vehículo
   // (al propietario no se le imputan DOTACION ni EXAMEN_MEDICO).
   app.put('/liquidaciones-terceros/:id/conductores', puedeEscribir, LiquidacionesTercerosDescuentosController.sincronizarConductores);
+  app.put('/liquidaciones-terceros/:id/novedades-conductores', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarNovedadesConductores);
 
   // Filas sueltas de GASTOS DE VEHÍCULO y ANTICIPOS. Nacen en el servidor
   // porque una fila insertada en la hoja no tiene id, ni binding, ni formato.
   app.post('/liquidaciones-terceros/:id/conceptos-fila', puedeEscribir, LiquidacionesTercerosDescuentosController.agregarConcepto);
+  app.patch('/liquidaciones-terceros/conceptos-fila/:conceptoId', puedeEscribir, LiquidacionesTercerosDescuentosController.actualizarConceptoFila);
   app.delete('/liquidaciones-terceros/conceptos-fila/:conceptoId', puedeEscribir, LiquidacionesTercerosDescuentosController.eliminarConcepto);
   app.patch('/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual', puedeEscribir, LiquidacionesTercerosDescuentosController.actualizarDivisionIgualAnticipo);
 

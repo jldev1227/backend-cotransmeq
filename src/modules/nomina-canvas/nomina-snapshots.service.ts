@@ -320,6 +320,7 @@ export const NominaSnapshotsService = {
   async revertir(params: {
     snapshotId: string;
     usuarioId?: string | null;
+    conductorId?: string | null;
   }): Promise<{
     restauradas: number;
     omitidas: { conductorId: string; nombre: string; estado: string }[];
@@ -331,7 +332,13 @@ export const NominaSnapshotsService = {
     if (!snap) throw new Error('Snapshot no encontrado');
 
     const payload = (snap.payload ?? {}) as any;
-    const hojas: any[] = Array.isArray(payload.hojas) ? payload.hojas : [];
+    const todasLasHojas: any[] = Array.isArray(payload.hojas) ? payload.hojas : [];
+    const hojas: any[] = params.conductorId
+      ? todasLasHojas.filter((h) => h.conductorId === params.conductorId)
+      : todasLasHojas;
+    if (params.conductorId && hojas.length === 0) {
+      throw new Error('El snapshot no contiene la hoja de ese conductor');
+    }
 
     const conIds = hojas.map((h) => h.liquidacionId).filter(Boolean) as string[];
     const actuales = conIds.length

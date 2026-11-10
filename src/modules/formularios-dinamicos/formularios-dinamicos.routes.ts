@@ -4,6 +4,8 @@ import { prisma } from '../../config/prisma'
 import { AREAS } from '../../config/permissions'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { FormulariosController } from './formularios-dinamicos.controller'
+import { importarEnviosTransmeralda, previsualizarEnviosTransmeralda } from './formularios-importacion.service'
+import { importarEnviosFormulariosSchema, previsualizarImportacionFormulariosSchema } from './formularios-importacion.schema'
 import { snapshotMetricas } from './formularios-dinamicos.observabilidad'
 import { FormulariosDocumentoPdfService } from './formularios-documento-pdf.service'
 import {
@@ -160,6 +162,28 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
   app.delete('/form-field-templates/:id', puedeEditar, FormulariosController.eliminarPlantilla)
 
   // ── Envíos (antes de `/:formId`) ─────────────────────────────────────────
+  app.post('/formularios/importar-desde-transmeralda/preview', puedeLeer, async (request, reply) => {
+    const parsed = previsualizarImportacionFormulariosSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ success: false, error: { code: 'IMPORT_PREVIEW_INVALID', message: parsed.error.issues[0]?.message ?? 'Filtros inválidos.' } })
+    try {
+      const data = await previsualizarEnviosTransmeralda(parsed.data)
+      return reply.send({ success: true, data })
+    } catch (error: any) {
+      return reply.status(error?.statusCode ?? 503).send({ success: false, error: { code: 'IMPORT_PREVIEW_FAILED', message: error instanceof Error ? error.message : 'No se pudo consultar Transmeralda.' } })
+    }
+  })
+  app.post('/formularios/importar-desde-transmeralda', puedeEditar, async (request, reply) => {
+    const parsed = importarEnviosFormulariosSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ success: false, error: { code: 'IMPORT_REQUEST_INVALID', message: parsed.error.issues[0]?.message ?? 'Selección inválida.' } })
+    try {
+      const actorId = String((request as any).user?.id ?? '')
+      if (!actorId) return reply.status(401).send({ success: false, error: { code: 'AUTH_REQUIRED', message: 'No se pudo identificar al usuario de la sesión.' } })
+      const data = await importarEnviosTransmeralda(parsed.data, actorId)
+      return reply.send({ success: data.failed === 0, data })
+    } catch (error: any) {
+      return reply.status(error?.statusCode ?? 500).send({ success: false, error: { code: 'IMPORT_FAILED', message: error instanceof Error ? error.message : 'No se pudo importar desde Transmeralda.' } })
+    }
+  })
   app.get('/formularios/submissions/export.csv', puedeLeer, FormulariosController.exportarEnvios)
   app.get('/formularios/submissions/:id', puedeLeer, FormulariosController.obtenerEnvio)
   app.get('/formularios/submissions', puedeLeer, FormulariosController.listarEnvios)

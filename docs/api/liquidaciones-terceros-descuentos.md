@@ -114,7 +114,9 @@ cierre entero.
 | GET | `/api/liquidaciones-terceros/:id/conceptos` | `liquidaciones-terceros:limited` | Conceptos vivos del cierre |
 | PUT | `/api/liquidaciones-terceros/:id/conceptos` | `liquidaciones-terceros:limited` | Reemplaza todos los conceptos del cierre |
 | PUT | `/api/liquidaciones-terceros/:id/conductores` | `liquidaciones-terceros:limited` | Altas, bajas y días de los conductores del cierre |
+| PUT | `/api/liquidaciones-terceros/:id/novedades-conductores` | `liquidaciones-terceros:limited` | Reemplaza novedades laborales por conductor |
 | POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `liquidaciones-terceros:limited` | Añade una fila de GASTOS DE VEHÍCULO o ANTICIPOS |
+| PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Edita un campo de una fila de gastos o anticipos con compare-and-swap |
 | DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Quita (marca) una fila de gastos o anticipos |
 | PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual` | `liquidaciones-terceros:limited` | Decide si un anticipo se descuenta por igual después de impuestos |
 | GET | `/api/liquidaciones-terceros/:id/propietarios` | `liquidaciones-terceros:limited` | Copropietarios del cierre |
@@ -430,17 +432,28 @@ Las tres rutas reciben **Query** `placa`, `mes`, `anio` (400
 
 Arma los costos laborales del cierre desde las liquidaciones de nómina del
 vehículo. El ciclo de nómina va del 21 al 20, así que un mes natural lo parten
-dos ciclos: días, salario y auxilio salen del ciclo que **cierra** en el mes;
-los bonos de alimentación se atribuyen por el mes del JSON `values` y los
-recargos por la columna `mes` de `recargos`, filtrados por el vehículo.
+dos ciclos: del ciclo que **cierra** en el mes se copian días, salario y auxilio
+tal como aparecen en nómina. Solo si falta ese ciclo principal se usa como
+respaldo el que cierra el mes siguiente: se atribuyen los días activos de la
+placa respaldados por nómina, y el auxilio se prorratea por esas fechas de
+`recargos_planillas` y `liquidaciones_dias`. Los bonos
+de alimentación se atribuyen por el mes del JSON `values`. Los recargos se
+filtran por vehículo y mes, y solo se suman si `pag_cliente` no está marcado y
+la empresa no tiene `paga_recargos = true`. Las filas activas con
+`pag_cliente = null` se conservan para compatibilidad con datos legados.
+Un conductor solo se conserva si hay actividad de esa placa en el mes natural:
+días activos de `recargos_planillas` o `liquidaciones_dias`, o recargos o bonos
+atribuidos a esa placa y mes. El vínculo al ciclo de nómina, por sí solo, no
+prueba que el conductor haya usado esa placa durante el mes.
 
 **Respuesta 200** — `{ vehiculo, conductores, conceptos, conceptos_impuestos, resumen }`.
-`conceptos` trae por conductor SALARIO (días × `valor_dia_conductor`),
+`conceptos` trae por conductor SALARIO (días × `valor_dia_conductor`; en el ciclo
+que cierra después se cuentan solo los días activos de la placa),
 AUXILIO_TRANSPORTE (si hay), BONIFICACION, BONIFICACION_TURNO_DOBLE y RECARGOS
 (siempre, aunque sea en cero), y una fila por prestación y por seguridad
 social. `conceptos_impuestos` trae los impuestos activos en 0. `resumen` =
 `{ base_salarios, base_auxilio_transporte, base_recargos, base_bonificaciones, total_base }`.
-Sin nómina en el mes: `{ vehiculo, conductores: [], conceptos: [], resumen }`.
+Sin ciclo solapado ni actividad mensual comprobable: `{ vehiculo, conductores: [], conceptos: [], resumen }`.
 
 ### `GET /api/liquidaciones-terceros/bonificaciones`
 
@@ -494,6 +507,19 @@ los gastos de vehículo que falten y recalcula la cascada.
 | 400 | `conductores` no es arreglo, falta `conductor_id` o `dias` negativo o no numérico |
 | 409 | Cierre inexistente o en estado bloqueado (el mensaje contiene «estado» o «no encontrado») |
 
+### `PUT /api/liquidaciones-terceros/:id/novedades-conductores`
+
+**Body** `{ "novedades_conductores": { "<conductorId>": [{ "id": "uuid", "tipo": "VACACIONES", "fecha_inicio": "2026-08-01", "fecha_fin": "2026-08-05", "dias": 5, "observaciones": null }] } }`.
+
+Reemplaza el mapa completo de novedades de la hoja. Se admiten `VACACIONES`,
+`INCAPACIDAD`, `LICENCIA_MATERNIDAD` y `LICENCIA_PATERNIDAD`. Cada novedad lleva
+un periodo completo (los días calendario se calculan incluyendo ambas fechas)
+o solo `dias` como entero positivo. Los conductores deben estar en los costos
+laborales vivos del cierre; no se permite editar una hoja liquidada o cerrada.
+El detalle del cierre devuelve el mismo mapa en `novedades_conductores`.
+
+**Respuesta 200** — `{ cierreId, anio, mes, novedades_conductores }`.
+
 ### `POST /api/liquidaciones-terceros/:id/conceptos-fila` y `DELETE /api/liquidaciones-terceros/conceptos-fila/:conceptoId`
 
 `POST` **Body** `{ tipo: "GASTO_OPERATIVO" | "ANTICIPO", concepto, dias, valor_unitario, observaciones? }`.
@@ -504,6 +530,22 @@ Responde `{ id, mes, anio, totales }`.
 
 `DELETE` marca la fila (solo GASTO_OPERATIVO o ANTICIPO) y responde
 `{ cierreId, mes, anio, totales }`.
+
+### `PATCH /api/liquidaciones-terceros/conceptos-fila/:conceptoId`
+
+**Body** `{ field, value, base_version }`. El PATCH edita una celda por vez y
+usa la versión de la fila para detectar conflictos. En `GASTO_OPERATIVO` se
+admiten `concepto`, `dias` y `valor_unitario`; en `ANTICIPO`, `concepto`,
+`observaciones` (la fecha) y `valor_unitario`. Cambiar concepto lo normaliza a
+mayúsculas con guiones bajos y no permite duplicados en la sección. Los totales
+y gastos derivados se recalculan en servidor; una edición manual de gasto
+automático lo deja como valor manual. Responde las filas recalculadas, los
+totales y la nueva versión.
+
+| Código | Cuándo |
+|---|---|
+| 400 | `field` o `base_version` faltante/mal formado |
+| 409 | Campo no editable para el tipo, concepto duplicado, cierre bloqueado o versión obsoleta |
 
 | Código | Cuándo |
 |---|---|

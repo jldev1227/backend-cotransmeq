@@ -261,13 +261,20 @@ export class RecorridosSnapshotsService {
     id: string
     usuarioId?: string | null
     actor: { id: string; name: string }
+    conductorId?: string | null
   }) {
     const { id, usuarioId = null, actor } = opts
     const snap = await this.obtener(id)
     if (!snap) throw new Error('Snapshot no encontrado')
 
     const payload = snap.payload as any
-    const hojas: Array<{ conductor_id: string; filas: FilaRecorrido[] }> = payload?.hojas ?? []
+    const todasLasHojas: Array<{ conductor_id: string; filas: FilaRecorrido[] }> = payload?.hojas ?? []
+    const hojas = opts.conductorId
+      ? todasLasHojas.filter((hoja) => hoja.conductor_id === opts.conductorId)
+      : todasLasHojas
+    if (opts.conductorId && hojas.length === 0) {
+      throw new Error('El snapshot no contiene la hoja de ese conductor')
+    }
 
     let filasRestauradas = 0
     const fallidas: Array<{ conductor_id: string; error: string }> = []

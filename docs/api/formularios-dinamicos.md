@@ -14,6 +14,56 @@ un **envío** (`form_submissions`) con respuestas (`form_answers`,
 (`form_submission_events`). Las **plantillas de cards** (`form_field_templates`)
 son campos prearmados para el builder.
 
+## Importación entre empresas
+
+El registro de transferencias usa tres tablas. `form_import_batches` agrupa
+la acción administrativa; `form_import_batch_items` conserva el resultado de
+cada fila en cada intento; `form_submission_imports` mantiene la clave única
+de origen, la huella del contenido y el envío creado en esta base. La pareja
+(`source_company`, `source_submission_id`) impide duplicar un envío. El
+destino queda enlazado a su registro de importación, de modo que al consultar
+la otra base se pueden excluir los envíos que ya regresaron a su empresa de
+origen.
+
+Los IDs de formulario, versión y asignación de origen son referencias externas:
+no se usan como llaves foráneas en esta base. El actor que inició el lote sí es
+una relación local.
+
+Cada backend importa desde la otra empresa con estos endpoints:
+
+- `POST /api/formularios/importar-desde-cotransmeq/preview` en Transmeralda.
+- `POST /api/formularios/importar-desde-transmeralda/preview` en Cotransmeq.
+- `POST /api/formularios/importar-desde-cotransmeq` en Transmeralda.
+- `POST /api/formularios/importar-desde-transmeralda` en Cotransmeq.
+
+La vista previa requiere `formularios:read`; la importación requiere
+`formularios:full`. El filtro recibe `fechaDesde`, `fechaHasta`, `estado`
+(`SUBMITTED` o `VOIDED`), `codigoFormulario`, `busqueda`, `pagina` y
+`porPagina` (máximo 100). El rango máximo es de 366 días. La selección envía
+`[{submissionId, huella}]` y puede contener hasta 100 filas; la huella se
+recalcula en origen antes de guardar para rechazar una vista previa desactualizada.
+Las fechas filtran `business_date` en horario de negocio de la base.
+
+No se transfieren borradores. El destino reutiliza una versión publicada o
+archivada con la misma estructura; si no existe, copia el formulario y el árbol
+de secciones, campos y opciones. La asignación creada queda `CLOSED` y sin
+targets. Las respuestas, anulaciones, eventos y adjuntos conservan su contenido;
+los actores se enlazan por documento de conductor o correo exacto de usuario.
+Las placas y conductores faltantes solo se crean si se marcan en la solicitud;
+quedan `inactivo`, sin cuenta, contraseña, propietario ni vínculo de operación.
+No se crean usuarios. El servicio de origen se conserva como procedencia, sin
+asociarlo a un servicio local.
+
+La transferencia de evidencia requiere que el backend destino pueda leer y
+escribir en ambos buckets con sus credenciales AWS habituales. Define el bucket
+de origen en `COTRANSMEQ_S3_BUCKET_NAME` (Transmeralda) o
+`TRANSMERALDA_S3_BUCKET_NAME` (Cotransmeq); el destino usa
+`AWS_S3_BUCKET_NAME`. Si una fila tiene evidencia y falta la configuración o
+falla la validación SHA-256, la importación se detiene para esa fila y no omite
+el archivo en silencio. `form_submission_imports` impide duplicados y retornos;
+`form_import_batches` y `form_import_batch_items` permiten auditar cada lote y
+reintentar las filas fallidas.
+
 Hay tres registros de rutas en `src/app.ts` porque se autentican distinto: el
 **constructor** (dashboard, permiso `formularios`), el **portal del conductor**
 (JWT del magic link) y **«mis formularios»** (usuario interno que diligencia lo
@@ -78,13 +128,13 @@ habla de «grupo» como si funcionara); el código manda.
 
 ## Acceso
 
-| Superficie | Rutas | Guarda |
-|---|---|---|
-| Constructor | `/api/formularios/**`, `/api/form-field-templates/**` | `sesión` (hook `onRequest` del plugin) + por ruta `formularios:read` (lecturas, `…/validate` y `documento/pdf`) o `formularios:full` (escrituras). `formularios` es `full` para `administracion` y `hseq`, `read` para `operaciones` |
-| Portal del conductor | `/api/conductor-portal/formularios/**` | `portal`: `portalAuthMiddleware` propio del archivo exige `Authorization: Bearer` con un JWT firmado con `JWT_SECRET` y `tipo: 'conductor_portal'`, sin vencer (30 días) y todavía registrado (`tokenPortalRegistrado`: su fila de `conductor_token` existe, no ha vencido y el conductor no está borrado; caché de 30 s). Sin áreas ni permisos de módulo |
-| Portal: token de impresión | `GET /api/conductor-portal/formularios/submissions/:id` | Además acepta `tipo: 'conductor_portal_print'` (3 min de vida) solo en esa ruta declarada, con método `GET` y `:id` igual a su `sid`; fuera de eso, 403 `FORBIDDEN` «Token fuera de su alcance». No se guarda en `conductor_token` y no pasa por la comprobación de registro |
-| Mis formularios | `/api/mis-formularios/**` | `sesión` + `mis-formularios:read`. El módulo es `general: true`: cualquier usuario del equipo pasa, salvo que tenga lista blanca en `permisos_rutas` sin `mis-formularios` |
-| En el servicio | portal y mis formularios | Propiedad: cada lectura o escritura de un envío filtra por el `conductor_id`/`usuario_id` del actor. Audiencia: los targets de la asignación (`condicionAcceso`) deciden si el actor puede abrirla, respaldar borradores o enviar |
+| Superficie                 | Rutas                                                   | Guarda                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Constructor                | `/api/formularios/**`, `/api/form-field-templates/**`   | `sesión` (hook `onRequest` del plugin) + por ruta `formularios:read` (lecturas, `…/validate` y `documento/pdf`) o `formularios:full` (escrituras). `formularios` es `full` para `administracion` y `hseq`, `read` para `operaciones`                                                                                                                       |
+| Portal del conductor       | `/api/conductor-portal/formularios/**`                  | `portal`: `portalAuthMiddleware` propio del archivo exige `Authorization: Bearer` con un JWT firmado con `JWT_SECRET` y `tipo: 'conductor_portal'`, sin vencer (30 días) y todavía registrado (`tokenPortalRegistrado`: su fila de `conductor_token` existe, no ha vencido y el conductor no está borrado; caché de 30 s). Sin áreas ni permisos de módulo |
+| Portal: token de impresión | `GET /api/conductor-portal/formularios/submissions/:id` | Además acepta `tipo: 'conductor_portal_print'` (3 min de vida) solo en esa ruta declarada, con método `GET` y `:id` igual a su `sid`; fuera de eso, 403 `FORBIDDEN` «Token fuera de su alcance». No se guarda en `conductor_token` y no pasa por la comprobación de registro                                                                               |
+| Mis formularios            | `/api/mis-formularios/**`                               | `sesión` + `mis-formularios:read`. El módulo es `general: true`: cualquier usuario del equipo pasa, salvo que tenga lista blanca en `permisos_rutas` sin `mis-formularios`                                                                                                                                                                                 |
+| En el servicio             | portal y mis formularios                                | Propiedad: cada lectura o escritura de un envío filtra por el `conductor_id`/`usuario_id` del actor. Audiencia: los targets de la asignación (`condicionAcceso`) deciden si el actor puede abrirla, respaldar borradores o enviar                                                                                                                          |
 
 Respuestas de las guardas: `authMiddleware` responde 401 `{ "error": … }`;
 `requirePermission` 403 `{ "error", "message" }`; `portalAuthMiddleware` 401
@@ -94,70 +144,70 @@ cuando el token ya no está registrado.
 
 ## Endpoints
 
-| Método | Ruta | Acceso | Qué hace |
-|---|---|---|---|
-| GET | `/api/formularios` | `formularios:read` | Catálogo paginado con versiones y conteos |
-| POST | `/api/formularios` | `formularios:full` | Crea el formulario y su versión 1 en `DRAFT` |
-| GET | `/api/formularios/:formId` | `formularios:read` | Formulario con el resumen de todas sus versiones |
-| PATCH | `/api/formularios/:formId` | `formularios:full` | Edita código, slug, nombre, descripción o área dueña |
-| DELETE | `/api/formularios/:formId` | `formularios:full` | Borrado lógico; se niega si hay asignaciones vivas |
-| POST | `/api/formularios/:formId/restore` | `formularios:full` | Deshace el borrado lógico |
-| POST | `/api/formularios/:formId/duplicate` | `formularios:full` | Formulario nuevo a partir del árbol de una versión |
-| GET | `/api/formularios/:formId/versions/:versionId` | `formularios:read` | Versión con su árbol completo |
-| PUT | `/api/formularios/:formId/versions/:versionId` | `formularios:full` | Reemplaza el árbol de un `DRAFT` (autosave del builder) |
-| POST | `/api/formularios/:formId/versions/:versionId/validate` | `formularios:read` | Valida el árbol guardado sin cambiar nada |
-| POST | `/api/formularios/:formId/versions/:versionId/clone` | `formularios:full` | Clona la versión en un `DRAFT` nuevo |
-| POST | `/api/formularios/:formId/versions/:versionId/publish` | `formularios:full` | Publica el `DRAFT` (idempotente) |
-| POST | `/api/formularios/:formId/versions/:versionId/archive` | `formularios:full` | Archiva una versión publicada |
-| GET | `/api/form-field-templates` | `formularios:read` | Lista las plantillas de cards |
-| POST | `/api/form-field-templates` | `formularios:full` | Crea una plantilla |
-| PATCH | `/api/form-field-templates/:id` | `formularios:full` | Edita una plantilla |
-| DELETE | `/api/form-field-templates/:id` | `formularios:full` | Borrado lógico de una plantilla |
-| GET | `/api/formularios/asignaciones` | `formularios:read` | Asignaciones paginadas |
-| POST | `/api/formularios/asignaciones` | `formularios:full` | Crea una asignación `ACTIVE` |
-| GET | `/api/formularios/asignaciones/:id` | `formularios:read` | Una asignación con sus targets |
-| PATCH | `/api/formularios/asignaciones/:id` | `formularios:full` | Edita audiencia, vigencia, frecuencia o límite |
-| POST | `/api/formularios/asignaciones/:id/pause` | `formularios:full` | Pasa a `PAUSED` |
-| POST | `/api/formularios/asignaciones/:id/resume` | `formularios:full` | Vuelve a `ACTIVE` |
-| POST | `/api/formularios/asignaciones/:id/close` | `formularios:full` | Cierra (terminal) |
-| GET | `/api/formularios/submissions` | `formularios:read` | Explorador de envíos, con filtros |
-| GET | `/api/formularios/submissions/export.csv` | `formularios:read` | Exporta a CSV la lista filtrada (máx. 5000) |
-| GET | `/api/formularios/submissions/:id` | `formularios:read` | Envío completo con la definición de su versión |
-| POST | `/api/formularios/submissions/:id/void` | `formularios:full` | Anula un `SUBMITTED` con motivo |
-| DELETE | `/api/formularios/submissions/:id` | `formularios:full` | Descarta (lógico) un `DRAFT` |
-| POST | `/api/formularios/submissions/:id/restore` | `formularios:full` | Deshace un descarte |
-| POST | `/api/formularios/documento/pdf` | `formularios:read` | Imprime con Chromium el HTML+CSS que manda el cliente |
-| GET | `/api/formularios/metricas` | `formularios:read` | Contadores y latencias del proceso |
-| GET | `/api/formularios/audiencia/usuarios` | `formularios:read` | Usuarios activos, cargos y áreas para el asignador |
-| GET | `/api/formularios/campana-portal/audiencia` | `formularios:read` | Conductores que recibirían la guía del portal |
-| POST | `/api/formularios/campana-portal/test` | `formularios:full` | Envía al correo de quien la pide la guía de un conductor, sin su enlace personal |
-| POST | `/api/formularios/campana-portal/enviar` | `formularios:full` | Envía la guía a toda la audiencia |
-| GET | `/api/conductor-portal/formularios/ping` | `portal` | Sonda de conectividad de la outbox |
-| GET | `/api/conductor-portal/formularios` | `portal` | Tarjetas: asignaciones vigentes del conductor |
-| GET | `/api/conductor-portal/formularios/:assignmentId` | `portal` | Definición publicada de una asignación (ETag/304) |
-| GET | `/api/conductor-portal/formularios/submissions` | `portal` | Historial propio (`SUBMITTED`/`VOIDED`) |
-| GET | `/api/conductor-portal/formularios/submissions/:id` | `portal` (+ token de impresión) | Un envío propio con su definición |
-| GET | `/api/conductor-portal/formularios/submissions/:id/pdf` | `portal` | PDF del documento del envío |
-| GET | `/api/conductor-portal/formularios/drafts/papelera` | `portal` | Borradores propios descartados |
-| POST | `/api/conductor-portal/formularios/drafts/:clientSubmissionId/restaurar` | `portal` | Restaura un borrador descartado |
-| GET | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `portal` | Relee un borrador (o envío) propio |
-| PUT | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `portal` | Backup del borrador en el servidor |
-| DELETE | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `portal` | Descarta (lógico) un borrador propio |
-| POST | `/api/conductor-portal/formularios/attachments/init` | `portal` | Reserva un adjunto y firma la URL de subida |
-| POST | `/api/conductor-portal/formularios/attachments/:id/complete` | `portal` | Verifica el objeto subido y lo marca `UPLOADED` |
-| DELETE | `/api/conductor-portal/formularios/attachments/:id` | `portal` | Quita un adjunto del borrador |
-| POST | `/api/conductor-portal/formularios/submissions` | `portal` | Envío final, idempotente |
-| GET | `/api/mis-formularios` | `mis-formularios:read` | Tarjetas del usuario interno |
-| GET | `/api/mis-formularios/:assignmentId` | `mis-formularios:read` | Definición publicada (ETag/304) |
-| GET | `/api/mis-formularios/submissions` | `mis-formularios:read` | Historial propio |
-| GET | `/api/mis-formularios/submissions/:id` | `mis-formularios:read` | Un envío propio |
-| GET | `/api/mis-formularios/drafts/:clientSubmissionId` | `mis-formularios:read` | Relee un borrador propio |
-| PUT | `/api/mis-formularios/drafts/:clientSubmissionId` | `mis-formularios:read` | Autoguardado del borrador |
-| DELETE | `/api/mis-formularios/drafts/:clientSubmissionId` | `mis-formularios:read` | Descarta un borrador propio |
-| POST | `/api/mis-formularios/attachments/init` | `mis-formularios:read` | Reserva un adjunto y firma la URL de subida |
-| POST | `/api/mis-formularios/attachments/:id/complete` | `mis-formularios:read` | Verifica el objeto subido |
-| DELETE | `/api/mis-formularios/attachments/:id` | `mis-formularios:read` | Quita un adjunto del borrador |
-| POST | `/api/mis-formularios/submissions` | `mis-formularios:read` | Envío final, idempotente |
+| Método | Ruta                                                                     | Acceso                          | Qué hace                                                                         |
+| ------ | ------------------------------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------- |
+| GET    | `/api/formularios`                                                       | `formularios:read`              | Catálogo paginado con versiones y conteos                                        |
+| POST   | `/api/formularios`                                                       | `formularios:full`              | Crea el formulario y su versión 1 en `DRAFT`                                     |
+| GET    | `/api/formularios/:formId`                                               | `formularios:read`              | Formulario con el resumen de todas sus versiones                                 |
+| PATCH  | `/api/formularios/:formId`                                               | `formularios:full`              | Edita código, slug, nombre, descripción o área dueña                             |
+| DELETE | `/api/formularios/:formId`                                               | `formularios:full`              | Borrado lógico; se niega si hay asignaciones vivas                               |
+| POST   | `/api/formularios/:formId/restore`                                       | `formularios:full`              | Deshace el borrado lógico                                                        |
+| POST   | `/api/formularios/:formId/duplicate`                                     | `formularios:full`              | Formulario nuevo a partir del árbol de una versión                               |
+| GET    | `/api/formularios/:formId/versions/:versionId`                           | `formularios:read`              | Versión con su árbol completo                                                    |
+| PUT    | `/api/formularios/:formId/versions/:versionId`                           | `formularios:full`              | Reemplaza el árbol de un `DRAFT` (autosave del builder)                          |
+| POST   | `/api/formularios/:formId/versions/:versionId/validate`                  | `formularios:read`              | Valida el árbol guardado sin cambiar nada                                        |
+| POST   | `/api/formularios/:formId/versions/:versionId/clone`                     | `formularios:full`              | Clona la versión en un `DRAFT` nuevo                                             |
+| POST   | `/api/formularios/:formId/versions/:versionId/publish`                   | `formularios:full`              | Publica el `DRAFT` (idempotente)                                                 |
+| POST   | `/api/formularios/:formId/versions/:versionId/archive`                   | `formularios:full`              | Archiva una versión publicada                                                    |
+| GET    | `/api/form-field-templates`                                              | `formularios:read`              | Lista las plantillas de cards                                                    |
+| POST   | `/api/form-field-templates`                                              | `formularios:full`              | Crea una plantilla                                                               |
+| PATCH  | `/api/form-field-templates/:id`                                          | `formularios:full`              | Edita una plantilla                                                              |
+| DELETE | `/api/form-field-templates/:id`                                          | `formularios:full`              | Borrado lógico de una plantilla                                                  |
+| GET    | `/api/formularios/asignaciones`                                          | `formularios:read`              | Asignaciones paginadas                                                           |
+| POST   | `/api/formularios/asignaciones`                                          | `formularios:full`              | Crea una asignación `ACTIVE`                                                     |
+| GET    | `/api/formularios/asignaciones/:id`                                      | `formularios:read`              | Una asignación con sus targets                                                   |
+| PATCH  | `/api/formularios/asignaciones/:id`                                      | `formularios:full`              | Edita audiencia, vigencia, frecuencia o límite                                   |
+| POST   | `/api/formularios/asignaciones/:id/pause`                                | `formularios:full`              | Pasa a `PAUSED`                                                                  |
+| POST   | `/api/formularios/asignaciones/:id/resume`                               | `formularios:full`              | Vuelve a `ACTIVE`                                                                |
+| POST   | `/api/formularios/asignaciones/:id/close`                                | `formularios:full`              | Cierra (terminal)                                                                |
+| GET    | `/api/formularios/submissions`                                           | `formularios:read`              | Explorador de envíos, con filtros                                                |
+| GET    | `/api/formularios/submissions/export.csv`                                | `formularios:read`              | Exporta a CSV la lista filtrada (máx. 5000)                                      |
+| GET    | `/api/formularios/submissions/:id`                                       | `formularios:read`              | Envío completo con la definición de su versión                                   |
+| POST   | `/api/formularios/submissions/:id/void`                                  | `formularios:full`              | Anula un `SUBMITTED` con motivo                                                  |
+| DELETE | `/api/formularios/submissions/:id`                                       | `formularios:full`              | Descarta (lógico) un `DRAFT`                                                     |
+| POST   | `/api/formularios/submissions/:id/restore`                               | `formularios:full`              | Deshace un descarte                                                              |
+| POST   | `/api/formularios/documento/pdf`                                         | `formularios:read`              | Imprime con Chromium el HTML+CSS que manda el cliente                            |
+| GET    | `/api/formularios/metricas`                                              | `formularios:read`              | Contadores y latencias del proceso                                               |
+| GET    | `/api/formularios/audiencia/usuarios`                                    | `formularios:read`              | Usuarios activos, cargos y áreas para el asignador                               |
+| GET    | `/api/formularios/campana-portal/audiencia`                              | `formularios:read`              | Conductores que recibirían la guía del portal                                    |
+| POST   | `/api/formularios/campana-portal/test`                                   | `formularios:full`              | Envía al correo de quien la pide la guía de un conductor, sin su enlace personal |
+| POST   | `/api/formularios/campana-portal/enviar`                                 | `formularios:full`              | Envía la guía a toda la audiencia                                                |
+| GET    | `/api/conductor-portal/formularios/ping`                                 | `portal`                        | Sonda de conectividad de la outbox                                               |
+| GET    | `/api/conductor-portal/formularios`                                      | `portal`                        | Tarjetas: asignaciones vigentes del conductor                                    |
+| GET    | `/api/conductor-portal/formularios/:assignmentId`                        | `portal`                        | Definición publicada de una asignación (ETag/304)                                |
+| GET    | `/api/conductor-portal/formularios/submissions`                          | `portal`                        | Historial propio (`SUBMITTED`/`VOIDED`)                                          |
+| GET    | `/api/conductor-portal/formularios/submissions/:id`                      | `portal` (+ token de impresión) | Un envío propio con su definición                                                |
+| GET    | `/api/conductor-portal/formularios/submissions/:id/pdf`                  | `portal`                        | PDF del documento del envío                                                      |
+| GET    | `/api/conductor-portal/formularios/drafts/papelera`                      | `portal`                        | Borradores propios descartados                                                   |
+| POST   | `/api/conductor-portal/formularios/drafts/:clientSubmissionId/restaurar` | `portal`                        | Restaura un borrador descartado                                                  |
+| GET    | `/api/conductor-portal/formularios/drafts/:clientSubmissionId`           | `portal`                        | Relee un borrador (o envío) propio                                               |
+| PUT    | `/api/conductor-portal/formularios/drafts/:clientSubmissionId`           | `portal`                        | Backup del borrador en el servidor                                               |
+| DELETE | `/api/conductor-portal/formularios/drafts/:clientSubmissionId`           | `portal`                        | Descarta (lógico) un borrador propio                                             |
+| POST   | `/api/conductor-portal/formularios/attachments/init`                     | `portal`                        | Reserva un adjunto y firma la URL de subida                                      |
+| POST   | `/api/conductor-portal/formularios/attachments/:id/complete`             | `portal`                        | Verifica el objeto subido y lo marca `UPLOADED`                                  |
+| DELETE | `/api/conductor-portal/formularios/attachments/:id`                      | `portal`                        | Quita un adjunto del borrador                                                    |
+| POST   | `/api/conductor-portal/formularios/submissions`                          | `portal`                        | Envío final, idempotente                                                         |
+| GET    | `/api/mis-formularios`                                                   | `mis-formularios:read`          | Tarjetas del usuario interno                                                     |
+| GET    | `/api/mis-formularios/:assignmentId`                                     | `mis-formularios:read`          | Definición publicada (ETag/304)                                                  |
+| GET    | `/api/mis-formularios/submissions`                                       | `mis-formularios:read`          | Historial propio                                                                 |
+| GET    | `/api/mis-formularios/submissions/:id`                                   | `mis-formularios:read`          | Un envío propio                                                                  |
+| GET    | `/api/mis-formularios/drafts/:clientSubmissionId`                        | `mis-formularios:read`          | Relee un borrador propio                                                         |
+| PUT    | `/api/mis-formularios/drafts/:clientSubmissionId`                        | `mis-formularios:read`          | Autoguardado del borrador                                                        |
+| DELETE | `/api/mis-formularios/drafts/:clientSubmissionId`                        | `mis-formularios:read`          | Descarta un borrador propio                                                      |
+| POST   | `/api/mis-formularios/attachments/init`                                  | `mis-formularios:read`          | Reserva un adjunto y firma la URL de subida                                      |
+| POST   | `/api/mis-formularios/attachments/:id/complete`                          | `mis-formularios:read`          | Verifica el objeto subido                                                        |
+| DELETE | `/api/mis-formularios/attachments/:id`                                   | `mis-formularios:read`          | Quita un adjunto del borrador                                                    |
+| POST   | `/api/mis-formularios/submissions`                                       | `mis-formularios:read`          | Envío final, idempotente                                                         |
 
 ### Formato de respuesta y de error
 
@@ -167,7 +217,14 @@ excepciones (CSV, PDF, `documento/pdf`, `ping`) se indican en su sección.
 Los errores de las tres superficies salen de `fail()` con esta forma:
 
 ```json
-{ "success": false, "error": { "code": "SUBMISSION_LIMIT_REACHED", "message": "…", "details": { "…": "…" } } }
+{
+  "success": false,
+  "error": {
+    "code": "SUBMISSION_LIMIT_REACHED",
+    "message": "…",
+    "details": { "…": "…" }
+  }
+}
 ```
 
 - `400 VALIDATION_ERROR`: el body, la query o los parámetros no pasaron Zod
@@ -179,14 +236,14 @@ Los errores de las tres superficies salen de `fail()` con esta forma:
   la outbox del portal decide con él si reintenta, bloquea el borrador o pide
   magic link nuevo.
 
-| HTTP | Códigos |
-|---|---|
-| 403 | `ASSIGNMENT_TARGET_DENIED` (la asignación no existe, no te alcanza, está pausada/cerrada o su versión ya no está publicada), `FORBIDDEN` (recurso de otro actor; conductor/usuario inexistente o inactivo) |
-| 404 | `FORM_NOT_FOUND`, `VERSION_NOT_FOUND`, `ASSIGNMENT_NOT_FOUND`, `SUBMISSION_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `TEMPLATE_NOT_FOUND` |
-| 409 | `VERSION_IMMUTABLE`, `VERSION_NOT_PUBLISHED`, `VERSION_ARCHIVED`, `REVISION_CONFLICT`, `FORM_HAS_ACTIVE_ASSIGNMENTS`, `FORM_CODE_TAKEN`, `ASSIGNMENT_NOT_AVAILABLE`, `SUBMISSION_LIMIT_REACHED`, `SUBMISSION_IMMUTABLE`, `SUBMISSION_ALREADY_VOIDED`, `SUBMISSION_DISCARDED` (terminal: la outbox debe soltar ese borrador), `IDEMPOTENCY_PAYLOAD_MISMATCH`, `PREOPERACIONAL_EN_OTRO_SERVICIO`, `ATTACHMENT_CONFLICT` |
-| 413 | `ATTACHMENT_TOO_LARGE`, `PAYLOAD_TOO_LARGE` |
-| 415 | `ATTACHMENT_TYPE_NOT_ALLOWED` |
-| 422 | `FORM_DEFINITION_INVALID`, `FIELD_RULE_CYCLE`, `FIELD_VALUE_INVALID`, `ASSIGNMENT_CONTEXT_REQUIRED`, `SERVICE_CONTEXT_INVALID`, `VEHICULO_DISTINTO_DEL_SERVICIO`, `ATTACHMENT_MISSING`, `ATTACHMENT_HASH_MISMATCH`, `ATTACHMENT_NOT_DECLARED` |
+| HTTP | Códigos                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 403  | `ASSIGNMENT_TARGET_DENIED` (la asignación no existe, no te alcanza, está pausada/cerrada o su versión ya no está publicada), `FORBIDDEN` (recurso de otro actor; conductor/usuario inexistente o inactivo)                                                                                                                                                                                                            |
+| 404  | `FORM_NOT_FOUND`, `VERSION_NOT_FOUND`, `ASSIGNMENT_NOT_FOUND`, `SUBMISSION_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `TEMPLATE_NOT_FOUND`                                                                                                                                                                                                                                                                                   |
+| 409  | `VERSION_IMMUTABLE`, `VERSION_NOT_PUBLISHED`, `VERSION_ARCHIVED`, `REVISION_CONFLICT`, `FORM_HAS_ACTIVE_ASSIGNMENTS`, `FORM_CODE_TAKEN`, `ASSIGNMENT_NOT_AVAILABLE`, `SUBMISSION_LIMIT_REACHED`, `SUBMISSION_IMMUTABLE`, `SUBMISSION_ALREADY_VOIDED`, `SUBMISSION_DISCARDED` (terminal: la outbox debe soltar ese borrador), `IDEMPOTENCY_PAYLOAD_MISMATCH`, `PREOPERACIONAL_EN_OTRO_SERVICIO`, `ATTACHMENT_CONFLICT` |
+| 413  | `ATTACHMENT_TOO_LARGE`, `PAYLOAD_TOO_LARGE`                                                                                                                                                                                                                                                                                                                                                                           |
+| 415  | `ATTACHMENT_TYPE_NOT_ALLOWED`                                                                                                                                                                                                                                                                                                                                                                                         |
+| 422  | `FORM_DEFINITION_INVALID`, `FIELD_RULE_CYCLE`, `FIELD_VALUE_INVALID`, `ASSIGNMENT_CONTEXT_REQUIRED`, `SERVICE_CONTEXT_INVALID`, `VEHICULO_DISTINTO_DEL_SERVICIO`, `ATTACHMENT_MISSING`, `ATTACHMENT_HASH_MISMATCH`, `ATTACHMENT_NOT_DECLARED`                                                                                                                                                                         |
 
 Un body por encima del `bodyLimit` de la ruta lo corta Fastify antes del
 handler con su 413 propio (`{ statusCode, error, message }`).
@@ -205,13 +262,13 @@ DTOs en `formularios-dinamicos.mapper.ts`: `FormDefinitionDto` (`id`, `code`,
 
 **Query** (`listarFormulariosSchema`)
 
-| Parámetro | Tipo | Por defecto | Descripción |
-|---|---|---|---|
-| `page` | entero ≥ 1 | 1 | |
-| `limit` | entero 1–100 | 20 | |
-| `search` | string ≤ 200 | — | En `code`, `name` y `description`, sin distinguir mayúsculas (no en el título de las versiones) |
-| `ownerArea` | string ≤ 80 | — | Igualdad exacta |
-| `includeDeleted` | boolean (coaccionado) | ausente | Incluye los borrados lógicos (ver Observaciones) |
+| Parámetro        | Tipo                  | Por defecto | Descripción                                                                                     |
+| ---------------- | --------------------- | ----------- | ----------------------------------------------------------------------------------------------- |
+| `page`           | entero ≥ 1            | 1           |                                                                                                 |
+| `limit`          | entero 1–100          | 20          |                                                                                                 |
+| `search`         | string ≤ 200          | —           | En `code`, `name` y `description`, sin distinguir mayúsculas (no en el título de las versiones) |
+| `ownerArea`      | string ≤ 80           | —           | Igualdad exacta                                                                                 |
+| `includeDeleted` | boolean (coaccionado) | ausente     | Incluye los borrados lógicos (ver Observaciones)                                                |
 
 **Respuesta 200** — `data: FormDefinitionDto[]` ordenado por `updated_at`
 descendente, cada uno con `versions` y `counts: { assignments, submissions }`
@@ -222,14 +279,14 @@ descendente, cada uno con `versions` y `counts: { assignments, submissions }`
 
 **Body** (`crearFormularioSchema`)
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `code` | string 2–50 | sí | `^[A-Za-z0-9][A-Za-z0-9._-]*$`; se guarda en mayúsculas |
-| `slug` | string 2–120 | no | Minúsculas, números y guiones; si falta se deriva del nombre |
-| `name` | string ≤ 255 | sí | Se sanea (una línea, sin caracteres invisibles) |
-| `description` | string ≤ 8000 \| null | no | |
-| `ownerArea` | string ≤ 80 | no | `hseq` por defecto |
-| `versionTitle` | string ≤ 255 | no | Título de la v1; por defecto el nombre |
+| Campo          | Tipo                  | Obligatorio | Notas                                                        |
+| -------------- | --------------------- | ----------- | ------------------------------------------------------------ |
+| `code`         | string 2–50           | sí          | `^[A-Za-z0-9][A-Za-z0-9._-]*$`; se guarda en mayúsculas      |
+| `slug`         | string 2–120          | no          | Minúsculas, números y guiones; si falta se deriva del nombre |
+| `name`         | string ≤ 255          | sí          | Se sanea (una línea, sin caracteres invisibles)              |
+| `description`  | string ≤ 8000 \| null | no          |                                                              |
+| `ownerArea`    | string ≤ 80           | no          | `hseq` por defecto                                           |
+| `versionTitle` | string ≤ 255          | no          | Título de la v1; por defecto el nombre                       |
 
 **Respuesta 201** — `FormDefinitionDto` con la versión 1 en `DRAFT` (formulario
 y versión se crean en la misma transacción).
@@ -287,15 +344,15 @@ optimista por `revision`, con la fila bloqueada (`FOR UPDATE`). `bodyLimit` de
 
 **Body** (`guardarVersionSchema`)
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `revision` | entero ≥ 1 | sí | La que el builder cree vigente; si no coincide, 409 |
-| `title` | string ≤ 255 | sí | |
-| `description` | string ≤ 8000 \| null | no | |
-| `instructions` | string ≤ 20000 \| null | no | |
-| `settings` | objeto | no | JSON saneado; se conservan claves que el backend no interpreta |
-| `sections` | arreglo ≤ 60 | sí | `{ id?, key, title, description?, sortOrder, settings?, fields[] }` |
-| `clientMutationId` | uuid | no | Se acepta y no se usa |
+| Campo              | Tipo                   | Obligatorio | Notas                                                               |
+| ------------------ | ---------------------- | ----------- | ------------------------------------------------------------------- |
+| `revision`         | entero ≥ 1             | sí          | La que el builder cree vigente; si no coincide, 409                 |
+| `title`            | string ≤ 255           | sí          |                                                                     |
+| `description`      | string ≤ 8000 \| null  | no          |                                                                     |
+| `instructions`     | string ≤ 20000 \| null | no          |                                                                     |
+| `settings`         | objeto                 | no          | JSON saneado; se conservan claves que el backend no interpreta      |
+| `sections`         | arreglo ≤ 60           | sí          | `{ id?, key, title, description?, sortOrder, settings?, fields[] }` |
+| `clientMutationId` | uuid                   | no          | Se acepta y no se usa                                               |
 
 Cada campo: `id?`, `key`, `type` (`SHORT_TEXT`, `LONG_TEXT`, `INTEGER`,
 `DECIMAL`, `DATE`, `TIME`, `DATETIME`, `SINGLE_CHOICE`, `MULTIPLE_CHOICE`,
@@ -316,12 +373,12 @@ guardado).
 
 **Errores**
 
-| Código | Cuándo |
-|---|---|
+| Código                        | Cuándo                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
 | 422 `FORM_DEFINITION_INVALID` | La validación en modo `draft` falla (`details: { errors, warnings }`) o un id no es de la versión |
-| 404 `VERSION_NOT_FOUND` | No existe o es de otro formulario |
-| 409 `VERSION_IMMUTABLE` | La versión no está en `DRAFT` (`details.status`) |
-| 409 `REVISION_CONFLICT` | Otra pestaña guardó antes (`details: { expected, actual }`) |
+| 404 `VERSION_NOT_FOUND`       | No existe o es de otro formulario                                                                 |
+| 409 `VERSION_IMMUTABLE`       | La versión no está en `DRAFT` (`details.status`)                                                  |
+| 409 `REVISION_CONFLICT`       | Otra pestaña guardó antes (`details: { expected, actual }`)                                       |
 
 ### `POST /api/formularios/:formId/versions/:versionId/validate`
 
@@ -359,7 +416,7 @@ alguna asignación `ACTIVE`/`PAUSED` apunta a ella. Responde el `FormVersionDto`
 
 - `GET` — **Query**: `category` (igualdad) y `search` (en `name`). Devuelve un
   arreglo de `{ id, name, category, fieldType, template, ownerArea, isGlobal,
-  createdAt, updatedAt }` sin los borrados, ordenado por categoría y nombre.
+createdAt, updatedAt }` sin los borrados, ordenado por categoría y nombre.
 - `POST` — **Body** (`plantillaSchema`, `bodyLimit` 1 MiB): `name` (1–255),
   `category` (1–100), `fieldType`, `template` (un campo completo como en el
   `PUT` de versión, sin `id` y con `sortOrder` opcional), `ownerArea` (opcional),
@@ -385,17 +442,17 @@ submissionCount }`. Cada target trae su columna de valor y el nombre resuelto
 
 **Body** (`crearAsignacionSchema`)
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `versionId` | uuid | sí | Tiene que estar `PUBLISHED` y su formulario vivo |
-| `name` | string 1–255 | sí | |
-| `frequency` | enum | sí | `ON_DEMAND`, `ONCE`, `DAILY`, `WEEKLY` (semana ISO), `MONTHLY`, `PER_SERVICE` |
-| `limitPolicy` | enum | sí | `UNLIMITED`, `ONE_PER_PERIOD`, `ONE_PER_CONTEXT` |
-| `timezone` | string ≤ 64 | no | `America/Bogota` por defecto |
-| `startsAt`, `endsAt` | ISO datetime \| null | no | `endsAt` posterior a `startsAt` |
-| `targets` | arreglo 1–500 | sí | `{ type, conductorId?, vehicleId?, sede?, groupKey?, usuarioId?, area?, cargo? }`: cada tipo exige exactamente su columna (`CONDUCTOR`→`conductorId`, `VEHICLE`→`vehicleId`, `SEDE`→`sede`, `GROUP`→`groupKey`, `USER`→`usuarioId`, `AREA`→`area`, `CARGO`→`cargo`) y ninguna otra; `ALL_CONDUCTORS`/`ALL_USERS` ninguna |
-| `contextSchema` | `{ [clave]: { required?: boolean } }` | no | Lo que el runner exige al abrir (p. ej. `vehicleId`) |
-| `settings` | objeto | no | P. ej. `allowOffline` (el portal lo lee como `true` salvo `false` explícito) |
+| Campo                | Tipo                                  | Obligatorio | Notas                                                                                                                                                                                                                                                                                                                    |
+| -------------------- | ------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `versionId`          | uuid                                  | sí          | Tiene que estar `PUBLISHED` y su formulario vivo                                                                                                                                                                                                                                                                         |
+| `name`               | string 1–255                          | sí          |                                                                                                                                                                                                                                                                                                                          |
+| `frequency`          | enum                                  | sí          | `ON_DEMAND`, `ONCE`, `DAILY`, `WEEKLY` (semana ISO), `MONTHLY`, `PER_SERVICE`                                                                                                                                                                                                                                            |
+| `limitPolicy`        | enum                                  | sí          | `UNLIMITED`, `ONE_PER_PERIOD`, `ONE_PER_CONTEXT`                                                                                                                                                                                                                                                                         |
+| `timezone`           | string ≤ 64                           | no          | `America/Bogota` por defecto                                                                                                                                                                                                                                                                                             |
+| `startsAt`, `endsAt` | ISO datetime \| null                  | no          | `endsAt` posterior a `startsAt`                                                                                                                                                                                                                                                                                          |
+| `targets`            | arreglo 1–500                         | sí          | `{ type, conductorId?, vehicleId?, sede?, groupKey?, usuarioId?, area?, cargo? }`: cada tipo exige exactamente su columna (`CONDUCTOR`→`conductorId`, `VEHICLE`→`vehicleId`, `SEDE`→`sede`, `GROUP`→`groupKey`, `USER`→`usuarioId`, `AREA`→`area`, `CARGO`→`cargo`) y ninguna otra; `ALL_CONDUCTORS`/`ALL_USERS` ninguna |
+| `contextSchema`      | `{ [clave]: { required?: boolean } }` | no          | Lo que el runner exige al abrir (p. ej. `vehicleId`)                                                                                                                                                                                                                                                                     |
+| `settings`           | objeto                                | no          | P. ej. `allowOffline` (el portal lo lee como `true` salvo `false` explícito)                                                                                                                                                                                                                                             |
 
 **Respuesta 201** — `data: asignación`, `meta: { warnings }`. Hay warning si la
 política es `ONE_PER_CONTEXT` y ninguna clave de `contextSchema` es
@@ -434,14 +491,14 @@ transición no permitida da 409 `ASSIGNMENT_NOT_AVAILABLE`
 
 **Query** (`listarEnviosSchema`, la misma en los dos)
 
-| Parámetro | Tipo | Descripción |
-|---|---|---|
-| `page`, `limit` | entero | 1 y 20 por defecto, `limit` ≤ 100 (el CSV los ignora) |
-| `search` | string ≤ 200 | Nombre, apellido o cédula del conductor, nombre del usuario, placa, nombre de la asignación, o formato (código, nombre o título de versión; sin tildes y todas las palabras) |
-| `formId`, `versionId`, `assignmentId`, `conductorId`, `usuarioId`, `vehicleId` | uuid | Filtros exactos |
-| `status` | `DRAFT`\|`SUBMITTED`\|`VOIDED` | Sin él salen los tres |
-| `businessDateFrom`, `businessDateTo` | `YYYY-MM-DD` | Inclusivos, sobre `business_date` |
-| `includeDeleted` | boolean (coaccionado) | Incluye los descartados (ver Observaciones) |
+| Parámetro                                                                      | Tipo                           | Descripción                                                                                                                                                                  |
+| ------------------------------------------------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page`, `limit`                                                                | entero                         | 1 y 20 por defecto, `limit` ≤ 100 (el CSV los ignora)                                                                                                                        |
+| `search`                                                                       | string ≤ 200                   | Nombre, apellido o cédula del conductor, nombre del usuario, placa, nombre de la asignación, o formato (código, nombre o título de versión; sin tildes y todas las palabras) |
+| `formId`, `versionId`, `assignmentId`, `conductorId`, `usuarioId`, `vehicleId` | uuid                           | Filtros exactos                                                                                                                                                              |
+| `status`                                                                       | `DRAFT`\|`SUBMITTED`\|`VOIDED` | Sin él salen los tres                                                                                                                                                        |
+| `businessDateFrom`, `businessDateTo`                                           | `YYYY-MM-DD`                   | Inclusivos, sobre `business_date`                                                                                                                                            |
+| `includeDeleted`                                                               | boolean (coaccionado)          | Incluye los descartados (ver Observaciones)                                                                                                                                  |
 
 **Respuesta 200 (lista)** — `data` ordenado por `submitted_at` descendente (los
 borradores al final) y luego `started_at`. Cada fila: `id`,
@@ -512,11 +569,17 @@ como imagen rota.
 
 **Body**
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `html` | string | sí | Cuerpo del documento, ≤ 6 000 000 caracteres |
-| `css` | string | sí | Hoja de estilos (con su `@page`), ≤ 400 000 caracteres |
-| `filename` | string | no | Se reduce a `[a-z0-9_-]`; `documento` por defecto |
+| Campo      | Tipo                              | Obligatorio | Notas                                                                                 |
+| ---------- | --------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| `html`     | string                            | sí          | Cuerpo del documento, ≤ 6 000 000 caracteres                                          |
+| `css`      | string                            | sí          | Hoja de estilos (con su `@page`), ≤ 400 000 caracteres                                |
+| `filename` | string                            | no          | Se reduce a `[a-z0-9_-]`; `documento` por defecto                                     |
+| `footer`   | `{ left: string, right: string }` | no          | Textos de identidad, escapados y limitados; se repiten con el pie nativo de Puppeteer |
+
+El cliente quita el nodo `.pie` del HTML antes de enviarlo: mantenerlo en el
+flujo de Chromium había producido páginas adicionales que solo contenían el
+identificador. El pie nativo ocupa el margen inferior definido por `@page` y no
+añade contenido a la paginación.
 
 **Respuesta 200** — `application/pdf`, `Content-Disposition: inline`,
 `Cache-Control: private, max-age=0, no-store`.
@@ -645,14 +708,14 @@ target mal configurado); 409 `ASSIGNMENT_NOT_AVAILABLE` fuera de vigencia; 404
 
 **Query** (`listarEnviosPortalSchema`)
 
-| Parámetro | Tipo | Descripción |
-|---|---|---|
-| `page` | entero ≥ 1 | 1 |
-| `limit` | entero 1–50 | 20 |
-| `assignmentId`, `vehicleId` | uuid | Filtros exactos |
-| `businessDateFrom`, `businessDateTo` | `YYYY-MM-DD` | Por fecha de negocio, no de envío |
-| `placa` | string 1–20 | Parcial, sin distinguir mayúsculas |
-| `status` | `SUBMITTED`\|`VOIDED` | Acota; sin él salen los dos. Nunca devuelve `DRAFT` |
+| Parámetro                            | Tipo                  | Descripción                                         |
+| ------------------------------------ | --------------------- | --------------------------------------------------- |
+| `page`                               | entero ≥ 1            | 1                                                   |
+| `limit`                              | entero 1–50           | 20                                                  |
+| `assignmentId`, `vehicleId`          | uuid                  | Filtros exactos                                     |
+| `businessDateFrom`, `businessDateTo` | `YYYY-MM-DD`          | Por fecha de negocio, no de envío                   |
+| `placa`                              | string 1–20           | Parcial, sin distinguir mayúsculas                  |
+| `status`                             | `SUBMITTED`\|`VOIDED` | Acota; sin él salen los dos. Nunca devuelve `DRAFT` |
 
 **Respuesta 200** — `data`: resúmenes de envíos propios y vivos (misma forma
 que el explorador), por `submitted_at` descendente; `meta` de paginación.
@@ -711,16 +774,16 @@ medias) y no lleva binarios. La primera llamada crea la fila (`DRAFT`, evento
 
 **Body** (`backupDraftSchema`)
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `assignmentId` | uuid | sí | Asignación accesible (la vigencia no se comprueba aquí) |
-| `versionId` | uuid | sí | La vigente de la asignación. Otra solo si este `clientSubmissionId` ya existe, es del actor, de esta asignación, atado a esa versión y sigue `PUBLISHED` |
-| `answers` | arreglo ≤ 5000 | sí | `{ fieldId, occurrenceId?, rowIndex?, value?, optionValues? }` |
-| `context` | objeto | no | Saneado. Se interpretan `vehicleId` y `serviceId`; `filledOn` lo pone el servidor |
-| `progress` | entero 0–100 | no | Va a `device_json.progress` |
-| `startedAt` | ISO datetime | no | Cuándo se abrió en el dispositivo; se guarda el inicio más antiguo conocido |
-| `updatedAt` | ISO datetime | no | Se valida y no se usa |
-| `device` | objeto | no | Reemplaza `device_json` (p. ej. `stagesClosed` de los formularios por etapas) |
+| Campo          | Tipo           | Obligatorio | Notas                                                                                                                                                    |
+| -------------- | -------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assignmentId` | uuid           | sí          | Asignación accesible (la vigencia no se comprueba aquí)                                                                                                  |
+| `versionId`    | uuid           | sí          | La vigente de la asignación. Otra solo si este `clientSubmissionId` ya existe, es del actor, de esta asignación, atado a esa versión y sigue `PUBLISHED` |
+| `answers`      | arreglo ≤ 5000 | sí          | `{ fieldId, occurrenceId?, rowIndex?, value?, optionValues? }`                                                                                           |
+| `context`      | objeto         | no          | Saneado. Se interpretan `vehicleId` y `serviceId`; `filledOn` lo pone el servidor                                                                        |
+| `progress`     | entero 0–100   | no          | Va a `device_json.progress`                                                                                                                              |
+| `startedAt`    | ISO datetime   | no          | Cuándo se abrió en el dispositivo; se guarda el inicio más antiguo conocido                                                                              |
+| `updatedAt`    | ISO datetime   | no          | Se valida y no se usa                                                                                                                                    |
+| `device`       | objeto         | no          | Reemplaza `device_json` (p. ej. `stagesClosed` de los formularios por etapas)                                                                            |
 
 **Respuesta 200** — `data: { id, status: 'DRAFT', alreadySubmitted: false }`,
 o `{ id, status, alreadySubmitted: true }` si ese `clientSubmissionId` ya se
@@ -728,15 +791,15 @@ entregó (la outbox venía retrasada; no es error).
 
 **Errores**
 
-| Código | Cuándo |
-|---|---|
-| 403 `ASSIGNMENT_TARGET_DENIED` | La asignación no es accesible |
-| 409 `VERSION_NOT_PUBLISHED` | `versionId` no es la vigente ni una atada válida (`details.currentVersionId`) |
-| 403 `FORBIDDEN` | El `clientSubmissionId` es de otro actor |
-| 409 `SUBMISSION_DISCARDED` | El borrador se descartó (terminal para la outbox) |
-| 422 `SERVICE_CONTEXT_INVALID` | `context.serviceId` no existe, está borrado o no es del conductor |
-| 422 `VEHICULO_DISTINTO_DEL_SERVICIO` | `context.vehicleId` no es el vehículo del servicio |
-| 409 `PREOPERACIONAL_EN_OTRO_SERVICIO` | El envío ya está ligado a otro servicio |
+| Código                                | Cuándo                                                                        |
+| ------------------------------------- | ----------------------------------------------------------------------------- |
+| 403 `ASSIGNMENT_TARGET_DENIED`        | La asignación no es accesible                                                 |
+| 409 `VERSION_NOT_PUBLISHED`           | `versionId` no es la vigente ni una atada válida (`details.currentVersionId`) |
+| 403 `FORBIDDEN`                       | El `clientSubmissionId` es de otro actor                                      |
+| 409 `SUBMISSION_DISCARDED`            | El borrador se descartó (terminal para la outbox)                             |
+| 422 `SERVICE_CONTEXT_INVALID`         | `context.serviceId` no existe, está borrado o no es del conductor             |
+| 422 `VEHICULO_DISTINTO_DEL_SERVICIO`  | `context.vehicleId` no es el vehículo del servicio                            |
+| 409 `PREOPERACIONAL_EN_OTRO_SERVICIO` | El envío ya está ligado a otro servicio                                       |
 
 ### `DELETE /api/conductor-portal/formularios/drafts/:clientSubmissionId`
 
@@ -753,17 +816,17 @@ Idempotente por `clientAttachmentId` solo si los metadatos coinciden.
 
 **Body** (`initAttachmentSchema`)
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `clientSubmissionId` | uuid | sí | Borrador propio, vivo y en `DRAFT` |
-| `clientAttachmentId` | uuid | sí | Clave de idempotencia; forma parte de la clave S3 |
-| `fieldId` | uuid | sí | Campo `PHOTO`, `FILE` o `SIGNATURE` de la versión del envío |
-| `occurrenceId` | uuid \| null | no | Fila de un repetible |
-| `kind` | `PHOTO`\|`FILE`\|`SIGNATURE` | sí | |
-| `mimeType` | string | sí | `PHOTO`: jpeg, png, webp; `SIGNATURE`: png, webp; `FILE`: pdf, jpeg, png, webp |
-| `byteSize` | entero > 0 | sí | Tope `PHOTO` 10 MB, `SIGNATURE` 2 MB, `FILE` 25 MB |
-| `sha256` | 64 hex minúsculas | sí | Se compara contra el objeto subido |
-| `originalName` | string ≤ 255 \| null | no | |
+| Campo                | Tipo                         | Obligatorio | Notas                                                                          |
+| -------------------- | ---------------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `clientSubmissionId` | uuid                         | sí          | Borrador propio, vivo y en `DRAFT`                                             |
+| `clientAttachmentId` | uuid                         | sí          | Clave de idempotencia; forma parte de la clave S3                              |
+| `fieldId`            | uuid                         | sí          | Campo `PHOTO`, `FILE` o `SIGNATURE` de la versión del envío                    |
+| `occurrenceId`       | uuid \| null                 | no          | Fila de un repetible                                                           |
+| `kind`               | `PHOTO`\|`FILE`\|`SIGNATURE` | sí          |                                                                                |
+| `mimeType`           | string                       | sí          | `PHOTO`: jpeg, png, webp; `SIGNATURE`: png, webp; `FILE`: pdf, jpeg, png, webp |
+| `byteSize`           | entero > 0                   | sí          | Tope `PHOTO` 10 MB, `SIGNATURE` 2 MB, `FILE` 25 MB                             |
+| `sha256`             | 64 hex minúsculas            | sí          | Se compara contra el objeto subido                                             |
+| `originalName`       | string ≤ 255 \| null         | no          |                                                                                |
 
 **Respuesta 200** — `data: { attachmentId, uploadUrl, alreadyUploaded,
 objectKey, checksumSha256 }`. Si el adjunto ya está `UPLOADED`, `uploadUrl` es
@@ -826,42 +889,51 @@ límite → fila). `bodyLimit` 4 MiB.
 
 **Body** (`enviarSubmissionSchema`)
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| `clientSubmissionId` | uuid | sí | Clave de idempotencia; si ya hay borrador en el servidor, lo convierte en envío |
-| `assignmentId` | uuid | sí | Accesible y vigente |
-| `versionId` | uuid | sí | Misma regla que el backup |
-| `answers` | arreglo ≤ 5000 | sí | Se validan tipo, obligatorios (los ocultos por regla no se exigen), rangos, opciones existentes, filas de repetibles |
-| `attachments` | arreglo ≤ 60 | no | `{ clientAttachmentId, fieldId, occurrenceId?, kind, mimeType, byteSize, sha256, originalName?, metadata? }`; todos `UPLOADED`, del actor y de este envío |
-| `context` | objeto | no | Tiene que traer las claves `required` de `contextSchema` |
-| `startedAt` | ISO datetime | no | Inicio en el dispositivo |
-| `completedAt` | ISO datetime | no | Se valida y no se usa |
-| `device` | objeto | no | `{ installationId?, appVersion?, offlineCreated?, platform? }`; va a `device_json` junto con la huella |
+| Campo                | Tipo           | Obligatorio | Notas                                                                                                                                                     |
+| -------------------- | -------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clientSubmissionId` | uuid           | sí          | Clave de idempotencia; si ya hay borrador en el servidor, lo convierte en envío                                                                           |
+| `assignmentId`       | uuid           | sí          | Accesible y vigente                                                                                                                                       |
+| `versionId`          | uuid           | sí          | Misma regla que el backup                                                                                                                                 |
+| `answers`            | arreglo ≤ 5000 | sí          | Se validan tipo, obligatorios (los ocultos por regla no se exigen), rangos, opciones existentes, filas de repetibles                                      |
+| `attachments`        | arreglo ≤ 60   | no          | `{ clientAttachmentId, fieldId, occurrenceId?, kind, mimeType, byteSize, sha256, originalName?, metadata? }`; todos `UPLOADED`, del actor y de este envío |
+| `context`            | objeto         | no          | Tiene que traer las claves `required` de `contextSchema`                                                                                                  |
+| `startedAt`          | ISO datetime   | no          | Inicio en el dispositivo                                                                                                                                  |
+| `completedAt`        | ISO datetime   | no          | Se valida y no se usa                                                                                                                                     |
+| `device`             | objeto         | no          | `{ installationId?, appVersion?, offlineCreated?, platform? }`; va a `device_json` junto con la huella                                                    |
 
 **Respuesta** — 201 si se guardó ahora, 200 si es un replay:
 
 ```json
-{ "success": true, "data": { "submissionId": "uuid", "clientSubmissionId": "uuid", "businessDate": "2026-10-11",
-  "periodKey": "2026-10-11", "submittedAt": "…", "idempotentReplay": false } }
+{
+  "success": true,
+  "data": {
+    "submissionId": "uuid",
+    "clientSubmissionId": "uuid",
+    "businessDate": "2026-10-11",
+    "periodKey": "2026-10-11",
+    "submittedAt": "…",
+    "idempotentReplay": false
+  }
+}
 ```
 
 **Errores**
 
-| Código | Cuándo |
-|---|---|
-| 403 `ASSIGNMENT_TARGET_DENIED` | Asignación no accesible |
-| 409 `ASSIGNMENT_NOT_AVAILABLE` | Fuera de vigencia |
-| 409 `VERSION_NOT_PUBLISHED` | Versión que ya no es la de la asignación |
-| 403 `FORBIDDEN` | El `clientSubmissionId` o un adjunto es de otro |
-| 409 `SUBMISSION_DISCARDED` | El borrador se descartó: no revive al entregarse |
-| 409 `IDEMPOTENCY_PAYLOAD_MISMATCH` | Mismo `clientSubmissionId`, contenido distinto |
-| 422 `ASSIGNMENT_CONTEXT_REQUIRED` | Falta contexto obligatorio (`details.missing`) |
-| 422 `FIELD_VALUE_INVALID` | Respuestas inválidas: `details.errors[]` con `{ fieldId, fieldKey, occurrenceId, code, message }` (`REQUIRED`, `TYPE`, `OPTION_UNKNOWN`, `MIN`, `MAX`, `PATTERN`, `MAX_FILES`, `FIELD_NOT_IN_VERSION`…) |
-| 422 `ATTACHMENT_MISSING` | Adjunto declarado sin registrar, de otro envío o no `UPLOADED`; o el borrador tiene adjuntos sin terminar |
-| 422 `ATTACHMENT_HASH_MISMATCH` | El hash declarado no es el registrado |
-| 422 `ATTACHMENT_NOT_DECLARED` | El borrador tiene adjuntos `UPLOADED` que el envío no declara: declararlos o borrarlos |
-| 409 `SUBMISSION_LIMIT_REACHED` | Límite de la política (`details: { existingSubmissionId, periodKey, vehicleId? }`); no se reintenta |
-| 422 / 409 | `SERVICE_CONTEXT_INVALID`, `VEHICULO_DISTINTO_DEL_SERVICIO`, `PREOPERACIONAL_EN_OTRO_SERVICIO`, como en el backup |
+| Código                             | Cuándo                                                                                                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 403 `ASSIGNMENT_TARGET_DENIED`     | Asignación no accesible                                                                                                                                                                                 |
+| 409 `ASSIGNMENT_NOT_AVAILABLE`     | Fuera de vigencia                                                                                                                                                                                       |
+| 409 `VERSION_NOT_PUBLISHED`        | Versión que ya no es la de la asignación                                                                                                                                                                |
+| 403 `FORBIDDEN`                    | El `clientSubmissionId` o un adjunto es de otro                                                                                                                                                         |
+| 409 `SUBMISSION_DISCARDED`         | El borrador se descartó: no revive al entregarse                                                                                                                                                        |
+| 409 `IDEMPOTENCY_PAYLOAD_MISMATCH` | Mismo `clientSubmissionId`, contenido distinto                                                                                                                                                          |
+| 422 `ASSIGNMENT_CONTEXT_REQUIRED`  | Falta contexto obligatorio (`details.missing`)                                                                                                                                                          |
+| 422 `FIELD_VALUE_INVALID`          | Respuestas inválidas: `details.errors[]` con `{ fieldId, fieldKey, occurrenceId, code, message }` (`REQUIRED`, `TYPE`, `OPTION_UNKNOWN`, `MIN`, `MAX`, `PATTERN`, `MAX_FILES`, `FIELD_NOT_IN_VERSION`…) |
+| 422 `ATTACHMENT_MISSING`           | Adjunto declarado sin registrar, de otro envío o no `UPLOADED`; o el borrador tiene adjuntos sin terminar                                                                                               |
+| 422 `ATTACHMENT_HASH_MISMATCH`     | El hash declarado no es el registrado                                                                                                                                                                   |
+| 422 `ATTACHMENT_NOT_DECLARED`      | El borrador tiene adjuntos `UPLOADED` que el envío no declara: declararlos o borrarlos                                                                                                                  |
+| 409 `SUBMISSION_LIMIT_REACHED`     | Límite de la política (`details: { existingSubmissionId, periodKey, vehicleId? }`); no se reintenta                                                                                                     |
+| 422 / 409                          | `SERVICE_CONTEXT_INVALID`, `VEHICULO_DISTINTO_DEL_SERVICIO`, `PREOPERACIONAL_EN_OTRO_SERVICIO`, como en el backup                                                                                       |
 
 ## Mis formularios
 

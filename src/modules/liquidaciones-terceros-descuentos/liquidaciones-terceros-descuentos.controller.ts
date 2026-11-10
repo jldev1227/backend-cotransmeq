@@ -5,7 +5,7 @@ import { LiquidacionesTercerosDescuentosService } from './liquidaciones-terceros
 import { PeriodoCierresService } from './periodo-cierres.service';
 import { CierreEstadoService, ErrorEstado } from './cierre-estado.service';
 import { emitSheetColorChanged, emitSheetInvalidate, emitSheetRemoved } from '../../sockets/sheet.gateway';
-import { CierreFinalCeldasService } from './cierre-final-celdas.service';
+import { CierreFinalCeldasService, ConflictoVersionConcepto } from './cierre-final-celdas.service';
 import { ErrorTraslado, TrasladoItemsService } from './traslado-items.service';
 import { borradorQueueService } from '../../queue/borrador-queue.service';
 import { bulkSaveLiquidacionTerceroService } from '../../queue/bulk-save-liquidacion-tercero.service';
@@ -472,6 +472,36 @@ export class LiquidacionesTercerosDescuentosController {
     }
   }
 
+  static async guardarNovedadesConductores(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as any;
+      const { novedades_conductores } = (request.body as any) || {};
+      if (!novedades_conductores || typeof novedades_conductores !== 'object' || Array.isArray(novedades_conductores)) {
+        return reply.status(400).send({ error: 'novedades_conductores debe ser un mapa por conductor' });
+      }
+
+      const result = await LiquidacionesTercerosDescuentosService.guardarNovedadesConductores(
+        id,
+        novedades_conductores,
+      );
+      emitSheetInvalidate({
+        scope: 'cierres-finales',
+        anio: result.anio,
+        mes: result.mes,
+        cierreId: id,
+        accion: 'novedades-conductores',
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      const msg = String(error?.message || 'Error al guardar novedades');
+      const status = /no encontrado/i.test(msg) ? 404
+		: /estado|cambió/i.test(msg) ? 409
+			: /inválid|requiere|fecha|días|dias|pertenece|indica/i.test(msg) ? 400
+				: 500;
+      return reply.status(status).send({ error: msg });
+    }
+  }
+
   // ── FILAS DE GASTOS Y ANTICIPOS ──
 
   static async agregarConcepto(request: FastifyRequest, reply: FastifyReply) {
@@ -538,6 +568,44 @@ export class LiquidacionesTercerosDescuentosController {
     } catch (error: any) {
       const msg = String(error?.message || '');
       const status = /estado|no encontrado|no se puede/i.test(msg) ? 409 : 500;
+      return reply.status(status).send({ error: msg });
+    }
+  }
+
+  static async actualizarConceptoFila(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { conceptoId } = request.params as any;
+      const { field, value, base_version } = (request.body as any) || {};
+      if (typeof field !== 'string' || !Number.isInteger(base_version)) {
+        return reply.status(400).send({ error: 'field y base_version entero son obligatorios' });
+      }
+
+      const result = await CierreFinalCeldasService.actualizarFilaGastoAnticipo({
+        id: conceptoId,
+        field,
+        value,
+        base_version,
+        user_id: (request as any).user?.id,
+      });
+      emitSheetInvalidate({
+        scope: 'cierres-finales',
+        anio: result.anio,
+        mes: result.mes,
+        cierreId: result.cierreId,
+        accion: 'concepto-editado',
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      if (error instanceof ConflictoVersionConcepto) {
+        return reply.status(409).send({
+          error: error.message,
+          code: error.code,
+          entity_id: error.entityId,
+          server_row: error.serverRow,
+        });
+      }
+      const msg = String(error?.message || 'Error al editar concepto');
+      const status = /estado|no encontrado|vacío|ya está|editable|número/i.test(msg) ? 409 : 500;
       return reply.status(status).send({ error: msg });
     }
   }

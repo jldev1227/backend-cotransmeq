@@ -169,8 +169,11 @@ export const NominaAnalisisService = {
   async consultar(f: FiltrosAnalisisNomina): Promise<ResultadoAnalisisNomina> {
     const where: any = { deleted_at: null };
     if (f.anios.length) {
-      const periodos: any[] = f.anios.map((a) => ({ periodo_end: { startsWith: `${a}-` } }));
+      const periodos: any[] = [];
       const mesesDeReferencia = f.meses.length ? f.meses : Array.from({ length: 12 }, (_, i) => i + 1);
+      // La ventana mensual ya cubre los ciclos que terminan en el año y los
+      // que lo cruzan. Un OR adicional por año incluiría todos los meses si
+      // el usuario pidió, por ejemplo, únicamente agosto.
       for (const anio of f.anios) {
         for (const mes of mesesDeReferencia) {
           const inicio = `${anio}-${String(mes).padStart(2, '0')}-01`;

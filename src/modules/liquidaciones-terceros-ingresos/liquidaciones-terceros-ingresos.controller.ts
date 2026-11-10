@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from "fastify";
+import { IngresosSnapshotsService } from './ingresos-snapshots.service';
 import { z } from "zod";
 import {
   LiquidacionesTercerosIngresosService,
@@ -71,6 +72,11 @@ export class LiquidacionesTercerosIngresosController {
         ...body,
         user_id,
       });
+      try {
+        await IngresosSnapshotsService.capturar(body.anio, body.mes, user_id ?? null);
+      } catch (snapshotError) {
+        console.warn('[ingresos-snapshots] no se pudo capturar después de guardar', snapshotError);
+      }
       return reply.send(r);
     } catch (error: any) {
       return responderError(reply, "guardarBorrador", error);

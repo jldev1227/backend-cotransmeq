@@ -31,6 +31,13 @@ import {
   liberarServicio,
   obtenerEjecucion
 } from './ejecucion-servicio.service'
+import {
+  detenerRastreoServicio,
+  guardarPuntosRastreo,
+  iniciarRastreoServicio,
+  obtenerRastreoServicio,
+  RastreoServicioError
+} from './rastreo-servicio.service'
 import { env } from '../../config/env'
 import { getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 import { EmailService } from '../../services/email.service'
@@ -44,6 +51,7 @@ import { resultadoDePagina } from '../../services/pdf.service'
 import { origenDelPortal } from '../formularios-dinamicos/formularios-documento-pdf.service'
 import { DiasLaboradosService } from '../dias-laborados/dias-laborados.service'
 import { crearRegistroSchema } from '../dias-laborados/dias-laborados.schema'
+import { fechaHoyColombia, fechaValida, leerInicioCorte, pendientesDelCorte } from '../dias-laborados/corte-diligenciamiento.service'
 import {
   DiasAdjuntosError,
   completarAdjuntoDia,
@@ -59,6 +67,12 @@ import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { avisarDiaLaborado } from '../avisos-equipo/avisos-equipo.service'
 import { emitNotificacion } from '../../sockets'
 import { emitSheetInvalidate } from '../../sockets/sheet.gateway'
+import {
+  actualizarOcurrencia as actualizarOcurrenciaPlan,
+  evidenciaConductorPermitida,
+  listarActividadesConductor,
+  subirEvidencia
+} from '../plan-trabajo/plan-trabajo.service'
 
 /**
  * `tipo` exclusivo del token con el que Puppeteer abre la página que genera el
@@ -1642,6 +1656,19 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       }
     })
 
+    // El portal consulta este mismo corte antes de abrir un día; el POST vuelve
+    // a comprobarlo para impedir saltos entre dispositivos o llamadas directas.
+    protectedApp.get('/conductor-portal/dias-laborados/corte', async (request: FastifyRequest, reply: FastifyReply) => {
+      const conductor = (request as any).conductorPortal
+      const fecha = (request.query as { fecha?: string } | undefined)?.fecha ?? fechaHoyColombia()
+      if (!fechaValida(fecha) || fecha > fechaHoyColombia()) {
+        return reply.status(400).send({ success: false, message: 'Fecha inválida para consultar el corte' })
+      }
+      const diaInicio = await leerInicioCorte()
+      const resumen = await pendientesDelCorte(conductor.id, fecha, diaInicio)
+      return reply.send({ success: true, data: { diaInicio, fecha, ...resumen } })
+    })
+
     // ─── Registros de días laborados (reutilizar lógica existente) ───
     protectedApp.get('/conductor-portal/dias-laborados/registros', {
       schema: {
@@ -1786,12 +1813,12 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
           })
         }
         const data = parseado.data
-        const fechaDate = new Date(data.fecha + 'T00:00:00.000Z')
+        if (!fechaValida(data.fecha)) {
+          return reply.status(400).send({ success: false, message: 'Fecha inválida' })
+        }
 
         // No permitir fechas futuras
-        const hoy = new Date()
-        hoy.setHours(0, 0, 0, 0)
-        if (fechaDate > hoy) {
+        if (data.fecha > fechaHoyColombia()) {
           return reply.status(400).send({ success: false, message: 'No puedes registrar días futuros' })
         }
 
@@ -1800,8 +1827,20 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         /// Solo el primer registro del día avisa al equipo: corregirlo después no es noticia.
         const yaExistia = await prisma.registro_dia_laboral.findUnique({
           where: { conductor_id_fecha: { conductor_id: conductor.id, fecha: new Date(`${data.fecha}T00:00:00.000Z`) } },
-          select: { id: true },
+          select: { id: true, deleted_at: true },
         })
+        if (!yaExistia || yaExistia.deleted_at) {
+          const diaInicio = await leerInicioCorte()
+          const { pendientes } = await pendientesDelCorte(conductor.id, data.fecha, diaInicio)
+          const primero = pendientes[0]
+          if (primero && primero < data.fecha) {
+            return reply.status(409).send({
+              success: false,
+              message: `Primero diligencia el ${primero}. Hay días faltantes en este corte de nómina.`,
+              primerPendiente: primero
+            })
+          }
+        }
         const guardado = await DiasLaboradosService.upsertRegistro(conductor.id, data)
         if (!yaExistia) void avisarDiaLaborado(conductor.id, data.fecha, data.tipo)
         const registro = guardado ? (await conAdjuntos([guardado]))[0] : guardado
@@ -2021,6 +2060,69 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
      * completo sería pagar una consulta creciente para mostrar, casi siempre,
      * cero avisos.
      */
+    protectedApp.get('/conductor-portal/mis-actividades', {
+      schema: { description: 'Actividades HSEQ/PESV asignadas al conductor autenticado', tags: ['conductor-portal'] }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        return reply.send({ success: true, data: await listarActividadesConductor(conductor.id) })
+      } catch (error: any) {
+        return reply.status(error.statusCode || 500).send({ success: false, message: error.message || 'No se pudieron consultar las actividades.' })
+      }
+    })
+
+    protectedApp.post('/conductor-portal/mis-actividades/:id/completar', {
+      schema: { description: 'Completar una actividad asignada al conductor', tags: ['conductor-portal'] }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const asignacion = await prisma.plan_trabajo_asignacion.findFirst({
+          where: { ocurrencia_id: request.params.id, destinatario_tipo: 'CONDUCTOR', destinatario_id: conductor.id },
+          select: { id: true }
+        })
+        if (!asignacion) return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
+        const data = await actualizarOcurrenciaPlan({ id: request.params.id, estado: 'COMPLETADA', actorTipo: 'CONDUCTOR', actorId: conductor.id })
+        return reply.send({ success: true, data })
+      } catch (error: any) {
+        return reply.status(error.statusCode || 500).send({ success: false, message: error.message || 'No se pudo completar la actividad.' })
+      }
+    })
+
+    protectedApp.post('/conductor-portal/mis-actividades/:id/evidencias', {
+      schema: { description: 'Adjuntar soporte a una actividad del conductor', tags: ['conductor-portal'] }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const asignacion = await prisma.plan_trabajo_asignacion.findFirst({
+          where: { ocurrencia_id: request.params.id, destinatario_tipo: 'CONDUCTOR', destinatario_id: conductor.id },
+          select: { id: true }
+        })
+        if (!asignacion) return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
+        const archivo = await request.file({ limits: { files: 1, fileSize: 8 * 1024 * 1024 } })
+        if (!archivo) return reply.status(400).send({ success: false, message: 'Adjunta una imagen o documento.' })
+        const data = await subirEvidencia({
+          objetivoTipo: 'OCURRENCIA', objetivoId: request.params.id, actorTipo: 'CONDUCTOR', actorId: conductor.id,
+          nombre: archivo.filename, mime: archivo.mimetype, buffer: await archivo.toBuffer()
+        })
+        return reply.status(201).send({ success: true, data })
+      } catch (error: any) {
+        return reply.status(error.statusCode || 500).send({ success: false, message: error.message || 'No se pudo guardar el soporte.' })
+      }
+    })
+
+    protectedApp.get('/conductor-portal/mis-actividades/evidencias/:evidenciaId/url', {
+      schema: { description: 'Obtener acceso temporal a un soporte propio', tags: ['conductor-portal'] }
+    }, async (request: FastifyRequest<{ Params: { evidenciaId: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await evidenciaConductorPermitida(request.params.evidenciaId, conductor.id)
+        if (!data) return reply.status(404).send({ success: false, message: 'No se encontró el soporte asignado.' })
+        return reply.send({ success: true, data })
+      } catch (error: any) {
+        return reply.status(500).send({ success: false, message: error.message || 'No se pudo abrir el soporte.' })
+      }
+    })
+
     protectedApp.get('/conductor-portal/notificaciones', {
       schema: {
         description: 'Avisos pendientes de leer del conductor',
@@ -2463,6 +2565,96 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
       request.log.error({ error: err }, mensaje)
       return reply.status(500).send({ success: false, message: mensaje })
     }
+
+    const errorRastreo = (request: FastifyRequest, reply: FastifyReply, err: any, mensaje: string) => {
+      if (err instanceof RastreoServicioError) {
+        return reply.status(err.status).send({
+          success: false,
+          message: err.message,
+          ...(err.code ? { code: err.code } : {})
+        })
+      }
+      request.log.error({ error: err }, mensaje)
+      return reply.status(500).send({ success: false, message: mensaje })
+    }
+
+    // ─── Rastreo GPS consentido del servicio (aislado de Wialon) ───
+    protectedApp.get('/conductor-portal/servicios/:id/rastreo', {
+      schema: {
+        description: 'Consultar sesiones y puntos GPS del servicio asignado al conductor',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const asignado = await prisma.servicio.findFirst({
+          where: { id: request.params.id, conductor_id: conductor.id, deleted_at: null },
+          select: { id: true }
+        })
+        if (!asignado) throw new RastreoServicioError('Servicio no encontrado', 404)
+        const data = await obtenerRastreoServicio(request.params.id)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorRastreo(request, reply, err, 'No fue posible consultar el rastreo del servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/rastreo/sesiones', {
+      schema: {
+        description: 'Registrar consentimiento e iniciar una sesión GPS para el servicio activo',
+        tags: ['conductor-portal'],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await iniciarRastreoServicio(request.params.id, conductor.id, request.body)
+        return reply.status(201).send({ success: true, data })
+      } catch (err: any) {
+        return errorRastreo(request, reply, err, 'No fue posible iniciar el rastreo del servicio')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/puntos', {
+      schema: {
+        description: 'Sincronizar hasta 100 puntos GPS capturados durante la sesión',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id', 'sessionId'],
+          properties: { id: { type: 'string', format: 'uuid' }, sessionId: { type: 'string', format: 'uuid' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string; sessionId: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await guardarPuntosRastreo(request.params.id, conductor.id, request.params.sessionId, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorRastreo(request, reply, err, 'No fue posible sincronizar los puntos GPS')
+      }
+    })
+
+    protectedApp.post('/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/detener', {
+      schema: {
+        description: 'Detener explícitamente una sesión de rastreo consentida',
+        tags: ['conductor-portal'],
+        params: {
+          type: 'object',
+          required: ['id', 'sessionId'],
+          properties: { id: { type: 'string', format: 'uuid' }, sessionId: { type: 'string', format: 'uuid' } }
+        }
+      }
+    }, async (request: FastifyRequest<{ Params: { id: string; sessionId: string } }>, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const data = await detenerRastreoServicio(request.params.id, conductor.id, request.params.sessionId, request.body)
+        return reply.send({ success: true, data })
+      } catch (err: any) {
+        return errorRastreo(request, reply, err, 'No fue posible detener el rastreo del servicio')
+      }
+    })
 
     protectedApp.get('/conductor-portal/servicios/:id/ejecucion', {
       schema: {

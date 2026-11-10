@@ -121,6 +121,14 @@ query en los `GET`, en el body en el resto.
 Errores de periodo: 400 `{ "error": "Periodo inválido (anio/mes)." }` (o el
 mensaje de rango, año, mes o corte en `GET /canvas`).
 
+### Configuración del corte para días laborados
+
+`GET /api/nomina/canvas/corte-diligenciamiento` devuelve `{ diaInicio }`.
+`PUT /api/nomina/canvas/corte-diligenciamiento`, con `{ diaInicio: 1..28 }`, fija el corte que el portal
+exige completar en orden. Requiere permiso de escritura de nómina. Se guarda en
+`configuracion_empresa`; el valor inicial es 21. Cambiar el selector de un libro
+histórico no modifica esta configuración hasta pulsar «Fijar en el portal».
+
 ### `GET /api/nomina/canvas`
 
 Query: los de periodo y `conductores` (ids separados por coma).
@@ -201,11 +209,18 @@ ni ítems de liquidaciones de servicios.
 `meta.recargos_jornada_grupos` cuenta las planillas con detalles activos de
 recargo que pasan los filtros, aunque no tengan liquidación de nómina.
 
+`recargos_nomina` conserva el detalle del análisis de nómina y su bandera
+`paga_cliente` refleja `clientes.paga_recargos`; el cierre de terceros no suma
+los recargos de empresas con esa bandera en `true`.
+
 `anio` y `mes` de cada fila identifican el periodo de nómina (el mes en que
 termina el corte). Los arreglos de origen `bonificaciones_recorridos` y
 `recargos_planillas` se filtran por mes calendario sin repartirlos entre cortes.
 Las pestañas de pernoctes y mantenimientos siguen los meses/fechas guardados en
 sus conceptos.
+Cuando se envían año y mes juntos, el análisis consulta solo los ciclos que se
+cruzan con ese mes calendario; seleccionar un mes ya no incluye los demás meses
+del mismo año.
 El filtro por placa consulta tanto las placas vinculadas al corte como las
 placas de los vehículos asociados directamente a sus conceptos, para incluir
 detalles aunque falte la relación del corte en `liquidacion_vehiculo`.
@@ -461,7 +476,8 @@ anticipos, salud, pensión, neto, ajustes PAREX y GEOPARK, nivelación,
 incapacidad, intereses de cesantías y disponibilidad) y les sube la versión.
 Omite las hojas en APROBADA, PAGADA, FIRMADA o ANULADA y las liquidaciones que ya
 no existen. Al final captura un snapshot con `origen: 'revert'`, para que la
-reversión también se pueda deshacer.
+reversión también se pueda deshacer. Body opcional `{ "conductorId": "…" }`
+limita la restauración a ese conductor; sin ese campo restaura el periodo.
 Respuesta `{ "restauradas": 20, "omitidas": [ { "conductorId", "nombre", "estado" } ], "nuevoSnapshot": { "id", "version" } }`.
 **Errores:** 500 `No se pudo restaurar la versión.`, también si el snapshot no existe.
 

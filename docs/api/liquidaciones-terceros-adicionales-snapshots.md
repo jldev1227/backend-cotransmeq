@@ -11,7 +11,8 @@ identidad es `(anio, mes, version)` y el `payload` guarda cada fila viva con su
 La versión se reserva bajo advisory lock; una captura `auto` idéntica a la
 anterior no se inserta.
 
-Revertir marca las filas vivas de todos los cierres **editables** del periodo,
+Revertir marca las filas vivas de los cierres **editables** del periodo (o de
+una placa si se envía `{"placa":"FST006"}`),
 reinserta las del snapshot y recalcula `valor_liquidar` y `total_pagar` de
 esos cierres. Los cierres APROBADA, PAGADA, FACTURADA o ANULADA se saltan y se
 devuelven en `cierres_omitidos`: revertir no puede ser una vía indirecta para
@@ -65,7 +66,8 @@ contra la versión inmediatamente anterior del mismo periodo. Responde
 
 ### `POST /api/liquidaciones-terceros-adicionales/snapshots/:id/revertir`
 
-Sin body. Responde el snapshot `revert` recién creado más
+Body opcional `{ "placa": "FST006" }` para restaurar solo esa placa; sin body
+restaura todas las placas. Responde el snapshot `revert` recién creado más
 `{ restauradas, cierres_afectados, cierres_omitidos: [{ id, consecutivo, estado }] }`.
 401 sin usuario en el token; 404 si el snapshot no existe; 500 el resto.
 

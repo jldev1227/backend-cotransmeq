@@ -185,6 +185,7 @@ actualicen. Cada módulo los lista en «Efectos»; el catálogo completo está e
 | [liquidaciones-terceros-adicionales-snapshots](./liquidaciones-terceros-adicionales-snapshots.md) | Versiones de adicionales |
 | [liquidaciones-chat](./liquidaciones-chat.md) | Chat de una liquidación |
 | [canvas-anotaciones](./canvas-anotaciones.md) | Anotaciones de los canvas |
+| [canvas-cambios](./canvas-cambios.md) | Trazabilidad de ediciones confirmadas de celdas |
 | [pdf](./pdf.md) | Exportación a PDF de los canvas |
 
 ### Formularios y HSEQ
@@ -199,6 +200,7 @@ actualicen. Cada módulo los lista en «Efectos»; el catálogo completo está e
 | [evaluaciones](./evaluaciones.md) | Evaluaciones |
 | [inducciones](./inducciones.md) | Inducciones y registro de visitantes |
 | [acciones-correctivas](./acciones-correctivas.md) | Acciones correctivas y preventivas |
+| [plan-trabajo](./plan-trabajo.md) | Plan anual HSEQ/PESV, responsables, ocurrencias, evidencias e indicadores |
 | [salidas-nc](./salidas-nc.md) | Salidas no conformes |
 | [incidentes](./incidentes.md) | Accidentes e incidentes |
 

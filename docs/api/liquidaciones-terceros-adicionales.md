@@ -99,8 +99,9 @@ misma transacción.
 | `base_version` | entero ≥ 1 | Obligatorio: sin él no habría compare-and-swap |
 
 El `UPDATE` exige `version = base_version` e incrementa la versión; al cambiar
-un importe se rederivan `valor_admin` y `valor_liquidar`. Recalcula los totales
-del cierre. Responde la fila actualizada.
+un importe se rederivan `valor_admin` y `valor_liquidar`. Recalcula los
+impuestos y totales del cierre y avisa al canvas de cierres para que refresque
+los valores derivados. Responde la fila actualizada.
 
 | Código | Cuándo | Cuerpo |
 |---|---|---|

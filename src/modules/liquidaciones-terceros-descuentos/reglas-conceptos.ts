@@ -464,6 +464,9 @@ export function aplicarCampo(
 
     case 'concepto':
       c.concepto = String(value ?? '');
+      // Renombrar un gasto calculado es una decisión manual; si conservara
+      // `calculado`, la cascada lo volvería a tratar como gasto automático.
+      if (c.tipo === 'GASTO_OPERATIVO') c.calculado = false;
       break;
 
     case 'observaciones':

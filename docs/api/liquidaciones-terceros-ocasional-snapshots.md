@@ -77,7 +77,10 @@ alguno no existe.
 
 ### `POST /api/liquidaciones-terceros-ocasional/:id/snapshots/:snapshotId/revertir`
 
-Sin body. Responde el snapshot `revert` recién creado (fila + `payload`,
+Body opcional `{ "placa": "FST006" }` restaura ítems, adicionales y conceptos
+asociados a esa placa, recalcula los totales y conserva las otras placas y los
+campos compartidos. Sin body restaura la cabecera completa. Responde el snapshot
+`revert` recién creado (fila + `payload`,
 `diff`, `omitido`) más `estado_conservado` (el de la cabecera, que no cambió)
 y `estado_del_snapshot` (el que guardaba la versión restaurada).
 

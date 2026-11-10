@@ -172,6 +172,7 @@ export class NominaSnapshotsController {
       const resultado = await NominaSnapshotsService.revertir({
         snapshotId: id,
         usuarioId: actorDe(request).id,
+        conductorId: (request.body as any)?.conductorId ?? null,
       });
       return reply.send(resultado);
     } catch (error) {

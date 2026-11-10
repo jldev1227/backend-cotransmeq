@@ -57,7 +57,8 @@ export class LiquidacionesTercerosOcasionalSnapshotsController {
       const result = await LiquidacionesTercerosOcasionalSnapshotsService.revertir(
         id,
         snapshotId,
-        userId
+        userId,
+        (request.body as any)?.placa ?? null
       );
       return reply.send(result);
     } catch (error: any) {
