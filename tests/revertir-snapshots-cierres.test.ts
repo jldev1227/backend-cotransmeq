@@ -175,17 +175,27 @@ describe('Revertir snapshot de cierre final', () => {
 describe('Revertir snapshot de liquidación ocasional', () => {
   it('restaura los datos pero conserva el estado actual', async () => {
     const { id } = await crearOcasional('APROBADA', 100)
+    /// El total es derivado: necesita una fila que explique los $100 del snapshot.
+    const adicional = await prisma.liquidacion_tercero_ocasional_adicional.create({
+      data: { liquidacion_ocasional_id: id, placa: 'ZZR999', valor_liquidar: 100 },
+    })
     const snap = await LiquidacionesTercerosOcasionalSnapshotsService.capturar(id, {
       origen: 'manual',
       usuarioId: esc.adminId,
     })
     await prisma.liquidacion_tercero_ocasional.update({ where: { id }, data: { estado: 'LIQUIDADA', total_pagar: 250 } })
+    await prisma.liquidacion_tercero_ocasional_adicional.update({
+      where: { id: adicional.id },
+      data: { valor_liquidar: 250 },
+    })
 
     const r = await LiquidacionesTercerosOcasionalSnapshotsService.revertir(id, snap.id, esc.creadorId)
 
     const fila = await prisma.liquidacion_tercero_ocasional.findUnique({ where: { id } })
+    const adicionalRestaurado = await prisma.liquidacion_tercero_ocasional_adicional.findUnique({ where: { id: adicional.id } })
     expect(fila?.estado).toBe('LIQUIDADA')
     expect(Number(fila?.total_pagar)).toBe(100)
+    expect(Number(adicionalRestaurado?.valor_liquidar)).toBe(100)
     expect(r).toMatchObject({ estado_conservado: 'LIQUIDADA', estado_del_snapshot: 'APROBADA' })
   })
 
