@@ -6,9 +6,9 @@
  *
  * Decisiones de transcripción:
  *
- *  - El extintor se identifica con su NÚMERO y su ubicación, no con la placa: la
- *    misma placa puede llevar dos extintores y hay extintores de sede. El
- *    `ubicacionOVehiculo()` cubre los dos casos.
+ *  - El extintor se identifica con su NÚMERO y con la sede o vehículo donde está:
+ *    una placa puede llevar dos extintores. `ubicacionOVehiculo()` pregunta por
+ *    la sede o selecciona la placa del catálogo.
  *  - La `Fecha Vencimiento de carga` es un `DATE` y no texto: es lo que permite
  *    después listar extintores por vencer, que es la razón de recoger el dato.
  *  - La hoja «Hoja1» del libro es una lista de apoyo (los mismos elementos en
