@@ -313,6 +313,10 @@ fallo (ver Observaciones).
 - Los otros cuatro: lo genera en el momento con el generador HTML (Chromium) a
   partir de las respuestas, `SARLAFT_<radicado>.pdf`.
 
+En el PDF genérico, los campos declarados como fecha (o cuya etiqueta contiene
+«fecha») se imprimen como `DD/MM/AAAA` y se excluyen de la heurística monetaria,
+aunque su etiqueta incluya «ingreso».
+
 `application/pdf` con `Content-Disposition: attachment`. 404 si el radicado no
 existe, su código no tiene definición o (`GC-FOR-13`) no hay versión archivada.
 

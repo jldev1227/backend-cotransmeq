@@ -164,6 +164,9 @@ function fmtCOP(v: any): string {
 function esCampoMonetario(preguntaTxt: string, preguntaId: string): boolean {
   const t = (preguntaTxt || '').toLowerCase()
   const id = (preguntaId || '').toLowerCase()
+  // "Ingreso" también aparece en campos de fecha laboral; no se debe
+  // confundir una fecha con el bloque de ingresos financieros.
+  if (/\bfecha\b/.test(t)) return false
   // Excluir explícitamente campos de identificación / número de cuenta.
   // Aunque la pregunta diga "valor" o contenga "cta-", el número de cuenta
   // bancaria NO es dinero y no debe formatearse como COP.
@@ -339,8 +342,9 @@ function renderPregunta(pregunta: PreguntaLite, valor: any): string {
   }
 
   // Detectar valor monetario → formatear como COP
-  const monetario = esCampoMonetario(preguntaTxt, id)
-  const valorFmt = fmtValor(valor, { monetario })
+  const esFecha = pregunta.tipo_respuesta === 'fecha' || /\bfecha\b/i.test(pregunta.pregunta)
+  const monetario = !esFecha && esCampoMonetario(preguntaTxt, id)
+  const valorFmt = esFecha ? fmtFechaCorta(valor) : fmtValor(valor, { monetario })
   const valorClass = monetario ? 'field-value field-value--money' : 'field-value'
 
   // Si el valor es un texto largo (>120 chars), expandir a 2 columnas
