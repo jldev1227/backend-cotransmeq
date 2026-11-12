@@ -160,8 +160,7 @@ function buscarLookupVehiculo(version: FormVersionDto): FormFieldDto | null {
     for (const field of fields) {
       if (
         field.type === 'LOOKUP' &&
-        field.config.source === 'VEHICLE' &&
-        field.config.bindContext === 'vehicleId'
+        field.config.source === 'VEHICLE'
       ) return field
       const hijo = visitar(field.children ?? [])
       if (hijo) return hijo
