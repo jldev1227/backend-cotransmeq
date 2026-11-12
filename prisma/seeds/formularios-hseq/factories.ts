@@ -147,6 +147,20 @@ export function multiple(
 	}
 }
 
+export function lookup(
+	key: string,
+	label: string,
+	source: 'CONDUCTOR' | 'VEHICLE' | 'SERVICE',
+	o: Partial<Campo> = {}
+): Campo {
+	return {
+		...base(key, label),
+		...o,
+		type: 'LOOKUP',
+		config: { source, ...(o.config ?? {}) }
+	}
+}
+
 export function foto(key: string, label: string, maxFiles = 6, o: Partial<Campo> = {}): Campo {
 	return { ...base(key, label), type: 'PHOTO', validation: { maxFiles }, ...o }
 }
@@ -422,8 +436,8 @@ export function contextoVehiculo(config: { conKilometraje?: boolean } = {}): Cam
 /**
  * Alternativa cuando el original pide lugar O placa (equipos fijos y móviles).
  *
- * Solo distingue vehículo de sede y captura la sede. La placa, cuando aplica,
- * sale del contexto del envío; ver `contextoVehiculo`.
+ * Distingue vehículo de sede: la rama de vehículo exige una referencia
+ * seleccionable del catálogo y la de sede captura texto libre.
  */
 export function ubicacionOVehiculo(): Campo[] {
 	return [
@@ -431,6 +445,17 @@ export function ubicacionOVehiculo(): Campo[] {
 			{ value: 'VEHICULO', label: 'Un vehículo' },
 			{ value: 'SEDE', label: 'Una sede o instalación' }
 		], { required: true }),
+		lookup('vehiculo', 'Placa del vehículo', 'VEHICLE', {
+			helpText: 'Busca y selecciona la placa del vehículo inspeccionado.',
+			placeholder: 'Buscar placa…',
+			required: true,
+			config: { bindContext: 'vehicleId' },
+			visibilityRule: {
+				version: 1,
+				all: [{ fieldKey: 'ubicacion_tipo', operator: 'equals', value: 'VEHICULO' }],
+				effect: { action: 'show', targetFieldKey: 'vehiculo' }
+			} satisfies Rule
+		}),
 		texto('ubicacion_sede', 'Sede o lugar de ubicación', {
 			validation: { maxLength: 150 },
 			visibilityRule: {

@@ -55,7 +55,7 @@ export const hseqFr17: SeedDefinition = {
 		limitPolicy: 'ONE_PER_CONTEXT',
 		context: { vehicleId: { required: false } },
 		rationale:
-			'Mensual por vehículo o sede. El vehículo NO se marca requerido porque hay camillas de instalación fija; el propio formulario pregunta si está en vehículo o en sede.'
+			'Mensual por vehículo o sede. La placa se pide en la rama de vehículo y el campo de sede en la rama de instalación fija; ninguna asignación debe exigir vehículo para todos los envíos.'
 	},
 
 	source: {
@@ -70,7 +70,7 @@ export const hseqFr17: SeedDefinition = {
 
 	warnings: [
 		'El original imprime diez renglones de elementos pero solo ocho tienen texto. Las filas 9 y 10 no se transcribieron como campos: los hallazgos adicionales van al grupo repetible.',
-		'`ONE_PER_CONTEXT` con vehículo opcional no restringe realmente: si HSEQ quiere un envío por camilla y mes, hace falta marcar el vehículo como requerido o añadir un identificador de activo.'
+		'`ONE_PER_CONTEXT` distingue los vehículos elegidos, pero las camillas de sede comparten el contexto nulo y su límite mensual. Para limitar una por camilla o sede hace falta un identificador de activo o una asignación separada.'
 	],
 
 	version: {

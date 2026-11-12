@@ -704,6 +704,12 @@ cerrada o versión no publicada: el 403 es a propósito, para distinguir un
 target mal configurado); 409 `ASSIGNMENT_NOT_AVAILABLE` fuera de vigencia; 404
 `VERSION_NOT_FOUND`.
 
+En el portal, cada campo `LOOKUP` con `config.source: "VEHICLE"` muestra un
+buscador del catálogo de placas. Al elegir una, su respuesta también determina
+`context.vehicleId` y `context.vehiclePlate`; no depende de que la definición
+incluya `config.bindContext`, porque el builder genera la fuente `VEHICLE` sin
+esa propiedad.
+
 ### `GET /api/conductor-portal/formularios/submissions`
 
 **Query** (`listarEnviosPortalSchema`)

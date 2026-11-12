@@ -6,20 +6,20 @@ Todas quedan en DRAFT. Ninguna crea asignaciones ni se publica.
 
 RESUMEN
   CÓDIGO        SEC  CAMPOS  RESP  OBLIG  OPC  REGLAS  GRUPOS  ADJ  ESTADO
-  HSEQ-FR-22      5      53    51     22   35      23       1    2  OK
+  HSEQ-FR-22      5      54    52     23   35      24       1    2  OK
   HSEQ-FR-08     18     240   238    122  334     212       0    2  OK
   HSEQ-FR-09     19     274   272    139  385     246       0    2  OK
-  HSEQ-FR-04      6      53    51     31   50      29       1    2  OK
-  HSEQ-FR-05      6     148   146     75  101      67       1    2  OK
+  HSEQ-FR-04      6      54    52     32   50      30       1    2  OK
+  HSEQ-FR-05      6     149   147     76  101      68       1    2  OK
   HSEQ-FR-07      6      23    21     10   11       4       0    2  OK
-  HSEQ-FR-17      5      34    32     20   26      17       1    2  OK
+  HSEQ-FR-17      5      35    33     21   26      18       1    2  OK
   HSEQ-FR-21      5      42    40     23   24      24       1    2  OK
   HSEQ-FR-33      7      18    17     10   66       4       0    2  OK
   HSEQ-FR-40      5      38    36     21   30      20       1    2  OK
   HSEQ-FR-42      7      27    25     10   20       2       0    2  OK
   HSEQ-FR-43      9      75    73     40   87      58       1    2  OK
   HSEQ-FR-56     17     230   225     81  303     196       2    3  OK
-  TOTAL          115    1255                    1472     902
+  TOTAL          115    1259                    1472     906
 
 ──────────────────────────────────────────────────────────────────────────────
 HSEQ-FR-22 — Inspección kit de derrames
@@ -94,7 +94,7 @@ HSEQ-FR-17 — Inspección férula espinal larga (FEL) / camilla
   id versión    : 3bf41a15-6319-5dc6-b496-3e0d2fe2337e
   NOTAS DE TRANSCRIPCIÓN (revisar con HSEQ):
     • El original imprime diez renglones de elementos pero solo ocho tienen texto. Las filas 9 y 10 no se transcribieron como campos: los hallazgos adicionales van al grupo repetible.
-    • `ONE_PER_CONTEXT` con vehículo opcional no restringe realmente: si HSEQ quiere un envío por camilla y mes, hace falta marcar el vehículo como requerido o añadir un identificador de activo.
+    • `ONE_PER_CONTEXT` distingue los vehículos elegidos, pero las camillas de sede comparten el contexto nulo y su límite mensual. Para limitar una por camilla o sede hace falta un identificador de activo o una asignación separada.
 
 ──────────────────────────────────────────────────────────────────────────────
 HSEQ-FR-21 — Inspección de productos químicos

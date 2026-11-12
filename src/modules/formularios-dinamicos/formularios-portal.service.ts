@@ -57,7 +57,13 @@ import {
   type FormActor,
   type SubmissionInput,
 } from './domain'
-import { toSubmissionDetailDto, toSubmissionSummaryDto, toVersionDto } from './formularios-dinamicos.mapper'
+import {
+  toSubmissionDetailDto,
+  toSubmissionSummaryDto,
+  toVersionDto,
+  type FormFieldDto,
+  type FormVersionDto,
+} from './formularios-dinamicos.mapper'
 import { findVersionAggregate } from './formularios-dinamicos.repository'
 import {
   lockIdempotencia,
@@ -148,6 +154,102 @@ function exigirVivo(fila: { deleted_at: Date | null }, clientSubmissionId?: stri
 const PREFIJO_S3 = 'formularios-dinamicos'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function buscarLookupVehiculo(version: FormVersionDto): FormFieldDto | null {
+  const visitar = (fields: FormFieldDto[]): FormFieldDto | null => {
+    for (const field of fields) {
+      if (
+        field.type === 'LOOKUP' &&
+        field.config.source === 'VEHICLE'
+      ) return field
+      const hijo = visitar(field.children ?? [])
+      if (hijo) return hijo
+    }
+    return null
+  }
+  for (const section of version.sections) {
+    const field = visitar(section.fields)
+    if (field) return field
+  }
+  return null
+}
+
+/**
+ * Cuando un formulario captura el vehículo con un LOOKUP condicional, esa
+ * respuesta manda sobre el contexto del cliente. Así la rama SEDE no conserva
+ * el vehículo anterior y la rama VEHICULO siempre queda ligada a una placa
+ * existente, incluso si el payload se envía desde una app desactualizada.
+ */
+async function contextoDesdeLookupVehiculo(params: {
+  definition: FormVersionDto
+  answers: Array<{ fieldId?: string; occurrenceId?: string | null; value?: unknown }>
+  contexto: Record<string, unknown>
+  strict: boolean
+  prepared?: PreparedAnswer[]
+}): Promise<{ contexto: Record<string, unknown>; tieneLookup: boolean }> {
+  const field = buscarLookupVehiculo(params.definition)
+  if (!field) return { contexto: params.contexto, tieneLookup: false }
+
+  const preparada = params.prepared?.find(
+    (answer) => answer.fieldId === field.id && answer.occurrenceId === null,
+  )
+  const respuesta = params.answers.find(
+    (answer) => answer.fieldId === field.id && !answer.occurrenceId,
+  )
+  /// En el envío final solo cuenta una respuesta que la validación consideró
+  /// visible. En el backup, que deliberadamente admite respuestas parciales, se
+  /// usa el payload crudo.
+  const raw = params.prepared ? preparada?.valueJson : respuesta?.value
+  const id =
+    typeof raw === 'string'
+      ? raw
+      : raw && typeof raw === 'object' && typeof (raw as { id?: unknown }).id === 'string'
+        ? (raw as { id: string }).id
+        : ''
+
+  const sinVehiculo = () => {
+    const contexto = { ...params.contexto }
+    delete contexto.vehicleId
+    delete contexto.vehiclePlate
+    return contexto
+  }
+  if (!id) return { contexto: sinVehiculo(), tieneLookup: true }
+
+  const vehiculo = UUID_RE.test(id)
+    ? await prisma.vehiculos.findFirst({
+        where: { id, deleted_at: null },
+        select: { id: true, placa: true },
+      })
+    : null
+  if (!vehiculo) {
+    if (!params.strict) return { contexto: sinVehiculo(), tieneLookup: true }
+    throw new FormError('FIELD_VALUE_INVALID', 'La placa seleccionada ya no está disponible.', {
+      errors: [{
+        fieldId: field.id,
+        fieldKey: field.key,
+        occurrenceId: null,
+        code: 'LOOKUP_NOT_FOUND',
+        message: 'Selecciona un vehículo activo del catálogo.',
+      }],
+    })
+  }
+
+  if (preparada) preparada.valueJson = { id: vehiculo.id, placa: vehiculo.placa }
+  return {
+    contexto: { ...params.contexto, vehicleId: vehiculo.id, vehiclePlate: vehiculo.placa },
+    tieneLookup: true,
+  }
+}
+
+function esquemaContextoEnvio(
+  schema: Record<string, { required?: boolean }> | null,
+  tieneLookupVehiculo: boolean,
+): Record<string, { required?: boolean }> | null {
+  if (!tieneLookupVehiculo || !schema?.vehicleId?.required) return schema
+  const copia = { ...schema }
+  delete copia.vehicleId
+  return copia
+}
 
 /**
  * Versión contra la que se guarda y valida un envío.
@@ -588,7 +690,7 @@ export async function guardarBorradorPortal(
     select: { id: true, version_id: true, frequency: true, timezone: true },
   })
   if (!assignment) throw new FormError('ASSIGNMENT_TARGET_DENIED', 'Este formulario no está asignado a ti.')
-  await versionDelEnvio(
+  const versionId = await versionDelEnvio(
     actor,
     assignment,
     clientSubmissionId,
@@ -616,10 +718,20 @@ export async function guardarBorradorPortal(
     }
   }
 
+  const version = await findVersionAggregate(prisma, versionId)
+  if (!version) throw new FormError('VERSION_NOT_FOUND', 'La versión no existe.')
+  const definition = toVersionDto(version)
+  const contextoDerivado = await contextoDesdeLookupVehiculo({
+    definition,
+    answers: input.answers,
+    contexto: (input.context ?? {}) as Record<string, unknown>,
+    strict: false,
+  })
+
   const now = new Date()
   const businessDate = businessDateFor(now, assignment.timezone || BUSINESS_TIMEZONE)
   const periodKey = periodKeyFor(assignment.frequency as any, businessDate)
-  const contexto = (input.context ?? {}) as Record<string, unknown>
+  const contexto = contextoDerivado.contexto
 
   const submissionId = existente?.id ?? randomUUID()
 
@@ -1508,11 +1620,9 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
   const version = await findVersionAggregate(prisma, versionId)
   if (!version) throw new FormError('VERSION_NOT_FOUND', 'La versión no existe.')
 
-  const contexto = (input.context ?? {}) as Record<string, unknown>
-  verificarContexto(assignment.context_schema_json as any, contexto)
-
+  const definition = toVersionDto(version)
   const validacion = validateSubmissionAnswers({
-    definition: toVersionDto(version),
+    definition,
     answers: input.answers,
     attachments: input.attachments ?? [],
   })
@@ -1521,6 +1631,19 @@ export async function enviarSubmission(actor: FormActor, input: SubmissionInput)
       errors: validacion.errors,
     })
   }
+
+  const contextoDerivado = await contextoDesdeLookupVehiculo({
+    definition,
+    answers: input.answers,
+    contexto: (input.context ?? {}) as Record<string, unknown>,
+    strict: true,
+    prepared: validacion.prepared,
+  })
+  const contexto = contextoDerivado.contexto
+  verificarContexto(
+    esquemaContextoEnvio(assignment.context_schema_json as any, contextoDerivado.tieneLookup),
+    contexto,
+  )
 
   // 4. Adjuntos declarados: tienen que existir y estar verificados.
   const adjuntos = await resolverAdjuntos(actor, input)
