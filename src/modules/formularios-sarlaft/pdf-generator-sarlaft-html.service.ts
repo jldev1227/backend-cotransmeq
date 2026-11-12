@@ -38,6 +38,7 @@ type PreguntaLite = {
 type SeccionLite = {
   seccion: string
   key_tabla?: string
+  condicional?: string
   preguntas: PreguntaLite[]
 }
 
@@ -286,14 +287,30 @@ function getLogoDataUrl(): string {
   return _logoDataUrl
 }
 
-/** Resuelve la visibilidad declarativa de una pregunta. Sin regla, aplica. */
+/** Aplica las mismas reglas de visibilidad que el formulario y su validador. */
 function aplicaPregunta(pregunta: PreguntaLite, respuestas: Record<string, any>): boolean {
   const cond = pregunta.condicional_pregunta
-  if (!cond) return true
-  const origen = respuestas?.[cond.id]
-  if (cond.incluye != null) return Array.isArray(origen) && origen.includes(cond.incluye)
-  if (cond.igual_a != null) return origen === cond.igual_a
+  if (cond) {
+    const origen = respuestas?.[cond.id]
+    if (cond.incluye != null) return Array.isArray(origen) && origen.includes(cond.incluye)
+    if (cond.igual_a != null) return origen === cond.igual_a
+  }
+
+  /// Estas reglas antiguas están en el validador aunque no tengan `condicional_pregunta`.
+  const declaracion = pregunta.id.match(/^(PER|ACC|CLI)-DEC-04-[1-4]$/)
+  if (declaracion) return respuestas?.[`${declaracion[1]}-DEC-04`] === 'Sí'
+  if (pregunta.id === 'CLI-DEC-05') return respuestas?.['CLI-DEC-04'] === 'Sí'
+
   return true
+}
+
+/** Resuelve secciones declaradas como «Se diligencia si <pregunta> = <valor>». */
+function aplicaSeccion(seccion: SeccionLite, respuestas: Record<string, any>): boolean {
+  if (!seccion.condicional) return true
+  const match = seccion.condicional.match(/si\s+([A-Z0-9-]+)\s*=\s*(.+)$/i)
+  if (!match) return true
+  const [, preguntaId, valorEsperado] = match
+  return respuestas[preguntaId] === valorEsperado.trim()
 }
 
 function renderPregunta(pregunta: PreguntaLite, valor: any): string {
@@ -307,9 +324,11 @@ function renderPregunta(pregunta: PreguntaLite, valor: any): string {
 
   // Si es declaracion_informativa → bloque compacto destacado
   if (pregunta.tipo_respuesta === 'declaracion_informativa') {
+    const notaEsCondicion = /^\s*condicional\s*:/i.test(pregunta.nota ?? '')
+    const texto = pregunta.nota && !notaEsCondicion ? pregunta.nota : preguntaTxt
     return `
       <div class="field field--declaracion">
-        <div class="field-value decl-text">${pregunta.nota ? escapeHtml(pregunta.nota) : preguntaTxt}</div>
+        <div class="field-value decl-text">${escapeHtml(texto)}</div>
       </div>
     `
   }
@@ -606,7 +625,10 @@ function buildHtml(data: SarlaftPDFData): string {
     : `<div class="doc-logo-fallback">TRANS<br/>MERALDA</div>`
 
   // Render de cada sección
-  const seccionesHtml = data.formulario.secciones
+  const seccionesVisibles = data.formulario.secciones.filter((s) =>
+    aplicaSeccion(s, data.respuestas)
+  )
+  const seccionesHtml = seccionesVisibles
     .map((s, i) => renderSeccion(i, s, data.respuestas))
     .filter(Boolean)
     .join('')
@@ -620,7 +642,7 @@ function buildHtml(data: SarlaftPDFData): string {
     docsHtml = `
       <section class="seccion">
         <header class="seccion-head">
-          <span class="seccion-num">${String(data.formulario.secciones.length + 2).padStart(2, '0')}</span>
+          <span class="seccion-num">${String(seccionesVisibles.length + 2).padStart(2, '0')}</span>
           <h2 class="seccion-title">Documentos adjuntos</h2>
         </header>
         <div class="seccion-body">

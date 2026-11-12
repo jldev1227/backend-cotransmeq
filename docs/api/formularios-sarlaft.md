@@ -317,6 +317,14 @@ En el PDF genérico, los campos declarados como fecha (o cuya etiqueta contiene
 «fecha») se imprimen como `DD/MM/AAAA` y se excluyen de la heurística monetaria,
 aunque su etiqueta incluya «ingreso».
 
+El PDF aplica las mismas condiciones de visibilidad que el formulario y su
+validador: no imprime secciones o preguntas cuyo valor condicionante no coincide.
+Esto incluye `condicional` en secciones, `condicional_pregunta` y las reglas
+compatibles `PER|ACC|CLI-DEC-04-[1-4]` (solo si la respuesta a `*-DEC-04` es
+`Sí`) y `CLI-DEC-05` (solo si `CLI-DEC-04` es `Sí`). En declaraciones
+informativas, una nota que empieza con `Condicional:` es una instrucción; si la
+pregunta aplica, se imprime el texto de la declaración en lugar de esa nota.
+
 `application/pdf` con `Content-Disposition: attachment`. 404 si el radicado no
 existe, su código no tiene definición o (`GC-FOR-13`) no hay versión archivada.
 
