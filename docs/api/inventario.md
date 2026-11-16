@@ -3,7 +3,7 @@
 > Archivo generado por `npm run docs:inventario` (`scripts/docs/inventario-rutas.ts`).
 > No lo edites a mano: regenéralo cuando cambien las rutas.
 
-868 rutas en 67 módulos, más `GET /` (salud) y las que
+890 rutas en 68 módulos, más `GET /` (salud) y las que
 registran los plugins (`OPTIONS *` de CORS y `GET /assets/*`). Cada módulo
 enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
@@ -17,12 +17,13 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`asistente`](./asistente.md) | 2 |
 | [`auth`](./auth.md) | 11 |
 | [`canvas-anotaciones`](./canvas-anotaciones.md) | 1 |
-| `capacitaciones` | 43 |
+| [`canvas-cambios`](./canvas-cambios.md) | 1 |
+| [`capacitaciones`](./capacitaciones.md) | 43 |
 | [`cartera`](./cartera.md) | 7 |
 | [`certificados-tributarios`](./certificados-tributarios.md) | 22 |
 | [`clientes`](./clientes.md) | 15 |
 | [`combustible`](./combustible.md) | 11 |
-| [`conductor-portal`](./conductor-portal.md) | 50 |
+| [`conductor-portal`](./conductor-portal.md) | 51 |
 | [`conductores`](./conductores.md) | 16 |
 | [`conductores-documentos`](./conductores-documentos.md) | 6 |
 | [`contabilidad`](./contabilidad.md) | 2 |
@@ -34,7 +35,7 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`evaluaciones`](./evaluaciones.md) | 14 |
 | [`extractos`](./extractos.md) | 14 |
 | [`facturacion-liquidaciones`](./facturacion-liquidaciones.md) | 12 |
-| [`formularios-dinamicos`](./formularios-dinamicos.md) | 62 |
+| [`formularios-dinamicos`](./formularios-dinamicos.md) | 64 |
 | [`formularios-sarlaft`](./formularios-sarlaft.md) | 13 |
 | [`incidentes`](./incidentes.md) | 17 |
 | [`inducciones`](./inducciones.md) | 8 |
@@ -45,9 +46,9 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`liquidaciones-terceros`](./liquidaciones-terceros.md) | 4 |
 | [`liquidaciones-terceros-adicionales`](./liquidaciones-terceros-adicionales.md) | 6 |
 | [`liquidaciones-terceros-adicionales-snapshots`](./liquidaciones-terceros-adicionales-snapshots.md) | 5 |
-| [`liquidaciones-terceros-descuentos`](./liquidaciones-terceros-descuentos.md) | 42 |
+| [`liquidaciones-terceros-descuentos`](./liquidaciones-terceros-descuentos.md) | 46 |
 | [`liquidaciones-terceros-envios`](./liquidaciones-terceros-envios.md) | 6 |
-| [`liquidaciones-terceros-ingresos`](./liquidaciones-terceros-ingresos.md) | 4 |
+| [`liquidaciones-terceros-ingresos`](./liquidaciones-terceros-ingresos.md) | 9 |
 | [`liquidaciones-terceros-ocasional`](./liquidaciones-terceros-ocasional.md) | 19 |
 | [`liquidaciones-terceros-ocasional-snapshots`](./liquidaciones-terceros-ocasional-snapshots.md) | 6 |
 | [`liquidaciones-terceros-pagos`](./liquidaciones-terceros-pagos.md) | 5 |
@@ -58,11 +59,11 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | [`mcp`](./mcp.md) | 13 |
 | [`mis-capacitaciones`](./mis-capacitaciones.md) | 5 |
 | [`municipios`](./municipios.md) | 4 |
-| [`nomina-canvas`](./nomina-canvas.md) | 29 |
+| [`nomina-canvas`](./nomina-canvas.md) | 31 |
 | [`notificaciones`](./notificaciones.md) | 8 |
 | [`operadoras`](./operadoras.md) | 4 |
 | [`pdf`](./pdf.md) | 1 |
-| [`plan-trabajo`](./plan-trabajo.md) | 15 |
+| [`plan-trabajo`](./plan-trabajo.md) | 22 |
 | [`primas`](./primas.md) | 8 |
 | [`recargos`](./recargos.md) | 34 |
 | [`recorridos-canvas`](./recorridos-canvas.md) | 11 |
@@ -181,6 +182,12 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | Método | Ruta | Declarada en |
 |---|---|---|
 | GET | `/api/canvas-anotaciones` | `src/modules/canvas-anotaciones/canvas-anotaciones.routes.ts:15` |
+
+## canvas-cambios
+
+| Método | Ruta | Declarada en |
+|---|---|---|
+| GET | `/api/canvas-cambios` | `src/modules/canvas-cambios/canvas-cambios.routes.ts:18` |
 
 ## capacitaciones
 
@@ -309,56 +316,57 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| POST | `/api/conductor-portal/acceso-revision` | `src/modules/conductor-portal/conductor-portal.routes.ts:212` |
-| GET | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2451` |
-| POST | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2467` |
-| GET | `/api/conductor-portal/capacitaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2436` |
-| GET | `/api/conductor-portal/desprendibles` | `src/modules/conductor-portal/conductor-portal.routes.ts:478` |
-| GET | `/api/conductor-portal/desprendibles/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:872` |
-| GET | `/api/conductor-portal/desprendibles/:id/datos` | `src/modules/conductor-portal/conductor-portal.routes.ts:629` |
-| POST | `/api/conductor-portal/desprendibles/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1032` |
-| GET | `/api/conductor-portal/desprendibles/:id/pdf` | `src/modules/conductor-portal/conductor-portal.routes.ts:677` |
-| GET | `/api/conductor-portal/dias-laborados/clientes` | `src/modules/conductor-portal/conductor-portal.routes.ts:1999` |
-| GET | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1659` |
-| POST | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1739` |
-| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha` | `src/modules/conductor-portal/conductor-portal.routes.ts:1852` |
-| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:1982` |
-| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id/complete` | `src/modules/conductor-portal/conductor-portal.routes.ts:1961` |
-| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init` | `src/modules/conductor-portal/conductor-portal.routes.ts:1945` |
-| GET | `/api/conductor-portal/dias-laborados/vehiculos` | `src/modules/conductor-portal/conductor-portal.routes.ts:2014` |
-| DELETE | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:467` |
-| POST | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:436` |
-| GET | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2488` |
-| POST | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2504` |
+| GET | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2476` |
+| POST | `/api/conductor-portal/asistencias/:token` | `src/modules/conductor-portal/conductor-portal.routes.ts:2492` |
+| GET | `/api/conductor-portal/capacitaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2461` |
+| GET | `/api/conductor-portal/desprendibles` | `src/modules/conductor-portal/conductor-portal.routes.ts:399` |
+| GET | `/api/conductor-portal/desprendibles/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:793` |
+| GET | `/api/conductor-portal/desprendibles/:id/datos` | `src/modules/conductor-portal/conductor-portal.routes.ts:550` |
+| POST | `/api/conductor-portal/desprendibles/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:953` |
+| GET | `/api/conductor-portal/desprendibles/:id/pdf` | `src/modules/conductor-portal/conductor-portal.routes.ts:598` |
+| GET | `/api/conductor-portal/dias-laborados/clientes` | `src/modules/conductor-portal/conductor-portal.routes.ts:1945` |
+| GET | `/api/conductor-portal/dias-laborados/corte` | `src/modules/conductor-portal/conductor-portal.routes.ts:1581` |
+| GET | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1593` |
+| POST | `/api/conductor-portal/dias-laborados/registros` | `src/modules/conductor-portal/conductor-portal.routes.ts:1673` |
+| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha` | `src/modules/conductor-portal/conductor-portal.routes.ts:1798` |
+| DELETE | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:1928` |
+| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/:id/complete` | `src/modules/conductor-portal/conductor-portal.routes.ts:1907` |
+| POST | `/api/conductor-portal/dias-laborados/registros/:fecha/adjuntos/init` | `src/modules/conductor-portal/conductor-portal.routes.ts:1891` |
+| GET | `/api/conductor-portal/dias-laborados/vehiculos` | `src/modules/conductor-portal/conductor-portal.routes.ts:1960` |
+| DELETE | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:388` |
+| POST | `/api/conductor-portal/dispositivos-push` | `src/modules/conductor-portal/conductor-portal.routes.ts:357` |
+| GET | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2513` |
+| POST | `/api/conductor-portal/evaluaciones/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2529` |
 | GET | `/api/conductor-portal/extractos` | `src/modules/conductor-portal/extractos-portal.routes.ts:42` |
 | GET | `/api/conductor-portal/extractos/:id` | `src/modules/conductor-portal/extractos-portal.routes.ts:50` |
 | GET | `/api/conductor-portal/extractos/:id/pdf` | `src/modules/conductor-portal/extractos-portal.routes.ts:61` |
-| GET | `/api/conductor-portal/mis-actividades` | `src/modules/conductor-portal/conductor-portal.routes.ts:2037` |
-| POST | `/api/conductor-portal/mis-actividades/:id/completar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2048` |
-| POST | `/api/conductor-portal/mis-actividades/:id/evidencias` | `src/modules/conductor-portal/conductor-portal.routes.ts:2065` |
-| GET | `/api/conductor-portal/mis-actividades/evidencias/:evidenciaId/url` | `src/modules/conductor-portal/conductor-portal.routes.ts:2087` |
-| GET | `/api/conductor-portal/notificaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2100` |
-| POST | `/api/conductor-portal/notificaciones/:id/leida` | `src/modules/conductor-portal/conductor-portal.routes.ts:2148` |
-| GET | `/api/conductor-portal/prima/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:760` |
-| GET | `/api/conductor-portal/primas` | `src/modules/conductor-portal/conductor-portal.routes.ts:1227` |
-| GET | `/api/conductor-portal/primas/:id/enriquecida` | `src/modules/conductor-portal/conductor-portal.routes.ts:1423` |
-| GET | `/api/conductor-portal/primas/:id/firma` | `src/modules/conductor-portal/conductor-portal.routes.ts:1560` |
-| POST | `/api/conductor-portal/primas/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1297` |
-| GET | `/api/conductor-portal/servicios` | `src/modules/conductor-portal/conductor-portal.routes.ts:2171` |
-| GET | `/api/conductor-portal/servicios/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2280` |
-| GET | `/api/conductor-portal/servicios/:id/ejecucion` | `src/modules/conductor-portal/conductor-portal.routes.ts:2633` |
-| POST | `/api/conductor-portal/servicios/:id/iniciar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2649` |
-| POST | `/api/conductor-portal/servicios/:id/liberar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2665` |
-| GET | `/api/conductor-portal/servicios/:id/rastreo` | `src/modules/conductor-portal/conductor-portal.routes.ts:2556` |
-| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2577` |
-| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/detener` | `src/modules/conductor-portal/conductor-portal.routes.ts:2613` |
-| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/puntos` | `src/modules/conductor-portal/conductor-portal.routes.ts:2593` |
-| POST | `/api/conductor-portal/servicios/:id/recomendaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2681` |
-| GET | `/api/conductor-portal/servicios/:id/via` | `src/modules/conductor-portal/conductor-portal.routes.ts:2391` |
-| POST | `/api/conductor-portal/solicitar-acceso` | `src/modules/conductor-portal/conductor-portal.routes.ts:285` |
+| GET | `/api/conductor-portal/mis-actividades` | `src/modules/conductor-portal/conductor-portal.routes.ts:1983` |
+| POST | `/api/conductor-portal/mis-actividades/:id/completar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1994` |
+| POST | `/api/conductor-portal/mis-actividades/:id/evidencias` | `src/modules/conductor-portal/conductor-portal.routes.ts:2015` |
+| GET | `/api/conductor-portal/mis-actividades/evidencias/:evidenciaId/url` | `src/modules/conductor-portal/conductor-portal.routes.ts:2043` |
+| GET | `/api/conductor-portal/notificaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2056` |
+| POST | `/api/conductor-portal/notificaciones/:id/leida` | `src/modules/conductor-portal/conductor-portal.routes.ts:2173` |
+| GET | `/api/conductor-portal/notificaciones/historial` | `src/modules/conductor-portal/conductor-portal.routes.ts:2093` |
+| GET | `/api/conductor-portal/prima/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:681` |
+| GET | `/api/conductor-portal/primas` | `src/modules/conductor-portal/conductor-portal.routes.ts:1148` |
+| GET | `/api/conductor-portal/primas/:id/enriquecida` | `src/modules/conductor-portal/conductor-portal.routes.ts:1344` |
+| GET | `/api/conductor-portal/primas/:id/firma` | `src/modules/conductor-portal/conductor-portal.routes.ts:1481` |
+| POST | `/api/conductor-portal/primas/:id/firmar` | `src/modules/conductor-portal/conductor-portal.routes.ts:1218` |
+| GET | `/api/conductor-portal/servicios` | `src/modules/conductor-portal/conductor-portal.routes.ts:2196` |
+| GET | `/api/conductor-portal/servicios/:id` | `src/modules/conductor-portal/conductor-portal.routes.ts:2305` |
+| GET | `/api/conductor-portal/servicios/:id/ejecucion` | `src/modules/conductor-portal/conductor-portal.routes.ts:2658` |
+| POST | `/api/conductor-portal/servicios/:id/iniciar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2674` |
+| POST | `/api/conductor-portal/servicios/:id/liberar` | `src/modules/conductor-portal/conductor-portal.routes.ts:2690` |
+| GET | `/api/conductor-portal/servicios/:id/rastreo` | `src/modules/conductor-portal/conductor-portal.routes.ts:2581` |
+| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2602` |
+| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/detener` | `src/modules/conductor-portal/conductor-portal.routes.ts:2638` |
+| POST | `/api/conductor-portal/servicios/:id/rastreo/sesiones/:sessionId/puntos` | `src/modules/conductor-portal/conductor-portal.routes.ts:2618` |
+| POST | `/api/conductor-portal/servicios/:id/recomendaciones` | `src/modules/conductor-portal/conductor-portal.routes.ts:2706` |
+| GET | `/api/conductor-portal/servicios/:id/via` | `src/modules/conductor-portal/conductor-portal.routes.ts:2416` |
+| POST | `/api/conductor-portal/solicitar-acceso` | `src/modules/conductor-portal/conductor-portal.routes.ts:206` |
 | GET | `/api/conductor-portal/vehiculos/:vehiculoId/documentos/:documentoId/url` | `src/modules/conductor-portal/extractos-portal.routes.ts:82` |
 | GET | `/api/conductor-portal/vehiculos/documentos` | `src/modules/conductor-portal/extractos-portal.routes.ts:74` |
-| GET | `/api/conductor-portal/verificar-token` | `src/modules/conductor-portal/conductor-portal.routes.ts:366` |
+| GET | `/api/conductor-portal/verificar-token` | `src/modules/conductor-portal/conductor-portal.routes.ts:287` |
 
 ## conductores
 
@@ -450,8 +458,8 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 | GET | `/api/desprendible/compartido/:token` | `src/modules/documentos/documentos-compartidos.routes.ts:15` |
 | GET | `/api/desprendible/compartido/:token/datos` | `src/modules/documentos/documentos-compartidos.routes.ts:65` |
 | POST | `/api/desprendible/compartido/:token/firmar` | `src/modules/documentos/documentos-compartidos.routes.ts:35` |
-| GET | `/api/documentos/url-firma` | `src/modules/documentos/documentos.routes.ts:73` |
-| GET | `/api/documentos/ver/*` | `src/modules/documentos/documentos.routes.ts:28` |
+| GET | `/api/documentos/url-firma` | `src/modules/documentos/documentos.routes.ts:75` |
+| GET | `/api/documentos/ver/*` | `src/modules/documentos/documentos.routes.ts:30` |
 
 ## encuestas
 
@@ -533,68 +541,70 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/conductor-portal/formularios` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:266` |
-| GET | `/api/conductor-portal/formularios/:assignmentId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:277` |
-| DELETE | `/api/conductor-portal/formularios/attachments/:id` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:474` |
-| POST | `/api/conductor-portal/formularios/attachments/:id/complete` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:483` |
-| POST | `/api/conductor-portal/formularios/attachments/init` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:458` |
-| DELETE | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:447` |
-| GET | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:420` |
-| PUT | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:436` |
-| POST | `/api/conductor-portal/formularios/drafts/:clientSubmissionId/restaurar` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:408` |
-| GET | `/api/conductor-portal/formularios/drafts/papelera` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:398` |
-| GET | `/api/conductor-portal/formularios/ping` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:262` |
-| GET | `/api/conductor-portal/formularios/submissions` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:304` |
-| POST | `/api/conductor-portal/formularios/submissions` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:522` |
-| GET | `/api/conductor-portal/formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:314` |
-| GET | `/api/conductor-portal/formularios/submissions/:id/pdf` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:336` |
-| GET | `/api/form-field-templates` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:149` |
-| POST | `/api/form-field-templates` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:150` |
-| DELETE | `/api/form-field-templates/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:160` |
-| PATCH | `/api/form-field-templates/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:155` |
-| GET | `/api/formularios` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:214` |
-| POST | `/api/formularios` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:215` |
-| DELETE | `/api/formularios/:formId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:218` |
-| GET | `/api/formularios/:formId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:216` |
-| PATCH | `/api/formularios/:formId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:217` |
-| POST | `/api/formularios/:formId/duplicate` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:220` |
-| POST | `/api/formularios/:formId/restore` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:219` |
-| GET | `/api/formularios/:formId/versions/:versionId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:223` |
-| PUT | `/api/formularios/:formId/versions/:versionId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:226` |
-| POST | `/api/formularios/:formId/versions/:versionId/archive` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:234` |
-| POST | `/api/formularios/:formId/versions/:versionId/clone` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:232` |
-| POST | `/api/formularios/:formId/versions/:versionId/publish` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:233` |
-| POST | `/api/formularios/:formId/versions/:versionId/validate` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:231` |
-| GET | `/api/formularios/asignaciones` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:193` |
-| POST | `/api/formularios/asignaciones` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:194` |
-| GET | `/api/formularios/asignaciones/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:195` |
-| PATCH | `/api/formularios/asignaciones/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:196` |
-| POST | `/api/formularios/asignaciones/:id/close` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:207` |
-| POST | `/api/formularios/asignaciones/:id/pause` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:197` |
-| POST | `/api/formularios/asignaciones/:id/resume` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:202` |
-| GET | `/api/formularios/audiencia/usuarios` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:136` |
-| GET | `/api/formularios/campana-portal/audiencia` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:75` |
-| POST | `/api/formularios/campana-portal/enviar` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:108` |
-| POST | `/api/formularios/campana-portal/test` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:88` |
-| POST | `/api/formularios/documento/pdf` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:186` |
-| GET | `/api/formularios/metricas` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:68` |
-| GET | `/api/formularios/submissions` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:165` |
-| DELETE | `/api/formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:170` |
-| GET | `/api/formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:164` |
-| POST | `/api/formularios/submissions/:id/restore` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:171` |
-| POST | `/api/formularios/submissions/:id/void` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:166` |
-| GET | `/api/formularios/submissions/export.csv` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:163` |
-| GET | `/api/mis-formularios` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:126` |
-| GET | `/api/mis-formularios/:assignmentId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:250` |
-| DELETE | `/api/mis-formularios/attachments/:id` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:237` |
-| POST | `/api/mis-formularios/attachments/:id/complete` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:215` |
-| POST | `/api/mis-formularios/attachments/init` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:206` |
-| DELETE | `/api/mis-formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:191` |
-| GET | `/api/mis-formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:170` |
-| PUT | `/api/mis-formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:181` |
-| GET | `/api/mis-formularios/submissions` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:142` |
-| POST | `/api/mis-formularios/submissions` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:275` |
-| GET | `/api/mis-formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:152` |
+| GET | `/api/conductor-portal/formularios` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:267` |
+| GET | `/api/conductor-portal/formularios/:assignmentId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:278` |
+| DELETE | `/api/conductor-portal/formularios/attachments/:id` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:475` |
+| POST | `/api/conductor-portal/formularios/attachments/:id/complete` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:484` |
+| POST | `/api/conductor-portal/formularios/attachments/init` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:459` |
+| DELETE | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:448` |
+| GET | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:421` |
+| PUT | `/api/conductor-portal/formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:437` |
+| POST | `/api/conductor-portal/formularios/drafts/:clientSubmissionId/restaurar` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:409` |
+| GET | `/api/conductor-portal/formularios/drafts/papelera` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:399` |
+| GET | `/api/conductor-portal/formularios/ping` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:263` |
+| GET | `/api/conductor-portal/formularios/submissions` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:305` |
+| POST | `/api/conductor-portal/formularios/submissions` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:523` |
+| GET | `/api/conductor-portal/formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:315` |
+| GET | `/api/conductor-portal/formularios/submissions/:id/pdf` | `src/modules/formularios-dinamicos/formularios-portal.routes.ts:337` |
+| GET | `/api/form-field-templates` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:151` |
+| POST | `/api/form-field-templates` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:152` |
+| DELETE | `/api/form-field-templates/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:162` |
+| PATCH | `/api/form-field-templates/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:157` |
+| GET | `/api/formularios` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:238` |
+| POST | `/api/formularios` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:239` |
+| DELETE | `/api/formularios/:formId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:242` |
+| GET | `/api/formularios/:formId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:240` |
+| PATCH | `/api/formularios/:formId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:241` |
+| POST | `/api/formularios/:formId/duplicate` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:244` |
+| POST | `/api/formularios/:formId/restore` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:243` |
+| GET | `/api/formularios/:formId/versions/:versionId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:247` |
+| PUT | `/api/formularios/:formId/versions/:versionId` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:250` |
+| POST | `/api/formularios/:formId/versions/:versionId/archive` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:258` |
+| POST | `/api/formularios/:formId/versions/:versionId/clone` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:256` |
+| POST | `/api/formularios/:formId/versions/:versionId/publish` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:257` |
+| POST | `/api/formularios/:formId/versions/:versionId/validate` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:255` |
+| GET | `/api/formularios/asignaciones` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:217` |
+| POST | `/api/formularios/asignaciones` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:218` |
+| GET | `/api/formularios/asignaciones/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:219` |
+| PATCH | `/api/formularios/asignaciones/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:220` |
+| POST | `/api/formularios/asignaciones/:id/close` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:231` |
+| POST | `/api/formularios/asignaciones/:id/pause` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:221` |
+| POST | `/api/formularios/asignaciones/:id/resume` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:226` |
+| GET | `/api/formularios/audiencia/usuarios` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:138` |
+| GET | `/api/formularios/campana-portal/audiencia` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:77` |
+| POST | `/api/formularios/campana-portal/enviar` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:110` |
+| POST | `/api/formularios/campana-portal/test` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:90` |
+| POST | `/api/formularios/documento/pdf` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:210` |
+| POST | `/api/formularios/importar-desde-transmeralda` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:175` |
+| POST | `/api/formularios/importar-desde-transmeralda/preview` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:165` |
+| GET | `/api/formularios/metricas` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:70` |
+| GET | `/api/formularios/submissions` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:189` |
+| DELETE | `/api/formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:194` |
+| GET | `/api/formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:188` |
+| POST | `/api/formularios/submissions/:id/restore` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:195` |
+| POST | `/api/formularios/submissions/:id/void` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:190` |
+| GET | `/api/formularios/submissions/export.csv` | `src/modules/formularios-dinamicos/formularios-dinamicos.routes.ts:187` |
+| GET | `/api/mis-formularios` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:127` |
+| GET | `/api/mis-formularios/:assignmentId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:251` |
+| DELETE | `/api/mis-formularios/attachments/:id` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:238` |
+| POST | `/api/mis-formularios/attachments/:id/complete` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:216` |
+| POST | `/api/mis-formularios/attachments/init` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:207` |
+| DELETE | `/api/mis-formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:192` |
+| GET | `/api/mis-formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:171` |
+| PUT | `/api/mis-formularios/drafts/:clientSubmissionId` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:182` |
+| GET | `/api/mis-formularios/submissions` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:143` |
+| POST | `/api/mis-formularios/submissions` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:276` |
+| GET | `/api/mis-formularios/submissions/:id` | `src/modules/formularios-dinamicos/formularios-mis.routes.ts:153` |
 
 ## formularios-sarlaft
 
@@ -771,46 +781,50 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 |---|---|---|
 | GET | `/api/configuracion-descuentos-tercero` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:26` |
 | PUT | `/api/configuracion-descuentos-tercero` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:27` |
-| GET | `/api/liquidaciones-terceros-descuentos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:137` |
-| GET | `/api/liquidaciones-terceros-descuentos/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:138` |
-| DELETE | `/api/liquidaciones-terceros/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:124` |
-| GET | `/api/liquidaciones-terceros/:id/calcular-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:80` |
-| PATCH | `/api/liquidaciones-terceros/:id/color-hoja` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:121` |
-| GET | `/api/liquidaciones-terceros/:id/conceptos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:56` |
-| PUT | `/api/liquidaciones-terceros/:id/conceptos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:57` |
-| POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:65` |
-| PUT | `/api/liquidaciones-terceros/:id/conductores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:61` |
-| PATCH | `/api/liquidaciones-terceros/:id/estado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:116` |
-| GET | `/api/liquidaciones-terceros/:id/historial-estados` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:117` |
-| PUT | `/api/liquidaciones-terceros/:id/items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:86` |
-| POST | `/api/liquidaciones-terceros/:id/items-agregar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:97` |
-| GET | `/api/liquidaciones-terceros/:id/items-disponibles` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:96` |
-| GET | `/api/liquidaciones-terceros/:id/propietarios` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:69` |
-| PUT | `/api/liquidaciones-terceros/:id/propietarios` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:70` |
-| POST | `/api/liquidaciones-terceros/:id/recalcular-totales` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:83` |
-| POST | `/api/liquidaciones-terceros/:id/refresh-items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:91` |
-| GET | `/api/liquidaciones-terceros/anticipos-vehiculo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:49` |
-| GET | `/api/liquidaciones-terceros/autocompletar-nomina` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:43` |
-| GET | `/api/liquidaciones-terceros/bonificaciones` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:46` |
+| GET | `/api/liquidaciones-terceros-descuentos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:143` |
+| GET | `/api/liquidaciones-terceros-descuentos/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:144` |
+| DELETE | `/api/liquidaciones-terceros/:id` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:130` |
+| GET | `/api/liquidaciones-terceros/:id/calcular-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:86` |
+| PATCH | `/api/liquidaciones-terceros/:id/color-hoja` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:127` |
+| GET | `/api/liquidaciones-terceros/:id/conceptos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:59` |
+| PUT | `/api/liquidaciones-terceros/:id/conceptos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:60` |
+| POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:69` |
+| PUT | `/api/liquidaciones-terceros/:id/conductores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:64` |
+| PATCH | `/api/liquidaciones-terceros/:id/estado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:122` |
+| GET | `/api/liquidaciones-terceros/:id/historial-estados` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:123` |
+| PUT | `/api/liquidaciones-terceros/:id/items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:92` |
+| POST | `/api/liquidaciones-terceros/:id/items-agregar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:103` |
+| GET | `/api/liquidaciones-terceros/:id/items-disponibles` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:102` |
+| PUT | `/api/liquidaciones-terceros/:id/novedades-conductores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:65` |
+| GET | `/api/liquidaciones-terceros/:id/propietarios` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:75` |
+| PUT | `/api/liquidaciones-terceros/:id/propietarios` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:76` |
+| POST | `/api/liquidaciones-terceros/:id/recalcular-totales` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:89` |
+| POST | `/api/liquidaciones-terceros/:id/refresh-items` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:97` |
+| POST | `/api/liquidaciones-terceros/agrupar-borradores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:43` |
+| GET | `/api/liquidaciones-terceros/anticipos-vehiculo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:52` |
+| GET | `/api/liquidaciones-terceros/autocompletar-nomina` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:46` |
+| GET | `/api/liquidaciones-terceros/bonificaciones` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:49` |
 | DELETE | `/api/liquidaciones-terceros/borrador-job/:jobId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:36` |
 | GET | `/api/liquidaciones-terceros/borrador-status/:jobId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:35` |
-| DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:66` |
-| GET | `/api/liquidaciones-terceros/config-gastos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:74` |
-| PUT | `/api/liquidaciones-terceros/config-gastos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:75` |
-| GET | `/api/liquidaciones-terceros/config-valores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:76` |
-| PUT | `/api/liquidaciones-terceros/config-valores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:77` |
-| POST | `/api/liquidaciones-terceros/estado-lote` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:115` |
+| DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:71` |
+| PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:70` |
+| PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:72` |
+| GET | `/api/liquidaciones-terceros/config-gastos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:80` |
+| PUT | `/api/liquidaciones-terceros/config-gastos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:81` |
+| GET | `/api/liquidaciones-terceros/config-valores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:82` |
+| PUT | `/api/liquidaciones-terceros/config-valores` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:83` |
+| POST | `/api/liquidaciones-terceros/estado-lote` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:121` |
 | POST | `/api/liquidaciones-terceros/generar-borrador` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:31` |
 | POST | `/api/liquidaciones-terceros/generar-borrador-async` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:34` |
 | POST | `/api/liquidaciones-terceros/guardar-borrador` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:40` |
-| POST | `/api/liquidaciones-terceros/guardar-borrador-bulk-async` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:127` |
-| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/aplica-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:100` |
-| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/excluir` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:105` |
-| POST | `/api/liquidaciones-terceros/items/:pivoteId/revertir-traslado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:112` |
-| POST | `/api/liquidaciones-terceros/items/:pivoteId/trasladar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:111` |
-| GET | `/api/liquidaciones-terceros/periodo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:134` |
-| DELETE | `/api/liquidaciones-terceros/save-bulk-job/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:129` |
-| GET | `/api/liquidaciones-terceros/save-bulk/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:128` |
+| POST | `/api/liquidaciones-terceros/guardar-borrador-bulk-async` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:133` |
+| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/aplica-impuestos` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:106` |
+| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/excluir` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:111` |
+| POST | `/api/liquidaciones-terceros/items/:pivoteId/revertir-traslado` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:118` |
+| POST | `/api/liquidaciones-terceros/items/:pivoteId/trasladar` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:117` |
+| GET | `/api/liquidaciones-terceros/periodo` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:140` |
+| DELETE | `/api/liquidaciones-terceros/save-bulk-job/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:135` |
+| GET | `/api/liquidaciones-terceros/save-bulk/:batchId` | `src/modules/liquidaciones-terceros-descuentos/liquidaciones-terceros-descuentos.routes.ts:134` |
 
 ## liquidaciones-terceros-envios
 
@@ -827,10 +841,15 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/liquidaciones-terceros-ingresos` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:58` |
-| GET | `/api/liquidaciones-terceros-ingresos/anual` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:36` |
-| GET | `/api/liquidaciones-terceros-ingresos/estado` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:43` |
-| POST | `/api/liquidaciones-terceros-ingresos/guardar` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:51` |
+| GET | `/api/liquidaciones-terceros-ingresos` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:82` |
+| GET | `/api/liquidaciones-terceros-ingresos/anual` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:60` |
+| GET | `/api/liquidaciones-terceros-ingresos/estado` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:67` |
+| POST | `/api/liquidaciones-terceros-ingresos/guardar` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:75` |
+| GET | `/api/liquidaciones-terceros-ingresos/snapshots` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:47` |
+| POST | `/api/liquidaciones-terceros-ingresos/snapshots` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:49` |
+| GET | `/api/liquidaciones-terceros-ingresos/snapshots/:id` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:51` |
+| GET | `/api/liquidaciones-terceros-ingresos/snapshots/:id/diff` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:53` |
+| POST | `/api/liquidaciones-terceros-ingresos/snapshots/:id/revertir` | `src/modules/liquidaciones-terceros-ingresos/liquidaciones-terceros-ingresos.routes.ts:55` |
 
 ## liquidaciones-terceros-ocasional
 
@@ -966,35 +985,37 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/nomina/analisis` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:32` |
-| POST | `/api/nomina/borradores/:id/refrescar-dias` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:55` |
-| POST | `/api/nomina/borradores/:id/rehacer-bonos` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:63` |
-| POST | `/api/nomina/borradores/:id/reparar-recargos` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:78` |
-| POST | `/api/nomina/borradores/generar` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:51` |
-| DELETE | `/api/nomina/borradores/job/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:104` |
-| GET | `/api/nomina/borradores/previo` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:50` |
-| GET | `/api/nomina/borradores/status/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:52` |
+| GET | `/api/nomina/analisis` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:34` |
+| POST | `/api/nomina/borradores/:id/refrescar-dias` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:57` |
+| POST | `/api/nomina/borradores/:id/rehacer-bonos` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:65` |
+| POST | `/api/nomina/borradores/:id/reparar-recargos` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:80` |
+| POST | `/api/nomina/borradores/generar` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:53` |
+| DELETE | `/api/nomina/borradores/job/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:106` |
+| GET | `/api/nomina/borradores/previo` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:52` |
+| GET | `/api/nomina/borradores/status/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:54` |
 | GET | `/api/nomina/canvas` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:28` |
+| GET | `/api/nomina/canvas/corte-diligenciamiento` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:30` |
+| PUT | `/api/nomina/canvas/corte-diligenciamiento` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:31` |
 | GET | `/api/nomina/canvas/resumen` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:29` |
-| DELETE | `/api/nomina/envios/job/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:116` |
-| GET | `/api/nomina/envios/liquidacion/:id` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:118` |
-| POST | `/api/nomina/envios/lote` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:114` |
-| GET | `/api/nomina/envios/periodo` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:117` |
-| GET | `/api/nomina/envios/status/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:115` |
-| POST | `/api/nomina/estado-lote` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:38` |
-| GET | `/api/nomina/estados` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:36` |
-| DELETE | `/api/nomina/liquidaciones/:id` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:99` |
-| GET | `/api/nomina/liquidaciones/:id/desprendible-data` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:70` |
-| PATCH | `/api/nomina/liquidaciones/:id/estado` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:37` |
-| GET | `/api/nomina/liquidaciones/:id/historial-estados` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:39` |
-| PUT | `/api/nomina/liquidaciones/:id/marcas-dias` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:85` |
-| PUT | `/api/nomina/liquidaciones/:id/periodo` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:92` |
-| POST | `/api/nomina/notificaciones` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:120` |
-| GET | `/api/nomina/snapshots` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:106` |
-| POST | `/api/nomina/snapshots` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:107` |
-| GET | `/api/nomina/snapshots/:id` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:108` |
-| GET | `/api/nomina/snapshots/:id/diff` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:109` |
-| POST | `/api/nomina/snapshots/:id/revertir` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:110` |
+| DELETE | `/api/nomina/envios/job/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:118` |
+| GET | `/api/nomina/envios/liquidacion/:id` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:120` |
+| POST | `/api/nomina/envios/lote` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:116` |
+| GET | `/api/nomina/envios/periodo` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:119` |
+| GET | `/api/nomina/envios/status/:jobId` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:117` |
+| POST | `/api/nomina/estado-lote` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:40` |
+| GET | `/api/nomina/estados` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:38` |
+| DELETE | `/api/nomina/liquidaciones/:id` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:101` |
+| GET | `/api/nomina/liquidaciones/:id/desprendible-data` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:72` |
+| PATCH | `/api/nomina/liquidaciones/:id/estado` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:39` |
+| GET | `/api/nomina/liquidaciones/:id/historial-estados` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:41` |
+| PUT | `/api/nomina/liquidaciones/:id/marcas-dias` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:87` |
+| PUT | `/api/nomina/liquidaciones/:id/periodo` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:94` |
+| POST | `/api/nomina/notificaciones` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:122` |
+| GET | `/api/nomina/snapshots` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:108` |
+| POST | `/api/nomina/snapshots` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:109` |
+| GET | `/api/nomina/snapshots/:id` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:110` |
+| GET | `/api/nomina/snapshots/:id/diff` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:111` |
+| POST | `/api/nomina/snapshots/:id/revertir` | `src/modules/nomina-canvas/nomina-canvas.routes.ts:112` |
 
 ## notificaciones
 
@@ -1028,21 +1049,28 @@ enlaza su referencia; ahí están la guarda, los parámetros y las respuestas.
 
 | Método | Ruta | Declarada en |
 |---|---|---|
-| GET | `/api/plan-trabajo` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:46` |
-| POST | `/api/plan-trabajo/:planId/activar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:171` |
-| PUT | `/api/plan-trabajo/:planId/cargos` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:140` |
-| POST | `/api/plan-trabajo/:planId/clonar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:187` |
-| GET | `/api/plan-trabajo/:planId/gestion` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:98` |
-| GET | `/api/plan-trabajo/:planId/indicadores` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:113` |
-| PUT | `/api/plan-trabajo/:planId/indicadores/:numero` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:315` |
-| PUT | `/api/plan-trabajo/:planId/indicadores/:numero/bandas` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:349` |
-| PATCH | `/api/plan-trabajo/actividades/:id/evidencia-requerida` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:419` |
-| GET | `/api/plan-trabajo/evidencias/:id/url` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:404` |
-| POST | `/api/plan-trabajo/indicadores/:id/evidencias` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:383` |
-| PATCH | `/api/plan-trabajo/ocurrencias/:id/completar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:247` |
-| PUT | `/api/plan-trabajo/ocurrencias/:id/conductores` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:213` |
-| POST | `/api/plan-trabajo/ocurrencias/:id/evidencias` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:294` |
-| PATCH | `/api/plan-trabajo/ocurrencias/:id/no-aplica` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:267` |
+| GET | `/api/plan-trabajo` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:93` |
+| POST | `/api/plan-trabajo/:planId/activar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:246` |
+| PUT | `/api/plan-trabajo/:planId/cargos` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:187` |
+| PUT | `/api/plan-trabajo/:planId/cargos/lote` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:218` |
+| POST | `/api/plan-trabajo/:planId/clonar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:262` |
+| GET | `/api/plan-trabajo/:planId/gestion` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:145` |
+| GET | `/api/plan-trabajo/:planId/indicadores` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:160` |
+| PUT | `/api/plan-trabajo/:planId/indicadores/:numero` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:418` |
+| PUT | `/api/plan-trabajo/:planId/indicadores/:numero/bandas` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:452` |
+| PATCH | `/api/plan-trabajo/actividades/:id/evidencia-requerida` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:522` |
+| GET | `/api/plan-trabajo/evidencias/:id/url` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:507` |
+| POST | `/api/plan-trabajo/indicadores/:id/evidencias` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:486` |
+| GET | `/api/plan-trabajo/mis-actividades` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:49` |
+| PUT | `/api/plan-trabajo/ocurrencias/:id/asignaciones` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:286` |
+| PATCH | `/api/plan-trabajo/ocurrencias/:id/completar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:350` |
+| PUT | `/api/plan-trabajo/ocurrencias/:id/conductores` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:316` |
+| POST | `/api/plan-trabajo/ocurrencias/:id/evidencias` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:397` |
+| PATCH | `/api/plan-trabajo/ocurrencias/:id/no-aplica` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:370` |
+| GET | `/api/plan-trabajo/ocurrencias/:id/participaciones` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:55` |
+| PATCH | `/api/plan-trabajo/participaciones/:id` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:61` |
+| POST | `/api/plan-trabajo/participaciones/:id/completar` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:70` |
+| POST | `/api/plan-trabajo/participaciones/:id/evidencias` | `src/modules/plan-trabajo/plan-trabajo.routes.ts:79` |
 
 ## primas
 

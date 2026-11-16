@@ -2,18 +2,14 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { retirarDiaLaboral } from '../../lib/soft-delete/dia-laboral'
 import jwt from 'jsonwebtoken'
-import argon2 from 'argon2'
 import { prisma } from '../../config/prisma'
 import { registrarViaticosPortal } from '../viaticos/viaticos-portal.routes'
 import { capacitacionesPortalRoutes } from '../capacitaciones/capacitaciones.routes'
 import { registrarExtractosPortal } from './extractos-portal.routes'
-import { crearLimitador, limitesEnvioDeEnlace, MINUTO, preHandlerLimite } from '../../utils/limitador'
+import { limitesEnvioDeEnlace, preHandlerLimite } from '../../utils/limitador'
 
 /// El enlace se pide con la cédula y se manda por correo: tope por IP y por cédula.
 const limiteSolicitudAcceso = limitesEnvioDeEnlace()
-/// El acceso de revisión de tiendas valida una contraseña: sin tope era
-/// adivinable a fuerza bruta.
-const limiteAccesoRevision = { porIp: crearLimitador({ max: 10, ventanaMs: 15 * MINUTO }) }
 import { condicionesViaDelServicio, CondicionesViaError } from './condiciones-via.service'
 import {
   CapacitacionesError,
@@ -205,83 +201,6 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════
   // RUTAS PÚBLICAS (sin autenticación)
   // ═══════════════════════════════════════════
-
-  /**
-   * Credenciales reutilizables exclusivamente para la cuenta sintética que
-   * revisa Google Play. El flag vive en `permisos`: una contraseña antigua de
-   * un conductor real nunca habilita por accidente este segundo acceso.
-   */
-  app.post('/conductor-portal/acceso-revision', {
-    preHandler: preHandlerLimite(limiteAccesoRevision),
-    schema: {
-      description: 'Acceso estable para revisión de la aplicación en tiendas',
-      tags: ['conductor-portal'],
-      body: {
-        type: 'object',
-        required: ['numero_identificacion', 'password'],
-        additionalProperties: false,
-        properties: {
-          numero_identificacion: { type: 'string', minLength: 5, maxLength: 12 },
-          password: { type: 'string', minLength: 8, maxLength: 100 }
-        }
-      }
-    }
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { numero_identificacion, password } = request.body as {
-      numero_identificacion: string
-      password: string
-    }
-    const conductor = await prisma.conductores.findUnique({
-      where: { numero_identificacion },
-      select: {
-        id: true,
-        nombre: true,
-        apellido: true,
-        numero_identificacion: true,
-        email: true,
-        estado: true,
-        password: true,
-        permisos: true,
-        oculto: true,
-        deleted_at: true
-      }
-    })
-    const permisos = conductor?.permisos && typeof conductor.permisos === 'object'
-      ? conductor.permisos as Record<string, unknown>
-      : {}
-    const passwordValido = conductor?.password?.startsWith('$argon2')
-      ? await argon2.verify(conductor.password, password).catch(() => false)
-      : false
-    if (!conductor || permisos.google_play_review !== true || conductor.oculto ||
-      conductor.deleted_at || conductor.estado !== 'activo' || !passwordValido) {
-      return reply.status(401).send({ success: false, message: 'Credenciales inválidas' })
-    }
-
-    const token = await emitirTokenPortal({
-      id: conductor.id,
-      numero_identificacion: conductor.numero_identificacion,
-      nombre: conductor.nombre,
-      apellido: conductor.apellido
-    })
-    const payload = jwt.decode(token) as { exp?: number } | null
-    const expiresAt = payload?.exp ? new Date(payload.exp * 1000) : new Date()
-
-    return reply.send({
-      success: true,
-      data: {
-        token,
-        conductor: {
-          id: conductor.id,
-          nombre: conductor.nombre,
-          apellido: conductor.apellido,
-          numero_identificacion: conductor.numero_identificacion,
-          email: conductor.email,
-          estado: conductor.estado
-        },
-        expires_at: expiresAt
-      }
-    })
-  })
 
   // Solicitar acceso: envía magic link por email
   app.post('/conductor-portal/solicitar-acceso', {

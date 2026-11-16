@@ -394,14 +394,14 @@ describe('guardas en los módulos reales', () => {
     const r = await pedir('PUT', `/api/conductores/${id}`, token, {
       nombre: 'Cambiado',
       password: '$argon2id$v=19$m=65536,t=3,p=4$falso',
-      permisos: { google_play_review: true },
+      permisos: { permiso_extra: true },
       oculto: true
     })
     expect(r.statusCode).toBe(200)
     const fila = await prisma.conductores.findUnique({ where: { id }, select: { nombre: true, password: true, permisos: true, oculto: true } })
     expect(fila?.nombre).toBe('CAMBIADO')
     expect(fila?.password).toBeNull()
-    expect((fila?.permisos as any)?.google_play_review).toBeUndefined()
+    expect(fila?.permisos).not.toEqual({ permiso_extra: true })
     expect(fila?.oculto).toBe(false)
   })
 

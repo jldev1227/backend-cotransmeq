@@ -72,8 +72,7 @@ conductor a la papelera: el token deja de abrir el portal en 30 s como mucho.
 El borrado definitivo de un conductor (en [conductores](./conductores.md)) borra
 sus filas y vacía la caché en el acto.
 
-Otros emisores del mismo token: `POST /acceso-revision` (cuenta sintética de
-revisión de tiendas) y los correos de desprendibles y primas
+Otros emisores del mismo token son los correos de desprendibles y primas
 (`tokenPortalVigente`, desde `envio-nomina-queue.service.ts`,
 `liquidaciones.routes.ts` y `primas.routes.ts`), que reutilizan el token vigente
 más largo del conductor en vez de firmar otro. Solo reutilizan tokens
@@ -85,7 +84,6 @@ más largo del conductor en vez de firmar otro. Solo reutilizan tokens
 | Rutas | Guarda |
 |---|---|
 | `POST /solicitar-acceso` | `pública · límite 3/h por cédula y 30/h por IP` (`limitesEnvioDeEnlace`, [límites de intentos](../autenticacion.md#límites-de-intentos)): 429 con `Retry-After` |
-| `POST /acceso-revision` | `pública · límite 10/15 min por IP`. Solo abre una cuenta con `conductores.permisos.google_play_review === true`, `estado: 'activo'`, sin ocultar ni borrar y contraseña argon2 |
 | `GET /verificar-token` | `pública · token`: el JWT del enlace en la query, verificado contra `conductor_token` |
 | Todas las demás | `portal`: `portalAuthMiddleware` (hook `onRequest` del bloque protegido) acepta solo `tipo: 'conductor_portal'` registrado en `conductor_token`. Sin cabecera o mal formada → 401; otro `tipo` → 401 «Token no autorizado para este recurso»; firma inválida o vencida → 401 «Token inválido o expirado»; sin fila, con la fila vencida o con el conductor borrado → 401 «Tu acceso al portal venció o fue revocado. Pide un enlace nuevo.» |
 | `GET /desprendibles/:id/datos` | además, el token de impresión `tipo: 'conductor_portal_print_desprendible'` (180 s): solo en `GET`, solo esa ruta declarada y solo si `:id` es su `lid`; fuera de eso → 403 «Token fuera de su alcance». No se guarda en `conductor_token`, así que no pasa por la comprobación de registro ([tokens de impresión](../autenticacion.md#tokens-de-impresión)) |
@@ -116,7 +114,6 @@ Todo se filtra por el conductor del token en el propio controlador o servicio:
 |---|---|---|---|
 | POST | `/api/conductor-portal/solicitar-acceso` | pública · límite 3/h por cédula, 30/h por IP | Envía al correo del conductor el enlace con su token |
 | GET | `/api/conductor-portal/verificar-token` | pública · token | Valida el token del enlace y devuelve el perfil |
-| POST | `/api/conductor-portal/acceso-revision` | pública · límite 10/15 min por IP | Acceso con cédula y contraseña para la cuenta de revisión de tiendas |
 | POST | `/api/conductor-portal/dispositivos-push` | portal | Registra el token Expo del teléfono |
 | DELETE | `/api/conductor-portal/dispositivos-push` | portal | Desactiva el token Expo del teléfono |
 | GET | `/api/conductor-portal/desprendibles` | portal | Lista sus desprendibles visibles con su estado de firma |
@@ -209,14 +206,6 @@ Fastify salen con su formato (`{ statusCode, error, message }`).
 **Errores**: 400 sin `token` o vacío; 401 «Token inválido o expirado» (firma o
 vencimiento del JWT), «Token inválido» (otro `tipo`), «Token expirado o inválido»
 (sin fila en `conductor_token` o vencida).
-
-### `POST /api/conductor-portal/acceso-revision`
-
-**Body** (`additionalProperties: false`): `numero_identificacion` (5–12) y
-`password` (8–100). Firma un token nuevo (con fila en `conductor_token`) y
-responde con la misma forma que `verificar-token`. Cualquier fallo —cédula
-desconocida, cuenta sin la marca, inactiva, oculta, borrada o contraseña
-incorrecta— es 401 «Credenciales inválidas», sin distinguir. 429 al pasar el tope.
 
 ### `POST /api/conductor-portal/dispositivos-push` y `DELETE /api/conductor-portal/dispositivos-push`
 
@@ -815,8 +804,8 @@ documento no tiene archivo cargado).
   correo con un token nuevo y `verificar-token` lo valida, pero cada petición
   siguiente responde 401 «Tu acceso al portal venció o fue revocado». Un
   conductor oculto sigue entrando: la comprobación de registro solo mira
-  `deleted_at`. `solicitar-acceso` lee `estado` pero no lo usa; solo
-  `acceso-revision` exige `activo`. `conductor-portal.routes.ts`.
+  `deleted_at`. `solicitar-acceso` lee `estado` pero no lo usa.
+  `conductor-portal.routes.ts`.
 - El JWT viaja en la query del enlace y sirve 30 días, todas las veces
   (`conductor_token.used` nunca se marca).
 - **La revocación no llega al socket de formularios**: `forms:join` solo

@@ -365,11 +365,9 @@ export const ConductoresService = {
       }
     }
 
-    /// Fuera a propósito: `password` y `permisos` (con `permisos.google_play_review`
-    /// y una contraseña propia, cualquiera del equipo podía entrar al portal de
-    /// cualquier conductor: `conductores` es `general`) y `oculto`, que tiene su
-    /// propia ruta con control de área (`PATCH …/ocultar`). La interfaz no envía
-    /// ninguno de los tres por aquí.
+    /// Fuera a propósito: `password`, `permisos` y `oculto` son campos sensibles;
+    /// este PUT edita solo la ficha. `oculto` tiene su propia ruta con control de
+    /// área (`PATCH …/ocultar`) y la interfaz no envía ninguno de los tres aquí.
     const allowedFields = [
       "nombre",
       "apellido",

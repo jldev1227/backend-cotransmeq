@@ -144,10 +144,6 @@ sin tener que enterarse de nada. `primas` y `liquidaciones` también **emiten**
 tokens del portal, para los enlaces de los correos de desprendibles, pero no
 los verifican.
 
-Para la revisión de Google Play existe `POST /api/conductor-portal/acceso-revision`:
-cédula y contraseña de una cuenta sintética marcada en `permisos` (10 intentos
-por IP cada 15 minutos). La contraseña de un conductor real no habilita este acceso.
-
 ### Tokens de impresión
 
 Puppeteer abre páginas del portal para generar PDF. Para eso se firman tokens
@@ -266,7 +262,6 @@ contador y el primero que se equivocara bloquearía a la empresa. Al pasarse,
 | Login | 5 fallos por correo y 30 por IP / 15 min |
 | Recuperación de contraseña | 20 por IP / 15 min |
 | Pedir enlace del portal, de días laborados o de certificados | 3 por cédula o identificación y 30 por IP / hora |
-| Acceso de revisión de tiendas | 10 por IP / 15 min |
 | Canje del enlace de la app de administrativos | 20 por IP / 15 min |
 | Verificar el enlace de certificados | 60 por IP / 15 min |
 | Validar un extracto | 120 por IP / minuto |

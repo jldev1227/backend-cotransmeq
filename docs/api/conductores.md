@@ -75,9 +75,8 @@ Ninguna ruta valida el formato de `:id`. Salvo en `…/relaciones` y
 `{ success: false, message, error }`, con el mensaje interno en `error`.
 
 Las respuestas que devuelven «la fila completa» del conductor la devuelven sin
-`password` (el hash argon2 con que entra
-`POST /api/conductor-portal/acceso-revision`): lo quita el `preSerialization`
-global ([middlewares](../middlewares.md#después-del-handler)).
+`password`, que retira el `preSerialization` global
+([middlewares](../middlewares.md#después-del-handler)).
 
 ### `GET /api/conductores`
 
@@ -207,11 +206,8 @@ demás se ignora y un campo ausente no se toca:
 `categoria_licencia`, `foto_url`, `tipo_contrato`, `vencimiento_licencia`,
 `estado`, `sede_trabajo`, `tipo_sangre`.
 
-`password`, `permisos` y `oculto` quedan fuera a propósito: `conductores` es
-`general: true`, y con `permisos.google_play_review` y una contraseña propia
-cualquiera del equipo entraría al portal de cualquier conductor por
-`acceso-revision`; `oculto` tiene su propia ruta con control de área
-(`PATCH …/ocultar`).
+`password`, `permisos` y `oculto` quedan fuera a propósito porque son campos
+sensibles; `oculto` tiene su propia ruta con control de área (`PATCH …/ocultar`).
 
 - Fechas: `''` o una fecha ilegible se guardan como `null`; `YYYY-MM-DD` se guarda a
   las 12:00 (hora del servidor).

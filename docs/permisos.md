@@ -168,10 +168,6 @@ a un administrador. Es un `Record<string, boolean>` con claves que se llaman
 igual que algunos modelos (`recargos: true`): no lo conviertas en un filtro de
 Prisma por error.
 
-En la tabla de conductores existe además la bandera `google_play_review` en el
-`permisos` del **conductor**: marca la cuenta sintética que usa Google Play para
-revisar la app ([autenticacion.md](./autenticacion.md#portal-del-conductor)).
-
 ## Modo de aplicación (`PERMISSIONS_MODE`)
 
 | Valor | Efecto |
