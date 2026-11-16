@@ -7,6 +7,7 @@ import { avisarNovedadesPreoperacional } from '../mantenimiento/aviso-preoperaci
 import { isFormError, type FormActor, type SubmissionInput } from './domain'
 import { contextoDePeticion, medir, registrarEvento } from './formularios-dinamicos.observabilidad'
 import * as portal from './formularios-portal.service'
+import { sincronizarProgresoFormulario } from '../plan-trabajo/plan-trabajo-participacion.service'
 import {
   backupDraftSchema,
   completeAttachmentSchema,
@@ -282,6 +283,9 @@ export async function formulariosMisRoutes(app: FastifyInstance) {
         { ...contextoDePeticion(request), clientSubmissionId: input.clientSubmissionId },
         () => portal.enviarSubmission(actorDe(request), input),
       )
+      await sincronizarProgresoFormulario(resultado.assignmentId, {
+        tipo: resultado.actorKind === 'USER' ? 'ADMIN' : 'CONDUCTOR', id: resultado.actorId,
+      })
 
       registrarEvento(resultado.idempotentReplay ? 'submission.idempotent-replay' : 'submission.accepted', {
         ...contextoDePeticion(request),

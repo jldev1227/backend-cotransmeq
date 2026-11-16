@@ -6830,6 +6830,7 @@ model plan_trabajo_ocurrencia {
 
   actividad     plan_trabajo_actividad      @relation(fields: [actividad_id], references: [id], onDelete: Cascade)
   asignaciones  plan_trabajo_asignacion[]
+  participaciones plan_trabajo_participacion[]
   recordatorios plan_trabajo_recordatorio[]
 
   @@unique([actividad_id, mes])
@@ -6892,6 +6893,25 @@ model plan_trabajo_asignacion {
 
   @@unique([ocurrencia_id, destinatario_tipo, destinatario_id, rol])
   @@index([destinatario_tipo, destinatario_id])
+}
+
+/// Progreso propio de cada persona; varios roles no multiplican su cuota.
+model plan_trabajo_participacion {
+  id                String    @id @default(uuid()) @db.Uuid
+  ocurrencia_id     String    @db.Uuid
+  destinatario_tipo String    @db.VarChar(15)
+  destinatario_id   String    @db.Uuid
+  cuota             Int       @default(1)
+  form_assignment_id String?  @db.Uuid
+  completada_at     DateTime? @db.Timestamptz(6)
+  activa            Boolean   @default(true)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  ocurrencia plan_trabajo_ocurrencia @relation(fields: [ocurrencia_id], references: [id], onDelete: Cascade)
+
+  @@unique([ocurrencia_id, destinatario_tipo, destinatario_id])
+  @@index([destinatario_tipo, destinatario_id, activa])
 }
 
 

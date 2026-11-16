@@ -2,12 +2,15 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { requirePermission } from "../../middlewares/permissions.middleware";
 import { prisma } from "../../config/prisma";
+import { completarParticipacion, configurarParticipacion, misParticipaciones, participacionesOcurrencia, progresoParticipacion } from "./plan-trabajo-participacion.service";
 import {
   activarPlan,
   actualizarBandasIndicador,
   asignarConductores,
+  asignarDestinatarios,
   clonarPlan,
   configurarCargo,
+  configurarCargos,
   obtenerGestion,
   obtenerIndicadores,
   obtenerPlan,
@@ -42,6 +45,50 @@ export async function planTrabajoRoutes(app: FastifyInstance) {
   app.addHook("onRequest", authMiddleware);
   const leer = requirePermission("acciones-correctivas", "read");
   const escribir = requirePermission("acciones-correctivas", "full");
+
+  app.get("/plan-trabajo/mis-actividades", async (request, reply) => {
+    try {
+      return reply.send({ success: true, data: await misParticipaciones({ tipo: "ADMIN", id: (request as any).user.id }) });
+    } catch (error) { return responderError(reply, error); }
+  });
+
+  app.get("/plan-trabajo/ocurrencias/:id/participaciones", { preHandler: leer },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      try { return reply.send({ success: true, data: await participacionesOcurrencia(request.params.id) }); }
+      catch (error) { return responderError(reply, error); }
+    });
+
+  app.patch("/plan-trabajo/participaciones/:id", { preHandler: escribir },
+    async (request: FastifyRequest<{ Params: { id: string }; Body: { cuota: number; form_assignment_id?: string | null } }>, reply) => {
+      try {
+        return reply.send({ success: true, data: await configurarParticipacion(
+          request.params.id, Number(request.body.cuota), request.body.form_assignment_id ?? null
+        ) });
+      } catch (error) { return responderError(reply, error); }
+    });
+
+  app.post("/plan-trabajo/participaciones/:id/completar",
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      try {
+        return reply.send({ success: true, data: await completarParticipacion(
+          request.params.id, { tipo: "ADMIN", id: (request as any).user.id }
+        ) });
+      } catch (error) { return responderError(reply, error); }
+    });
+
+  app.post("/plan-trabajo/participaciones/:id/evidencias",
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      try {
+        const actorId = (request as any).user.id;
+        const participacion = await progresoParticipacion(request.params.id);
+        if (participacion.destinatario_tipo !== "ADMIN" || participacion.destinatario_id !== actorId)
+          throw new PlanTrabajoError("No tienes asignada esta tarea.", 403);
+        const archivo = await cargarArchivo(request);
+        const data = await subirEvidencia({ objetivoTipo: "OCURRENCIA", objetivoId: participacion.ocurrencia_id,
+          actorTipo: "ADMIN", actorId, ...archivo });
+        return reply.status(201).send({ success: true, data });
+      } catch (error) { return responderError(reply, error); }
+    });
 
   app.get("/plan-trabajo", { preHandler: leer }, async (_request, reply) => {
     try {
@@ -168,6 +215,34 @@ export async function planTrabajoRoutes(app: FastifyInstance) {
     },
   );
 
+  app.put(
+    "/plan-trabajo/:planId/cargos/lote",
+    { preHandler: escribir },
+    async (
+      request: FastifyRequest<{
+        Params: { planId: string };
+        Body: {
+          configuraciones: Array<{
+            cargo: string;
+            area: string | null;
+            asignaciones: Array<{ usuario_id: string; rol: string }>;
+          }>;
+        };
+      }>,
+      reply,
+    ) => {
+      try {
+        const configuraciones = request.body?.configuraciones;
+        if (!Array.isArray(configuraciones))
+          throw new PlanTrabajoError("La lista de cargos no es válida.");
+        await configurarCargos(request.params.planId, configuraciones);
+        return reply.send({ success: true });
+      } catch (error) {
+        return responderError(reply, error);
+      }
+    },
+  );
+
   app.post(
     "/plan-trabajo/:planId/activar",
     { preHandler: escribir },
@@ -195,15 +270,43 @@ export async function planTrabajoRoutes(app: FastifyInstance) {
       reply,
     ) => {
       try {
-        return reply
-          .status(201)
-          .send({
-            success: true,
-            data: await clonarPlan(
-              request.params.planId,
-              Number(request.body.anio),
-            ),
-          });
+        return reply.status(201).send({
+          success: true,
+          data: await clonarPlan(
+            request.params.planId,
+            Number(request.body.anio),
+          ),
+        });
+      } catch (error) {
+        return responderError(reply, error);
+      }
+    },
+  );
+
+  app.put(
+    "/plan-trabajo/ocurrencias/:id/asignaciones",
+    { preHandler: escribir },
+    async (
+      request: FastifyRequest<{
+        Params: { id: string };
+        Body: {
+          asignaciones?: Array<{
+            destinatario_tipo: string;
+            destinatario_id: string;
+            rol: string;
+          }>;
+        };
+      }>,
+      reply,
+    ) => {
+      try {
+        const entradas = request.body?.asignaciones;
+        if (!Array.isArray(entradas))
+          throw new PlanTrabajoError("Indica las personas asignadas.");
+        return reply.send({
+          success: true,
+          data: await asignarDestinatarios(request.params.id, entradas),
+        });
       } catch (error) {
         return responderError(reply, error);
       }

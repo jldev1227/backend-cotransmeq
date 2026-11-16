@@ -73,11 +73,32 @@ function preguntaParaPdf(p: any) {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function esFechaISO(fecha?: string): fecha is string {
+  if (!fecha || !FECHA_ISO.test(fecha)) return false;
+  const dia = new Date(`${fecha}T00:00:00.000Z`);
+  return Number.isFinite(dia.getTime()) && dia.toISOString().slice(0, 10) === fecha;
+}
+
+/** Las fechas del filtro representan días locales de Colombia (UTC-5). */
+function inicioDiaBogota(fecha: string): Date {
+  return new Date(`${fecha}T00:00:00.000-05:00`);
+}
+
+function inicioDiaSiguienteBogota(fecha: string): Date {
+  const dia = new Date(`${fecha}T00:00:00.000Z`);
+  dia.setUTCDate(dia.getUTCDate() + 1);
+  return inicioDiaBogota(dia.toISOString().slice(0, 10));
+}
+
 export const EvaluacionesController = {
   async list(req: FastifyRequest<{ Querystring: {
       page?: string;
       limit?: string;
       search?: string;
+      desde?: string;
+      hasta?: string;
       sortBy?: 'titulo' | 'created_at';
       sortOrder?: 'asc' | 'desc';
     } }>, res: FastifyReply) {
@@ -100,6 +121,13 @@ export const EvaluacionesController = {
     const sortOrder = req.query.sortOrder === 'asc' ? 'asc' : 'desc';
 
     const where: any = { deleted_at: null };
+
+    // Los límites son días inclusivos en la interfaz; `lt` al inicio del día
+    // siguiente incluye también los registros con precisión de microsegundos.
+    const rangoCreacion: { gte?: Date; lt?: Date } = {};
+    if (esFechaISO(req.query.desde)) rangoCreacion.gte = inicioDiaBogota(req.query.desde);
+    if (esFechaISO(req.query.hasta)) rangoCreacion.lt = inicioDiaSiguienteBogota(req.query.hasta);
+    if (rangoCreacion.gte || rangoCreacion.lt) where.created_at = rangoCreacion;
 
     if (search) {
       where.OR = [

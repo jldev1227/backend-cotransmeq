@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma';
 import { avisarDesprendibleEquipo } from '../avisos-equipo/avisos-equipo.service';
+import { emitirAvisoConductor } from '../../sockets';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const MESES = [
@@ -121,6 +122,14 @@ export const NominaNotificacionesService = {
           cuerpo,
           datos,
         },
+      });
+      emitirAvisoConductor(conductor.id, {
+        id: inbox.id,
+        tipo: 'NOMINA_DISPONIBLE',
+        titulo,
+        cuerpo,
+        datos,
+        created_at: inbox.created_at.toISOString(),
       });
       /// El aviso web va solo al personal de Administración o Talento Humano
       /// que conserva acceso efectivo a Nómina; el inbox/push del conductor

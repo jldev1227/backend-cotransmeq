@@ -334,12 +334,17 @@ export async function opcionesFormulario() {
     listarCatalogo('CONVENIO'),
     listarCatalogo('ORIGEN_DESTINO'),
     prisma.vehiculos.findMany({
-      where: { deleted_at: null, oculto: false },
+      // Los extractos pueden necesitar vehículos ocultos (p. ej. unidades
+      // retiradas de la operación pero aún incluidas en contratos vigentes).
+      // Sí excluimos la papelera para no volver a vincular fichas borradas.
+      where: { deleted_at: null },
       select: { id: true, placa: true, modelo: true, marca: true, clase_vehiculo: true, numero_interno: true, tarjeta_operacion: true, empresa_afiliacion: true, estado: true },
       orderBy: { placa: 'asc' },
     }),
     prisma.conductores.findMany({
-      where: { deleted_at: null, oculto: false },
+      // Igual que los vehículos, las fichas ocultas siguen siendo seleccionables
+      // para emitir o corregir extractos históricos/vigentes.
+      where: { deleted_at: null },
       select: { id: true, nombre: true, apellido: true, numero_identificacion: true, vencimiento_licencia: true, licencia_conduccion: true, estado: true },
       orderBy: [{ nombre: 'asc' }, { apellido: 'asc' }],
     }),

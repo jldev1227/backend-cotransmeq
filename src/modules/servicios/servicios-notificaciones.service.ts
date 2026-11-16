@@ -12,8 +12,7 @@ import { enviarPushConductor } from '../conductor-portal/conductor-push.service'
  * es la garantía; el push, la inmediatez.
  *
  * Si no hay dispositivo registrado el aviso NO se pierde: queda
- * `SIN_DISPOSITIVO` y la app lo recoge en su siguiente ronda de
- * sincronización. Mirar `estado_push` y `error_push` es lo primero que hay que
+ * `SIN_DISPOSITIVO` y permanece en el historial de la app. Mirar `estado_push` y `error_push` es lo primero que hay que
  * hacer cuando alguien reporta que no le llegó nada.
  *
  * Todas las funciones son «mejor esfuerzo»: un fallo aquí se registra y se

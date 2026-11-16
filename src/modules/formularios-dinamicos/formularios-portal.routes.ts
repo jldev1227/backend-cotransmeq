@@ -26,6 +26,7 @@ import {
   listarPapeleraPortalSchema,
 } from './formularios-dinamicos.schema'
 import { tokenPortalRegistrado } from '../conductor-portal/portal-token.service'
+import { sincronizarProgresoFormulario } from '../plan-trabajo/plan-trabajo-participacion.service'
 
 /** Prefijo de todas las rutas de este módulo. Vive a nivel de archivo porque el
  *  middleware de autenticación —declarado fuera de la función— necesita
@@ -529,6 +530,9 @@ export async function formulariosPortalRoutes(app: FastifyInstance) {
         { ...contextoDePeticion(request), clientSubmissionId: input.clientSubmissionId },
         () => portal.enviarSubmission(actorDe(request), input),
       )
+      await sincronizarProgresoFormulario(resultado.assignmentId, {
+        tipo: 'CONDUCTOR', id: resultado.actorId,
+      })
 
       registrarEvento(
         resultado.idempotentReplay ? 'submission.idempotent-replay' : 'submission.accepted',

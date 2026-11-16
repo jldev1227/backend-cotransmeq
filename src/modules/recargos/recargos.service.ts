@@ -1162,20 +1162,26 @@ export const RecargosService = {
     // 2. Todo en una sola transacción interactiva
     const recargo = await prisma.$transaction(async (tx) => {
 
-      // El número se valida bajo un advisory lock: dos envíos que conservaran
-      // una sugerencia vieja no pueden insertar el mismo consecutivo a la vez.
+      // Una planilla se identifica por conductor, número y período. El mismo
+      // número se puede reutilizar en otro período o para otro conductor.
+      // El advisory lock conserva la unicidad de esa combinación en paralelo.
       const numeroPlanilla = data.numero_planilla?.trim();
       if (numeroPlanilla) {
-        const claveNumero = `recargos-planilla-numero:${numeroPlanilla.toLowerCase()}`;
+        const numeroNormalizado = numeroPlanilla.toLowerCase();
+        const claveNumero = `recargos-planilla:${data.conductor_id}:${data.mes}:${data.año}:${numeroNormalizado}`;
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${claveNumero}, 0::bigint))::text AS locked`;
         const duplicado = await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id
           FROM recargos_planillas
-          WHERE lower(btrim(numero_planilla)) = ${numeroPlanilla.toLowerCase()}
+          WHERE conductor_id = ${data.conductor_id}::uuid
+            AND mes = ${data.mes}
+            AND "año" = ${data.año}
+            AND deleted_at IS NULL
+            AND lower(btrim(numero_planilla)) = ${numeroNormalizado}
           LIMIT 1
         `;
         if (duplicado.length) {
-          throw new Error(`El número de planilla ${numeroPlanilla} ya está en uso. Regenerá el consecutivo.`);
+          throw new Error(`Ya existe la planilla ${numeroPlanilla} para este conductor y período.`);
         }
       }
 

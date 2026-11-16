@@ -1,5 +1,7 @@
 # Portal del conductor
 
+Las rutas `/conductor-portal/mis-actividades` devuelven una tarea por participación individual. Su `id` identifica la participación; `ocurrencia_id` conserva el enlace al mes del plan. `realizados/cuota` mide las ventanas cumplidas por ese conductor. Los POST `/:id/evidencias` y `/:id/completar` actúan únicamente sobre su participación autenticada; el cierre de otra persona no modifica su avance.
+
 `/api/conductor-portal` · código en [`src/modules/conductor-portal/`](../../src/modules/conductor-portal/) · sin permiso de módulo: [token del portal](../autenticacion.md#portal-del-conductor) (`tipo: 'conductor_portal'`)
 
 API del portal del conductor: la web pública (`/public/portal`) y las apps
@@ -137,6 +139,7 @@ Todo se filtra por el conductor del token en el propio controlador o servicio:
 | GET | `/api/conductor-portal/dias-laborados/clientes` | portal | Catálogo de clientes para el formulario |
 | GET | `/api/conductor-portal/dias-laborados/vehiculos` | portal | Catálogo de vehículos para el formulario |
 | GET | `/api/conductor-portal/notificaciones` | portal | Avisos sin leer (máx. 20) |
+| GET | `/api/conductor-portal/notificaciones/historial` | portal | Historial paginado de notificaciones |
 | POST | `/api/conductor-portal/notificaciones/:id/leida` | portal | Marca un aviso como leído |
 | GET | `/api/conductor-portal/mis-actividades` | portal | Lista actividades HSEQ/PESV asignadas al conductor autenticado |
 | POST | `/api/conductor-portal/mis-actividades/:id/completar` | conductor asignado | Cierra una ocurrencia; requiere evidencia si fue marcada obligatoria |
@@ -504,11 +507,25 @@ ordenados por nombre y por placa. `{ success, data }`.
 ### `GET /api/conductor-portal/notificaciones`
 
 Inbox de la app: solo los avisos **sin leer**, del más antiguo al más reciente y
-como mucho 20 (la app lo consulta en cada ronda de sincronización, cada minuto).
+como mucho 20 (para clientes anteriores).
 `{ success, data: [ { id, tipo, titulo, cuerpo, datos, created_at } ] }`. Los
 escriben servicios (`SERVICIO_ASIGNADO`, `SERVICIO_DESASIGNADO`,
 `SERVICIO_CANCELADO`, `SERVICIO_ELIMINADO`), viáticos (`VIATICO_*`) y nómina
 (`NOMINA_DISPONIBLE`).
+
+### `GET /api/conductor-portal/notificaciones/historial`
+
+Historial del conductor autenticado, ordenado de la más reciente a la más
+antigua. Acepta `page` (por defecto 1), `limit` (por defecto 20, máximo 50) y
+`estado=pendiente|enviada`. Sin `estado`, incluye todos los estados de entrega.
+Devuelve `{ success, data: { items, total, page, limit, totalPages } }`; cada
+aviso incluye `estado_push`, `enviada_at` y `leida_at` además de su contenido.
+La consulta ligera anterior conserva su respuesta y su límite de 20.
+
+Mientras el conductor tiene la app abierta, el socket autenticado se une a su
+sala privada al declarar presencia móvil. Un aviso recién creado emite el evento
+conductor-portal:notificacion con contenido, created_at y emitted_at. Solo ese
+evento puede abrir un modal; el historial conserva también los avisos antiguos.
 
 ### `POST /api/conductor-portal/notificaciones/:id/leida`
 

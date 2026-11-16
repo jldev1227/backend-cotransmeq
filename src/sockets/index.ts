@@ -117,9 +117,13 @@ export function initSockets(server: HttpServer) {
         : typeof socket.data.portalConductorId === 'string'
           ? { kind: 'conductor' as const, id: socket.data.portalConductorId, platform: mobilePlatform }
           : null
+      if (identidad?.kind === 'conductor') socket.join('conductor-portal-' + identidad.id)
       if (identidad && await registrarPresenciaMovil(socket.id, identidad)) io!.emit(EVENTOS_PRESENCIA_MOVIL.cambio)
     })
     socket.on(EVENTOS_PRESENCIA_MOVIL.salir, () => {
+      if (typeof socket.data.portalConductorId === 'string') {
+        socket.leave('conductor-portal-' + socket.data.portalConductorId)
+      }
       if (retirarPresenciaMovil(socket.id)) io!.emit(EVENTOS_PRESENCIA_MOVIL.cambio)
     })
 
@@ -271,6 +275,17 @@ export function getIo() {
 
 /** Alias for getIo to maintain compatibility with legacy code */
 export const getIO = getIo;
+
+/** Entrega solo al conductor conectado en primer plano; el historial vive en la base. */
+export function emitirAvisoConductor(
+  conductorId: string,
+  aviso: { id: string; tipo: string; titulo: string; cuerpo: string; datos: Record<string, unknown>; created_at: string }
+) {
+  io?.to('conductor-portal-' + conductorId).emit('conductor-portal:notificacion', {
+    ...aviso,
+    emitted_at: new Date().toISOString()
+  })
+}
 
 /** Emit an event to a specific user's socket(s) */
 export function emitToUser(userId: string, event: string, data: any) {

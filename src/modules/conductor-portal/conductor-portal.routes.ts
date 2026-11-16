@@ -73,6 +73,7 @@ import {
   listarActividadesConductor,
   subirEvidencia
 } from '../plan-trabajo/plan-trabajo.service'
+import { completarParticipacion, participacionesDisponibles, progresoParticipacion } from '../plan-trabajo/plan-trabajo-participacion.service'
 
 /**
  * `tipo` exclusivo del token con el que Puppeteer abre la página que genera el
@@ -2076,12 +2077,16 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
-        const asignacion = await prisma.plan_trabajo_asignacion.findFirst({
-          where: { ocurrencia_id: request.params.id, destinatario_tipo: 'CONDUCTOR', destinatario_id: conductor.id },
-          select: { id: true }
-        })
-        if (!asignacion) return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
-        const data = await actualizarOcurrenciaPlan({ id: request.params.id, estado: 'COMPLETADA', actorTipo: 'CONDUCTOR', actorId: conductor.id })
+        if (!await participacionesDisponibles()) {
+          const asignacion = await prisma.plan_trabajo_asignacion.findFirst({
+            where: { ocurrencia_id: request.params.id, destinatario_tipo: 'CONDUCTOR', destinatario_id: conductor.id },
+            select: { id: true }
+          })
+          if (!asignacion) return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
+          const data = await actualizarOcurrenciaPlan({ id: request.params.id, estado: 'COMPLETADA', actorTipo: 'CONDUCTOR', actorId: conductor.id })
+          return reply.send({ success: true, data })
+        }
+        const data = await completarParticipacion(request.params.id, { tipo: 'CONDUCTOR', id: conductor.id })
         return reply.send({ success: true, data })
       } catch (error: any) {
         return reply.status(error.statusCode || 500).send({ success: false, message: error.message || 'No se pudo completar la actividad.' })
@@ -2093,15 +2098,21 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const conductor = (request as any).conductorPortal
-        const asignacion = await prisma.plan_trabajo_asignacion.findFirst({
-          where: { ocurrencia_id: request.params.id, destinatario_tipo: 'CONDUCTOR', destinatario_id: conductor.id },
-          select: { id: true }
-        })
-        if (!asignacion) return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
+        const individual = await participacionesDisponibles()
+        const participacion = individual ? await progresoParticipacion(request.params.id) : null
+        if (!individual) {
+          const asignacion = await prisma.plan_trabajo_asignacion.findFirst({
+            where: { ocurrencia_id: request.params.id, destinatario_tipo: 'CONDUCTOR', destinatario_id: conductor.id },
+            select: { id: true }
+          })
+          if (!asignacion) return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
+        }
+        if (participacion && (participacion.destinatario_tipo !== 'CONDUCTOR' || participacion.destinatario_id !== conductor.id))
+          return reply.status(404).send({ success: false, message: 'No tienes asignada esta actividad.' })
         const archivo = await request.file({ limits: { files: 1, fileSize: 8 * 1024 * 1024 } })
         if (!archivo) return reply.status(400).send({ success: false, message: 'Adjunta una imagen o documento.' })
         const data = await subirEvidencia({
-          objetivoTipo: 'OCURRENCIA', objetivoId: request.params.id, actorTipo: 'CONDUCTOR', actorId: conductor.id,
+          objetivoTipo: 'OCURRENCIA', objetivoId: participacion?.ocurrencia_id ?? request.params.id, actorTipo: 'CONDUCTOR', actorId: conductor.id,
           nombre: archivo.filename, mime: archivo.mimetype, buffer: await archivo.toBuffer()
         })
         return reply.status(201).send({ success: true, data })
@@ -2157,6 +2168,75 @@ export async function conductorPortalRoutes(app: FastifyInstance) {
         })
       } catch (err: any) {
         return reply.status(500).send({ success: false, message: err.message || 'Error al consultar avisos' })
+      }
+    })
+
+    protectedApp.get('/conductor-portal/notificaciones/historial', {
+      schema: {
+        description: 'Historial paginado de notificaciones del conductor',
+        tags: ['conductor-portal'],
+        querystring: {
+          type: 'object',
+          properties: {
+            page: { type: 'integer', minimum: 1, default: 1 },
+            limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+            estado: { type: 'string', enum: ['pendiente', 'enviada'] }
+          }
+        }
+      }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const conductor = (request as any).conductorPortal
+        const query = request.query as { page?: string; limit?: string; estado?: string }
+        const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1)
+        const limit = Math.min(50, Math.max(1, Number.parseInt(query.limit ?? '20', 10) || 20))
+        const where = {
+          conductor_id: conductor.id,
+          ...(query.estado === 'pendiente' ? { estado_push: 'PENDIENTE' } : {}),
+          ...(query.estado === 'enviada' ? { estado_push: 'ENVIADA' } : {})
+        }
+        const [total, filas] = await Promise.all([
+          prisma.conductor_notification.count({ where }),
+          prisma.conductor_notification.findMany({
+            where,
+            orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+            skip: (page - 1) * limit,
+            take: limit,
+            select: {
+              id: true,
+              tipo: true,
+              titulo: true,
+              cuerpo: true,
+              datos: true,
+              estado_push: true,
+              leida_at: true,
+              enviada_at: true,
+              created_at: true
+            }
+          })
+        ])
+        return reply.send({
+          success: true,
+          data: {
+            items: filas.map((fila) => ({
+              id: fila.id,
+              tipo: fila.tipo,
+              titulo: fila.titulo,
+              cuerpo: fila.cuerpo,
+              datos: fila.datos ?? {},
+              estado_push: fila.estado_push,
+              leida_at: fila.leida_at,
+              enviada_at: fila.enviada_at,
+              created_at: fila.created_at
+            })),
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
+          }
+        })
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message || 'Error al consultar el historial de avisos' })
       }
     })
 

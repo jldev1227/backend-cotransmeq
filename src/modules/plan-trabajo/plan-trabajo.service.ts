@@ -4,6 +4,7 @@ import { getS3SignedUrl, uploadToS3 } from "../../config/aws";
 import { enviarPushConductor } from "../conductor-portal/conductor-push.service";
 import { emitNotificacion } from "../../sockets";
 import { AREAS, AREA_LABELS, esAreaValida } from "../../config/permissions";
+import { misParticipaciones, participacionesDisponibles, participacionesOcurrencia, sincronizarParticipaciones, sincronizarParticipacionesPlan } from "./plan-trabajo-participacion.service";
 
 const ESTADOS_ABIERTOS = ["PENDIENTE"];
 const ROLES = ["RESPONSABLE", "COLABORADOR", "SUPLENTE"] as const;
@@ -78,11 +79,11 @@ export async function obtenerGestion(planId: string) {
   const [usuarios, conductores, responsablesArea] = await Promise.all([
     prisma.usuarios.findMany({
       where: { activo: true },
-      select: { id: true, nombre: true, correo: true, area: true },
+      select: { id: true, nombre: true, correo: true, cargo: true, area: true },
       orderBy: { nombre: "asc" },
     }),
     prisma.conductores.findMany({
-      where: { estado: "activo", oculto: false, deleted_at: null },
+      where: { estado: { in: ["activo", "disponible", "programado", "servicio", "descanso"] }, oculto: false, deleted_at: null },
       select: {
         id: true,
         nombre: true,
@@ -139,7 +140,12 @@ export async function obtenerGestion(planId: string) {
     },
     orderBy: { created_at: "desc" },
   });
-  return { plan, cargos, areas, usuarios, conductores, evidencias };
+  const participaciones = await participacionesDisponibles()
+    ? await prisma.plan_trabajo_participacion.findMany({
+        where: { ocurrencia_id: { in: plan.actividades.flatMap((a) => a.ocurrencias.map((o) => o.id)) }, activa: true }
+      })
+    : [];
+  return { plan, cargos, areas, usuarios, conductores, evidencias, participaciones };
 }
 
 export async function configurarCargo(
@@ -148,124 +154,240 @@ export async function configurarCargo(
   area: string | null,
   entradas: Array<{ usuario_id: string; rol: string }>,
 ) {
+  await configurarCargos(planId, [{ cargo, area, asignaciones: entradas }]);
+}
+
+export async function configurarCargos(
+  planId: string,
+  configuraciones: Array<{
+    cargo: string;
+    area: string | null;
+    asignaciones: Array<{ usuario_id: string; rol: string }>;
+  }>,
+) {
   const plan = await obtenerPlan(planId);
-  if (!cargo.trim())
-    throw new PlanTrabajoError("Indica el cargo responsable del Excel.");
-  if (plan.estado === "ACTIVO" && !area) {
+  if (!Array.isArray(configuraciones) || !configuraciones.length)
+    throw new PlanTrabajoError("No hay cambios de cargos para guardar.");
+  if (
+    configuraciones.some(
+      (configuracion) =>
+        !configuracion ||
+        typeof configuracion.cargo !== "string" ||
+        !Array.isArray(configuracion.asignaciones) ||
+        configuracion.asignaciones.some(
+          (entrada) =>
+            !entrada ||
+            typeof entrada.usuario_id !== "string" ||
+            typeof entrada.rol !== "string",
+        ),
+    )
+  ) {
+    throw new PlanTrabajoError(
+      "La configuración de uno o más cargos no es válida.",
+    );
+  }
+  const normalizadas = configuraciones.map((configuracion) => ({
+    ...configuracion,
+    cargo: configuracion.cargo.trim(),
+  }));
+  const cargos = normalizadas.map((configuracion) => configuracion.cargo);
+  if (cargos.some((cargo) => !cargo))
+		throw new PlanTrabajoError("Indica el cargo o grupo de cargos que aparece en el plan.");
+  if (new Set(cargos).size !== cargos.length)
+    throw new PlanTrabajoError(
+      "Cada cargo solo puede aparecer una vez en el lote.",
+    );
+  if (normalizadas.some(({ area }) => plan.estado === "ACTIVO" && !area)) {
     throw new PlanTrabajoError(
       "Un plan activo debe conservar un área para cada cargo relacionado.",
     );
   }
-  if (area !== null && !esAreaValida(area))
-    throw new PlanTrabajoError("Selecciona un área válida para este cargo.");
-  if (entradas.some((e) => !["COLABORADOR", "SUPLENTE"].includes(e.rol))) {
+  if (normalizadas.some(({ area }) => area !== null && !esAreaValida(area)))
+    throw new PlanTrabajoError("Selecciona un área válida para cada cargo.");
+  if (
+    normalizadas.some(({ asignaciones }) =>
+      asignaciones.some(
+        (entrada) => !["COLABORADOR", "SUPLENTE"].includes(entrada.rol),
+      ),
+    )
+  ) {
     throw new PlanTrabajoError(
       "Solo puedes añadir colaboradores o suplentes al cargo.",
     );
   }
-  const ids = Array.from(new Set(entradas.map((e) => e.usuario_id)));
+  const actividadesPlan = await prisma.plan_trabajo_actividad.findMany({
+    where: { plan_id: plan.id, responsable_cargos: { in: cargos } },
+    select: { responsable_cargos: true },
+    distinct: ["responsable_cargos"],
+  });
+  const cargosValidos = new Set(
+    actividadesPlan.map((actividad) => actividad.responsable_cargos?.trim()),
+  );
+  if (cargos.some((cargo) => !cargosValidos.has(cargo)))
+    throw new PlanTrabajoError("Uno o más cargos no pertenecen a este plan.");
+
+  const todasLasAsignaciones = normalizadas.flatMap((configuracion) =>
+    configuracion.asignaciones.map((entrada) => ({
+      ...entrada,
+      cargo: configuracion.cargo,
+    })),
+  );
+  const ids = Array.from(
+    new Set(todasLasAsignaciones.map((entrada) => entrada.usuario_id)),
+  );
   const usuarios = await prisma.usuarios.findMany({
     where: { id: { in: ids }, activo: true },
     select: { id: true },
   });
   if (usuarios.length !== ids.length)
     throw new PlanTrabajoError("Uno o más usuarios ya no están activos.");
-  const responsableArea = area
-    ? await prisma.usuario_area_responsable.findUnique({
-        where: { area },
-        include: {
-          usuario: { select: { id: true, activo: true, area: true } },
-        },
-      })
-    : null;
+
+  const areas = Array.from(
+    new Set(
+      normalizadas
+        .map(({ area }) => area)
+        .filter((area): area is string => Boolean(area)),
+    ),
+  );
+  const responsablesArea = await prisma.usuario_area_responsable.findMany({
+    where: { area: { in: areas } },
+    include: {
+      usuario: { select: { id: true, activo: true, area: true } },
+    },
+  });
+  const responsablePorArea = new Map(
+    responsablesArea.map((responsable) => [responsable.area, responsable]),
+  );
   if (
-    area &&
     plan.estado === "ACTIVO" &&
-    (!responsableArea?.usuario.activo ||
-      !responsableArea.usuario.area.includes(area))
+    normalizadas.some(({ area }) => {
+      if (!area) return false;
+      const responsable = responsablePorArea.get(area);
+      return (
+        !responsable?.usuario.activo || !responsable.usuario.area.includes(area)
+      );
+    })
   ) {
     throw new PlanTrabajoError(
-      "Asigna primero un responsable activo a esta área desde Personal.",
+      "Asigna primero un responsable activo a cada área desde Personal.",
     );
   }
+
+  const asignacionesPorCargo = new Map(
+    normalizadas.map((configuracion) => [
+      configuracion.cargo,
+      configuracion.asignaciones,
+    ]),
+  );
+  const areaPorCargo = new Map(
+    normalizadas.map((configuracion) => [
+      configuracion.cargo,
+      configuracion.area,
+    ]),
+  );
   await prisma.$transaction(async (tx) => {
     await tx.plan_trabajo_cargo_usuario.deleteMany({
-      where: { plan_id: plan.id, cargo },
+      where: { plan_id: plan.id, cargo: { in: cargos } },
     });
-    if (entradas.length) {
+    if (todasLasAsignaciones.length) {
       await tx.plan_trabajo_cargo_usuario.createMany({
-        data: entradas.map((e) => ({
+        data: todasLasAsignaciones.map((entrada) => ({
           plan_id: plan.id,
-          cargo,
-          usuario_id: e.usuario_id,
-          rol: e.rol,
+          cargo: entrada.cargo,
+          usuario_id: entrada.usuario_id,
+          rol: entrada.rol,
         })),
       });
     }
-    if (area) {
-      await tx.plan_trabajo_cargo_area.upsert({
-        where: { plan_id_cargo: { plan_id: plan.id, cargo } },
-        update: { area },
-        create: { plan_id: plan.id, cargo, area },
-      });
-    } else {
-      await tx.plan_trabajo_cargo_area.deleteMany({
-        where: { plan_id: plan.id, cargo },
-      });
+    for (const configuracion of normalizadas) {
+      if (configuracion.area) {
+        await tx.plan_trabajo_cargo_area.upsert({
+          where: {
+            plan_id_cargo: { plan_id: plan.id, cargo: configuracion.cargo },
+          },
+          update: { area: configuracion.area },
+          create: {
+            plan_id: plan.id,
+            cargo: configuracion.cargo,
+            area: configuracion.area,
+          },
+        });
+      } else {
+        await tx.plan_trabajo_cargo_area.deleteMany({
+          where: { plan_id: plan.id, cargo: configuracion.cargo },
+        });
+      }
     }
+
     const actividades = await tx.plan_trabajo_actividad.findMany({
-      where: { plan_id: plan.id, responsable_cargos: cargo },
-      select: { id: true },
+      where: { plan_id: plan.id, responsable_cargos: { in: cargos } },
+      select: { id: true, responsable_cargos: true },
     });
+    const cargoPorActividad = new Map(
+      actividades.map((actividad) => [
+        actividad.id,
+        actividad.responsable_cargos?.trim() ?? "",
+      ]),
+    );
     const ocurrencias = await tx.plan_trabajo_ocurrencia.findMany({
       where: {
-        actividad_id: { in: actividades.map((a) => a.id) },
+        actividad_id: { in: actividades.map((actividad) => actividad.id) },
         estado: { in: ESTADOS_ABIERTOS },
       },
-      select: { id: true },
+      select: { id: true, actividad_id: true },
     });
-    await tx.plan_trabajo_asignacion.deleteMany({
-      where: {
-        origen_cargo: cargo,
-        ocurrencia_id: { in: ocurrencias.map((o) => o.id) },
-      },
-    });
-    const nuevas = ocurrencias.flatMap((o) => [
-      ...(area && responsableArea
-        ? [
-            {
-              ocurrencia_id: o.id,
-              destinatario_tipo: "ADMIN",
-              destinatario_id: responsableArea.usuario_id,
-              rol: "RESPONSABLE",
-              origen_cargo: cargo,
-            },
-          ]
-        : []),
-      ...entradas.map((e) => ({
-        ocurrencia_id: o.id,
-        destinatario_tipo: "ADMIN",
-        destinatario_id: e.usuario_id,
-        rol: e.rol,
-        origen_cargo: cargo,
-      })),
-    ]);
-    if (nuevas.length)
-      await tx.plan_trabajo_asignacion.createMany({
-        data: nuevas,
-        skipDuplicates: true,
+    const idsOcurrencias = ocurrencias.map((ocurrencia) => ocurrencia.id);
+    if (idsOcurrencias.length) {
+      await tx.plan_trabajo_asignacion.deleteMany({
+        where: {
+          origen_cargo: { in: cargos },
+          ocurrencia_id: { in: idsOcurrencias },
+        },
       });
-    if (plan.estado === "ACTIVO") {
+      const nuevas = ocurrencias.flatMap((ocurrencia) => {
+        const cargo = cargoPorActividad.get(ocurrencia.actividad_id) ?? "";
+        const area = areaPorCargo.get(cargo);
+        const responsableArea = area ? responsablePorArea.get(area) : null;
+        const asignaciones = asignacionesPorCargo.get(cargo) ?? [];
+        return [
+          ...(area && responsableArea
+            ? [
+                {
+                  ocurrencia_id: ocurrencia.id,
+                  destinatario_tipo: "ADMIN",
+                  destinatario_id: responsableArea.usuario_id,
+                  rol: "RESPONSABLE",
+                  origen_cargo: cargo,
+                },
+              ]
+            : []),
+          ...asignaciones.map((entrada) => ({
+            ocurrencia_id: ocurrencia.id,
+            destinatario_tipo: "ADMIN",
+            destinatario_id: entrada.usuario_id,
+            rol: entrada.rol,
+            origen_cargo: cargo,
+          })),
+        ];
+      });
+      if (nuevas.length)
+        await tx.plan_trabajo_asignacion.createMany({
+          data: nuevas,
+          skipDuplicates: true,
+        });
+    }
+    if (plan.estado === "ACTIVO" && idsOcurrencias.length) {
       const ahora = new Date();
       await tx.plan_trabajo_ocurrencia.updateMany({
         where: {
-          id: { in: ocurrencias.map((o) => o.id) },
+          id: { in: idsOcurrencias },
           fecha_vencimiento: { lt: ahora },
         },
         data: { recordatorios_desde: ahora },
       });
     }
   });
+  await sincronizarParticipacionesPlan(plan.id);
 }
 
 export async function activarPlan(planId: string, usuarioId: string) {
@@ -408,6 +530,7 @@ export async function activarPlan(planId: string, usuarioId: string) {
       },
     });
   });
+  await sincronizarParticipacionesPlan(plan.id);
   return obtenerPlan(plan.id);
 }
 
@@ -434,7 +557,7 @@ export async function asignarConductores(
   const conductores = await prisma.conductores.findMany({
     where: {
       id: { in: ids },
-      estado: "activo",
+      estado: { in: ["activo", "disponible", "programado", "servicio", "descanso"] },
       oculto: false,
       deleted_at: null,
     },
@@ -475,6 +598,7 @@ export async function asignarConductores(
       !conductoresAnteriores.has(c.id) &&
       nuevasAsignaciones.some((e) => e.conductor_id === c.id),
   );
+  await sincronizarParticipaciones(ocurrencia.id);
   for (const conductor of nuevos) {
     const notificacion = await prisma.conductor_notification.create({
       data: {
@@ -507,6 +631,194 @@ export async function asignarConductores(
   };
 }
 
+export async function asignarDestinatarios(
+  ocurrenciaId: string,
+  entradas: Array<{
+    destinatario_tipo: string;
+    destinatario_id: string;
+    rol: string;
+  }>,
+) {
+  const ocurrencia = await prisma.plan_trabajo_ocurrencia.findUnique({
+    where: { id: ocurrenciaId },
+    include: { actividad: { include: { plan: true } } },
+  });
+  if (!ocurrencia)
+    throw new PlanTrabajoError("No se encontró la ocurrencia.", 404);
+  if (
+    entradas.some(
+      (entrada) =>
+        !entrada ||
+        !["ADMIN", "CONDUCTOR"].includes(entrada.destinatario_tipo) ||
+        !ROLES.includes(entrada.rol as any) ||
+        typeof entrada.destinatario_id !== "string" ||
+        !entrada.destinatario_id,
+    )
+  )
+    throw new PlanTrabajoError("Una o más asignaciones no son válidas.");
+
+  const asignaciones = Array.from(
+    new Map(
+      entradas.map((entrada) => [
+        `${entrada.destinatario_tipo}:${entrada.destinatario_id}:${entrada.rol}`,
+        entrada,
+      ]),
+    ).values(),
+  );
+  const idsAdministrativos = Array.from(
+    new Set(
+      asignaciones
+        .filter((entrada) => entrada.destinatario_tipo === "ADMIN")
+        .map((entrada) => entrada.destinatario_id),
+    ),
+  );
+  const idsConductores = Array.from(
+    new Set(
+      asignaciones
+        .filter((entrada) => entrada.destinatario_tipo === "CONDUCTOR")
+        .map((entrada) => entrada.destinatario_id),
+    ),
+  );
+  const [usuarios, conductores, anteriores] = await Promise.all([
+    idsAdministrativos.length
+      ? prisma.usuarios.findMany({
+          where: { id: { in: idsAdministrativos }, activo: true },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    idsConductores.length
+      ? prisma.conductores.findMany({
+          where: {
+            id: { in: idsConductores },
+            estado: { in: ["activo", "disponible", "programado", "servicio", "descanso"] },
+            oculto: false,
+            deleted_at: null,
+          },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    prisma.plan_trabajo_asignacion.findMany({
+      where: {
+        ocurrencia_id: ocurrencia.id,
+        destinatario_tipo: { in: ["ADMIN", "CONDUCTOR"] },
+      },
+      select: { destinatario_tipo: true, destinatario_id: true, origen_cargo: true },
+    }),
+  ]);
+  if (usuarios.length !== idsAdministrativos.length)
+    throw new PlanTrabajoError("Una o más personas del equipo ya no están activas.");
+  if (conductores.length !== idsConductores.length)
+    throw new PlanTrabajoError("Uno o más conductores ya no están activos.");
+
+  const existentesPorClave = new Map(
+    anteriores.map((entrada) => [
+      `${entrada.destinatario_tipo}:${entrada.destinatario_id}`,
+      entrada,
+    ]),
+  );
+  const destinatariosAnteriores = new Set(existentesPorClave.keys());
+  await prisma.$transaction(async (tx) => {
+    await tx.plan_trabajo_asignacion.deleteMany({
+      where: {
+        ocurrencia_id: ocurrencia.id,
+        destinatario_tipo: { in: ["ADMIN", "CONDUCTOR"] },
+      },
+    });
+    if (asignaciones.length) {
+      await tx.plan_trabajo_asignacion.createMany({
+        data: asignaciones.map((entrada) => ({
+          ocurrencia_id: ocurrencia.id,
+          destinatario_tipo: entrada.destinatario_tipo,
+          destinatario_id: entrada.destinatario_id,
+          rol: entrada.rol,
+          origen_cargo:
+            existentesPorClave.get(
+              `${entrada.destinatario_tipo}:${entrada.destinatario_id}`,
+            )?.origen_cargo ?? null,
+        })),
+      });
+    }
+  });
+
+  const nuevos = new Map<string, (typeof asignaciones)[number]>();
+  await sincronizarParticipaciones(ocurrencia.id);
+  for (const entrada of asignaciones) {
+    const clave = `${entrada.destinatario_tipo}:${entrada.destinatario_id}`;
+    if (!destinatariosAnteriores.has(clave)) nuevos.set(clave, entrada);
+  }
+  if (ocurrencia.estado !== "PENDIENTE") {
+    return {
+      asignados: idsAdministrativos.length + idsConductores.length,
+      asignaciones: asignaciones.length,
+      administradoresNotificados: 0,
+      conductoresNotificados: 0,
+      notificados: 0,
+    };
+  }
+  let administradoresNotificados = 0;
+  let conductoresNotificados = 0;
+  for (const entrada of nuevos.values()) {
+    const etiquetaRol =
+      entrada.rol === "RESPONSABLE"
+        ? "responsable"
+        : entrada.rol === "COLABORADOR"
+          ? "colaborador"
+          : "suplente";
+    if (entrada.destinatario_tipo === "ADMIN") {
+      const notificacion = await prisma.notificacion.create({
+        data: {
+          usuario_id: entrada.destinatario_id,
+          tipo: "ACTIVIDAD_PESV_ASIGNADA",
+          titulo: "Nueva tarea HSEQ/PESV asignada",
+          mensaje: `Se te asignó como ${etiquetaRol}: ${ocurrencia.actividad.actividad.slice(0, 420)}`,
+          referencia_id: ocurrencia.id,
+          referencia_tipo: `PLAN:${ocurrencia.actividad.plan_id}`,
+        },
+      });
+      emitNotificacion(notificacion);
+      const push = await import("../notificaciones/web-push.service").catch(
+        () => null,
+      );
+      await push?.enviarWebPush(notificacion).catch(() => undefined);
+      administradoresNotificados++;
+      continue;
+    }
+
+    const notificacion = await prisma.conductor_notification.create({
+      data: {
+        conductor_id: entrada.destinatario_id,
+        tipo: "PLAN_TRABAJO_ASIGNADA",
+        titulo: "Nueva actividad HSEQ/PESV",
+        cuerpo: ocurrencia.actividad.actividad.slice(0, 500),
+        datos: {
+          ruta: `/public/portal/actividades?ocurrenciaId=${ocurrencia.id}`,
+          route: `/public/portal/actividades?ocurrenciaId=${ocurrencia.id}`,
+          mobile_route: `/actividades?id=${ocurrencia.id}`,
+          ocurrencia_id: ocurrencia.id,
+          plan_id: ocurrencia.actividad.plan_id,
+        },
+      },
+    });
+    await enviarPushConductor({
+      conductorId: entrada.destinatario_id,
+      notificacionId: notificacion.id,
+      titulo: notificacion.titulo,
+      cuerpo: notificacion.cuerpo,
+      datos: notificacion.datos as Record<string, unknown>,
+      canal: "actividades",
+    });
+    conductoresNotificados++;
+  }
+
+  return {
+    asignados: idsAdministrativos.length + idsConductores.length,
+    asignaciones: asignaciones.length,
+    administradoresNotificados,
+    conductoresNotificados,
+    notificados: administradoresNotificados + conductoresNotificados,
+  };
+}
+
 export async function actualizarOcurrencia(params: {
   id: string;
   estado: "COMPLETADA" | "NO_APLICA";
@@ -522,6 +834,12 @@ export async function actualizarOcurrencia(params: {
     throw new PlanTrabajoError("No se encontró la ocurrencia.", 404);
   if (params.estado === "NO_APLICA" && !params.motivo?.trim())
     throw new PlanTrabajoError("Debes justificar por qué no aplica.");
+  if (params.estado === "COMPLETADA" &&
+    await participacionesDisponibles() &&
+    await prisma.plan_trabajo_participacion.count({
+    where: { ocurrencia_id: params.id, activa: true }
+  }))
+    throw new PlanTrabajoError("Cada persona asignada debe completar su propia cuota.");
   if (
     params.estado === "COMPLETADA" &&
     ocurrencia.actividad.requiere_evidencia
@@ -553,6 +871,42 @@ export async function actualizarOcurrencia(params: {
 }
 
 export async function listarActividadesConductor(conductorId: string) {
+  if (!await participacionesDisponibles())
+    return listarActividadesConductorAnterior(conductorId);
+  const participaciones = await misParticipaciones({ tipo: "CONDUCTOR", id: conductorId });
+  return Promise.all(participaciones.map(async (p) => {
+    const asignaciones = await prisma.plan_trabajo_asignacion.findMany({
+      where: { ocurrencia_id: p.ocurrencia_id, destinatario_tipo: "CONDUCTOR", destinatario_id: conductorId },
+      select: { rol: true }
+    });
+    const o = p.ocurrencia;
+    return {
+      id: p.id,
+      ocurrencia_id: p.ocurrencia_id,
+      mes: o.mes,
+      fecha_vencimiento: o.fecha_vencimiento,
+      estado: p.completada_at ? "COMPLETADA" :
+        o.fecha_vencimiento < new Date(new Date().toISOString().slice(0, 10)) ? "ATRASADA" : "PENDIENTE",
+      requiere_evidencia: o.actividad.requiere_evidencia,
+      actividad: o.actividad.actividad,
+      unidad_programa: o.actividad.unidad_programa,
+      alcance: o.actividad.alcance,
+      metodo_seguimiento: o.actividad.metodo_seguimiento,
+      plan: o.actividad.plan_id,
+      roles: [...new Set(asignaciones.map((a) => a.rol))],
+      cuota: p.cuota,
+      realizados: p.realizados,
+      ventanas: p.ventanas,
+      cortes: p.cortes,
+      form_assignment_id: p.form_assignment_id,
+      evidencias: p.evidencias.map((e) => ({ id: e.id, nombre_archivo: e.nombre_archivo, created_at: e.created_at }))
+    };
+  }));
+}
+
+
+
+async function listarActividadesConductorAnterior(conductorId: string) {
   const asignaciones = await prisma.plan_trabajo_asignacion.findMany({
     where: { destinatario_tipo: "CONDUCTOR", destinatario_id: conductorId },
     include: {
@@ -1058,6 +1412,7 @@ export function reglaDeRecordatorio(vence: Date, hoy: Date, activado: Date) {
 }
 
 export async function ejecutarRecordatoriosPlan() {
+  const individual = await participacionesDisponibles();
   const hoyTexto = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Bogota",
   }).format(new Date());
@@ -1072,23 +1427,33 @@ export async function ejecutarRecordatoriosPlan() {
       include: { actividad: true, asignaciones: true },
     });
     for (const ocurrencia of ocurrencias) {
-      const regla = reglaDeRecordatorio(
-        ocurrencia.fecha_vencimiento,
-        hoy,
-        ocurrencia.recordatorios_desde ?? plan.activado_at ?? plan.created_at,
-      );
-      if (!regla) continue;
-      for (const assignment of ocurrencia.asignaciones) {
-        const claimed = await enviarRecordatorio(
-          ocurrencia.id,
-          ocurrencia.actividad.plan_id,
-          assignment.destinatario_tipo,
-          assignment.destinatario_id,
-          regla,
-          ocurrencia.actividad.actividad,
-          ocurrencia.fecha_vencimiento,
-        );
-        if (claimed) enviados++;
+      if (!individual) {
+        const regla = reglaDeRecordatorio(ocurrencia.fecha_vencimiento, hoy,
+          ocurrencia.recordatorios_desde ?? plan.activado_at ?? plan.created_at);
+        if (!regla) continue;
+        for (const asignacion of ocurrencia.asignaciones) {
+          if (await enviarRecordatorio(ocurrencia.id, ocurrencia.actividad.plan_id,
+            asignacion.destinatario_tipo, asignacion.destinatario_id,
+            regla, ocurrencia.actividad.actividad, ocurrencia.fecha_vencimiento)) enviados++;
+        }
+        continue;
+      }
+      const participaciones = await participacionesOcurrencia(ocurrencia.id);
+      for (const participacion of participaciones) {
+        if (participacion.completada_at) continue;
+        for (const [indice, corte] of participacion.cortes.entries()) {
+          if (participacion.ventanas.includes(indice)) continue;
+          const base = reglaDeRecordatorio(corte, hoy,
+            ocurrencia.recordatorios_desde ?? plan.activado_at ?? plan.created_at);
+          if (!base) continue;
+          const regla = `${indice + 1}_${base}`;
+          const claimed = await enviarRecordatorio(
+            ocurrencia.id, ocurrencia.actividad.plan_id,
+            participacion.destinatario_tipo, participacion.destinatario_id,
+            regla, ocurrencia.actividad.actividad, corte,
+          );
+          if (claimed) enviados++;
+        }
       }
     }
   }
@@ -1114,7 +1479,7 @@ async function enviarRecordatorio(
     const conductor = await prisma.conductores.findFirst({
       where: {
         id: destinatarioId,
-        estado: "activo",
+        estado: { in: ["activo", "disponible", "programado", "servicio", "descanso"] },
         oculto: false,
         deleted_at: null,
       },
@@ -1122,7 +1487,7 @@ async function enviarRecordatorio(
     });
     if (!conductor) return false;
   }
-  const titulo = regla.startsWith("ATRASO_")
+  const titulo = regla.includes("ATRASO_")
     ? "Actividad HSEQ/PESV atrasada"
     : "Recordatorio de actividad HSEQ/PESV";
   const fechaVence = vence.toLocaleDateString("es-CO", {
@@ -1150,7 +1515,7 @@ async function enviarRecordatorio(
             titulo,
             mensaje: cuerpo,
             referencia_id: ocurrenciaId,
-            referencia_tipo: `PLAN_TRABAJO_OCURRENCIA:${planId}`,
+            referencia_tipo: `PLAN:${planId}`,
           },
         });
       });

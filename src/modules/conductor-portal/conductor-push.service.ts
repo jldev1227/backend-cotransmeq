@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma'
 import { logger } from '../../utils/logger'
+import { emitirAvisoConductor } from '../../sockets'
 
 /**
  * Envío de push a los dispositivos de un conductor.
@@ -10,8 +11,7 @@ import { logger } from '../../utils/logger'
  *
  * El contrato importante es el orden: el inbox se escribe SIEMPRE antes, y el
  * push es un intento posterior. Así el aviso existe aunque Expo, APNs/FCM o el
- * teléfono estén fuera de servicio, y la app lo recoge igualmente en su ronda
- * de sincronización.
+ * teléfono estén fuera de servicio, y el historial de la app lo conserva.
  */
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
@@ -72,6 +72,14 @@ export async function enviarPushConductor(params: {
   datos: Record<string, unknown>
   canal: string
 }): Promise<ResultadoPush> {
+  emitirAvisoConductor(params.conductorId, {
+    id: params.notificacionId,
+    tipo: typeof params.datos.type === 'string' ? params.datos.type : params.canal,
+    titulo: params.titulo,
+    cuerpo: params.cuerpo,
+    datos: params.datos,
+    created_at: new Date().toISOString()
+  })
   try {
     const dispositivos = await prisma.conductor_push_device.findMany({
       where: { conductor_id: params.conductorId, activo: true },
@@ -91,11 +99,7 @@ export async function enviarPushConductor(params: {
       {
         title: params.titulo,
         body: params.cuerpo,
-        /// El id del inbox viaja en el push para que la app pueda marcar el
-        /// aviso como leído al tocarlo. Sin él, tocar la notificación llevaba
-        /// al servicio Y la siguiente ronda de sincronización volvía a sacar
-        /// el modal del mismo aviso, que es justo lo que el conductor acababa
-        /// de leer.
+        /// El id del inbox permite marcar como leído el aviso al tocar el push.
         data: { ...params.datos, notificacion_id: params.notificacionId },
         channelId: params.canal,
       },
