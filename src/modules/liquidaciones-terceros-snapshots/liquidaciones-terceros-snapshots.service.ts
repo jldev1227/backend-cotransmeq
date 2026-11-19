@@ -31,6 +31,7 @@ export interface SnapshotPayload {
   items_pivote: Array<{
     liquidacion_tercero_id: string;
     orden: number;
+    factura_fisica?: boolean;
   }>;
   /** Valores visibles de los servicios al capturar; el pivote solo conserva IDs. */
   items_detalle?: Array<Record<string, any>>;
@@ -107,7 +108,7 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
   const items = await prisma.liquidacion_tercero_final_item.findMany({
     where: { liquidacion_tercero_final_id: cierre.id, deleted_at: null },
     select: {
-      liquidacion_tercero_id: true, orden: true, aplica_impuestos: true,
+      liquidacion_tercero_id: true, orden: true, aplica_impuestos: true, factura_fisica: true,
       liquidacion_tercero: {
         select: {
           placa: true, recorrido: true, fechas: true, valor_unitario: true,
@@ -164,11 +165,13 @@ async function buildPayload(cierre: any): Promise<SnapshotPayload> {
     items_pivote: items.map((i: any) => ({
       liquidacion_tercero_id: i.liquidacion_tercero_id,
       orden: i.orden,
+      factura_fisica: i.factura_fisica === true,
     })),
     items_detalle: items.map((i: any) => ({
       liquidacion_tercero_id: i.liquidacion_tercero_id,
       orden: i.orden,
       aplica_impuestos: i.aplica_impuestos,
+      factura_fisica: i.factura_fisica === true,
       cliente: i.liquidacion_tercero?.liquidacion?.cliente?.nombre ?? null,
       consecutivo: i.liquidacion_tercero?.liquidacion?.consecutivo ?? null,
       tercero: i.liquidacion_tercero?.tercero?.nombre_completo ?? null,
@@ -493,6 +496,7 @@ export const LiquidacionesSnapshotsService = {
           liquidacion_tercero_final_id: liquidacionId,
           liquidacion_tercero_id: item.liquidacion_tercero_id,
           orden: item.orden ?? idx,
+          factura_fisica: item.factura_fisica === true,
         })),
       });
       // 5. Restaurar conceptos

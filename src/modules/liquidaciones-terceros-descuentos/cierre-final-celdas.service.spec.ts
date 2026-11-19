@@ -59,9 +59,10 @@ describe("parseBooleano", () => {
 });
 
 describe("campos editables del pivote", () => {
-  it("solo esos tres", () => {
+  it("solo los campos permitidos", () => {
     expect([...CAMPOS_EDITABLES_ITEM].sort()).toEqual([
       "aplica_impuestos",
+      "factura_fisica",
       "excluido",
       // No es un flag y no vive en el pivote sino en `liquidacion_tercero`.
       "porcentaje_admin",

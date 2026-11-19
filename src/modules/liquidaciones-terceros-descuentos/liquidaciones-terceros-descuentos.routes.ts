@@ -82,6 +82,9 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
   app.get('/liquidaciones-terceros/config-valores', puedeLeer, LiquidacionesTercerosDescuentosController.obtenerConfigValoresTercero);
   app.put('/liquidaciones-terceros/config-valores', puedeEscribir, LiquidacionesTercerosDescuentosController.guardarConfigValoresTercero);
 
+  // Buscador global por número de factura y periodo del cierre.
+  app.get('/liquidaciones-terceros/buscar-factura-fisica', puedeLeer, LiquidacionesTercerosDescuentosController.buscarFacturaFisica);
+
   // Calcular impuestos del cierre
   app.get('/liquidaciones-terceros/:id/calcular-impuestos', puedeLeer, LiquidacionesTercerosDescuentosController.calcularImpuestos);
 
@@ -104,6 +107,9 @@ export async function liquidacionesTercerosDescuentosRoutes(app: FastifyInstance
 
   // Toggle aplica_impuestos en un item del pivote
   app.patch('/liquidaciones-terceros/items/:pivoteId/aplica-impuestos', puedeEscribir, LiquidacionesTercerosDescuentosController.toggleAplicaImpuestosItem);
+
+  // Marcar si la factura física del item ya fue recibida
+  app.patch('/liquidaciones-terceros/items/:pivoteId/factura-fisica', puedeEscribir, LiquidacionesTercerosDescuentosController.toggleFacturaFisicaItem);
 
   // Soft-delete / restaurar un item del pivote (marca `deleted_at` en
   // `liquidacion_tercero_final_item`). La fila sigue visible con tachado en

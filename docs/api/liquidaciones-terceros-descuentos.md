@@ -128,6 +128,7 @@ cierre entero.
 | GET | `/api/liquidaciones-terceros/:id/items-disponibles` | `liquidaciones-terceros:limited` | Ítems de la misma placa, de cualquier mes, libres de cierre |
 | POST | `/api/liquidaciones-terceros/:id/items-agregar` | `liquidaciones-terceros:limited` | Añade al pivote los ítems elegidos |
 | PATCH | `/api/liquidaciones-terceros/items/:pivoteId/aplica-impuestos` | `liquidaciones-terceros:limited` | Marca si un ítem entra en la base de ICA/avisos/bomberil |
+| PATCH | `/api/liquidaciones-terceros/items/:pivoteId/factura-fisica` | `liquidaciones-terceros:limited` | Marca si se recibió físicamente la factura del ítem |
 | PATCH | `/api/liquidaciones-terceros/items/:pivoteId/excluir` | `liquidaciones-terceros:limited` | Quita (marca) o devuelve un ítem del pivote |
 | POST | `/api/liquidaciones-terceros/items/:pivoteId/trasladar` | `liquidaciones-terceros:limited` | Traslada un ítem del cierre a ocasional o ingresos |
 | POST | `/api/liquidaciones-terceros/items/:pivoteId/revertir-traslado` | `liquidaciones-terceros:limited` | Devuelve al cierre un ítem trasladado |
@@ -654,6 +655,14 @@ Responde `{ ok: true, agregados, message }`.
 responden el detalle del cierre (`excluir`, con `includeDeleted`). Un ítem
 trasladado no se devuelve por `excluir`: hay que usar `revertir-traslado`. 400
 si el campo no es booleano; pivote inexistente u otro fallo → 500.
+
+### `PATCH /api/liquidaciones-terceros/items/:pivoteId/factura-fisica`
+
+**Body** `{ "factura_fisica": true }`. Guarda el estado recibido en el pivote,
+captura el snapshot manual del cierre y notifica la actualización de la hoja.
+Es idempotente y también se permite en cierres bloqueados; no permite editar
+ítems eliminados. 400 si el campo no es booleano, 404 si el ítem no existe y
+409 si el ítem está eliminado.
 
 ### `POST /api/liquidaciones-terceros/items/:pivoteId/trasladar` y `POST /api/liquidaciones-terceros/items/:pivoteId/revertir-traslado`
 

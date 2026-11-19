@@ -4115,6 +4115,7 @@ model liquidacion_tercero_final_item {
   liquidacion_tercero_id       String                    @db.Uuid
   orden                        Int                       @default(0)
   aplica_impuestos             Boolean                   @default(true)
+  factura_fisica               Boolean                   @default(false)
   /// A dónde se TRASLADÓ el item al quitarlo del cierre: `OCASIONAL`
   /// (liquidación ocasional del periodo del cierre) o `INGRESOS` (INCLUIR en
   /// la hoja de ingresos, baja a ADICIONALES). NULL = quitado a mano o vivo.

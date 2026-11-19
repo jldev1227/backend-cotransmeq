@@ -1858,6 +1858,7 @@ export const LiquidacionesTercerosDescuentosService = {
                 liquidacion_tercero_id: id,
                 orden: idx,
                 aplica_impuestos: true,
+                factura_fisica: false,
               })),
             },
             conceptos: {
@@ -1972,6 +1973,7 @@ export const LiquidacionesTercerosDescuentosService = {
                     liquidacion_tercero_id: id,
                     orden: idx,
                     aplica_impuestos: true,
+                    factura_fisica: false,
                   })),
                 },
                 conceptos: {
@@ -3415,6 +3417,7 @@ export const LiquidacionesTercerosDescuentosService = {
             id: it.id,
             orden: it.orden,
             aplica_impuestos: it.aplica_impuestos ?? true,
+            factura_fisica: it.factura_fisica === true,
             deleted_at: it.deleted_at ?? null,
             // A dónde se trasladó al quitarlo (OCASIONAL | INGRESOS), o null.
             // Solo viaja con `includeDeleted`: un trasladado siempre está
@@ -3570,6 +3573,7 @@ export const LiquidacionesTercerosDescuentosService = {
                 liquidacion_tercero_id: it.id,
                 orden: idx,
                 aplica_impuestos: true,
+                factura_fisica: false,
               })),
             }),
           ]
@@ -3781,6 +3785,7 @@ export const LiquidacionesTercerosDescuentosService = {
             liquidacion_tercero_id: lt.id,
             orden: baseOrden + idx,
             aplica_impuestos: true,
+            factura_fisica: false,
           },
         })
       )
@@ -3843,26 +3848,136 @@ export const LiquidacionesTercerosDescuentosService = {
     };
   },
 
-  // ── ITEMS DISPONIBLES PARA AÑADIR A MANO ──
-  //
-  // `refreshItems` solo mira el MISMO periodo y el MISMO tercero del cierre,
-  // que es lo correcto cuando el borrador se quedó corto porque entraron
-  // liquidaciones de servicio nuevas ese mes. No sirve para el otro caso, que
-  // es el que trae aquí: una facturada que se registra HOY pero pertenece —o
-  // se quiere cobrar— en el cierre de JUNIO. Ese item nunca cae en el filtro
-  // de `refreshItems`, y la única salida era regenerar el borrador, que se
-  // lleva por delante el trabajo hecho sobre la hoja.
-  //
-  // Lo que decide si un item es candidato es LA PLACA, no el tercero: un
-  // mismo vehículo puede haber rodado con terceros distintos y el cierre es
-  // del vehículo. Por eso `tercero_id` NO filtra —solo se muestra, para que
-  // quien elige vea con quién iba— y el mes/año tampoco.
-  //
-  // Lo que sí es innegociable es que un item no puede estar en DOS cierres:
-  // se pagaría dos veces. De ahí el filtro por `finales`, que mira TODOS los
-  // cierres vivos y no solo este. Un item soft-deleted de ESTE cierre tampoco
-  // aparece: su fila de pivote sigue existiendo, así que se devuelve desde
-  // «Filas del cierre → Items → Devolver», no desde aquí.
+  // Búsqueda de facturas vinculadas a items de cierres activos; el periodo
+  // se filtra por mes/año del cierre, no por fecha de facturación.
+  async buscarFacturaFisica(input: { q: string; desde?: string; hasta?: string }) {
+    const q = String(input.q ?? '').trim();
+    if (q.length < 2) throw new Error('Escribe al menos dos caracteres del número de factura');
+
+    const parseMes = (value?: string) => {
+      if (!value) return null;
+      const match = /^(\d{4})-(\d{2})$/.exec(value);
+      const anio = match ? Number(match[1]) : 0;
+      const mes = match ? Number(match[2]) : 0;
+      if (!match || mes < 1 || mes > 12) throw new Error(`Periodo inválido: ${value}`);
+      return { anio, mes };
+    };
+    const desde = parseMes(input.desde);
+    const hasta = parseMes(input.hasta);
+    if (input.desde && input.hasta && input.desde > input.hasta) {
+      throw new Error('El mes inicial debe ser anterior o igual al mes final');
+    }
+
+    const filtrosPeriodo: any[] = [];
+    if (desde) filtrosPeriodo.push({
+      OR: [{ anio: { gt: desde.anio } }, { anio: desde.anio, mes: { gte: desde.mes } }],
+    });
+    if (hasta) filtrosPeriodo.push({
+      OR: [{ anio: { lt: hasta.anio } }, { anio: hasta.anio, mes: { lte: hasta.mes } }],
+    });
+
+    const filtroFactura = {
+      deleted_at: null,
+      factura: {
+        deleted_at: null,
+        numero_factura: { contains: q, mode: 'insensitive' as const },
+      },
+    };
+    const pivotes = await prisma.liquidacion_tercero_final_item.findMany({
+      where: {
+        deleted_at: null,
+        liquidacion_tercero_final: {
+          deleted_at: null,
+          ...(filtrosPeriodo.length ? { AND: filtrosPeriodo } : {}),
+        },
+        liquidacion_tercero: {
+          deleted_at: null,
+          liquidacion: {
+            deleted_at: null,
+            factura_items: { some: filtroFactura },
+          },
+        },
+      } as any,
+      select: {
+        id: true,
+        factura_fisica: true,
+        liquidacion_tercero_final: {
+          select: {
+            id: true,
+            mes: true,
+            anio: true,
+            estado: true,
+            tercero: { select: { nombre_completo: true } },
+          },
+        },
+        liquidacion_tercero: {
+          select: {
+            placa: true,
+            recorrido: true,
+            fechas: true,
+            valor_liquidar: true,
+            tercero: { select: { nombre_completo: true } },
+            liquidacion: {
+              select: {
+                factura_items: {
+                  where: { ...filtroFactura },
+                  select: {
+                    id: true,
+                    factura: {
+                      select: {
+                        numero_factura: true,
+                        fecha_facturacion: true,
+                        estado: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 500,
+    });
+
+    const resultados: any[] = [];
+    for (const pivote of pivotes as any[]) {
+      const cierre = pivote.liquidacion_tercero_final;
+      const servicio = pivote.liquidacion_tercero;
+      for (const relacion of servicio?.liquidacion?.factura_items ?? []) {
+        const factura = relacion.factura;
+        if (!factura) continue;
+        resultados.push({
+          id: `${pivote.id}:${relacion.id}`,
+          pivote_id: pivote.id,
+          cierre_id: cierre.id,
+          numero_factura: factura.numero_factura,
+          fecha_facturacion: factura.fecha_facturacion,
+          factura_estado: factura.estado,
+          mes: cierre.mes,
+          anio: cierre.anio,
+          placa: servicio.placa || '',
+          recorrido: servicio.recorrido || '',
+          fechas: servicio.fechas || '',
+          valor_liquidar: toNumber(servicio.valor_liquidar),
+          tercero_nombre: servicio.tercero?.nombre_completo || cierre.tercero?.nombre_completo || '',
+          factura_fisica: pivote.factura_fisica === true,
+          cierre_estado: cierre.estado,
+        });
+        if (resultados.length >= 501) break;
+      }
+      if (resultados.length >= 501) break;
+    }
+
+    resultados.sort((a, b) =>
+      b.anio - a.anio || b.mes - a.mes || a.numero_factura.localeCompare(b.numero_factura)
+    );
+    const truncado = resultados.length > 500;
+    return { resultados: resultados.slice(0, 500), total: resultados.length, truncado };
+  },
+
+  // Items de la placa del cierre que todavía no están vinculados a un cierre.
   async itemsDisponibles(liquidacionTerceroFinalId: string) {
     const cierre = await prisma.liquidacion_tercero_final.findFirst({
       where: { id: liquidacionTerceroFinalId, deleted_at: null },
@@ -4076,6 +4191,7 @@ export const LiquidacionesTercerosDescuentosService = {
             liquidacion_tercero_id: ltId,
             orden: baseOrden + idx,
             aplica_impuestos: true,
+            factura_fisica: false,
           },
         })
       )
