@@ -1103,3 +1103,17 @@ propio cupo.
 - **Búsqueda del catálogo.** En Transmeralda `GET /api/formularios?search=`
   busca también en el título de las versiones; en Cotransmeq solo en código,
   nombre y descripción.
+
+## Formatos físicos escaneados
+
+`form_scanned_documents` guarda un PDF diligenciado en papel como registro propio, asociado a una asignación y su versión, conductor, vehículo, rango inclusivo (`date_from`–`date_to`) y explicación obligatoria. `details_json` permite datos particulares como «Entrega de» y «Recibe» sin modificar la definición versionada del formulario. El rango puede cruzar meses y años. Un PDF es un registro, no un `form_submission` por cada fecha: no contiene respuestas digitales y no modifica por sí solo indicadores ni límites de diligenciamiento.
+
+| Método | Ruta | Permiso | Uso |
+|---|---|---|---|
+| GET | `/api/formularios/escaneados/opciones?q=` | `formularios:read` | Busca asignaciones, conductores y placas |
+| GET | `/api/formularios/escaneados?page=&search=&coveredOn=` | `formularios:read` | Lista documentos verificados, 25 por página; `coveredOn` encuentra rangos que incluyen ese día |
+| POST | `/api/formularios/escaneados/init` | `formularios:full` | Reserva metadatos y devuelve URL prefirmada |
+| POST | `/api/formularios/escaneados/:id/complete` | `formularios:full` | Verifica tamaño, tipo y SHA-256 en S3 |
+| GET | `/api/formularios/escaneados/:id/url` | `formularios:read` | URL de lectura por cinco minutos |
+
+`init` exige `assignmentId`, `conductorId`, `vehicleId`, `dateFrom`, `dateTo`, `explanation`, `originalName`, `byteSize`, `sha256` y acepta `details` como pares texto. Solo PDF de hasta 25 MB. El cliente hace PUT directo a S3 con `Content-Type: application/pdf`; `complete` no publica un registro hasta verificar el objeto. Los pendientes quedan fuera del listado. La migración `20261118180000_form_scanned_documents` debe aplicarse antes de desplegar el backend, en ambas bases por separado.

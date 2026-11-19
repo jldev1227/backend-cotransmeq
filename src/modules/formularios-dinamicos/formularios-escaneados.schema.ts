@@ -1,0 +1,39 @@
+import { z } from 'zod'
+
+export const fechaEscaneadoSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`)
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+  }, 'Fecha inválida.')
+
+export const nuevoEscaneadoSchema = z
+  .object({
+    assignmentId: z.string().uuid(),
+    conductorId: z.string().uuid(),
+    vehicleId: z.string().uuid(),
+    dateFrom: fechaEscaneadoSchema,
+    dateTo: fechaEscaneadoSchema,
+    explanation: z.string().trim().min(5).max(2000),
+    details: z
+      .record(z.string().trim().min(1).max(80), z.string().trim().min(1).max(500))
+      .default({})
+      .refine((v) => Object.keys(v).length <= 20, 'Máximo 20 datos adicionales.'),
+    originalName: z.string().trim().min(1).max(255),
+    byteSize: z
+      .number()
+      .int()
+      .positive()
+      .max(25 * 1024 * 1024),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .refine((v) => v.dateTo >= v.dateFrom, {
+    path: ['dateTo'],
+    message: 'La fecha final debe ser igual o posterior a la inicial.',
+  })
+
+/** Ambas fechas cuentan; UTC evita que el cambio de mes o de horario altere días. */
+export function diasCubiertos(desde: Date, hasta: Date): number {
+  return Math.round((hasta.getTime() - desde.getTime()) / 86_400_000) + 1
+}

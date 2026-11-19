@@ -353,6 +353,7 @@ model conductores {
   registro_dia_laboral                   registro_dia_laboral[]
   form_assignment_targets                form_assignment_target[]                 @relation("form_assignment_target_conductor")
   form_submissions                       form_submission[]                        @relation("form_submission_conductor")
+  scanned_documents form_scanned_document[]
   servicios_ejecutados                   servicio_ejecucion[]                     @relation("servicio_ejecucion_conductor")
   excesos_velocidad                      excesos_velocidad[]
   preoperacionales                       preoperacionales[]
@@ -1613,6 +1614,7 @@ model usuarios {
   form_field_templates_creadas                                                form_field_template[]                        @relation("form_field_template_created_by")
   form_assignments_creadas                                                    form_assignment[]                            @relation("form_assignment_created_by")
   form_submissions_anuladas                                                   form_submission[]                            @relation("form_submission_voided_by")
+  scanned_documents form_scanned_document[]
   form_assignment_targets_dirigidos                                           form_assignment_target[]                     @relation("form_assignment_target_usuario")
   form_submissions_diligenciadas                                              form_submission[]                            @relation("form_submission_usuario")
 
@@ -1849,6 +1851,7 @@ model vehiculos {
   tercero_propietario                       terceros?                                 @relation("vehiculo_tercero_propietario", fields: [tercero_propietario_id], references: [id], onDelete: SetNull)
   form_assignment_targets                   form_assignment_target[]                  @relation("form_assignment_target_vehiculo")
   form_submissions                          form_submission[]                         @relation("form_submission_vehiculo")
+  scanned_documents form_scanned_document[]
   simit_consultas                            simit_consulta[]                          @relation("simit_vehiculo")
   excesos_velocidad                         excesos_velocidad[]
   liquidacion_tercero_final                 liquidacion_tercero_final[]
@@ -2984,6 +2987,7 @@ model form_version {
   sections     form_section[]
   fields       form_field[]
   assignments  form_assignment[]
+  scanned_documents form_scanned_document[]
   submissions  form_submission[]
 
   @@unique([form_id, version_number], map: "uq_form_versions_number")
@@ -3134,6 +3138,7 @@ model form_assignment {
   created_by  usuarios                 @relation("form_assignment_created_by", fields: [created_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   targets     form_assignment_target[]
   submissions form_submission[]
+  scanned_documents form_scanned_document[]
 
   // ── PESV ─ para qué sirve esta asignación dentro del plan.
   /// `PREOPERACIONAL` es la que convierte sus envíos en la fuente oficial de
@@ -3330,6 +3335,40 @@ model form_attachment {
 
   @@index([submission_id], map: "idx_form_attachments_submission")
   @@map("form_attachments")
+}
+
+/// Formato diligenciado en papel y escaneado. No es un `form_submission`:
+/// no tiene respuestas digitales ni representa un envío por cada día cubierto.
+model form_scanned_document {
+  id            String   @id @default(uuid()) @db.Uuid
+  assignment_id String   @db.Uuid
+  version_id    String   @db.Uuid
+  conductor_id  String   @db.Uuid
+  vehicle_id    String   @db.Uuid
+  created_by_id String   @db.Uuid
+  date_from     DateTime @db.Date
+  date_to       DateTime @db.Date
+  explanation   String
+  details_json  Json     @default("{}")
+  object_key    String   @unique @db.VarChar(1024)
+  original_name String   @db.VarChar(255)
+  byte_size     BigInt
+  sha256        String   @db.VarChar(64)
+  status        String   @default("PENDING") @db.VarChar(20)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  uploaded_at   DateTime? @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  assignment form_assignment @relation(fields: [assignment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  version    form_version @relation(fields: [version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conductor  conductores @relation(fields: [conductor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vehicle    vehiculos @relation(fields: [vehicle_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  created_by usuarios @relation(fields: [created_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([assignment_id, date_from, date_to])
+  @@index([conductor_id, date_from])
+  @@index([vehicle_id, date_from])
+  @@map("form_scanned_documents")
 }
 
 /// Bitácora append-only del envío: creación, sincronización, aceptación,
