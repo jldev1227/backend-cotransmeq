@@ -30,8 +30,11 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
   const editar = { preHandler: requirePermission('formularios', 'full') }
   app.get('/formularios/escaneados/opciones', leer, async (request, reply) => {
     try {
-      const { q } = z.object({ q: z.string().max(100).default('') }).parse(request.query)
-      return reply.send({ success: true, data: await escaneados.opcionesEscaneados(q) })
+      const { q, formId } = z.object({
+        q: z.string().max(100).default(''),
+        formId: z.string().uuid().optional(),
+      }).parse(request.query)
+      return reply.send({ success: true, data: await escaneados.opcionesEscaneados(q, formId) })
     } catch (error) {
       return fail(reply, error)
     }
@@ -72,6 +75,19 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
       return reply.send({
         success: true,
         data: await escaneados.completarEscaneado(id.parse((request.params as any).id)),
+      })
+    } catch (error) {
+      return fail(reply, error)
+    }
+  })
+  app.post('/formularios/escaneados/:id/archivo', editar, async (request, reply) => {
+    try {
+      const parte = await (request as any).file({ limits: { files: 1, fileSize: 25 * 1024 * 1024 } })
+      if (!parte || parte.mimetype !== 'application/pdf')
+        return reply.status(400).send({ success: false, error: { message: 'Selecciona un PDF.' } })
+      return reply.send({
+        success: true,
+        data: await escaneados.subirEscaneado(id.parse((request.params as any).id), await parte.toBuffer()),
       })
     } catch (error) {
       return fail(reply, error)
