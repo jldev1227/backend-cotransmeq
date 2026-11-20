@@ -17,6 +17,7 @@ export interface UsuarioDeSesion {
   role: string | null
   area: string[]
   permisos: Record<string, unknown>
+  permisos_rutas: Record<string, unknown> | null
   nombre: string | null
   correo: string | null
 }

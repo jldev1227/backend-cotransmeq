@@ -47,7 +47,7 @@ export async function usuarioDeSesion(tokenHash: string): Promise<UsuarioDeSesio
     select: {
       id: true,
       usuario: {
-        select: { id: true, role: true, area: true, permisos: true, nombre: true, correo: true, activo: true }
+        select: { id: true, role: true, area: true, permisos: true, permisos_rutas: true, nombre: true, correo: true, activo: true }
       }
     }
   })
@@ -59,6 +59,7 @@ export async function usuarioDeSesion(tokenHash: string): Promise<UsuarioDeSesio
           role: u.role ?? null,
           area: Array.isArray(u.area) ? u.area : [],
           permisos: (u.permisos as Record<string, unknown> | null) ?? {},
+          permisos_rutas: (u.permisos_rutas as Record<string, unknown> | null) ?? null,
           nombre: u.nombre ?? null,
           correo: u.correo ?? null
         }
@@ -108,6 +109,7 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
     role: usuario.role,
     area: usuario.area,
     permisos: usuario.permisos,
+    permisos_rutas: usuario.permisos_rutas,
     nombre: usuario.nombre ?? payload.nombre,
     correo: usuario.correo ?? payload.correo
   }

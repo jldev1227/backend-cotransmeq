@@ -159,7 +159,7 @@ cada ruta están en [autenticacion.md](./autenticacion.md#límites-de-intentos).
 | Propiedad | La pone | Contenido |
 |---|---|---|
 | `request.prisma` | hook global | El cliente de Prisma (preferir importar `prisma` de `src/config/prisma`) |
-| `request.user` | `authMiddleware` | Payload del JWT + `id`, `sub`, `role`, `area` (arreglo), `permisos`, `nombre`, `correo` de la base. Con `app_usuario`, además `tipo` y `enlace` |
+| `request.user` | `authMiddleware` | Payload del JWT + `id`, `sub`, `role`, `area` (arreglo), `permisos`, `permisos_rutas`, `nombre`, `correo` de la base. `permisos_rutas` se lee de la sesión vigente para que las guardas de módulo y sección apliquen la asignación individual. Con `app_usuario`, además `tipo` y `enlace` |
 | `request.accessLevel` | `requirePermission` | `'full' \| 'read' \| 'limited'` |
 | `request.permisosRutas` | `requirePermission` | Lista blanca normalizada o `null` |
 | `request.conductorPortal` | guardas del portal | `{ id, cedula, nombre }` del conductor |
