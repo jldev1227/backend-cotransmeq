@@ -36,6 +36,7 @@ import {
   type ConceptoLike,
 } from "./reglas-conceptos";
 import {
+	calcularTotalesCierre,
   recalcularTotalesCierre,
   sumarAdicionalesCierre,
   sumarItemsCierre,
@@ -75,6 +76,7 @@ export interface FilaConcepto {
 export interface FilaItem {
   id: string;
   aplica_impuestos: boolean;
+  factura_fisica: boolean;
   excluido: boolean;
   /**
    * Porcentaje de administración y las tres columnas que se derivan de él.
@@ -96,6 +98,7 @@ export interface ResultadoPatchItem {
   /** La fila del pivote que cambió. */
   items: FilaItem[];
   totales: TotalesCierre;
+  cierre?: { id: string; anio: number; mes: number };
 }
 
 export interface ResultadoPatchAdicional {
@@ -114,6 +117,7 @@ export interface ResultadoPatchAdicional {
 /** Campos del pivote que el canvas puede alternar. */
 export const CAMPOS_EDITABLES_ITEM = new Set([
   "aplica_impuestos",
+  "factura_fisica",
   "excluido",
   // No es un flag y NO vive en el pivote sino en `liquidacion_tercero`, que
   // es la fila de la liquidación de servicio. Ver `actualizarCampoItem`.
@@ -602,6 +606,7 @@ export const CierreFinalCeldasService = {
           id: true,
           liquidacion_tercero_final_id: true,
           liquidacion_tercero_id: true,
+          deleted_at: true,
         },
       });
       if (!pivote) throw new Error(`Item de pivote ${pivoteId} no encontrado`);
@@ -611,8 +616,11 @@ export const CierreFinalCeldasService = {
         select: { id: true, estado: true },
       });
       if (!cierre) throw new Error("Cierre no encontrado");
-      if (ESTADOS_BLOQUEADOS.includes(cierre.estado)) {
+      if (ESTADOS_BLOQUEADOS.includes(cierre.estado) && field !== "factura_fisica") {
         throw new Error(`No se puede editar un cierre en estado ${cierre.estado}`);
+      }
+      if (field === "factura_fisica" && pivote.deleted_at) {
+        throw new Error("No se puede marcar la factura física de un item eliminado");
       }
 
       if (esPorcentaje) {
@@ -648,12 +656,73 @@ export const CierreFinalCeldasService = {
           data:
             field === "excluido"
               ? { deleted_at: flag ? new Date() : null }
-              : { aplica_impuestos: flag },
+              : field === "factura_fisica"
+                ? { factura_fisica: flag }
+                : { aplica_impuestos: flag },
         });
       }
 
       return cierre.id;
     });
+
+    // La recepción física es seguimiento documental: no cambia cálculos ni
+    // totales. Se persiste y captura en snapshots sin recalcular impuestos.
+    if (field === "factura_fisica") {
+      const [totales, pivoteFinal, cierreRef] = await Promise.all([
+        calcularTotalesCierre(prisma, cierreId),
+        prisma.liquidacion_tercero_final_item.findUnique({
+          where: { id: pivoteId },
+          select: {
+            id: true,
+            aplica_impuestos: true,
+            factura_fisica: true,
+            deleted_at: true,
+            liquidacion_tercero: {
+              select: {
+                porcentaje_admin: true,
+                valor_admin: true,
+                total_facturado: true,
+                valor_liquidar: true,
+              },
+            },
+          },
+        }),
+        prisma.liquidacion_tercero_final.findUnique({
+          where: { id: cierreId },
+          select: { id: true, anio: true, mes: true },
+        }),
+      ]);
+
+      try {
+        const snapshots = await resolverServicio(
+          import("../liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.service"),
+          "LiquidacionesSnapshotsService",
+        );
+        await snapshots.capturar(cierreId, { origen: "manual", usuarioId: user_id });
+      } catch (error) {
+        console.error("[factura-fisica] No se pudo capturar el snapshot:", error);
+      }
+
+      return {
+        rows: [],
+        items: pivoteFinal
+          ? [{
+              id: pivoteFinal.id,
+              aplica_impuestos: pivoteFinal.aplica_impuestos !== false,
+              factura_fisica: pivoteFinal.factura_fisica === true,
+              excluido: !!pivoteFinal.deleted_at,
+              porcentaje_admin: num(pivoteFinal.liquidacion_tercero?.porcentaje_admin),
+              valor_admin: num(pivoteFinal.liquidacion_tercero?.valor_admin),
+              total_facturado: num(pivoteFinal.liquidacion_tercero?.total_facturado),
+              valor_liquidar: num(pivoteFinal.liquidacion_tercero?.valor_liquidar),
+            }]
+          : [],
+        totales,
+        cierre: cierreRef
+          ? { id: cierreRef.id, anio: cierreRef.anio, mes: cierreRef.mes }
+          : undefined,
+      };
+    }
 
     // `calcularImpuestos` y `recalcularTotalesCierre` van FUERA de la
     // transacción anterior: el primero abre la suya propia y anidarlas con el
@@ -679,6 +748,7 @@ export const CierreFinalCeldasService = {
         select: {
           id: true,
           aplica_impuestos: true,
+          factura_fisica: true,
           deleted_at: true,
           // Las cuatro columnas de dinero de la fila, releídas del servidor:
           // el canvas pinta lo que le llega y no deriva nada por su cuenta.
@@ -701,6 +771,7 @@ export const CierreFinalCeldasService = {
             {
               id: pivoteFinal.id,
               aplica_impuestos: pivoteFinal.aplica_impuestos !== false,
+              factura_fisica: pivoteFinal.factura_fisica === true,
               excluido: !!pivoteFinal.deleted_at,
               porcentaje_admin: num(pivoteFinal.liquidacion_tercero?.porcentaje_admin),
               valor_admin: num(pivoteFinal.liquidacion_tercero?.valor_admin),

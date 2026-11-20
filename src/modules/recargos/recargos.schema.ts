@@ -106,6 +106,17 @@ export const updateRecargoSchema = createRecargoSchema.partial().extend({
     .optional(),
 });
 
+const listaFiltroCanvasSchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === '') return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return [value];
+  }
+}, z.array(z.string().trim().min(1).max(160)).max(500));
+
 // Schema para filtros de búsqueda
 export const buscarRecargosSchema = z
   .object({
@@ -116,7 +127,13 @@ export const buscarRecargosSchema = z
     vehiculo_id: z.string().uuid().optional(),
     empresa_id: z.string().uuid().optional(),
     estado: z.string().optional(),
+    search: z.string().trim().max(120).optional(),
     numero_planilla: z.string().optional(),
+    conductores: listaFiltroCanvasSchema,
+    placas: listaFiltroCanvasSchema,
+    empresas: listaFiltroCanvasSchema,
+    planillas: listaFiltroCanvasSchema,
+    estados: listaFiltroCanvasSchema,
     eliminados: z
       .string()
       .optional()
@@ -129,16 +146,16 @@ export const buscarRecargosSchema = z
      */
     imported_from_transmeralda: z.enum(['si', 'no', 'all']).optional(),
     page: z.string().optional().default("1"),
-    // Cap defensivo: nunca devolver más de 200 recargos por request.
-    // Si el front pide más, se trunca a 200 (evita queries de 7-23s).
+    // Los filtros ya reducen el conjunto en PostgreSQL; se limita la carga
+    // de filas detalladas para que una consulta amplia no traiga el historial entero.
     limit: z
       .string()
       .optional()
-      .default("200")
+      .default("500")
       .transform((val) => {
         const n = parseInt(val, 10);
-        if (isNaN(n) || n < 1) return 200;
-        return Math.min(n, 200);
+        if (isNaN(n) || n < 1) return 500;
+        return Math.min(n, 500);
       }),
   })
   .transform((data) => {

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { registrarRutasEscaneados } from './formularios-escaneados.routes'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { prisma } from '../../config/prisma'
 import { AREAS } from '../../config/permissions'
@@ -160,6 +161,8 @@ export async function formulariosDinamicosRoutes(app: FastifyInstance) {
     FormulariosController.actualizarPlantilla,
   )
   app.delete('/form-field-templates/:id', puedeEditar, FormulariosController.eliminarPlantilla)
+
+  registrarRutasEscaneados(app)
 
   // ── Envíos (antes de `/:formId`) ─────────────────────────────────────────
   app.post('/formularios/importar-desde-transmeralda/preview', puedeLeer, async (request, reply) => {

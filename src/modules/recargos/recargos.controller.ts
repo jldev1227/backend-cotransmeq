@@ -148,7 +148,7 @@ export const RecargosController = {
       const query = buscarRecargosSchema.parse(request.query);
 
       // page y limit ya vienen transformados a number desde el schema
-      // (con cap a 200 en limit). Si alguien los manda como string,
+      // (con cap a 500 en limit). Si alguien los manda como string,
       // Number() los coerce sin tirar.
       const page = Number(query.page);
       const limit = Number(query.limit);
@@ -160,7 +160,13 @@ export const RecargosController = {
         vehiculo_id: query.vehiculo_id,
         empresa_id: query.empresa_id,
         estado: query.estado,
+        search: query.search,
         numero_planilla: query.numero_planilla,
+        conductores: query.conductores,
+        placas: query.placas,
+        empresas: query.empresas,
+        planillas: query.planillas,
+        estados: query.estados,
         eliminados: query.eliminados,
         imported_from_transmeralda: query.imported_from_transmeralda,
       };

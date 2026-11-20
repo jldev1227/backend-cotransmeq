@@ -209,9 +209,10 @@ ni ítems de liquidaciones de servicios.
 `meta.recargos_jornada_grupos` cuenta las planillas con detalles activos de
 recargo que pasan los filtros, aunque no tengan liquidación de nómina.
 
-`recargos_nomina` conserva el detalle del análisis de nómina y su bandera
-`paga_cliente` refleja `clientes.paga_recargos`; el cierre de terceros no suma
-los recargos de empresas con esa bandera en `true`.
+`recargos_nomina` conserva el detalle del análisis de nómina. Su campo
+`paga_cliente` es `true` cuando el recargo tiene `pag_cliente = true` o la
+empresa tiene `clientes.paga_recargos = true`; el cierre de terceros no suma
+las líneas que asume el cliente.
 
 `anio` y `mes` de cada fila identifican el periodo de nómina (el mes en que
 termina el corte). Los arreglos de origen `bonificaciones_recorridos` y

@@ -416,6 +416,44 @@ export class LiquidacionesTercerosDescuentosController {
     }
   }
 
+  static async toggleFacturaFisicaItem(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { pivoteId } = request.params as any;
+      const { factura_fisica } = request.body as any;
+      if (typeof factura_fisica !== 'boolean') {
+        return reply.status(400).send({ error: 'factura_fisica debe ser boolean' });
+      }
+      const userId = String((request as any).user?.id ?? '');
+      if (!userId) return reply.status(401).send({ error: 'Usuario no autenticado' });
+
+      const result = await CierreFinalCeldasService.actualizarCampoItem({
+        pivoteId,
+        field: 'factura_fisica',
+        value: factura_fisica,
+        user_id: userId,
+      });
+      if (result.cierre) {
+        emitSheetInvalidate({
+          scope: 'cierres-finales',
+          anio: result.cierre.anio,
+          mes: result.cierre.mes,
+          cierreId: result.cierre.id,
+          accion: 'factura-fisica',
+          by: userId,
+        });
+      }
+      return reply.send(result);
+    } catch (error: any) {
+      const msg = error.message || 'No se pudo actualizar la factura física';
+      const status = /no encontrado|no encontrada/i.test(msg)
+        ? 404
+        : /no se puede|estado/i.test(msg)
+          ? 409
+          : 500;
+      return reply.status(status).send({ error: msg });
+    }
+  }
+
   // ── CONDUCTORES DEL CIERRE (altas, bajas y marca de propietario) ──
 
   /**
@@ -778,6 +816,24 @@ export class LiquidacionesTercerosDescuentosController {
     } catch (error: any) {
       const msg = error.message || 'Error al leer los items disponibles';
       return reply.status(/no encontrada|no tiene placa/i.test(msg) ? 404 : 500).send({ error: msg });
+    }
+  }
+
+  static async buscarFacturaFisica(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { q, desde, hasta } = request.query as any;
+      if (typeof q !== 'string' || q.trim().length < 2) {
+        return reply.status(400).send({ error: 'Escribe al menos dos caracteres del número de factura' });
+      }
+      const result = await LiquidacionesTercerosDescuentosService.buscarFacturaFisica({
+        q: q.trim(),
+        desde: typeof desde === 'string' ? desde : undefined,
+        hasta: typeof hasta === 'string' ? hasta : undefined,
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      const msg = error.message || 'Error al buscar la factura';
+      return reply.status(/periodo|mes/i.test(msg) ? 400 : 500).send({ error: msg });
     }
   }
 

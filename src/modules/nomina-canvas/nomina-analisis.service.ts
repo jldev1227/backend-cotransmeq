@@ -50,6 +50,7 @@ export interface RecargoNominaAnalisis {
   placa: string | null;
   empresa_id: string;
   empresa: string;
+  paga_cliente: boolean;
   mes: string;
   valor: number;
 }
@@ -221,7 +222,7 @@ export const NominaAnalisisService = {
           recargos: {
             where: { deleted_at: null, incluir: true },
             include: {
-              clientes: { select: { id: true, nombre: true } },
+              clientes: { select: { id: true, nombre: true, paga_recargos: true } },
               vehiculos: { select: { id: true, placa: true } },
             },
           },
@@ -284,6 +285,7 @@ export const NominaAnalisisService = {
         placa: r.vehiculos?.placa ?? null,
         empresa_id: r.empresa_id,
         empresa: String(r.clientes?.nombre ?? '').trim() || 'Sin empresa',
+        paga_cliente: r.pag_cliente === true || r.clientes?.paga_recargos === true,
         mes: String(r.mes ?? '').slice(0, 7) || mesClave(anio, mes),
         valor: num(r.valor),
       }));

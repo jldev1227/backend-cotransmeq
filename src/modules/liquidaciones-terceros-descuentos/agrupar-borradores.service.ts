@@ -254,6 +254,7 @@ export async function agruparBorradores(cierreIdsInput: string[], userId?: strin
         liquidacion_tercero_final_id: true,
         liquidacion_tercero_id: true,
         aplica_impuestos: true,
+        factura_fisica: true,
       },
     });
     const pivotesDestino = await tx.liquidacion_tercero_final_item.findMany({
@@ -270,7 +271,11 @@ export async function agruparBorradores(cierreIdsInput: string[], userId?: strin
         if (existente.deleted_at) {
           await tx.liquidacion_tercero_final_item.update({
             where: { id: existente.id },
-            data: { deleted_at: null, aplica_impuestos: pivote.aplica_impuestos },
+            data: {
+              deleted_at: null,
+              aplica_impuestos: pivote.aplica_impuestos,
+              factura_fisica: pivote.factura_fisica,
+            },
           });
         }
         archivar.push(pivote.id);
