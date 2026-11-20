@@ -5,7 +5,7 @@ import {
 } from '../src/modules/formularios-dinamicos/formularios-escaneados.schema'
 
 const base = {
-  assignmentId: 'e8d510f4-4744-4ae7-b62c-e0e6e1f07d90',
+  formId: 'e8d510f4-4744-4ae7-b62c-e0e6e1f07d90',
   conductorId: 'd10967dd-bd27-4a17-83dc-87999bfa45a3',
   vehicleId: 'f9b95220-9be0-4dcf-9f97-b7dcbacbf46d',
   dateFrom: '2026-08-22',

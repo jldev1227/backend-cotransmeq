@@ -66,7 +66,7 @@ describe("campos editables del pivote", () => {
       "excluido",
       // No es un flag y no vive en el pivote sino en `liquidacion_tercero`.
       "porcentaje_admin",
-    ]);
+    ].sort());
   });
 
   it("no deja colar un campo de otra entidad", () => {

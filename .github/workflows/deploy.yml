@@ -38,6 +38,8 @@ jobs:
         run: npx prisma generate
 
       - name: Tipos
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run typecheck
 
       # Las tres suites que no abren base (sin `tests/setup.ts`). Cargan
