@@ -16,7 +16,7 @@ import { ATTACHMENT_LIMITS, FormError } from './domain'
 import { diasCubiertos } from './formularios-escaneados.schema'
 
 export type NuevoEscaneado = {
-  assignmentId: string
+  formId: string
   conductorId: string
   vehicleId: string
   dateFrom: string
@@ -33,13 +33,23 @@ export async function iniciarEscaneado(input: NuevoEscaneado, actorId: string) {
   if (input.byteSize > ATTACHMENT_LIMITS.maxFileBytes) {
     throw new FormError('ATTACHMENT_TOO_LARGE', 'El PDF supera el límite de 25 MB.')
   }
-  const [assignment, conductor, vehicle] = await Promise.all([
-    prisma.form_assignment.findFirst({
-      where: { id: input.assignmentId, deleted_at: null },
+  const [version, conductor, vehicle] = await Promise.all([
+    prisma.form_version.findFirst({
+      where: {
+        form_id: input.formId,
+        status: 'PUBLISHED',
+        form: { deleted_at: null },
+        assignments: { some: { deleted_at: null } },
+      },
+      orderBy: { version_number: 'desc' },
       select: {
         id: true,
-        version_id: true,
-        version: { select: { status: true, form: { select: { deleted_at: true } } } },
+        assignments: {
+          where: { deleted_at: null },
+          orderBy: { created_at: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
       },
     }),
     prisma.conductores.findFirst({
@@ -51,17 +61,35 @@ export async function iniciarEscaneado(input: NuevoEscaneado, actorId: string) {
       select: { id: true },
     }),
   ])
-  if (!assignment || assignment.version.status === 'DRAFT' || assignment.version.form.deleted_at) {
+  const versionFisica = version ?? await prisma.form_version.findFirst({
+    where: {
+      form_id: input.formId,
+      status: 'ARCHIVED',
+      form: { deleted_at: null },
+      assignments: { some: { deleted_at: null } },
+    },
+    orderBy: { version_number: 'desc' },
+    select: {
+      id: true,
+      assignments: {
+        where: { deleted_at: null },
+        orderBy: { created_at: 'desc' },
+        take: 1,
+        select: { id: true },
+      },
+    },
+  })
+  if (!versionFisica || versionFisica.assignments.length === 0) {
     throw new FormError(
       'ASSIGNMENT_NOT_FOUND',
-      'La asignación no tiene una versión publicada disponible.',
+      'El formato no tiene una versión publicada disponible.',
     )
   }
   if (!conductor || !vehicle)
     throw new FormError('FIELD_VALUE_INVALID', 'Selecciona un conductor y un vehículo vigentes.')
 
   const id = randomUUID()
-  const key = `formularios-escaneados/${assignment.version_id}/${id}.pdf`
+  const key = `formularios-escaneados/${versionFisica.id}/${id}.pdf`
   /// Firmar no escribe en S3; si falta configuración, no dejamos un pendiente
   /// imposible de completar en la base.
   const uploadUrl = await getS3UploadUrl(
@@ -73,8 +101,8 @@ export async function iniciarEscaneado(input: NuevoEscaneado, actorId: string) {
   await prisma.form_scanned_document.create({
     data: {
       id,
-      assignment_id: assignment.id,
-      version_id: assignment.version_id,
+      assignment_id: versionFisica.assignments[0].id,
+      version_id: versionFisica.id,
       conductor_id: conductor.id,
       vehicle_id: vehicle.id,
       created_by_id: actorId,
@@ -158,38 +186,21 @@ export async function opcionesEscaneados(query: string, formId?: string) {
   const q = query.trim()
   const contains = { contains: q, mode: 'insensitive' as const }
   const palabras = q.split(/\s+/).filter(Boolean)
-  const [assignments, conductores, vehiculos] = await Promise.all([
-    prisma.form_assignment.findMany({
+  const [formularios, conductores, vehiculos] = await Promise.all([
+    prisma.form_definition.findMany({
       where: {
         deleted_at: null,
-        version: {
-          status: { in: ['PUBLISHED', 'ARCHIVED'] },
-          ...(formId ? { form_id: formId } : {}),
-          form: { deleted_at: null },
-        },
+        ...(formId ? { id: formId } : {}),
+        versions: { some: { status: { in: ['PUBLISHED', 'ARCHIVED'] }, assignments: { some: { deleted_at: null } } } },
         ...(q
           ? {
-              OR: [
-                { name: contains },
-                { version: { form: { code: contains } } },
-                { version: { form: { name: contains } } },
-              ],
+              OR: [{ code: contains }, { name: contains }],
             }
           : {}),
       },
       take: 40,
-      orderBy: { created_at: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        version: {
-          select: {
-            title: true,
-            version_number: true,
-            form: { select: { code: true, name: true } },
-          },
-        },
-      },
+      orderBy: { code: 'asc' },
+      select: { id: true, code: true, name: true },
     }),
     prisma.conductores.findMany({
       where: {
@@ -215,7 +226,7 @@ export async function opcionesEscaneados(query: string, formId?: string) {
       select: { id: true, placa: true },
     }),
   ])
-  return { assignments, conductores, vehiculos }
+  return { formatos: formularios, conductores, vehiculos }
 }
 
 export async function listarEscaneados(input: {
@@ -280,11 +291,8 @@ export async function listarEscaneados(input: {
   return {
     items: rows.map((r) => ({
       id: r.id,
-      assignmentId: r.assignment_id,
       formCode: r.assignment.version.form.code,
       formName: r.assignment.version.form.name,
-      versionNumber: r.assignment.version.version_number,
-      assignmentName: r.assignment.name,
       conductor: `${r.conductor.nombre} ${r.conductor.apellido}`.trim(),
       document: r.conductor.numero_identificacion,
       placa: r.vehicle.placa,
