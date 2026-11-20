@@ -14,9 +14,11 @@ El acceso de una persona se decide con tres datos que conviene no confundir:
 - **`area`** (`String[]`, columna `areas`): las reglas por área de
   `src/config/permissions.ts`.
 - **`permisos_rutas`** (JSON `{ "<moduleId>": "full" | "read" | "limited" }`):
-  límites personalizados por usuario. Solo pueden retirar módulos o bajar el
-  nivel concedido por sus áreas. `null` hereda del área; `{}` es una
-  personalización explícita que deja solo `perfil`. Ver [permisos](../permisos.md).
+  límites personalizados por usuario. Las rutas declaradas con `elevableAreas`
+  permiten elevar el nivel de personas de esas áreas; por ejemplo, Administración
+  puede dar `full` en `liquidaciones-terceros` a Contabilidad o Facturación.
+  `null` hereda del área; `{}` es una personalización explícita que deja solo
+  `perfil`. Ver [permisos](../permisos.md).
 - **`permisos`** (JSON de booleanos, heredado): **no** decide el acceso a módulos.
   Hoy solo se leen claves sueltas: `bonos-planilla` (permiso individual que exige
   `requireBonosPlanilla`, `src/middlewares/bonos.middleware.ts`, y el canvas de

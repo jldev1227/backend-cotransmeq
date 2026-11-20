@@ -115,8 +115,8 @@ Notas sobre módulos concretos (el porqué está comentado en `permissions.ts`):
 ¿permisos_rutas es null?                          sí → conserva el nivel del área
   no → ¿el módulo está incluido?                  no → sin acceso
        nivel efectivo = menor entre área y ruta, salvo `elevableAreas` declaradas
-         (actualmente Recorridos y Sección 06 para Operaciones), donde la ruta
-         individual puede conceder `full`
+         (Recorridos y Sección 06 para Operaciones; Liquidaciones de terceros
+         para Contabilidad y Facturación), donde la ruta individual puede conceder `full`
 ¿módulo 'perfil'?                                  siempre accesible
 ```
 
@@ -129,8 +129,10 @@ que se edita dentro del modal de usuario. El área sigue siendo la base: cada
 entrada puede quitar una ruta o reducir su nivel. En las rutas marcadas con
 `elevableAreas`, una asignación explícita puede elevar el nivel de un usuario
 que ya tiene acceso base; actualmente Operaciones puede recibir `full` en
-Recorridos y Sección 06. En los demás módulos no se eleva el nivel del área. Un usuario con área
-Administración y `{ "flota": "read" }` conserva solo perfil y consulta Flota.
+Recorridos y Sección 06. Contabilidad y Facturación pueden recibir `full` en
+`liquidaciones-terceros`, aunque por área su nivel normal sea `limited`. En los
+demás módulos no se eleva el nivel del área. Un usuario con área Administración
+y `{ "flota": "read" }` conserva solo perfil y consulta Flota.
 
 - `null` hereda del área; `{}` es una personalización vacía y deja solo
   `perfil`. El editor conserva ambos valores al guardar.

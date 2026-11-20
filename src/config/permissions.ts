@@ -279,6 +279,8 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermission> = {
   'liquidaciones-terceros': {
     full: ['administracion', 'operaciones'],
     limited: ['facturacion', 'contabilidad'],
+    // La base sigue siendo limitada; Administración puede delegar edición persona a persona.
+    elevableAreas: ['facturacion', 'contabilidad'],
     description: 'Liquidaciones de terceros (propietarios)'
   },
   'liquidaciones-terceros-adicionales': {
