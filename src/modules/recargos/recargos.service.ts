@@ -822,13 +822,14 @@ export const RecargosService = {
     if (filters.vehiculo_id) where.vehiculo_id = filters.vehiculo_id;
     if (filters.empresa_id) where.empresa_id = filters.empresa_id;
     if (filters.estado) where.estado = filters.estado;
+    const condicionesAnd: any[] = [];
     const searchTokens = typeof filters.search === "string"
       ? filters.search.trim().split(/\s+/).filter(Boolean)
       : [];
     if (searchTokens.length > 0) {
       /// Cada palabra debe aparecer en algún campo buscable; hacerlo aquí
-      /// antes de paginar permite encontrar planillas fuera de las primeras 200.
-      where.AND = searchTokens.map((term: string) => ({
+      /// antes de paginar permite encontrar planillas fuera del primer bloque recibido.
+      condicionesAnd.push(...searchTokens.map((term: string) => ({
         OR: [
           { numero_planilla: { contains: term, mode: "insensitive" } },
           { conductores: { nombre: { contains: term, mode: "insensitive" } } },
@@ -836,8 +837,35 @@ export const RecargosService = {
           { vehiculos: { placa: { contains: term, mode: "insensitive" } } },
           { clientes: { nombre: { contains: term, mode: "insensitive" } } },
         ],
-      }));
+      })));
     }
+    if (filters.conductores?.length) {
+      condicionesAnd.push({
+        OR: filters.conductores.map((nombre: string) => ({
+          conductores: {
+            AND: nombre.split(/\s+/).filter(Boolean).map((token: string) => ({
+              OR: [
+                { nombre: { contains: token, mode: "insensitive" } },
+                { apellido: { contains: token, mode: "insensitive" } },
+              ],
+            })),
+          },
+        })),
+      });
+    }
+    if (filters.placas?.length) {
+      condicionesAnd.push({ vehiculos: { placa: { in: filters.placas } } });
+    }
+    if (filters.empresas?.length) {
+      condicionesAnd.push({ clientes: { nombre: { in: filters.empresas } } });
+    }
+    if (filters.planillas?.length) {
+      condicionesAnd.push({ numero_planilla: { in: filters.planillas } });
+    }
+    if (filters.estados?.length) {
+      condicionesAnd.push({ estado: { in: filters.estados } });
+    }
+    if (condicionesAnd.length) where.AND = condicionesAnd;
     if (filters.numero_planilla) {
       where.numero_planilla = {
         contains: filters.numero_planilla,
@@ -941,8 +969,8 @@ export const RecargosService = {
       // planillas que matchean el filtro (no paginado). Alimenta el stat
       // card "Total a Pagar" del canvas de recargos, que de otro modo
       // solo vería el subtotal de los recargos de la página actual
-      // (limit=50/100/200). Es filter-responsive: cambia con mes/año
-      // y con cualquier filtro del query.
+      // El límite de filas de `findMany` no recorta este agregado.
+      // Cambia con el período y con cualquier filtro del query.
       prisma.detalles_recargos_dias.aggregate({
         where: {
           activo: true,

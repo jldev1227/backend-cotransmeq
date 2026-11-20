@@ -98,10 +98,11 @@ regla propia incumplida (ya en español y con el día) o «Error de validación�
 | `estado` | string | — | Igualdad con el enum de la planilla |
 | `search` | string | — | Busca cada palabra, sin distinguir mayúsculas, en planilla, conductor, placa y empresa antes de paginar |
 | `numero_planilla` | string | — | Contiene, sin distinguir mayúsculas |
+| `conductores`, `placas`, `empresas`, `planillas`, `estados` | JSON array de strings | vacío | Filtros de selección múltiple; se combinan con AND entre campos y OR dentro de cada campo, antes de paginar |
 | `eliminados` | `'true'` \| ausente | ausente | Con `'true'` lista la papelera |
 | `imported_from_transmeralda` | `si` \| `no` \| `all` | `all` | Solo importadas de Transmeralda, solo nativas o todas |
 | `page` | string numérico | `1` | |
-| `limit` | string numérico | `200` | Tope 200: un valor mayor se recorta |
+| `limit` | string numérico | `500` | Tope 500: un valor mayor se recorta |
 
 **Respuesta 200**
 
@@ -120,7 +121,7 @@ regla propia incumplida (ya en español y con el día) o «Error de validación�
     "servicio": { "id": "uuid", "fecha_realizacion": "…", "fecha_solicitud": "…" },
     "dias_laborales": [ { "dia": 1, "hora_inicio": "6", "hora_fin": "18", "detalles_recargos_dias": [ { "horas": "2", "tipos_recargos": { "codigo": "HED" } } ], "…": "…" } ]
   } ],
-  "pagination": { "page": 1, "limit": 200, "total": 340, "totalPages": 2 },
+  "pagination": { "page": 1, "limit": 500, "total": 340, "totalPages": 1 },
   "meta": { "total_valor_pagar": 1234567 }
 }
 ```
