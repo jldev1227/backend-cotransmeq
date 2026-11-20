@@ -1106,15 +1106,15 @@ propio cupo.
 
 ## Formatos físicos escaneados
 
-`form_scanned_documents` guarda un PDF diligenciado en papel como registro propio, asociado a una asignación y su versión, conductor, vehículo, rango inclusivo (`date_from`–`date_to`) y explicación obligatoria. `details_json` permite datos particulares como «Entrega de» y «Recibe» sin modificar la definición versionada del formulario. El rango puede cruzar meses y años. Un PDF es un registro, no un `form_submission` por cada fecha: no contiene respuestas digitales y no modifica por sí solo indicadores ni límites de diligenciamiento.
+`form_scanned_documents` guarda un PDF diligenciado en papel asociado al formato, conductor, vehículo, rango inclusivo (`date_from`–`date_to`) y explicación obligatoria. El backend conserva la versión publicada que corresponde para trazabilidad. `details_json` permite datos particulares como «Entrega de» y «Recibe» sin modificar la definición versionada del formulario. El rango puede cruzar meses y años. Un PDF es un registro, no un `form_submission` por cada fecha: no contiene respuestas digitales y no modifica por sí solo indicadores ni límites de diligenciamiento.
 
 | Método | Ruta | Permiso | Uso |
 |---|---|---|---|
-| GET | `/api/formularios/escaneados/opciones?q=&formId=` | `formularios:read` | Busca asignaciones, conductores y placas; `formId` opcional restringe las asignaciones a ese formulario |
+| GET | `/api/formularios/escaneados/opciones?q=&formId=` | `formularios:read` | Busca formatos únicos, conductores y placas; `formId` opcional restringe los formatos a uno |
 | GET | `/api/formularios/escaneados?page=&search=&coveredOn=` | `formularios:read` | Lista documentos verificados, 25 por página; `coveredOn` encuentra rangos que incluyen ese día |
 | POST | `/api/formularios/escaneados/init` | `formularios:full` | Reserva metadatos y devuelve URL prefirmada |
 | POST | `/api/formularios/escaneados/:id/complete` | `formularios:full` | Verifica tamaño, tipo y SHA-256 en S3 |
 | POST | `/api/formularios/escaneados/:id/archivo` | `formularios:full` | Recibe un PDF multipart, verifica tamaño y SHA-256, lo sube a S3 y completa el registro |
 | GET | `/api/formularios/escaneados/:id/url` | `formularios:read` | URL de lectura por cinco minutos |
 
-`init` exige `assignmentId`, `conductorId`, `vehicleId`, `dateFrom`, `dateTo`, `explanation`, `originalName`, `byteSize`, `sha256` y acepta `details` como pares texto. Solo PDF de hasta 25 MB. El dashboard envía el PDF por `/archivo`, que evita depender del CORS del bucket; `complete` sigue disponible para clientes que hacen PUT directo a S3. Ninguna ruta publica el registro hasta verificar el objeto. Los pendientes quedan fuera del listado. La migración `20261118180000_form_scanned_documents` debe aplicarse antes de desplegar el backend, en ambas bases por separado.
+`init` exige `formId`, `conductorId`, `vehicleId`, `dateFrom`, `dateTo`, `explanation`, `originalName`, `byteSize`, `sha256` y acepta `details` como pares texto. El backend conserva el vínculo con la versión publicada más reciente y una asignación de esa versión para mantener trazabilidad. Solo PDF de hasta 25 MB. El dashboard envía el PDF por `/archivo`, que evita depender del CORS del bucket; `complete` sigue disponible para clientes que hacen PUT directo a S3. Ninguna ruta publica el registro hasta verificar el objeto. Los pendientes quedan fuera del listado. La migración `20261118180000_form_scanned_documents` debe aplicarse antes de desplegar el backend, en ambas bases por separado.

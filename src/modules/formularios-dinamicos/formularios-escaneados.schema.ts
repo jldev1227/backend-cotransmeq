@@ -10,7 +10,7 @@ export const fechaEscaneadoSchema = z
 
 export const nuevoEscaneadoSchema = z
   .object({
-    assignmentId: z.string().uuid(),
+    formId: z.string().uuid(),
     conductorId: z.string().uuid(),
     vehicleId: z.string().uuid(),
     dateFrom: fechaEscaneadoSchema,
