@@ -23,6 +23,7 @@ export type NuevoEscaneado = {
   dateTo: string
   explanation: string
   details: Record<string, string>
+  novedades: Array<{ fecha: string; descripcion: string }>
   originalName: string
   byteSize: number
   sha256: string
@@ -109,7 +110,10 @@ export async function iniciarEscaneado(input: NuevoEscaneado, actorId: string) {
       date_from: new Date(`${input.dateFrom}T00:00:00.000Z`),
       date_to: new Date(`${input.dateTo}T00:00:00.000Z`),
       explanation: input.explanation,
-      details_json: input.details as Prisma.InputJsonValue,
+      details_json: {
+        ...input.details,
+        ...(input.novedades.length ? { novedades: input.novedades } : {}),
+      } as Prisma.InputJsonValue,
       object_key: key,
       original_name: input.originalName,
       byte_size: BigInt(input.byteSize),
