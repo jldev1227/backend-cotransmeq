@@ -17,7 +17,7 @@ import { logger } from '../../utils/logger'
 import { checkAccess } from '../../config/permissions'
 import { obtenerPermisosRutas } from '../../services/permisos-rutas.service'
 import { getSocketUser } from '../../sockets/auth'
-import { ADMIN_ROOM, conductorRoom } from './formularios-dinamicos.events'
+import { ADMIN_ROOM, SCANNED_DOCUMENTS_ROOM, conductorRoom } from './formularios-dinamicos.events'
 
 const MODULO = 'formularios'
 
@@ -103,6 +103,30 @@ export function registerFormulariosGateway(io: IOServer): void {
 
     socket.on('forms:leave-admin', (_payload: unknown, ack?: (r: unknown) => void) => {
       socket.leave(ADMIN_ROOM)
+      ack?.({ ok: true })
+    })
+
+    socket.on('forms:join-scanned-documents', async (_payload: unknown, ack?: (r: unknown) => void) => {
+      const user = getSocketUser(socket)
+      if (!user) {
+        ack?.({ ok: false, error: 'unauthorized' })
+        return
+      }
+      const rutasOverride = await obtenerPermisosRutas(user.id)
+      const forms = checkAccess(user.area as any, 'formularios', rutasOverride, user.id)
+      const maintenance = checkAccess(user.area as any, 'mantenimiento', rutasOverride, user.id)
+      const canReadForms = forms.allowed && (forms.level === 'read' || forms.level === 'full')
+      const canManageScans = maintenance.allowed && maintenance.level === 'full'
+      if (!canReadForms && !canManageScans) {
+        ack?.({ ok: false, error: 'forbidden' })
+        return
+      }
+      socket.join(SCANNED_DOCUMENTS_ROOM)
+      ack?.({ ok: true, room: SCANNED_DOCUMENTS_ROOM })
+    })
+
+    socket.on('forms:leave-scanned-documents', (_payload: unknown, ack?: (r: unknown) => void) => {
+      socket.leave(SCANNED_DOCUMENTS_ROOM)
       ack?.({ ok: true })
     })
   })

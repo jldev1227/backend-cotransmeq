@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { requirePermission } from '../../middlewares/permissions.middleware'
+import { requireAlgunPermiso, requirePermission } from '../../middlewares/permissions.middleware'
 import { isFormError } from './domain'
 import * as escaneados from './formularios-escaneados.service'
-import { fechaEscaneadoSchema, nuevoEscaneadoSchema } from './formularios-escaneados.schema'
+import { formEvents } from './formularios-dinamicos.events'
+import { actualizarEscaneadoSchema, fechaEscaneadoSchema, nuevoEscaneadoSchema } from './formularios-escaneados.schema'
 
 const id = z.string().uuid()
 
@@ -27,7 +28,13 @@ function fail(reply: FastifyReply, error: unknown) {
 /** Estas rutas viven dentro del módulo autenticado de formularios. */
 export function registrarRutasEscaneados(app: FastifyInstance) {
   const leer = { preHandler: requirePermission('formularios', 'read') }
+  const leerEscaneados = {
+    preHandler: requireAlgunPermiso(['formularios', 'read'], ['mantenimiento', 'full']),
+  }
   const editar = { preHandler: requirePermission('formularios', 'full') }
+  const gestionarEscaneados = {
+    preHandler: requireAlgunPermiso(['formularios', 'full'], ['mantenimiento', 'full']),
+  }
   app.get('/formularios/escaneados/opciones', leer, async (request, reply) => {
     try {
       const { q, formId } = z.object({
@@ -39,7 +46,7 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
       return fail(reply, error)
     }
   })
-  app.get('/formularios/escaneados', leer, async (request, reply) => {
+  app.get('/formularios/escaneados', leerEscaneados, async (request, reply) => {
     try {
       const query = z
         .object({
@@ -72,9 +79,13 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
   })
   app.post('/formularios/escaneados/:id/complete', editar, async (request, reply) => {
     try {
+      const resultado = await escaneados.completarEscaneado(id.parse((request.params as any).id))
+      if (resultado.status === 'UPLOADED') {
+        formEvents.scannedDocumentChanged({ action: 'created', documentId: resultado.id })
+      }
       return reply.send({
         success: true,
-        data: await escaneados.completarEscaneado(id.parse((request.params as any).id)),
+        data: resultado,
       })
     } catch (error) {
       return fail(reply, error)
@@ -85,20 +96,54 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
       const parte = await (request as any).file({ limits: { files: 1, fileSize: 25 * 1024 * 1024 } })
       if (!parte || parte.mimetype !== 'application/pdf')
         return reply.status(400).send({ success: false, error: { message: 'Selecciona un PDF.' } })
+      const resultado = await escaneados.subirEscaneado(id.parse((request.params as any).id), await parte.toBuffer())
+      if (resultado.status === 'UPLOADED') {
+        formEvents.scannedDocumentChanged({ action: 'created', documentId: resultado.id })
+      }
       return reply.send({
         success: true,
-        data: await escaneados.subirEscaneado(id.parse((request.params as any).id), await parte.toBuffer()),
+        data: resultado,
       })
     } catch (error) {
       return fail(reply, error)
     }
   })
-  app.get('/formularios/escaneados/:id/url', leer, async (request, reply) => {
+  app.get('/formularios/escaneados/:id/url', leerEscaneados, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     try {
       return reply.send({
         success: true,
         data: await escaneados.urlEscaneado(id.parse((request.params as any).id)),
+      })
+    } catch (error) {
+      return fail(reply, error)
+    }
+  })
+  app.patch('/formularios/escaneados/:id', gestionarEscaneados, async (request, reply) => {
+    try {
+      const input = actualizarEscaneadoSchema.parse(request.body)
+      const documentId = id.parse((request.params as any).id)
+      const resultado = await escaneados.actualizarEscaneado(
+        documentId,
+        input as escaneados.ActualizarEscaneado,
+      )
+      formEvents.scannedDocumentChanged({ action: 'updated', documentId })
+      return reply.send({
+        success: true,
+        data: resultado,
+      })
+    } catch (error) {
+      return fail(reply, error)
+    }
+  })
+  app.delete('/formularios/escaneados/:id', gestionarEscaneados, async (request, reply) => {
+    try {
+      const documentId = id.parse((request.params as any).id)
+      const resultado = await escaneados.eliminarEscaneado(documentId)
+      formEvents.scannedDocumentChanged({ action: 'deleted', documentId })
+      return reply.send({
+        success: true,
+        data: resultado,
       })
     } catch (error) {
       return fail(reply, error)
