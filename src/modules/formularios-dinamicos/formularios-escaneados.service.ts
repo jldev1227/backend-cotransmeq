@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
@@ -10,6 +10,7 @@ import {
   getS3UploadUrl,
   headS3Object,
   sha256HexToBase64,
+  uploadToS3,
 } from '../../config/aws'
 import { ATTACHMENT_LIMITS, FormError } from './domain'
 import { diasCubiertos } from './formularios-escaneados.schema'
@@ -138,14 +139,34 @@ export async function completarEscaneado(id: string) {
   return { id, status: 'UPLOADED' }
 }
 
-export async function opcionesEscaneados(query: string) {
+/** Sube el PDF por la API para evitar depender del CORS del bucket en el dashboard. */
+export async function subirEscaneado(id: string, buffer: Buffer) {
+  const row = await prisma.form_scanned_document.findFirst({ where: { id, deleted_at: null } })
+  if (!row || row.status !== 'PENDING')
+    throw new FormError('ATTACHMENT_NOT_FOUND', 'No hay un PDF pendiente para esta carga.')
+  if (buffer.length !== Number(row.byte_size) || buffer.length > ATTACHMENT_LIMITS.maxFileBytes)
+    throw new FormError('ATTACHMENT_MISSING', 'El tamaño del PDF no coincide con el registrado.')
+  if (!buffer.subarray(0, 1024).includes(Buffer.from('%PDF-')))
+    throw new FormError('ATTACHMENT_TYPE_NOT_ALLOWED', 'El archivo no contiene una cabecera PDF válida.')
+  if (createHash('sha256').update(buffer).digest('hex') !== row.sha256)
+    throw new FormError('ATTACHMENT_HASH_MISMATCH', 'El contenido del PDF no coincide con su huella SHA-256.')
+  await uploadToS3(row.object_key, buffer, 'application/pdf')
+  return completarEscaneado(id)
+}
+
+export async function opcionesEscaneados(query: string, formId?: string) {
   const q = query.trim()
   const contains = { contains: q, mode: 'insensitive' as const }
+  const palabras = q.split(/\s+/).filter(Boolean)
   const [assignments, conductores, vehiculos] = await Promise.all([
     prisma.form_assignment.findMany({
       where: {
         deleted_at: null,
-        version: { status: { in: ['PUBLISHED', 'ARCHIVED'] }, form: { deleted_at: null } },
+        version: {
+          status: { in: ['PUBLISHED', 'ARCHIVED'] },
+          ...(formId ? { form_id: formId } : {}),
+          form: { deleted_at: null },
+        },
         ...(q
           ? {
               OR: [
@@ -173,15 +194,15 @@ export async function opcionesEscaneados(query: string) {
     prisma.conductores.findMany({
       where: {
         deleted_at: null,
-        ...(q
-          ? {
-              OR: [
-                { nombre: contains },
-                { apellido: contains },
-                { numero_identificacion: contains },
-              ],
-            }
-          : {}),
+        ...(palabras.length ? {
+          AND: palabras.map((palabra) => ({
+            OR: [
+              { nombre: { contains: palabra, mode: 'insensitive' as const } },
+              { apellido: { contains: palabra, mode: 'insensitive' as const } },
+              { numero_identificacion: { contains: palabra, mode: 'insensitive' as const } },
+            ],
+          })),
+        } : {}),
       },
       take: 40,
       orderBy: { nombre: 'asc' },
