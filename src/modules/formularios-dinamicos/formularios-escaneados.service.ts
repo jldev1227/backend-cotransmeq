@@ -6,6 +6,7 @@ import {
   BUCKET_NAME,
   s3Client,
   computeS3ObjectSha256,
+  deleteFromS3,
   getS3SignedUrl,
   getS3UploadUrl,
   headS3Object,
@@ -192,6 +193,64 @@ export async function subirEscaneado(id: string, buffer: Buffer) {
     throw new FormError('ATTACHMENT_HASH_MISMATCH', 'El contenido del PDF no coincide con su huella SHA-256.')
   await uploadToS3(row.object_key, buffer, 'application/pdf')
   return completarEscaneado(id)
+}
+
+/** Reemplaza el PDF de un escaneado existente sin perder su historial de metadatos. */
+export async function reemplazarArchivoEscaneado(id: string, buffer: Buffer, originalName: string) {
+  const row = await prisma.form_scanned_document.findFirst({
+    where: { id, status: 'UPLOADED', deleted_at: null },
+    select: { id: true, version_id: true, object_key: true },
+  })
+  if (!row) throw new FormError('ATTACHMENT_NOT_FOUND', 'El PDF escaneado no existe.')
+  if (buffer.length === 0) throw new FormError('ATTACHMENT_MISSING', 'Selecciona un PDF válido.')
+  if (buffer.length > ATTACHMENT_LIMITS.maxFileBytes) {
+    throw new FormError('ATTACHMENT_TOO_LARGE', 'El PDF supera el límite de 25 MB.')
+  }
+  if (!buffer.subarray(0, 1024).includes(Buffer.from('%PDF-'))) {
+    throw new FormError('ATTACHMENT_TYPE_NOT_ALLOWED', 'El archivo no contiene una cabecera PDF válida.')
+  }
+
+  const sha256 = createHash('sha256').update(buffer).digest('hex')
+  const newKey = `formularios-escaneados/${row.version_id}/${id}-${randomUUID()}.pdf`
+  await uploadToS3(newKey, buffer, 'application/pdf')
+
+  let result: { count: number }
+  try {
+    result = await prisma.form_scanned_document.updateMany({
+      where: { id, status: 'UPLOADED', deleted_at: null, object_key: row.object_key },
+      data: {
+        object_key: newKey,
+        original_name: originalName.slice(0, 255),
+        byte_size: BigInt(buffer.length),
+        sha256,
+        uploaded_at: new Date(),
+      },
+    })
+  } catch (error) {
+    await deleteFromS3(newKey).catch((cleanupError) => {
+      console.warn('No se pudo retirar el PDF de reemplazo después de fallar la base:', cleanupError)
+    })
+    throw error
+  }
+  if (!result.count) {
+    await deleteFromS3(newKey).catch((error) => {
+      console.warn('No se pudo retirar el PDF de reemplazo sin referencia:', error)
+    })
+    throw new FormError('ATTACHMENT_NOT_FOUND', 'El PDF escaneado cambió o fue eliminado. Recarga la lista e inténtalo de nuevo.')
+  }
+
+  // El nuevo objeto ya está referenciado. Si S3 no permite retirar el anterior,
+  // el reemplazo sigue siendo válido y el huérfano se puede limpiar después.
+  await deleteFromS3(row.object_key).catch((error) => {
+    console.warn('No se pudo retirar el PDF anterior después del reemplazo:', error)
+  })
+  return {
+    id,
+    status: 'UPLOADED' as const,
+    originalName: originalName.slice(0, 255),
+    byteSize: buffer.length,
+    uploadedAt: new Date().toISOString(),
+  }
 }
 
 export async function opcionesEscaneados(query: string, formId?: string) {

@@ -108,6 +108,28 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
       return fail(reply, error)
     }
   })
+  app.put('/formularios/escaneados/:id/archivo', gestionarEscaneados, async (request, reply) => {
+    try {
+      const parte = await (request as any).file({ limits: { files: 1, fileSize: 25 * 1024 * 1024 } })
+      if (!parte || (parte.mimetype !== 'application/pdf' && !parte.filename?.toLowerCase().endsWith('.pdf')))
+        return reply.status(415).send({ success: false, error: { message: 'Selecciona un PDF.' } })
+      const resultado = await escaneados.reemplazarArchivoEscaneado(
+        id.parse((request.params as any).id),
+        await parte.toBuffer(),
+        parte.filename || 'documento.pdf',
+      )
+      formEvents.scannedDocumentChanged({ action: 'updated', documentId: resultado.id })
+      return reply.send({ success: true, data: resultado })
+    } catch (error) {
+      if ((error as any)?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.status(413).send({
+          success: false,
+          error: { code: 'ATTACHMENT_TOO_LARGE', message: 'El PDF supera el límite de 25 MB.' },
+        })
+      }
+      return fail(reply, error)
+    }
+  })
   app.get('/formularios/escaneados/:id/url', leerEscaneados, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     try {
