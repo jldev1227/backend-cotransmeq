@@ -15,7 +15,11 @@ export const nuevoEscaneadoSchema = z
     vehicleId: z.string().uuid(),
     dateFrom: fechaEscaneadoSchema,
     dateTo: fechaEscaneadoSchema,
-    explanation: z.string().trim().min(5).max(2000),
+    explanation: z.string().trim().max(2000).default(''),
+    novedades: z.array(z.object({
+      fecha: fechaEscaneadoSchema,
+      descripcion: z.string().trim().min(1).max(500),
+    })).max(50).default([]),
     details: z
       .record(z.string().trim().min(1).max(80), z.string().trim().min(1).max(500))
       .default({})
@@ -31,6 +35,10 @@ export const nuevoEscaneadoSchema = z
   .refine((v) => v.dateTo >= v.dateFrom, {
     path: ['dateTo'],
     message: 'La fecha final debe ser igual o posterior a la inicial.',
+  })
+  .refine((v) => v.novedades.every((n) => n.fecha >= v.dateFrom && n.fecha <= v.dateTo), {
+    path: ['novedades'],
+    message: 'Las novedades deben estar dentro del período cubierto por el PDF.',
   })
 
 /** Ambas fechas cuentan; UTC evita que el cambio de mes o de horario altere días. */
