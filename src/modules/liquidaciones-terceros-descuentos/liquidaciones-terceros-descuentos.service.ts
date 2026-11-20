@@ -17,6 +17,10 @@ const MESES = [
   'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
 ];
 
+function normalizarPlacaBorrador(placa: unknown): string {
+  return String(placa ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
 // ═══════════════════════════════════════════════════════════════
@@ -81,6 +85,7 @@ export interface GenerarBorradorInput {
   liquidacion_servicio_id?: string;
   liquidacion_servicio_ids?: string[];
   placa?: string;
+  placas?: string[];
   /// Filtra los items de liquidación de tercero por `tercero_id`. Útil cuando
   /// una placa cambió de propietario a mitad de mes y se quiere liquidar al
   /// tercero correcto, evitando que el borrador traiga items de OTROS terceros
@@ -1162,10 +1167,10 @@ export const LiquidacionesTercerosDescuentosService = {
   // ── GENERAR BORRADOR: AHORA CREA liquidacion_tercero_final REAL EN BD ──
 
   async generarBorrador(input: GenerarBorradorInput) {
-    const { liquidacion_servicio_id, liquidacion_servicio_ids, placa: placaFiltro, tercero_id: terceroIdFiltro, user_id, onProgress } = input;
+    const { liquidacion_servicio_id, liquidacion_servicio_ids, placa: placaFiltro, placas, tercero_id: terceroIdFiltro, user_id, onProgress } = input;
 
     // Soportar tanto ID único (backward compat) como array de IDs
-    const liqIds: string[] = liquidacion_servicio_ids && liquidacion_servicio_ids.length > 0
+    let liqIds: string[] = liquidacion_servicio_ids && liquidacion_servicio_ids.length > 0
       ? liquidacion_servicio_ids
       : liquidacion_servicio_id
         ? [liquidacion_servicio_id]
@@ -1173,6 +1178,45 @@ export const LiquidacionesTercerosDescuentosService = {
 
     if (liqIds.length === 0) {
       throw new Error('Se requiere al menos un liquidacion_servicio_id');
+    }
+
+    const placasFiltro = new Set((placas ?? []).map(normalizarPlacaBorrador).filter(Boolean));
+    const placaUnicaFiltro = placaFiltro ? normalizarPlacaBorrador(placaFiltro) : null;
+    if (placas !== undefined && placasFiltro.size === 0) {
+      throw new Error('Selecciona al menos una placa para generar borradores');
+    }
+    if (placasFiltro.size > 0 || placaUnicaFiltro) {
+      // Filtra las IDs antes del bucle costoso que carga facturas, nómina y
+      // anticipos. Una sola consulta ligera reemplaza hasta N lecturas de
+      // liquidación_servicio cuando se eligió un subconjunto de placas.
+      const whereItemsOrigen: any = {
+        liquidacion_id: { in: liqIds },
+        deleted_at: null,
+      };
+      if (placas?.length) {
+        whereItemsOrigen.placa = { in: placas, mode: 'insensitive' };
+      } else if (placaFiltro) {
+        whereItemsOrigen.placa = { equals: placaFiltro, mode: 'insensitive' };
+      }
+      if (terceroIdFiltro) whereItemsOrigen.tercero_id = terceroIdFiltro;
+      const itemsOrigen = await prisma.liquidacion_tercero.findMany({
+        where: whereItemsOrigen,
+        select: { liquidacion_id: true, placa: true },
+      });
+      const idsConPlaca = new Set(
+        itemsOrigen
+          .filter((item) => {
+            const clave = normalizarPlacaBorrador(item.placa);
+            return (!placasFiltro.size || placasFiltro.has(clave)) &&
+              (!placaUnicaFiltro || clave === placaUnicaFiltro) &&
+              clave.length > 0;
+          })
+          .map((item) => item.liquidacion_id)
+      );
+      liqIds = liqIds.filter((id) => idsConPlaca.has(id));
+      if (liqIds.length === 0) {
+        throw new Error('Ninguna liquidación seleccionada contiene items de las placas elegidas');
+      }
     }
 
     console.log(`[generarBorrador] START ${liqIds.length} liquidacion(es) placa=${placaFiltro || 'TODAS'}`);
@@ -1196,7 +1240,19 @@ export const LiquidacionesTercerosDescuentosService = {
         currentStep: `Obteniendo liquidaciones de servicio (${liqIdx + 1}/${totalLiqs})...`
       });
 
-      const liqResult = await this._procesarLiquidacion(liqId, placaFiltro, terceroIdFiltro, user_id, onProgress, liqProgress, 95 / totalLiqs, liqIdx, totalLiqs);
+      const liqResult = await this._procesarLiquidacion(
+        liqId,
+        placaFiltro,
+        terceroIdFiltro,
+        user_id,
+        onProgress,
+        liqProgress,
+        95 / totalLiqs,
+        liqIdx,
+        totalLiqs,
+        placasFiltro,
+        placas ?? []
+      );
 
       if (liqResult.terceros.length > 0) {
         allTerceros.push(...liqResult.terceros);
@@ -1226,15 +1282,24 @@ export const LiquidacionesTercerosDescuentosService = {
     progressStart: number,
     progressWeight: number,
     liqIdx: number,
-    totalLiqs: number
+    totalLiqs: number,
+    placasFiltro: Set<string> | null = null,
+    placasDbFiltro: string[] = []
   ) {
+    const whereTercerosItems: any = { deleted_at: null };
+    if (placasDbFiltro.length > 0) {
+      whereTercerosItems.placa = { in: placasDbFiltro, mode: 'insensitive' };
+    } else if (placaFiltro) {
+      whereTercerosItems.placa = { equals: placaFiltro, mode: 'insensitive' };
+    }
+
     const liqServicio = await prisma.liquidacion_servicio.findUnique({
       where: { id: liquidacion_servicio_id },
       include: {
         /// Solo las filas vivas: el guardado de terceros marca las anteriores
         /// con `deleted_at`, y sin el filtro el cierre las procesaba todas y
         /// duplicaba los conceptos.
-        terceros_items: { where: { deleted_at: null }, orderBy: { orden: 'asc' } },
+        terceros_items: { where: whereTercerosItems, orderBy: { orden: 'asc' } },
         factura_items: { include: { factura: { select: { numero_factura: true } } } },
         cliente: { select: { id: true, nombre: true, nit: true } },
       },
@@ -1249,12 +1314,12 @@ export const LiquidacionesTercerosDescuentosService = {
     const anio = liqServicio.anio;
 
     // Filtrar terceros_items por placa
-    let tercerosFiltrados = placaFiltro
-      ? liqServicio.terceros_items.filter((lt: any) =>
-          (lt.placa || '').toUpperCase().replace(/[^A-Z0-9]/g, '') ===
-          placaFiltro.toUpperCase().replace(/[^A-Z0-9]/g, '')
-        )
-      : liqServicio.terceros_items;
+    let tercerosFiltrados = liqServicio.terceros_items.filter((lt: any) => {
+      const clave = normalizarPlacaBorrador(lt.placa);
+      if (placaFiltro && clave !== normalizarPlacaBorrador(placaFiltro)) return false;
+      if (placasFiltro?.size && !placasFiltro.has(clave)) return false;
+      return true;
+    });
 
     // Filtro adicional por tercero_id: cuando una placa cambió de propietario
     // a mitad de mes, el mismo mes/placa tiene items de VARIOS terceros.

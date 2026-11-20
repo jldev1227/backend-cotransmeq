@@ -328,7 +328,7 @@ Mismo body que la versión síncrona, más:
 |---|---|---|---|
 | `persistir` | boolean | no | `true`: además guarda cada cierre y anuncia su hoja (modo canvas) |
 | `anio`, `mes` | number | si `persistir` | Periodo del libro; también es la clave del lock |
-| `placas` | string[] | no | Subconjunto de placas a persistir |
+| `placas` | string[] | no | Placas a incluir; limita antes del cálculo las liquidaciones de servicio que contienen ítems de terceros para esas placas |
 | `force_new` | boolean | no | Crea un cierre nuevo aunque haya uno APROBADA/PAGADA, marcándolo REEMPLAZADA |
 
 La cola vive en memoria, en un solo proceso. Hay un lock por periodo

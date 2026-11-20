@@ -373,6 +373,7 @@ class BorradorQueueService {
       liquidacion_servicio_id,
       liquidacion_servicio_ids,
       placa,
+      placas,
       tercero_id,
     } = job.payload;
 
@@ -404,6 +405,7 @@ class BorradorQueueService {
       liquidacion_servicio_id,
       liquidacion_servicio_ids,
       placa,
+      placas,
       tercero_id: tercero_id || null,
       user_id: job.userId,
       onProgress,
