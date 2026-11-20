@@ -160,6 +160,7 @@ export const RecargosController = {
         vehiculo_id: query.vehiculo_id,
         empresa_id: query.empresa_id,
         estado: query.estado,
+        search: query.search,
         numero_planilla: query.numero_planilla,
         eliminados: query.eliminados,
         imported_from_transmeralda: query.imported_from_transmeralda,

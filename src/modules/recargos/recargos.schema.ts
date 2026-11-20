@@ -116,6 +116,7 @@ export const buscarRecargosSchema = z
     vehiculo_id: z.string().uuid().optional(),
     empresa_id: z.string().uuid().optional(),
     estado: z.string().optional(),
+    search: z.string().trim().max(120).optional(),
     numero_planilla: z.string().optional(),
     eliminados: z
       .string()

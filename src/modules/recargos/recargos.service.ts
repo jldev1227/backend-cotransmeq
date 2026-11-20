@@ -822,6 +822,22 @@ export const RecargosService = {
     if (filters.vehiculo_id) where.vehiculo_id = filters.vehiculo_id;
     if (filters.empresa_id) where.empresa_id = filters.empresa_id;
     if (filters.estado) where.estado = filters.estado;
+    const searchTokens = typeof filters.search === "string"
+      ? filters.search.trim().split(/\s+/).filter(Boolean)
+      : [];
+    if (searchTokens.length > 0) {
+      /// Cada palabra debe aparecer en algún campo buscable; hacerlo aquí
+      /// antes de paginar permite encontrar planillas fuera de las primeras 200.
+      where.AND = searchTokens.map((term: string) => ({
+        OR: [
+          { numero_planilla: { contains: term, mode: "insensitive" } },
+          { conductores: { nombre: { contains: term, mode: "insensitive" } } },
+          { conductores: { apellido: { contains: term, mode: "insensitive" } } },
+          { vehiculos: { placa: { contains: term, mode: "insensitive" } } },
+          { clientes: { nombre: { contains: term, mode: "insensitive" } } },
+        ],
+      }));
+    }
     if (filters.numero_planilla) {
       where.numero_planilla = {
         contains: filters.numero_planilla,

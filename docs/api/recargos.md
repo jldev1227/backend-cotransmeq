@@ -96,6 +96,7 @@ regla propia incumplida (ya en español y con el día) o «Error de validación�
 | `año` (o `ano`) | string numérico | — | Con eñe; `ano` es el alias sin ella |
 | `conductor_id`, `vehiculo_id`, `empresa_id` | uuid | — | |
 | `estado` | string | — | Igualdad con el enum de la planilla |
+| `search` | string | — | Busca cada palabra, sin distinguir mayúsculas, en planilla, conductor, placa y empresa antes de paginar |
 | `numero_planilla` | string | — | Contiene, sin distinguir mayúsculas |
 | `eliminados` | `'true'` \| ausente | ausente | Con `'true'` lista la papelera |
 | `imported_from_transmeralda` | `si` \| `no` \| `all` | `all` | Solo importadas de Transmeralda, solo nativas o todas |
