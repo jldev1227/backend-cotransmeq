@@ -15,6 +15,14 @@ import {
 import { ATTACHMENT_LIMITS, FormError } from './domain'
 import { diasCubiertos } from './formularios-escaneados.schema'
 
+export type ActualizarEscaneado = {
+  dateFrom: string
+  dateTo: string
+  explanation: string
+  details: Record<string, string>
+  novedades: Array<{ fecha: string; descripcion: string }>
+}
+
 export type NuevoEscaneado = {
   formId: string
   conductorId: string
@@ -313,6 +321,33 @@ export async function listarEscaneados(input: {
     total,
     page: input.page,
   }
+}
+
+/** Actualiza solo los datos asociados al PDF físico; el objeto original queda intacto. */
+export async function actualizarEscaneado(id: string, input: ActualizarEscaneado) {
+  const details: Record<string, unknown> = { ...input.details }
+  if (input.novedades.length) details.novedades = input.novedades
+  const result = await prisma.form_scanned_document.updateMany({
+    where: { id, status: 'UPLOADED', deleted_at: null },
+    data: {
+      date_from: new Date(`${input.dateFrom}T00:00:00.000Z`),
+      date_to: new Date(`${input.dateTo}T00:00:00.000Z`),
+      explanation: input.explanation,
+      details_json: details as Prisma.InputJsonValue,
+    },
+  })
+  if (!result.count) throw new FormError('ATTACHMENT_NOT_FOUND', 'El PDF escaneado no existe.')
+  return { id, updated: true }
+}
+
+/** Retiro lógico: conserva el PDF original para trazabilidad y evita borrarlo del bucket. */
+export async function eliminarEscaneado(id: string) {
+  const result = await prisma.form_scanned_document.updateMany({
+    where: { id, status: 'UPLOADED', deleted_at: null },
+    data: { deleted_at: new Date() },
+  })
+  if (!result.count) throw new FormError('ATTACHMENT_NOT_FOUND', 'El PDF escaneado no existe.')
+  return { id, deleted: true }
 }
 
 export async function urlEscaneado(id: string) {

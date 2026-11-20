@@ -28,12 +28,16 @@ export const FORM_EVENTS = {
   submissionAccepted: 'forms:submission.accepted',
   submissionVoided: 'forms:submission.voided',
   attachmentReady: 'forms:attachment.ready',
+  scannedDocumentChanged: 'forms:scanned-document.changed',
 } as const
 
 export type FormEvent = (typeof FORM_EVENTS)[keyof typeof FORM_EVENTS]
 
 /** Room del dashboard. Solo entran usuarios con permiso `formularios`. */
 export const ADMIN_ROOM = 'forms:admin'
+
+/** Room separado: no comparte las respuestas ni los adjuntos de los envíos. */
+export const SCANNED_DOCUMENTS_ROOM = 'forms:scanned-documents'
 
 /** Room de un conductor. El id lo deriva el backend del token, nunca el cliente. */
 export function conductorRoom(conductorId: string): string {
@@ -149,6 +153,17 @@ export const formEvents = {
       submissionId: params.submissionId,
       attachmentId: params.attachmentId,
       clientAttachmentId: params.clientAttachmentId,
+    })
+  },
+
+  /** Solo invalida listados abiertos; el contenido se vuelve a leer por HTTP. */
+  scannedDocumentChanged(params: {
+    action: 'created' | 'updated' | 'deleted'
+    documentId: string
+  }): void {
+    emitir(FORM_EVENTS.scannedDocumentChanged, [SCANNED_DOCUMENTS_ROOM], {
+      action: params.action,
+      documentId: params.documentId,
     })
   },
 }
