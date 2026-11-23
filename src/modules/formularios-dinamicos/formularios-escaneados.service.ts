@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'crypto'
-import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { PassThrough, Transform } from 'stream'
+import type { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import {
@@ -180,6 +183,97 @@ export async function completarEscaneado(id: string) {
   return { id, status: 'UPLOADED' }
 }
 
+/**
+ * Valida y envía el PDF desde el multipart como stream, sin acumular el archivo
+ * completo en memoria. El tamaño conocido se declara a S3 como Content-Length.
+ */
+async function subirPdfComoStream(
+  key: string,
+  archivo: Readable & { truncated?: boolean },
+  byteSizeEsperado: number,
+  sha256Esperado?: string,
+) {
+  let byteSize = 0
+  let prefijo = Buffer.alloc(0)
+  let almacenado = false
+  const hash = createHash('sha256')
+  const cuerpoS3 = new PassThrough()
+  const validar = new Transform({
+    transform(chunk: Buffer | string, _encoding, callback) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      byteSize += buffer.length
+      if (byteSize > ATTACHMENT_LIMITS.maxFileBytes) {
+        callback(new FormError('ATTACHMENT_TOO_LARGE', 'El PDF supera el límite de 25 MB.'))
+        return
+      }
+      if (byteSize > byteSizeEsperado) {
+        callback(new FormError('ATTACHMENT_MISSING', 'El tamaño del PDF no coincide con el registrado.'))
+        return
+      }
+      hash.update(buffer)
+      if (prefijo.length < 1024) {
+        prefijo = Buffer.concat([prefijo, buffer.subarray(0, 1024 - prefijo.length)])
+      }
+      callback(null, buffer)
+    },
+  })
+
+  const transferir = pipeline(archivo, validar, cuerpoS3)
+  const subir = s3Client.send(new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    Body: cuerpoS3,
+    ContentLength: byteSizeEsperado,
+    ContentType: 'application/pdf',
+    ...(sha256Esperado ? { ChecksumSHA256: sha256HexToBase64(sha256Esperado) } : {}),
+  })).then(() => {
+    almacenado = true
+  })
+
+  try {
+    await Promise.all([transferir, subir])
+    if (archivo.truncated) {
+      throw new FormError('ATTACHMENT_TOO_LARGE', 'El PDF supera el límite de 25 MB.')
+    }
+    if (byteSize !== byteSizeEsperado) {
+      throw new FormError('ATTACHMENT_MISSING', 'El tamaño del PDF no coincide con el registrado.')
+    }
+    if (byteSize === 0 || !prefijo.includes(Buffer.from('%PDF-'))) {
+      throw new FormError('ATTACHMENT_TYPE_NOT_ALLOWED', 'El archivo no contiene una cabecera PDF válida.')
+    }
+    const sha256 = hash.digest('hex')
+    if (sha256Esperado && sha256 !== sha256Esperado) {
+      throw new FormError('ATTACHMENT_HASH_MISMATCH', 'El contenido del PDF no coincide con su huella SHA-256.')
+    }
+    return { byteSize, sha256 }
+  } catch (error) {
+    archivo.destroy()
+    cuerpoS3.destroy()
+    await Promise.allSettled([transferir, subir])
+    if (almacenado) {
+      await deleteFromS3(key).catch((cleanupError) => {
+        console.warn('No se pudo retirar un PDF después de fallar su validación:', cleanupError)
+      })
+    }
+    throw error
+  }
+}
+
+/** Recibe el multipart de Fastify como stream y lo sube a S3 en paralelo. */
+export async function subirEscaneadoDesdeStream(
+  id: string,
+  archivo: Readable & { truncated?: boolean },
+) {
+  const row = await prisma.form_scanned_document.findFirst({
+    where: { id, deleted_at: null },
+  })
+  if (!row || row.status !== 'PENDING') {
+    throw new FormError('ATTACHMENT_NOT_FOUND', 'No hay un PDF pendiente para esta carga.')
+  }
+  await subirPdfComoStream(row.object_key, archivo, Number(row.byte_size), row.sha256)
+  return completarEscaneado(id)
+}
+
 /** Sube el PDF por la API para evitar depender del CORS del bucket en el dashboard. */
 export async function subirEscaneado(id: string, buffer: Buffer) {
   const row = await prisma.form_scanned_document.findFirst({ where: { id, deleted_at: null } })
@@ -249,6 +343,65 @@ export async function reemplazarArchivoEscaneado(id: string, buffer: Buffer, ori
     status: 'UPLOADED' as const,
     originalName: originalName.slice(0, 255),
     byteSize: buffer.length,
+    uploadedAt: new Date().toISOString(),
+  }
+}
+
+/** Reemplaza el objeto desde el multipart sin acumular el PDF en memoria. */
+export async function reemplazarArchivoEscaneadoDesdeStream(
+  id: string,
+  archivo: Readable & { truncated?: boolean },
+  byteSizeEsperado: number,
+  originalName: string,
+) {
+  const row = await prisma.form_scanned_document.findFirst({
+    where: { id, status: 'UPLOADED', deleted_at: null },
+    select: { id: true, version_id: true, object_key: true },
+  })
+  if (!row) throw new FormError('ATTACHMENT_NOT_FOUND', 'El PDF escaneado no existe.')
+  if (!Number.isSafeInteger(byteSizeEsperado) || byteSizeEsperado <= 0) {
+    throw new FormError('ATTACHMENT_MISSING', 'Selecciona un PDF válido.')
+  }
+  if (byteSizeEsperado > ATTACHMENT_LIMITS.maxFileBytes) {
+    throw new FormError('ATTACHMENT_TOO_LARGE', 'El PDF supera el límite de 25 MB.')
+  }
+
+  const newKey = `formularios-escaneados/${row.version_id}/${id}-${randomUUID()}.pdf`
+  const archivoSubido = await subirPdfComoStream(newKey, archivo, byteSizeEsperado)
+
+  let result: { count: number }
+  try {
+    result = await prisma.form_scanned_document.updateMany({
+      where: { id, status: 'UPLOADED', deleted_at: null, object_key: row.object_key },
+      data: {
+        object_key: newKey,
+        original_name: originalName.slice(0, 255),
+        byte_size: BigInt(archivoSubido.byteSize),
+        sha256: archivoSubido.sha256,
+        uploaded_at: new Date(),
+      },
+    })
+  } catch (error) {
+    await deleteFromS3(newKey).catch((cleanupError) => {
+      console.warn('No se pudo retirar el PDF de reemplazo después de fallar la base:', cleanupError)
+    })
+    throw error
+  }
+  if (!result.count) {
+    await deleteFromS3(newKey).catch((error) => {
+      console.warn('No se pudo retirar el PDF de reemplazo sin referencia:', error)
+    })
+    throw new FormError('ATTACHMENT_NOT_FOUND', 'El PDF escaneado cambió o fue eliminado. Recarga la lista e inténtalo de nuevo.')
+  }
+
+  await deleteFromS3(row.object_key).catch((error) => {
+    console.warn('No se pudo retirar el PDF anterior después del reemplazo:', error)
+  })
+  return {
+    id,
+    status: 'UPLOADED' as const,
+    originalName: originalName.slice(0, 255),
+    byteSize: archivoSubido.byteSize,
     uploadedAt: new Date().toISOString(),
   }
 }

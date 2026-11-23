@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { Readable } from 'stream'
 import { z } from 'zod'
 import { requireAlgunPermiso, requirePermission } from '../../middlewares/permissions.middleware'
 import { isFormError } from './domain'
@@ -23,6 +24,16 @@ function fail(reply: FastifyReply, error: unknown) {
     success: false,
     error: { code: 'INTERNAL_ERROR', message: 'No se pudo procesar el PDF escaneado.' },
   })
+}
+
+function failArchivo(reply: FastifyReply, error: unknown) {
+  if ((error as any)?.code === 'FST_REQ_FILE_TOO_LARGE') {
+    return reply.status(413).send({
+      success: false,
+      error: { code: 'ATTACHMENT_TOO_LARGE', message: 'El PDF supera el límite de 25 MB.' },
+    })
+  }
+  return fail(reply, error)
 }
 
 /** Estas rutas viven dentro del módulo autenticado de formularios. */
@@ -96,7 +107,10 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
       const parte = await (request as any).file({ limits: { files: 1, fileSize: 25 * 1024 * 1024 } })
       if (!parte || parte.mimetype !== 'application/pdf')
         return reply.status(400).send({ success: false, error: { message: 'Selecciona un PDF.' } })
-      const resultado = await escaneados.subirEscaneado(id.parse((request.params as any).id), await parte.toBuffer())
+      const resultado = await escaneados.subirEscaneadoDesdeStream(
+        id.parse((request.params as any).id),
+        parte.file as Readable & { truncated?: boolean },
+      )
       if (resultado.status === 'UPLOADED') {
         formEvents.scannedDocumentChanged({ action: 'created', documentId: resultado.id })
       }
@@ -105,29 +119,47 @@ export function registrarRutasEscaneados(app: FastifyInstance) {
         data: resultado,
       })
     } catch (error) {
-      return fail(reply, error)
+      return failArchivo(reply, error)
     }
   })
   app.put('/formularios/escaneados/:id/archivo', gestionarEscaneados, async (request, reply) => {
     try {
+      const rawByteSize = request.headers['x-file-size']
+      let byteSize: number | undefined
+      if (rawByteSize !== undefined) {
+        if (typeof rawByteSize !== 'string' || !/^\d+$/.test(rawByteSize)) {
+          return reply.status(400).send({ success: false, error: { message: 'El tamaño del PDF no es válido.' } })
+        }
+        byteSize = Number(rawByteSize)
+        if (!Number.isSafeInteger(byteSize) || byteSize <= 0) {
+          return reply.status(400).send({ success: false, error: { message: 'El tamaño del PDF no es válido.' } })
+        }
+        if (byteSize > 25 * 1024 * 1024) {
+          return reply.status(413).send({
+            success: false,
+            error: { code: 'ATTACHMENT_TOO_LARGE', message: 'El PDF supera el límite de 25 MB.' },
+          })
+        }
+      }
       const parte = await (request as any).file({ limits: { files: 1, fileSize: 25 * 1024 * 1024 } })
       if (!parte || (parte.mimetype !== 'application/pdf' && !parte.filename?.toLowerCase().endsWith('.pdf')))
         return reply.status(415).send({ success: false, error: { message: 'Selecciona un PDF.' } })
-      const resultado = await escaneados.reemplazarArchivoEscaneado(
-        id.parse((request.params as any).id),
-        await parte.toBuffer(),
-        parte.filename || 'documento.pdf',
-      )
+      const resultado = byteSize === undefined
+        ? await escaneados.reemplazarArchivoEscaneado(
+            id.parse((request.params as any).id),
+            await parte.toBuffer(),
+            parte.filename || 'documento.pdf',
+          )
+        : await escaneados.reemplazarArchivoEscaneadoDesdeStream(
+            id.parse((request.params as any).id),
+            parte.file as Readable & { truncated?: boolean },
+            byteSize,
+            parte.filename || 'documento.pdf',
+          )
       formEvents.scannedDocumentChanged({ action: 'updated', documentId: resultado.id })
       return reply.send({ success: true, data: resultado })
     } catch (error) {
-      if ((error as any)?.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.status(413).send({
-          success: false,
-          error: { code: 'ATTACHMENT_TOO_LARGE', message: 'El PDF supera el límite de 25 MB.' },
-        })
-      }
-      return fail(reply, error)
+      return failArchivo(reply, error)
     }
   })
   app.get('/formularios/escaneados/:id/url', leerEscaneados, async (request, reply) => {
