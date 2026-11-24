@@ -41,7 +41,7 @@ Reglas que un integrador necesita saber:
 | PATCH | `/api/inducciones/:id` | `asistencias:full` | Corrige una inducción |
 | DELETE | `/api/inducciones/:id` | `asistencias:full` | Borra una inducción |
 | GET | `/api/inducciones/:id/exportar/excel` | `asistencias:read` | Excel del formato HSEQ-FR-66 |
-| GET | `/api/inducciones/:id/exportar/pdf` | `asistencias:read` | Formato imprimible (HTML, no PDF) |
+| GET | `/api/inducciones/:id/exportar/pdf` | `asistencias:read` | PDF imprimible |
 
 Las rutas declaran esquema JSON de Fastify (body, query, enums, `date-time`):
 lo que no cumple sale 400 en el formato de Fastify
@@ -124,13 +124,12 @@ Borra la fila. `{ success, message }`; 500 si no existe.
 
 ### Exportaciones
 
-- `GET /api/inducciones/:id/exportar/excel`: libro con cuatro hojas (Encabezado con código
-  HSEQ-FR-66 y versión, Visitante, Temas informados con SÍ/NO, Resumen),
-  `attachment; filename="induccion_<nombre>_<fecha>.xlsx"`.
-- `GET /api/inducciones/:id/exportar/pdf`: pese al nombre devuelve **HTML**
-  (`text/html; charset=utf-8`) como adjunto `induccion_<nombre>_<fecha>.html`,
-  pensado para imprimir desde el navegador. Incluye la firma y la declaración
-  del visitante («…que COTRANSMEQ S.A.S. me suministró la información…»).
+- `GET /api/inducciones/:id/exportar/excel`: libro `.xlsx` con una hoja «Inducción»
+  formateada: identidad de la empresa, datos del visitante, temas, conformidad y observaciones.
+  Las firmas originales se consultan en el PDF.
+- `GET /api/inducciones/:id/exportar/pdf`: PDF Letter (`application/pdf`) con cabecera
+  documental, logo, respuestas, declaración, firmas y pie con paginación.
+  Se descarga como `induccion_<nombre>_<id>.pdf`.
 
 Una inducción inexistente sale 500 `Inducción no encontrada` en las dos.
 
