@@ -1,12 +1,17 @@
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { AREAS, getAccessibleModules, normalizarRutasOverride, type Area } from '../../config/permissions'
 import { filtroNotificacionesPermitidas } from './permisos-notificaciones'
+import { cargarEntidadesOcultas } from '../../lib/ocultos-operativos'
 
 async function whereNotificacionesPermitidas(usuario_id: string) {
-  const usuario = await prisma.usuarios.findUnique({
-    where: { id: usuario_id },
-    select: { id: true, area: true, permisos_rutas: true },
-  })
+  const [usuario, ocultas] = await Promise.all([
+    prisma.usuarios.findUnique({
+      where: { id: usuario_id },
+      select: { id: true, area: true, permisos_rutas: true },
+    }),
+    cargarEntidadesOcultas(),
+  ])
   if (!usuario) return { usuario_id, referencia_tipo: '__sin_permiso__' }
   const areas = usuario.area.filter((area): area is Area => AREAS.includes(area as Area))
   const modulos = getAccessibleModules(
@@ -14,7 +19,35 @@ async function whereNotificacionesPermitidas(usuario_id: string) {
     normalizarRutasOverride(usuario.permisos_rutas),
     usuario.id,
   )
-  return { usuario_id, ...filtroNotificacionesPermitidas(modulos) }
+  const conductorIds = ocultas.conductores.map((c) => c.id)
+  const vehiculoIds = ocultas.vehiculos.map((v) => v.id)
+  const referenciasOcultas: Prisma.notificacionWhereInput[] = []
+  if (conductorIds.length || vehiculoIds.length) {
+    const enviosOcultos = await prisma.form_submission.findMany({
+      where: {
+        deleted_at: null,
+        OR: [
+          ...(conductorIds.length ? [{ conductor_id: { in: conductorIds } }] : []),
+          ...(vehiculoIds.length ? [{ vehicle_id: { in: vehiculoIds } }] : []),
+        ],
+      },
+      select: { id: true },
+    })
+    if (enviosOcultos.length) {
+      referenciasOcultas.push({
+        referencia_tipo: { in: ['preoperacional', 'preop_malo'] },
+        referencia_id: { in: enviosOcultos.map((e) => e.id) },
+      })
+    }
+    if (conductorIds.length) referenciasOcultas.push({ referencia_tipo: { startsWith: 'doccond:' }, referencia_id: { in: conductorIds } })
+    if (vehiculoIds.length) referenciasOcultas.push({ referencia_tipo: { startsWith: 'docveh:' }, referencia_id: { in: vehiculoIds } })
+  }
+  return {
+    AND: [
+      { usuario_id, ...filtroNotificacionesPermitidas(modulos) },
+      ...(referenciasOcultas.length ? [{ NOT: { OR: referenciasOcultas } }] : []),
+    ],
+  }
 }
 
 export const NotificacionesService = {

@@ -181,12 +181,12 @@ async function objetivosSimit(): Promise<{ vehiculos: ObjetivoSimit[]; conductor
   const idsConductores = [...new Set(servicios.map((s) => s.conductor_id).filter((id): id is string => Boolean(id)))]
   const [vehiculos, conductores] = await Promise.all([
     idsVehiculos.length ? prisma.vehiculos.findMany({
-      where: { id: { in: idsVehiculos }, deleted_at: null },
+      where: { id: { in: idsVehiculos }, deleted_at: null, oculto: false },
       select: { id: true, placa: true },
       orderBy: { placa: 'asc' },
     }) : [],
     idsConductores.length ? prisma.conductores.findMany({
-      where: { id: { in: idsConductores }, deleted_at: null },
+      where: { id: { in: idsConductores }, deleted_at: null, oculto: false },
       select: { id: true, nombre: true, apellido: true, numero_identificacion: true },
       orderBy: [{ nombre: 'asc' }, { apellido: 'asc' }],
     }) : [],

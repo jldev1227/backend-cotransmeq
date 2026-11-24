@@ -14,7 +14,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { diasDelPeriodo, type Periodo } from './periodo'
-import { idsLiquidacionesServicioOcultas } from '../../lib/ocultos-operativos'
+import { idsLiquidacionesServicioOcultas, uuidNotIn } from '../../lib/ocultos-operativos'
 
 export const SIN_CERRAR_DIAS = 7
 
@@ -266,9 +266,7 @@ export async function seccionOperaciones(ctx: ContextoSeccion): Promise<Record<s
   if (modulos['liquidaciones-servicios']) {
     const PENDIENTES = ['BORRADOR', 'LIQUIDADA', 'APROBADA']
     const liquidacionesOcultas = await idsLiquidacionesServicioOcultas()
-    const liquidacionesVisibles = liquidacionesOcultas.length
-      ? Prisma.sql`AND l.id NOT IN (${Prisma.join(liquidacionesOcultas)})`
-      : Prisma.sql``
+    const liquidacionesVisibles = Prisma.sql`AND ${uuidNotIn(Prisma.sql`l.id`, liquidacionesOcultas)}`
     const [porEstadoLiq, ultimas] = await Promise.all([
       prisma.$queryRaw<Array<{ estado: string; cantidad: number; valor: number }>>(Prisma.sql`
         SELECT l.estado::text AS estado, count(*)::int AS cantidad, coalesce(sum(l.total), 0)::float AS valor

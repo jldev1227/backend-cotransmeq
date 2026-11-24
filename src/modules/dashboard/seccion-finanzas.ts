@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { enMeses } from './seccion-operaciones'
-import { idsCierresTercerosOcultos, idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas, idsNominasOcultas } from '../../lib/ocultos-operativos'
+import { idsCierresTercerosOcultos, idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas, idsNominasOcultas, uuidNotIn } from '../../lib/ocultos-operativos'
 
 type FuenteCosto = {
   id: string
@@ -30,10 +30,10 @@ export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number,
     idsNominasOcultas(),
   ])
   const facturasOcultas = await idsFacturasConEntidadesOcultas(liquidacionesOcultas)
-  const filtroLiq = liquidacionesOcultas.length ? Prisma.sql`AND l.id NOT IN (${Prisma.join(liquidacionesOcultas)})` : Prisma.sql``
-  const filtroCierres = cierresOcultos.length ? Prisma.sql`AND f.id NOT IN (${Prisma.join(cierresOcultos)})` : Prisma.sql``
-  const filtroNomina = nominasOcultas.length ? Prisma.sql`AND l.id NOT IN (${Prisma.join(nominasOcultas)})` : Prisma.sql``
-  const filtroFactura = facturasOcultas.length ? Prisma.sql`AND f.id NOT IN (${Prisma.join(facturasOcultas)})` : Prisma.sql``
+  const filtroLiq = Prisma.sql`AND ${uuidNotIn(Prisma.sql`l.id`, liquidacionesOcultas)}`
+  const filtroCierres = Prisma.sql`AND ${uuidNotIn(Prisma.sql`f.id`, cierresOcultos)}`
+  const filtroNomina = Prisma.sql`AND ${uuidNotIn(Prisma.sql`l.id`, nominasOcultas)}`
+  const filtroFactura = Prisma.sql`AND ${uuidNotIn(Prisma.sql`f.id`, facturasOcultas)}`
   const [ingresosRows, tercerosRows, nominaRows, viaticosRows, combustibleRows, mantenimientoRows, carteraRows] = await Promise.all([
     prisma.$queryRaw<Array<{ cantidad: number; valor: number }>>(Prisma.sql`
       SELECT count(*)::int AS cantidad, coalesce(sum(l.total), 0)::float AS valor
@@ -85,7 +85,7 @@ export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number,
           SELECT count(*)::int AS cantidad, coalesce(sum(e.costo), 0)::float AS valor
           FROM vehicle_maintenance_event e
           WHERE e.deleted_at IS NULL AND e.estado = 'EJECUTADO'
-            AND (e.vehicle_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = e.vehicle_id AND v.oculto = false))
+            AND (e.vehiculo_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = e.vehiculo_id AND v.oculto = false))
             AND e.fecha_ejecucion >= ${periodo.desde}::date AND e.fecha_ejecucion <= ${periodo.hasta}::date`)
       : Promise.resolve([]),
     modulos['cartera']
