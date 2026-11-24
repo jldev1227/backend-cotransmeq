@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
+import { idsDiasLaboralesOcultos } from '../../lib/ocultos-operativos'
 import { periodoDeCorte, etiquetaCorte, type Corte } from './corte-periodo'
 import {
   BonoColumna,
@@ -132,7 +133,10 @@ export class RecorridosCanvasService {
     const desde = new Date(Date.UTC(a1, m1 - 1, d1))
     const hasta = new Date(Date.UTC(a2, m2 - 1, d2 + 1))
 
-    const bonos = await this.columnasBono(anio)
+    const [bonos, diasOcultos] = await Promise.all([
+      this.columnasBono(anio),
+      idsDiasLaboralesOcultos(),
+    ])
     const bonosVisibles = new Set(bonos.map((b) => b.config_id))
     if (bonos.length === 0) {
       avisos.push(
@@ -145,6 +149,8 @@ export class RecorridosCanvasService {
       where: {
         fecha: { gte: desde, lt: hasta },
         deleted_at: null,
+        conductor: { oculto: false },
+        ...(diasOcultos.length ? { id: { notIn: diasOcultos } } : {}),
         ...(conductorIds?.length ? { conductor_id: { in: conductorIds } } : {}),
       },
       select: SELECT_DIA,

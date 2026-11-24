@@ -14,6 +14,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { diasDelPeriodo, type Periodo } from './periodo'
+import { idsLiquidacionesServicioOcultas } from '../../lib/ocultos-operativos'
 
 export const SIN_CERRAR_DIAS = 7
 
@@ -101,6 +102,8 @@ export async function jornadasDelPeriodo(
     const filas = await prisma.$queryRaw<Array<{ hi: number; hf: number }>>(Prisma.sql`
       SELECT d.hora_inicio::float AS hi, d.hora_fin::float AS hf
       FROM dias_laborales_planillas d JOIN recargos_planillas p ON p.id = d.recargo_planilla_id
+      JOIN conductores c ON c.id = p.conductor_id AND c.oculto = false
+      JOIN vehiculos v ON v.id = p.vehiculo_id AND v.oculto = false
       WHERE d.deleted_at IS NULL AND p.deleted_at IS NULL AND d.hora_inicio IS NOT NULL AND d.hora_fin IS NOT NULL
         AND ${enMeses(Prisma.sql`(p."año", p.mes)`, periodo)}`)
     if (filas.length) return { jornadas: filas, fuente: 'planillas' }
@@ -109,7 +112,15 @@ export async function jornadasDelPeriodo(
     const filas = await prisma.$queryRaw<Array<{ hora_inicio: string | null; hora_fin: string | null; offset_fin: number }>>(Prisma.sql`
       SELECT s.hora_inicio, s.hora_fin, coalesce(s.dias_offset_fin, 0)::int AS offset_fin
       FROM registro_dia_laboral r JOIN registro_dia_laboral_segmento s ON s.registro_dia_id = r.id AND s.deleted_at IS NULL
+      JOIN conductores c ON c.id = r.conductor_id AND c.oculto = false
       WHERE r.deleted_at IS NULL AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date
+        AND (s.vehiculo_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = s.vehiculo_id AND v.oculto = false))
+        AND NOT EXISTS (
+          SELECT 1 FROM vehiculos v
+          WHERE v.oculto = true
+            AND UPPER(REGEXP_REPLACE(COALESCE(v.placa, ''), '[^A-Za-z0-9]', '', 'g')) =
+                UPPER(REGEXP_REPLACE(COALESCE(s.vehiculo_placa, ''), '[^A-Za-z0-9]', '', 'g'))
+        )
         AND s.hora_inicio IS NOT NULL AND s.hora_fin IS NOT NULL`)
     const jornadas: Array<{ hi: number; hf: number }> = []
     for (const f of filas) {
@@ -126,7 +137,9 @@ export async function jornadasDelPeriodo(
 export async function seccionOperaciones(ctx: ContextoSeccion): Promise<Record<string, unknown>> {
   const { periodo, modulos } = ctx
   const { inicio, fin } = periodo
-  const rango = Prisma.sql`s.deleted_at IS NULL AND s.fecha_realizacion >= ${inicio} AND s.fecha_realizacion < ${fin}`
+  const rango = Prisma.sql`s.deleted_at IS NULL AND s.fecha_realizacion >= ${inicio} AND s.fecha_realizacion < ${fin}
+    AND (s.conductor_id IS NULL OR EXISTS (SELECT 1 FROM conductores c WHERE c.id = s.conductor_id AND c.oculto = false))
+    AND (s.vehiculo_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = s.vehiculo_id AND v.oculto = false))`
 
   const [porEstado, porDia, porHora, conductores, vehiculos, clientes, sinCerrar, sinCerrarTotal] = await Promise.all([
     prisma.$queryRaw<Array<{ estado: string; cantidad: number; valor: number }>>(Prisma.sql`
@@ -138,8 +151,8 @@ export async function seccionOperaciones(ctx: ContextoSeccion): Promise<Record<s
     prisma.$queryRaw<Array<{ h: number; n: number }>>(Prisma.sql`
       SELECT extract(hour FROM s.fecha_realizacion AT TIME ZONE 'America/Bogota')::int AS h, count(*)::int AS n
       FROM servicios s WHERE ${rango} GROUP BY 1`),
-    prisma.conductores.groupBy({ by: ['estado'], where: { deleted_at: null }, _count: { _all: true } }),
-    prisma.vehiculos.groupBy({ by: ['estado'], where: { deleted_at: null }, _count: { _all: true } }),
+    prisma.conductores.groupBy({ by: ['estado'], where: { deleted_at: null, oculto: false }, _count: { _all: true } }),
+    prisma.vehiculos.groupBy({ by: ['estado'], where: { deleted_at: null, oculto: false }, _count: { _all: true } }),
     prisma.$queryRaw<Array<{ id: string; nombre: string | null; servicios: number; valor: number }>>(Prisma.sql`
       SELECT e.id, e.nombre, count(*)::int AS servicios, coalesce(sum(s.valor), 0)::float AS valor
       FROM servicios s JOIN empresas e ON e.id = s.cliente_id
@@ -153,8 +166,16 @@ export async function seccionOperaciones(ctx: ContextoSeccion): Promise<Record<s
       LEFT JOIN conductores c ON c.id = s.conductor_id
       LEFT JOIN vehiculos v ON v.id = s.vehiculo_id
       WHERE s.deleted_at IS NULL AND s.estado = 'en_curso' AND s.fecha_realizacion < now() - make_interval(days => ${SIN_CERRAR_DIAS}::int)
+        AND (c.id IS NULL OR c.oculto = false) AND (v.id IS NULL OR v.oculto = false)
       ORDER BY s.fecha_realizacion ASC LIMIT 20`),
-    prisma.servicio.count({ where: { deleted_at: null, estado: 'en_curso', fecha_realizacion: { lt: new Date(Date.now() - SIN_CERRAR_DIAS * 86400000) } } }),
+    prisma.servicio.count({ where: {
+      deleted_at: null, estado: 'en_curso',
+      fecha_realizacion: { lt: new Date(Date.now() - SIN_CERRAR_DIAS * 86400000) },
+      AND: [
+        { OR: [{ conductor_id: null }, { conductores: { is: { oculto: false } } }] },
+        { OR: [{ vehiculo_id: null }, { vehiculos: { is: { oculto: false } } }] },
+      ],
+    } }),
   ])
 
   // ── Serie por día, sin huecos ──────────────────────────────────────────
@@ -217,14 +238,16 @@ export async function seccionOperaciones(ctx: ContextoSeccion): Promise<Record<s
       prisma.$queryRaw<Array<{ id: string; anio: number; mes: number; numero_planilla: string | null; conductor: string; placa: string; cliente: string | null }>>(Prisma.sql`
         SELECT p.id, p."año" AS anio, p.mes, p.numero_planilla, trim(c.nombre || ' ' || c.apellido) AS conductor, v.placa, e.nombre AS cliente
         FROM recargos_planillas p
-        JOIN conductores c ON c.id = p.conductor_id
-        JOIN vehiculos v ON v.id = p.vehiculo_id
+        JOIN conductores c ON c.id = p.conductor_id AND c.oculto = false
+        JOIN vehiculos v ON v.id = p.vehiculo_id AND v.oculto = false
         JOIN empresas e ON e.id = p.empresa_id
         WHERE p.deleted_at IS NULL AND p.estado = 'pendiente' AND ${enMeses(Prisma.sql`(p."año", p.mes)`, periodo)}
           AND NOT EXISTS (SELECT 1 FROM dias_laborales_planillas d WHERE d.recargo_planilla_id = p.id AND d.deleted_at IS NULL)
         ORDER BY p."año" DESC, p.mes DESC, c.nombre LIMIT 50`),
       prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
         SELECT count(*)::int AS n FROM recargos_planillas p
+        JOIN conductores c ON c.id = p.conductor_id AND c.oculto = false
+        JOIN vehiculos v ON v.id = p.vehiculo_id AND v.oculto = false
         WHERE p.deleted_at IS NULL AND p.estado = 'pendiente' AND ${enMeses(Prisma.sql`(p."año", p.mes)`, periodo)}
           AND NOT EXISTS (SELECT 1 FROM dias_laborales_planillas d WHERE d.recargo_planilla_id = p.id AND d.deleted_at IS NULL)`),
     ])
@@ -242,14 +265,18 @@ export async function seccionOperaciones(ctx: ContextoSeccion): Promise<Record<s
 
   if (modulos['liquidaciones-servicios']) {
     const PENDIENTES = ['BORRADOR', 'LIQUIDADA', 'APROBADA']
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas()
+    const liquidacionesVisibles = liquidacionesOcultas.length
+      ? Prisma.sql`AND l.id NOT IN (${Prisma.join(liquidacionesOcultas)})`
+      : Prisma.sql``
     const [porEstadoLiq, ultimas] = await Promise.all([
       prisma.$queryRaw<Array<{ estado: string; cantidad: number; valor: number }>>(Prisma.sql`
         SELECT l.estado::text AS estado, count(*)::int AS cantidad, coalesce(sum(l.total), 0)::float AS valor
-        FROM liquidacion_servicio l WHERE l.deleted_at IS NULL AND l.estado::text IN (${Prisma.join(PENDIENTES)}) GROUP BY 1`),
+        FROM liquidacion_servicio l WHERE l.deleted_at IS NULL ${liquidacionesVisibles} AND l.estado::text IN (${Prisma.join(PENDIENTES)}) GROUP BY 1`),
       prisma.$queryRaw<Array<{ id: string; consecutivo: string; estado: string; total: number; mes: number; anio: number; cliente: string | null; updated_at: Date }>>(Prisma.sql`
         SELECT l.id, l.consecutivo, l.estado::text AS estado, l.total::float AS total, l.mes, l.anio, e.nombre AS cliente, l.updated_at
         FROM liquidacion_servicio l JOIN empresas e ON e.id = l.cliente_id
-        WHERE l.deleted_at IS NULL AND l.estado::text IN (${Prisma.join(PENDIENTES)})
+        WHERE l.deleted_at IS NULL ${liquidacionesVisibles} AND l.estado::text IN (${Prisma.join(PENDIENTES)})
         ORDER BY l.updated_at DESC LIMIT 8`),
     ])
     data.liquidaciones_pendientes = {

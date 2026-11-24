@@ -166,7 +166,9 @@ export async function seccionTalentoHumano(ctx: ContextoSeccion): Promise<Record
 
   // ── Nómina (solo con acceso al módulo) ──
   if (modulos['nomina']) {
-    const liqPeriodo = Prisma.sql`l.deleted_at IS NULL AND l.estado = 'Liquidado' AND l.periodo_start <= ${periodo.hasta} AND l.periodo_end >= ${periodo.desde}`
+    const liqPeriodo = Prisma.sql`l.deleted_at IS NULL AND l.estado = 'Liquidado'
+      AND EXISTS (SELECT 1 FROM conductores c0 WHERE c0.id = l.conductor_id AND c0.oculto = false)
+      AND l.periodo_start <= ${periodo.hasta} AND l.periodo_end >= ${periodo.desde}`
     const [totales, mejorPagados, historico] = await Promise.all([
       prisma.$queryRaw<Array<{ n: number; neto: number; salud: number; pension: number; base: number; recargos: number; bonificaciones: number; dias: number }>>(Prisma.sql`
         SELECT count(*)::int AS n, coalesce(sum(l.sueldo_total), 0)::float AS neto, coalesce(sum(l.salud), 0)::float AS salud, coalesce(sum(l.pension), 0)::float AS pension,
@@ -183,7 +185,9 @@ export async function seccionTalentoHumano(ctx: ContextoSeccion): Promise<Record
       prisma.$queryRaw<Array<{ periodo_start: string; periodo_end: string; n: number; neto: number; salud_pension: number; base: number }>>(Prisma.sql`
         SELECT l.periodo_start, max(l.periodo_end) AS periodo_end, count(*)::int AS n, coalesce(sum(l.sueldo_total), 0)::float AS neto,
                coalesce(sum(l.salud + l.pension), 0)::float AS salud_pension, coalesce(sum(l.salario_devengado + l.total_vacaciones), 0)::float AS base
-        FROM liquidaciones l WHERE l.deleted_at IS NULL AND l.estado = 'Liquidado' AND l.periodo_start <= ${periodo.hasta}
+        FROM liquidaciones l WHERE l.deleted_at IS NULL AND l.estado = 'Liquidado'
+          AND EXISTS (SELECT 1 FROM conductores c0 WHERE c0.id = l.conductor_id AND c0.oculto = false)
+          AND l.periodo_start <= ${periodo.hasta}
         GROUP BY 1 HAVING count(*) >= 3 ORDER BY 1 DESC LIMIT 6`),
     ])
     const t = totales[0]

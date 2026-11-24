@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { retirarAdjuntosDelDia, retirarDiaLaboral, retirarSegmentos } from '../../lib/soft-delete/dia-laboral'
+import { idsDiasLaboralesOcultos } from '../../lib/ocultos-operativos'
 import { env } from '../../config/env'
 import { EmailService } from '../../services/email.service'
 import { CrearRegistroInput } from './dias-laborados.schema'
@@ -152,12 +153,12 @@ export const DiasLaboradosService = {
     const placaNormalizada = (placa ?? '').trim().toUpperCase()
 
     if (vehiculoId) {
-      const vehiculo = await prisma.vehiculos.findUnique({
-        where: { id: vehiculoId },
+      const vehiculo = await prisma.vehiculos.findFirst({
+        where: { id: vehiculoId, deleted_at: null, oculto: false },
         select: { id: true, placa: true }
       })
       if (!vehiculo) {
-        throw { statusCode: 400, message: 'El vehículo indicado para el mantenimiento no existe' }
+        throw { statusCode: 400, message: 'El vehículo indicado para el mantenimiento no está disponible' }
       }
       return { id: vehiculo.id, placa: vehiculo.placa }
     }
@@ -170,9 +171,12 @@ export const DiasLaboradosService = {
     }
 
     const porPlaca = await prisma.vehiculos.findFirst({
-      where: { placa: { equals: placaNormalizada, mode: 'insensitive' } },
-      select: { id: true, placa: true }
+      where: { placa: { equals: placaNormalizada, mode: 'insensitive' }, deleted_at: null },
+      select: { id: true, placa: true, oculto: true }
     })
+    if (porPlaca?.oculto) {
+      throw { statusCode: 400, message: 'El vehículo indicado está oculto y no se puede seleccionar' }
+    }
 
     return {
       id: porPlaca?.id ?? null,
@@ -372,7 +376,13 @@ export const DiasLaboradosService = {
     const start = new Date(anio, mes - 1, 1)
     const end = new Date(anio, mes, 0, 23, 59, 59, 999)
 
-    const where: any = { fecha: { gte: start, lte: end }, deleted_at: null }
+    const diasOcultos = await idsDiasLaboralesOcultos()
+    const where: any = {
+      fecha: { gte: start, lte: end },
+      deleted_at: null,
+      conductor: { oculto: false },
+      ...(diasOcultos.length ? { id: { notIn: diasOcultos } } : {}),
+    }
     if (conductor_id) where.conductor_id = conductor_id
 
     const registros = await prisma.registro_dia_laboral.findMany({
@@ -483,7 +493,7 @@ export const DiasLaboradosService = {
   // ─────────────────────────────────────────────
   async listarVehiculos() {
     return prisma.vehiculos.findMany({
-      where: { deleted_at: null },
+      where: { deleted_at: null, oculto: false },
       select: {
         id: true,
         placa: true,

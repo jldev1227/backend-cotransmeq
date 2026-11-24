@@ -19,6 +19,7 @@ import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { diasDelPeriodo, hoyBogota, type Periodo } from './periodo'
 import { coberturaHoraria, enMeses, horaPromedio, jornadasDelPeriodo, picoDe } from './seccion-operaciones'
+import { idsDiasLaboralesOcultos } from '../../lib/ocultos-operativos'
 
 export const CODIGOS_PREOPERACIONAL = ['HSEQ-FR-08', 'HSEQ-FR-09']
 /** Ciclo 21-9: a partir de aquí el conductor debería estar descansando. */
@@ -89,23 +90,31 @@ export function controlDescansos(registros: FilaRegistro[], nombres: Map<string,
 
 /** Ranking de días laborados por conductor en el periodo (formato de recorridos). */
 export async function rankingDiasLaborados(periodo: Periodo) {
+  const diasOcultos = await idsDiasLaboralesOcultos()
+  const filtroOcultos = diasOcultos.length
+    ? Prisma.sql`AND r.id NOT IN (${Prisma.join(diasOcultos)})`
+    : Prisma.sql``
   return prisma.$queryRaw<Array<{ conductor_id: string; conductor: string; laborados: number; disponibles: number; descansos: number }>>(Prisma.sql`
     SELECT c.id AS conductor_id, trim(c.nombre || ' ' || c.apellido) AS conductor,
            count(*) FILTER (WHERE r.tipo = 'LABORADO')::int AS laborados,
            count(*) FILTER (WHERE r.tipo = 'DISPONIBLE')::int AS disponibles,
            count(*) FILTER (WHERE r.tipo = 'DESCANSO')::int AS descansos
     FROM registro_dia_laboral r JOIN conductores c ON c.id = r.conductor_id
-    WHERE r.deleted_at IS NULL AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date
+    WHERE r.deleted_at IS NULL AND c.oculto = false AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date ${filtroOcultos}
     GROUP BY 1, 2 ORDER BY 3 DESC`)
 }
 
 /** Control 21-9 de todos los conductores con registros en la ventana reciente. */
 export async function descansosRecientes(): Promise<ControlDescanso[]> {
   const ventanaDesde = new Date(Date.now() - VENTANA_DIAS * 86400000)
+  const diasOcultos = await idsDiasLaboralesOcultos()
+  const filtroOcultos = diasOcultos.length
+    ? Prisma.sql`AND r.id NOT IN (${Prisma.join(diasOcultos)})`
+    : Prisma.sql``
   const registros = await prisma.$queryRaw<Array<{ conductor_id: string; conductor: string; fecha: Date; tipo: string }>>(Prisma.sql`
     SELECT r.conductor_id, trim(c.nombre || ' ' || c.apellido) AS conductor, r.fecha, r.tipo
     FROM registro_dia_laboral r JOIN conductores c ON c.id = r.conductor_id
-    WHERE r.deleted_at IS NULL AND c.deleted_at IS NULL AND r.fecha >= ${ventanaDesde}::date
+    WHERE r.deleted_at IS NULL AND c.deleted_at IS NULL AND c.oculto = false AND r.fecha >= ${ventanaDesde}::date ${filtroOcultos}
     ORDER BY r.conductor_id, r.fecha`)
   const nombres = new Map<string, string>()
   for (const r of registros) nombres.set(r.conductor_id, r.conductor)
@@ -119,10 +128,18 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
   const { inicio, fin } = periodo
   const hoy = hoyBogota()
   const ventanaDesde = new Date(Date.now() - VENTANA_DIAS * 86400000)
+  const diasOcultos = await idsDiasLaboralesOcultos()
+  const filtroDiasVisibles = diasOcultos.length
+    ? Prisma.sql`AND r.id NOT IN (${Prisma.join(diasOcultos)})`
+    : Prisma.sql``
   const preop = Prisma.sql`
     JOIN form_versions v ON v.id = s.version_id
     JOIN form_definitions d ON d.id = v.form_id AND d.code IN (${Prisma.join(CODIGOS_PREOPERACIONAL)})`
-  const enviosPeriodo = Prisma.sql`s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.business_date >= ${periodo.desde}::date AND s.business_date <= ${periodo.hasta}::date`
+  const envioVisible = Prisma.sql`
+    AND (s.conductor_id IS NULL OR EXISTS (SELECT 1 FROM conductores c WHERE c.id = s.conductor_id AND c.oculto = false))
+    AND (s.vehicle_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v0 WHERE v0.id = s.vehicle_id AND v0.oculto = false))`
+  const enviosPeriodo = Prisma.sql`s.deleted_at IS NULL AND s.status = 'SUBMITTED'
+    AND s.business_date >= ${periodo.desde}::date AND s.business_date <= ${periodo.hasta}::date ${envioVisible}`
 
   const [
     conductoresEstado,
@@ -135,7 +152,7 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
     registrosVentana,
     sueno,
   ] = await Promise.all([
-    prisma.conductores.groupBy({ by: ['estado'], where: { deleted_at: null }, _count: { _all: true } }),
+    prisma.conductores.groupBy({ by: ['estado'], where: { deleted_at: null, oculto: false }, _count: { _all: true } }),
     prisma.$queryRaw<Array<{ id: string; conductor: string; cliente: string | null; placa: string | null; servicio_id: string | null; fecha_realizacion: Date | null; preop_hoy: boolean }>>(Prisma.sql`
       SELECT c.id, trim(c.nombre || ' ' || c.apellido) AS conductor, e.nombre AS cliente, v.placa, sv.id AS servicio_id, sv.fecha_realizacion,
              EXISTS (
@@ -149,14 +166,15 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
         ORDER BY s2.fecha_realizacion DESC NULLS LAST LIMIT 1
       ) sv ON true
       LEFT JOIN empresas e ON e.id = sv.cliente_id
-      LEFT JOIN vehiculos v ON v.id = sv.vehiculo_id
-      WHERE c.deleted_at IS NULL AND c.estado = 'servicio'
+      LEFT JOIN vehiculos v ON v.id = sv.vehiculo_id AND v.oculto = false
+      WHERE c.deleted_at IS NULL AND c.oculto = false AND c.estado = 'servicio'
+        AND (sv.id IS NULL OR sv.vehiculo_id IS NULL OR v.id IS NOT NULL)
       ORDER BY preop_hoy ASC, conductor`),
     prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
       SELECT count(*)::int AS n FROM conductores c
-      WHERE c.deleted_at IS NULL AND c.estado = 'servicio' AND NOT EXISTS (
+      WHERE c.deleted_at IS NULL AND c.oculto = false AND c.estado = 'servicio' AND NOT EXISTS (
         SELECT 1 FROM form_submissions s ${preop}
-        WHERE s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.conductor_id = c.id AND s.business_date = ${hoy}::date)`),
+        WHERE s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.conductor_id = c.id AND s.business_date = ${hoy}::date ${envioVisible}`),
     prisma.$queryRaw<Array<{ dia: string; n: number; conductores: number }>>(Prisma.sql`
       SELECT to_char(s.business_date, 'YYYY-MM-DD') AS dia, count(*)::int AS n, count(DISTINCT s.conductor_id)::int AS conductores
       FROM form_submissions s ${preop} WHERE ${enviosPeriodo} GROUP BY 1`),
@@ -178,12 +196,12 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
              count(*) FILTER (WHERE r.tipo = 'DISPONIBLE')::int AS disponibles,
              count(*) FILTER (WHERE r.tipo = 'DESCANSO')::int AS descansos
       FROM registro_dia_laboral r JOIN conductores c ON c.id = r.conductor_id
-      WHERE r.deleted_at IS NULL AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date
+      WHERE r.deleted_at IS NULL AND c.oculto = false AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date ${filtroDiasVisibles}
       GROUP BY 1, 2 ORDER BY 3 DESC`),
     prisma.$queryRaw<Array<{ conductor_id: string; conductor: string; fecha: Date; tipo: string }>>(Prisma.sql`
       SELECT r.conductor_id, trim(c.nombre || ' ' || c.apellido) AS conductor, r.fecha, r.tipo
       FROM registro_dia_laboral r JOIN conductores c ON c.id = r.conductor_id
-      WHERE r.deleted_at IS NULL AND c.deleted_at IS NULL AND r.fecha >= ${ventanaDesde}::date
+      WHERE r.deleted_at IS NULL AND c.deleted_at IS NULL AND c.oculto = false AND r.fecha >= ${ventanaDesde}::date ${filtroDiasVisibles}
       ORDER BY r.conductor_id, r.fecha`),
     prisma.$queryRaw<Array<{ conductor_id: string; promedio: number | null; cortas: number; total: number }>>(Prisma.sql`
       SELECT s.conductor_id, avg(a.value_decimal)::float AS promedio,
@@ -251,7 +269,8 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
       FROM dias_laborales_planillas d
       JOIN recargos_planillas p ON p.id = d.recargo_planilla_id
       JOIN conductores c ON c.id = p.conductor_id
-      WHERE d.deleted_at IS NULL AND p.deleted_at IS NULL AND ${enMeses(Prisma.sql`(p."año", p.mes)`, periodo)}
+      JOIN vehiculos v ON v.id = p.vehiculo_id AND v.oculto = false
+      WHERE d.deleted_at IS NULL AND p.deleted_at IS NULL AND c.oculto = false AND ${enMeses(Prisma.sql`(p."año", p.mes)`, periodo)}
       GROUP BY 1, 2`)
     const suenoPor = new Map(sueno.map((s) => [s.conductor_id, s]))
     const fatiga = jornadas
@@ -302,7 +321,9 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
   if (modulos['servicios']) {
     const porHora = await prisma.$queryRaw<Array<{ h: number; n: number }>>(Prisma.sql`
       SELECT extract(hour FROM s.fecha_realizacion AT TIME ZONE 'America/Bogota')::int AS h, count(*)::int AS n
-      FROM servicios s WHERE s.deleted_at IS NULL AND s.fecha_realizacion >= ${inicio} AND s.fecha_realizacion < ${fin} GROUP BY 1`)
+      FROM servicios s WHERE s.deleted_at IS NULL AND s.fecha_realizacion >= ${inicio} AND s.fecha_realizacion < ${fin}
+        AND (s.conductor_id IS NULL OR EXISTS (SELECT 1 FROM conductores c WHERE c.id = s.conductor_id AND c.oculto = false))
+        AND (s.vehiculo_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = s.vehiculo_id AND v.oculto = false)) GROUP BY 1`)
     const dist = new Array<number>(24).fill(0)
     for (const r of porHora) dist[r.h] = r.n
     data.hora_realizacion = { distribucion: dist, promedio: horaPromedio(dist), pico: picoDe(dist) }

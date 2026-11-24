@@ -13,6 +13,7 @@
  */
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
+import { idsExtractosOcultos } from '../../lib/ocultos-operativos'
 import { hoyBogota } from '../dashboard/periodo'
 import { FUEC } from './fuec.config'
 import { firmaValida, firmarSnapshot, huella, nuevoCodigoVerificacion, type SnapshotFuec } from './fuec-firma'
@@ -181,7 +182,11 @@ export async function listarExtractos(f: FiltrosListado) {
   const hoy = hoyBogota()
   const page = Math.max(1, f.page ?? 1)
   const limit = Math.min(100, Math.max(1, f.limit ?? 25))
-  const base: Prisma.fuec_extractWhereInput = { deleted_at: null }
+  const idsOcultos = await idsExtractosOcultos()
+  const base: Prisma.fuec_extractWhereInput = {
+    deleted_at: null,
+    ...(idsOcultos.length ? { id: { notIn: idsOcultos } } : {}),
+  }
   if (f.anio) base.vigencia_desde = { gte: aFecha(`${f.anio}-01-01`), lte: aFecha(`${f.anio}-12-31`) }
   if (f.placa) base.vehiculo_placa = normalizarPlaca(f.placa)
   if (f.contratante_id) base.contratante_id = f.contratante_id
@@ -223,14 +228,22 @@ export async function listarExtractos(f: FiltrosListado) {
 }
 
 export async function obtenerExtracto(id: string): Promise<ExtractoDTO> {
-  const e = await prisma.fuec_extract.findFirst({ where: { id, deleted_at: null }, include: incluirDetalle })
+  const idsOcultos = await idsExtractosOcultos()
+  const e = await prisma.fuec_extract.findFirst({
+    where: { id, deleted_at: null, ...(idsOcultos.length ? { AND: [{ id: { notIn: idsOcultos } }] } : {}) },
+    include: incluirDetalle,
+  })
   if (!e) throw new ExtractosError('Extracto no encontrado', 404, 'NO_ENCONTRADO')
   return formatearExtracto(e, hoyBogota())
 }
 
 export async function aniosDisponibles(): Promise<number[]> {
-  const filas = await prisma.$queryRaw<Array<{ anio: number }>>`
-    SELECT DISTINCT EXTRACT(YEAR FROM vigencia_desde)::int AS anio FROM fuec_extract WHERE deleted_at IS NULL ORDER BY anio DESC`
+  const idsOcultos = await idsExtractosOcultos()
+  const filas = await prisma.$queryRaw<Array<{ anio: number }>>(Prisma.sql`
+    SELECT DISTINCT EXTRACT(YEAR FROM vigencia_desde)::int AS anio FROM fuec_extract
+    WHERE deleted_at IS NULL AND (${idsOcultos.length ? Prisma.sql`id NOT IN (${Prisma.join(idsOcultos)})` : Prisma.sql`TRUE`})
+    ORDER BY anio DESC
+  `)
   return filas.map((f) => f.anio)
 }
 
@@ -334,17 +347,12 @@ export async function opcionesFormulario() {
     listarCatalogo('CONVENIO'),
     listarCatalogo('ORIGEN_DESTINO'),
     prisma.vehiculos.findMany({
-      // Los extractos pueden necesitar vehículos ocultos (p. ej. unidades
-      // retiradas de la operación pero aún incluidas en contratos vigentes).
-      // Sí excluimos la papelera para no volver a vincular fichas borradas.
-      where: { deleted_at: null },
+      where: { deleted_at: null, oculto: false },
       select: { id: true, placa: true, modelo: true, marca: true, clase_vehiculo: true, numero_interno: true, tarjeta_operacion: true, empresa_afiliacion: true, estado: true },
       orderBy: { placa: 'asc' },
     }),
     prisma.conductores.findMany({
-      // Igual que los vehículos, las fichas ocultas siguen siendo seleccionables
-      // para emitir o corregir extractos históricos/vigentes.
-      where: { deleted_at: null },
+      where: { deleted_at: null, oculto: false },
       select: { id: true, nombre: true, apellido: true, numero_identificacion: true, vencimiento_licencia: true, licencia_conduccion: true, estado: true },
       orderBy: [{ nombre: 'asc' }, { apellido: 'asc' }],
     }),
@@ -469,8 +477,15 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
 
     // Vehículo: se toma la ficha y se actualiza con lo digitado.
     const vehiculo = input.vehiculo.id
-      ? await tx.vehiculos.findFirst({ where: { id: input.vehiculo.id, deleted_at: null } })
-      : await tx.vehiculos.findFirst({ where: { placa, deleted_at: null } })
+      ? await tx.vehiculos.findFirst({ where: { id: input.vehiculo.id, deleted_at: null, oculto: false } })
+      : await tx.vehiculos.findFirst({ where: { placa, deleted_at: null, oculto: false } })
+    if (input.vehiculo.id && !vehiculo) {
+      throw new ExtractosError('El vehículo seleccionado está oculto o ya no está disponible', 409)
+    }
+    if (!input.vehiculo.id) {
+      const oculto = await tx.vehiculos.findFirst({ where: { placa, deleted_at: null, oculto: true }, select: { id: true } })
+      if (oculto) throw new ExtractosError('El vehículo seleccionado está oculto y no se puede usar', 409)
+    }
     const v = {
       modelo: limpio(input.vehiculo.modelo, 20) ?? vehiculo?.modelo ?? null,
       marca: limpio(input.vehiculo.marca, 100) ?? vehiculo?.marca ?? null,
@@ -495,7 +510,7 @@ export async function emitirExtracto(usuarioId: string, input: EmitirInput): Pro
     // La licencia verificada en el extracto es la fuente primaria de la ficha.
     const drivers: Array<{ conductor_id: string | null; nombre: string; identificacion: string | null; licencia_vigencia: Date | null; orden: number }> = []
     for (const [i, c] of conductores.entries()) {
-      const ficha = c.id ? await tx.conductores.findFirst({ where: { id: c.id, deleted_at: null } }) : null
+      const ficha = c.id ? await tx.conductores.findFirst({ where: { id: c.id, deleted_at: null, oculto: false } }) : null
       if (c.id && !ficha) throw new ExtractosError(`El conductor ${c.nombre} ya no está disponible; selecciónelo de nuevo`, 409, 'CONDUCTOR_NO_ENCONTRADO')
       const cedula = limpio(c.cedula, 50)?.replace(/[.\s]/g, '') ?? ficha?.numero_identificacion ?? null
       const vigencia = c.licencia_vigencia!

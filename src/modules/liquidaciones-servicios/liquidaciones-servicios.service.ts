@@ -17,6 +17,7 @@ import {
   ErrorEstadoLiquidacion,
   validarTransicionLiquidacion,
 } from "./estado-transiciones";
+import { idsLiquidacionesServicioOcultas } from "../../lib/ocultos-operativos";
 
 const MES_NOMBRE_A_NUM: Record<string, number> = {
   ENERO: 1, FEBRERO: 2, MARZO: 3, ABRIL: 4, MAYO: 5, JUNIO: 6,
@@ -625,12 +626,17 @@ export const LiquidacionesServiciosService = {
     const fechaFin = new Date(Date.UTC(anio, mes, 0)); // Último día del mes
 
     const whereServicios: any = {
+      deleted_at: null,
       cliente_id,
       fecha_realizacion: {
         gte: fechaInicio,
         lte: fechaFin,
       },
       estado: { in: ["realizado", "planilla_asignada", "liquidado"] },
+      AND: [
+        { OR: [{ conductor_id: null }, { conductores: { is: { oculto: false } } }] },
+        { OR: [{ vehiculo_id: null }, { vehiculos: { is: { oculto: false } } }] },
+      ],
     };
 
     // Si se pasan IDs específicos, filtrar
@@ -1449,7 +1455,12 @@ export const LiquidacionesServiciosService = {
     /// `filtroVisibilidad` va en el `where` base a propósito: `whereExcluding`
     /// deriva de él, así que las listas de valores de los filtros de columna
     /// tampoco delatan los borradores ajenos.
-    const where: any = { deleted_at: null, ...filtroVisibilidad(filtros) };
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
+    const where: any = {
+      deleted_at: null,
+      ...filtroVisibilidad(filtros),
+      ...(liquidacionesOcultas.length ? { id: { notIn: liquidacionesOcultas } } : {}),
+    };
     if (filtros.cliente_id) where.cliente_id = filtros.cliente_id;
     if (filtros.estado) where.estado = filtros.estado;
     if (filtros.mes) where.mes = parseMes(filtros.mes);
@@ -1477,9 +1488,9 @@ export const LiquidacionesServiciosService = {
       const liqIds = matchingLiqIds.map((r) => r.liquidacion_id);
       if (liqIds.length === 0) {
         // Forzar resultado vacío: usamos un UUID inexistente
-        where.id = "00000000-0000-0000-0000-000000000000";
+        where.AND = [...(where.AND ?? []), { id: "00000000-0000-0000-0000-000000000000" }];
       } else {
-        where.id = { in: liqIds };
+        where.AND = [...(where.AND ?? []), { id: { in: liqIds } }];
       }
     }
 
@@ -1850,11 +1861,16 @@ export const LiquidacionesServiciosService = {
   },
 
   async obtenerPorId(id: string) {
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
     const liquidacion = await prisma.liquidacion_servicio.findFirst({
       /// Una liquidación eliminada no se abre: `actualizar` ya la rechaza con
       /// 409, pero sin esto el editor la cargaba igual y el usuario perdía el
       /// trabajo al guardar. La papelera se lee con `listarEliminadas`.
-      where: { id, deleted_at: null },
+      where: {
+        id,
+        deleted_at: null,
+        ...(liquidacionesOcultas.length ? { AND: [{ id: { notIn: liquidacionesOcultas } }] } : {}),
+      },
       include: {
         cliente: {
           select: {
@@ -2002,9 +2018,11 @@ export const LiquidacionesServiciosService = {
     const limit = Number(filtros.limit) || 10;
     const skip = (page - 1) * limit;
 
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
     const where: any = {
       deleted_at: { not: null },
       ...filtroVisibilidad(filtros),
+      ...(liquidacionesOcultas.length ? { id: { notIn: liquidacionesOcultas } } : {}),
     };
     if (filtros.busqueda) {
       const or = condicionBusqueda(filtros.busqueda, { conItems: false });
@@ -2398,7 +2416,12 @@ export const LiquidacionesServiciosService = {
     /// Estas tres no tenían `where` ninguno: contaban hasta las borradas. Con
     /// el autoguardado eso pasa de ser un descuido a ser un número que sube
     /// solo mientras alguien teclea, así que se acota a lo confirmado y vivo.
-    const where = { deleted_at: null, confirmada_at: { not: null } };
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
+    const where = {
+      deleted_at: null,
+      confirmada_at: { not: null },
+      ...(liquidacionesOcultas.length ? { id: { notIn: liquidacionesOcultas } } : {}),
+    };
     const [total, porEstado, montoTotal] = await Promise.all([
       prisma.liquidacion_servicio.count({ where }),
       prisma.liquidacion_servicio.groupBy({
@@ -2431,6 +2454,10 @@ export const LiquidacionesServiciosService = {
       where: {
         deleted_at: null,
         cliente_id,
+        AND: [
+          { OR: [{ conductor_id: null }, { conductores: { is: { oculto: false } } }] },
+          { OR: [{ vehiculo_id: null }, { vehiculos: { is: { oculto: false } } }] },
+        ],
         fecha_realizacion: {
           gte: fechaInicio,
           lte: fechaFin,

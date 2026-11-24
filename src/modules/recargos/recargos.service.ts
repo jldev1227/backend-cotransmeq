@@ -784,6 +784,29 @@ async function calcularBreakdownParaPlanilla(planillaId: string): Promise<{
   };
 }
 
+/** Filtros comunes para que ningún listado reintroduzca una ficha oculta. */
+function filtrosRecargoVisible() {
+  return [
+    { conductores: { oculto: false } },
+    { vehiculos: { oculto: false } },
+    {
+      OR: [
+        { servicio_id: null },
+        {
+          servicio: {
+            is: {
+              AND: [
+                { OR: [{ conductor_id: null }, { conductores: { is: { oculto: false } } }] },
+                { OR: [{ vehiculo_id: null }, { vehiculos: { is: { oculto: false } } }] },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  ]
+}
+
 export const RecargosService = {
   /**
    * Calcula el breakdown (HED, HEN, ...) y el valor monetario de una planilla
@@ -822,7 +845,7 @@ export const RecargosService = {
     if (filters.vehiculo_id) where.vehiculo_id = filters.vehiculo_id;
     if (filters.empresa_id) where.empresa_id = filters.empresa_id;
     if (filters.estado) where.estado = filters.estado;
-    const condicionesAnd: any[] = [];
+    const condicionesAnd: any[] = filtrosRecargoVisible();
     const searchTokens = typeof filters.search === "string"
       ? filters.search.trim().split(/\s+/).filter(Boolean)
       : [];
@@ -1095,8 +1118,8 @@ export const RecargosService = {
 
   // Obtener un recargo por ID
   async findById(id: string) {
-    const recargo = await prisma.recargos_planillas.findUnique({
-      where: { id },
+    const recargo = await prisma.recargos_planillas.findFirst({
+      where: { id, AND: filtrosRecargoVisible() },
       include: {
         conductores: true,
         vehiculos: true,
@@ -2049,7 +2072,7 @@ export const RecargosService = {
 
   // Obtener estadísticas
   async getEstadisticas(filters: any) {
-    const where: any = { deleted_at: null };
+    const where: any = { deleted_at: null, AND: filtrosRecargoVisible() };
 
     if (filters.mes) where.mes = parseInt(filters.mes);
     if (filters.año) where.a_o = parseInt(filters.año);
@@ -2403,8 +2426,9 @@ export const RecargosService = {
         deleted_at: null,
         mes: parseInt(mes),
         a_o: parseInt(año),
+        AND: filtrosRecargoVisible(),
         conductores: {
-          nomina: true, // 👈 filtro aquí
+          nomina: true,
         },
       },
       select: {

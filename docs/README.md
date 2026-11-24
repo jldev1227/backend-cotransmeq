@@ -13,6 +13,7 @@ que corregir el documento.
 | Añadir o cambiar un endpoint | [middlewares.md](./middlewares.md), [permisos.md](./permisos.md) y el doc del módulo en [api/](./api/README.md) |
 | Dar o quitar acceso a alguien | [permisos.md](./permisos.md) |
 | Tocar el esquema o los datos | [base-de-datos.md](./base-de-datos.md) |
+| Entender el ocultamiento operativo de conductores y vehículos | [ocultos-conductores-vehiculos.md](./ocultos-conductores-vehiculos.md) |
 | Emitir o escuchar eventos en vivo | [tiempo-real.md](./tiempo-real.md) |
 | Añadir un cron o una cola | [tareas-programadas.md](./tareas-programadas.md) |
 | Configurar correo, S3, push, IA o mapas | [integraciones.md](./integraciones.md) y [variables-de-entorno.md](./variables-de-entorno.md) |
@@ -40,6 +41,7 @@ que corregir el documento.
 - [tareas-programadas.md](./tareas-programadas.md) — crons, rutas disparadas por cron y colas en memoria.
 - [integraciones.md](./integraciones.md) — S3, correo, Web Push, IA, MCP, PDF, mapas, Sentry.
 - [base-de-datos.md](./base-de-datos.md) — modelos por dominio, convenciones, borrado lógico y cómo aplicar migraciones.
+- [ocultos-conductores-vehiculos.md](./ocultos-conductores-vehiculos.md) — alcance operativo reversible de las fichas ocultas y sus relaciones.
 - [variables-de-entorno.md](./variables-de-entorno.md) — todas las variables, con su default y qué pasa si faltan.
 - [pruebas.md](./pruebas.md) — suites, base de pruebas y CI.
 - [despliegue.md](./despliegue.md) — imagen de Docker, workflow, migraciones en producción y comprobaciones.

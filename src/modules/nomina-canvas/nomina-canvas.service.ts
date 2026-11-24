@@ -13,6 +13,7 @@
  * meses de planilla y hay que unirlos — ver `lib/nomina/periodo.ts`.
  */
 import { prisma } from '../../config/prisma';
+import { idsDiasLaboralesOcultos, idsDiasNominaOcultos } from '../../lib/ocultos-operativos';
 import {
   diasDelPeriodo,
   diasDelRango,
@@ -261,6 +262,10 @@ export class NominaCanvasService {
     const filtroLiquidacion = rango
       ? { periodo_start: { gte: desdeISO }, periodo_end: { lte: hastaISO } }
       : { periodo_start: { lte: hastaISO }, periodo_end: { gte: desdeISO } };
+    const [diasNominaOcultos, diasRecorridosOcultos] = await Promise.all([
+      idsDiasNominaOcultos(),
+      idsDiasLaboralesOcultos(),
+    ]);
 
     const [
       conductores,
@@ -290,6 +295,7 @@ export class NominaCanvasService {
             /// atrás del canvas. Faltaba: la consulta no miraba `deleted_at`
             /// y bastaba con que tuviera una planilla vieja para reaparecer.
             deleted_at: null,
+            oculto: false,
             ...(opts.conductorIds?.length ? { id: { in: opts.conductorIds } } : {}),
             ...(opts.soloConLiquidacion
               ? {
@@ -396,6 +402,8 @@ export class NominaCanvasService {
         prisma.recargos_planillas.findMany({
           where: {
             deleted_at: null,
+            conductores: { oculto: false },
+            vehiculos: { oculto: false },
             OR: ventana.map((v) => ({ a_o: v.anio, mes: v.mes })),
             ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
           },
@@ -457,6 +465,7 @@ export class NominaCanvasService {
         prisma.liquidaciones.findMany({
           where: {
             deleted_at: null,
+            conductores: { oculto: false },
             ...filtroLiquidacion,
             ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
           },
@@ -476,8 +485,10 @@ export class NominaCanvasService {
           : prisma.liquidaciones_dias.findMany({
           where: {
             deleted_at: null,
+            ...(diasNominaOcultos.length ? { id: { notIn: diasNominaOcultos } } : {}),
             liquidacion: {
               deleted_at: null,
+              conductores: { oculto: false },
               periodo_start: { lte: hastaISO },
               periodo_end: { gte: desdeISO },
               ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
@@ -494,6 +505,7 @@ export class NominaCanvasService {
             deleted_at: null,
             liquidacion: {
               deleted_at: null,
+              conductores: { oculto: false },
               periodo_start: { lte: hastaISO },
               periodo_end: { gte: desdeISO },
               ...(opts.conductorIds?.length ? { conductor_id: { in: opts.conductorIds } } : {}),
@@ -518,6 +530,8 @@ export class NominaCanvasService {
             deleted_at: null,
             registro_dia: {
               deleted_at: null,
+              ...(diasRecorridosOcultos.length ? { id: { notIn: diasRecorridosOcultos } } : {}),
+              conductor: { oculto: false },
               fecha: { gte: fechaInicio, lte: fechaFin },
               ...(opts.conductorIds?.length
                 ? { conductor_id: { in: opts.conductorIds } }

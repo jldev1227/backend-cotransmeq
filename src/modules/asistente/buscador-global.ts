@@ -8,6 +8,7 @@ import { detalleRecargo } from './recargos'
 import { detalleEnvioFormulario } from './formularios'
 import { detalleSarlaft } from './sarlaft'
 import { detalleAsistencia } from './asistencias'
+import { idsLiquidacionesServicioOcultas, idsRecargosOcultos, idsServiciosOcultos } from '../../lib/ocultos-operativos'
 
 /**
  * `search` y `fetch`: el contrato que ChatGPT pide a un conector MCP para
@@ -53,7 +54,7 @@ const BUSCADORES: Buscador[] = [
     buscar: async (q) =>
       (
         await prisma.vehiculos.findMany({
-          where: { deleted_at: null, OR: [{ placa: contiene(q.replace(/[\s-]/g, '')) }, { marca: contiene(q) }, { linea: contiene(q) }] },
+          where: { deleted_at: null, oculto: false, OR: [{ placa: contiene(q.replace(/[\s-]/g, '')) }, { marca: contiene(q) }, { linea: contiene(q) }] },
           select: { id: true, placa: true, marca: true, linea: true },
           take: POR_TIPO,
         })
@@ -77,6 +78,10 @@ const BUSCADORES: Buscador[] = [
         await prisma.servicio.findMany({
           where: {
             deleted_at: null,
+            AND: [
+              { OR: [{ conductor_id: null }, { conductores: { is: { oculto: false } } }] },
+              { OR: [{ vehiculo_id: null }, { vehiculos: { is: { oculto: false } } }] },
+            ],
             OR: [
               { numero_planilla: contiene(q) },
               { clientes: { nombre: contiene(q) } },
@@ -98,27 +103,32 @@ const BUSCADORES: Buscador[] = [
   },
   {
     modulo: 'liquidaciones-servicios',
-    buscar: async (q) =>
-      (
+    buscar: async (q) => {
+      const ocultas = await idsLiquidacionesServicioOcultas()
+      return (
         await prisma.liquidacion_servicio.findMany({
-          where: { deleted_at: null, confirmada_at: { not: null }, OR: [{ consecutivo: contiene(q) }, { cliente: { nombre: contiene(q) } }, { osi: contiene(q) }, { factura_items: { some: { factura: { numero_factura: contiene(q) } } } }] },
+          where: { deleted_at: null, confirmada_at: { not: null }, ...(ocultas.length ? { id: { notIn: ocultas } } : {}), OR: [{ consecutivo: contiene(q) }, { cliente: { nombre: contiene(q) } }, { osi: contiene(q) }, { factura_items: { some: { factura: { numero_factura: contiene(q) } } } }] },
           select: { id: true, consecutivo: true, mes: true, anio: true, estado: true, cliente: { select: { nombre: true } } },
           orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
           take: POR_TIPO,
         })
-      ).map((l) => ({ id: `liquidacion:${l.id}`, title: `Liquidación ${l.consecutivo} · ${l.cliente.nombre} · ${l.mes}/${l.anio} · ${l.estado.toLowerCase()}`, url: `/dashboard/liquidaciones-servicios/${l.id}?mode=view` })),
+      ).map((l) => ({ id: `liquidacion:${l.id}`, title: `Liquidación ${l.consecutivo} · ${l.cliente.nombre} · ${l.mes}/${l.anio} · ${l.estado.toLowerCase()}`, url: `/dashboard/liquidaciones-servicios/${l.id}?mode=view` }))
+    },
   },
   {
     modulo: 'recargos',
-    buscar: async (q) =>
-      (
+    buscar: async (q) => {
+      const serviciosOcultos = await idsServiciosOcultos()
+      const ocultos = await idsRecargosOcultos(undefined, serviciosOcultos)
+      return (
         await prisma.recargos_planillas.findMany({
-          where: { deleted_at: null, OR: [{ numero_planilla: contiene(q) }, { conductores: { OR: [{ nombre: contiene(q) }, { apellido: contiene(q) }] } }, { vehiculos: { placa: contiene(q.replace(/[\s-]/g, '')) } }] },
+          where: { deleted_at: null, ...(ocultos.length ? { id: { notIn: ocultos } } : {}), OR: [{ numero_planilla: contiene(q) }, { conductores: { AND: [{ oculto: false }, { OR: [{ nombre: contiene(q) }, { apellido: contiene(q) }] }] } }, { vehiculos: { AND: [{ oculto: false }, { placa: contiene(q.replace(/[\s-]/g, '')) }] } }] },
           select: { id: true, numero_planilla: true, mes: true, a_o: true, conductores: { select: { nombre: true, apellido: true } }, vehiculos: { select: { placa: true } } },
           orderBy: { created_at: 'desc' },
           take: POR_TIPO,
         })
-      ).map((r) => ({ id: `planilla:${r.id}`, title: `Planilla de recargos ${r.numero_planilla ?? 's/n'} · ${r.conductores.nombre} ${r.conductores.apellido} · ${r.vehiculos.placa} · ${r.mes}/${r.a_o}`, url: '/dashboard/recargos' })),
+      ).map((r) => ({ id: `planilla:${r.id}`, title: `Planilla de recargos ${r.numero_planilla ?? 's/n'} · ${r.conductores.nombre} ${r.conductores.apellido} · ${r.vehiculos.placa} · ${r.mes}/${r.a_o}`, url: '/dashboard/recargos' }))
+    },
   },
   {
     modulo: 'acciones-correctivas',

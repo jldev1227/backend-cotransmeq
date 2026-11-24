@@ -540,7 +540,7 @@ export class RecorridosPatchService {
     }
 
     const conductor = await prisma.conductores.findFirst({
-      where: { id: conductorId },
+      where: { id: conductorId, deleted_at: null, oculto: false },
       select: { id: true },
     })
     if (!conductor) throw new PatchRecorridoError('El conductor no existe.', 'NO_ENCONTRADO')
@@ -971,7 +971,7 @@ export class RecorridosPatchService {
 
     const placa = texto.toUpperCase().replace(/\s+/g, '')
     const v = await prisma.vehiculos.findFirst({
-      where: { placa: { equals: placa, mode: 'insensitive' }, deleted_at: null },
+      where: { placa: { equals: placa, mode: 'insensitive' }, deleted_at: null, oculto: false },
       select: { id: true, placa: true },
     })
     if (!v) {

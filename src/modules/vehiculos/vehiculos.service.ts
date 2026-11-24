@@ -27,12 +27,12 @@ export const VehiculosService = {
     });
   },
 
-  /** `incluirOcultos`: para selectores, donde un vehículo oculto sí se puede elegir. */
-  async list(incluirOcultos = false) {
+  /** Listado operativo: los ocultos solo se consultan en la ruta dedicada `/ocultos`. */
+  async list(_incluirOcultos = false) {
     return prisma.vehiculos.findMany({
       where: {
         deleted_at: null, // Solo vehículos no eliminados
-        ...(incluirOcultos ? {} : { oculto: false }), // Excluir ocultos salvo en selectores
+        oculto: false,
       },
       include: {
         conductores: {
@@ -53,8 +53,8 @@ export const VehiculosService = {
   },
 
   async findById(id: string) {
-    return prisma.vehiculos.findUnique({
-      where: { id },
+    return prisma.vehiculos.findFirst({
+      where: { id, deleted_at: null, oculto: false },
       include: {
         conductores: {
           select: {
@@ -155,19 +155,20 @@ export const VehiculosService = {
   },
 
   async findByPlaca(placa: string) {
-    return prisma.vehiculos.findUnique({
-      where: { placa },
+    return prisma.vehiculos.findFirst({
+      where: { placa, deleted_at: null, oculto: false },
       include: {
         conductores: true,
       },
     });
   },
 
-  // Para selectores: los ocultos SÍ se pueden elegir.
+  // Selectores operativos: nunca ofrecen vehículos ocultos.
   async listBasicos() {
     return prisma.vehiculos.findMany({
       where: {
         deleted_at: null,
+        oculto: false,
       },
       select: {
         id: true,

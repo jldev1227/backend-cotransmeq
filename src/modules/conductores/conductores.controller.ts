@@ -11,7 +11,7 @@ interface ObtenerTodosQuery {
   estado?: string
   sede_trabajo?: string
   orden?: string
-  /** `true` para selectores: también trae los ocultos. */
+  /** Deprecated; los ocultos solo se consultan en la ruta dedicada `/ocultos`. */
   incluir_ocultos?: string
 }
 
@@ -63,11 +63,10 @@ export const ConductoresController = {
     reply: FastifyReply
   ) {
     try {
-      const { page, limit, search, estado, sede_trabajo, orden, incluir_ocultos } = request.query
+      const { page, limit, search, estado, sede_trabajo, orden } = request.query
 
       const filters: any = {}
       if (orden === 'asc' || orden === 'desc') filters.orden = orden
-      if (incluir_ocultos === 'true') filters.incluirOcultos = true
       
       if (search) filters.search = search
       if (estado) filters.estado = estado
@@ -133,7 +132,7 @@ export const ConductoresController = {
 
   // GET /conductores/select-list
   // Listado liviano pensado para alimentar <select> en formularios
-  // (sin foto, sin S3, sin joins). Solo activos; incluye ocultos.
+  // (sin foto, sin S3, sin joins). Solo activos y visibles.
   async listarParaSelect(
     request: FastifyRequest,
     reply: FastifyReply
