@@ -5,9 +5,9 @@
 Registro de inducción o reinducción de visitantes (formato HSEQ-FR-66,
 versión 1). El visitante lo llena desde su teléfono, sin sesión: sede visitada,
 sus datos, su firma y la lista de temas que se le informaron. HSEQ lo consulta y
-lo exporta desde la pantalla de Asistencias, por eso el módulo de permisos es
-`asistencias` y no uno propio. Tabla `inducciones_visitantes` (id `cuid`, no
-uuid).
+lo consulta desde `cotransmeq-app/src/routes/dashboard/asistencias/inducciones/+page.svelte`
+(enlazada desde Asistencias) y lo exporta desde ahí. El módulo de permisos es
+`asistencias` y no uno propio. Tabla `inducciones_visitantes` (id `cuid`, no uuid).
 
 Reglas que un integrador necesita saber:
 
@@ -28,14 +28,14 @@ Reglas que un integrador necesita saber:
 | Operación | Guarda |
 |---|---|
 | `POST /inducciones` | `pública`: queda fuera de la guarda por `excepto`, que compara patrón **y** método (`/inducciones` + `POST`): el listado comparte patrón y sigue protegido. Sin token ni límite de intentos |
-| Resto | `sesión` (`onRequest: authMiddleware` en cada ruta) y `permisoPorMetodo('asistencias')` en el plugin: `asistencias:read` en `GET`, `asistencias:full` en `PATCH` y `DELETE`. Administración y HSEQ |
+| Resto | `sesión` (`onRequest: authMiddleware` en cada ruta) y `permisoPorMetodo('asistencias')` en el plugin: `asistencias:read` en `GET`, `asistencias:full` en `PATCH` y `DELETE`. Administración y HSEQ tienen nivel completo |
 
 ## Endpoints
 
 | Método | Ruta | Acceso | Qué hace |
 |---|---|---|---|
 | POST | `/api/inducciones` | pública | Registra la inducción de un visitante |
-| GET | `/api/inducciones` | `asistencias:read` | Lista paginada con filtros |
+| GET | `/api/inducciones` | `asistencias:read` | Lista paginada con búsqueda por visitante, entidad o cédula y filtros |
 | GET | `/api/inducciones/estadisticas` | `asistencias:read` | Total, último mes, conformidad media y por sede |
 | GET | `/api/inducciones/:id` | `asistencias:read` | Una inducción |
 | PATCH | `/api/inducciones/:id` | `asistencias:full` | Corrige una inducción |
@@ -78,6 +78,7 @@ la fila completa (firma y cédula incluidas) con `fecha`, `created_at` y
 
 | Parámetro | Tipo | Por defecto | Descripción |
 |---|---|---|---|
+| `search` | string ≤ 255 | — | Contiene en nombre del visitante, entidad o cédula |
 | `sede` | enum de sedes | — | |
 | `fecha_desde`, `fecha_hasta` | ISO 8601 con `Z` | — | Sobre `fecha`, ambos inclusive |
 | `visitante_nombre`, `visitante_entidad` | string | — | Contiene, sin distinguir mayúsculas |
@@ -112,8 +113,10 @@ la fila completa (firma y cédula incluidas) con `fecha`, `created_at` y
 Body: los campos del alta, todos opcionales; `temas_informados` puede ser
 parcial. Solo se cambia lo que llega. Si llegan temas, el porcentaje se
 recalcula sobre la mezcla de los guardados con los nuevos (pero ver
-Observaciones). Responde 200 `{ success, message, data }`; 500 si zod rechaza o
-la inducción no existe.
+Observaciones). `responsable_nombre`, `responsable_cargo` y
+`responsable_cedula` aceptan cadena vacía para limpiar esos datos opcionales.
+Responde 200 `{ success, message, data }`; 500 si zod rechaza o la inducción no
+existe.
 
 ### `DELETE /api/inducciones/:id`
 

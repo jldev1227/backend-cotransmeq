@@ -75,11 +75,19 @@ export class InduccionesService {
    * Obtener todas las inducciones con filtros opcionales y paginación
    */
   static async obtenerTodos(filtros: FiltrosInduccionInput) {
-    const { sede, fecha_desde, fecha_hasta, visitante_nombre, visitante_entidad, page, limit } = filtros
+    const { search, sede, fecha_desde, fecha_hasta, visitante_nombre, visitante_entidad, page, limit } = filtros
     const skip = (page - 1) * limit
 
     const where: any = {}
 
+    if (search?.trim()) {
+      const termino = search.trim()
+      where.OR = [
+        { visitante_nombre: { contains: termino, mode: 'insensitive' } },
+        { visitante_entidad: { contains: termino, mode: 'insensitive' } },
+        { visitante_cedula: { contains: termino, mode: 'insensitive' } }
+      ]
+    }
     if (sede) where.sede = sede
     if (visitante_nombre) {
       where.visitante_nombre = { contains: visitante_nombre, mode: 'insensitive' }
@@ -165,9 +173,9 @@ export class InduccionesService {
         ...(data.visitante_firma !== undefined && { visitante_firma: data.visitante_firma }),
         ...(data.temas_informados && { temas_informados: data.temas_informados }),
         ...(porcentaje_conformidad !== undefined && { porcentaje_conformidad }),
-        ...(data.responsable_nombre && { responsable_nombre: data.responsable_nombre }),
-        ...(data.responsable_cargo && { responsable_cargo: data.responsable_cargo }),
-        ...(data.responsable_cedula && { responsable_cedula: data.responsable_cedula }),
+        ...(data.responsable_nombre !== undefined && { responsable_nombre: data.responsable_nombre || null }),
+        ...(data.responsable_cargo !== undefined && { responsable_cargo: data.responsable_cargo || null }),
+        ...(data.responsable_cedula !== undefined && { responsable_cedula: data.responsable_cedula || null }),
         ...(data.responsable_firma !== undefined && { responsable_firma: data.responsable_firma }),
         ...(data.observaciones !== undefined && { observaciones: data.observaciones })
       },

@@ -59,6 +59,7 @@ export async function induccionesRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
+          search: { type: 'string', maxLength: 255, description: 'Busca por visitante, entidad o cédula' },
           sede: { type: 'string', enum: ['yopal', 'villanueva', 'ambas', 'lugar_prestacion'] },
           fecha_desde: { type: 'string', format: 'date-time' },
           fecha_hasta: { type: 'string', format: 'date-time' },

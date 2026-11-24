@@ -61,15 +61,16 @@ export const updateInduccionVisitanteSchema = z.object({
   visitante_entidad: z.string().min(1).max(255).optional(),
   visitante_firma: z.string().optional(),
   temas_informados: temasInformadosSchema.partial().optional(),
-  responsable_nombre: z.string().min(1).max(255).optional(),
-  responsable_cargo: z.string().min(1).max(255).optional(),
-  responsable_cedula: z.string().min(1).max(50).optional(),
+  responsable_nombre: z.string().max(255).optional(),
+  responsable_cargo: z.string().max(255).optional(),
+  responsable_cedula: z.string().max(50).optional(),
   responsable_firma: z.string().optional(),
   observaciones: z.string().optional()
 })
 
 // Schema para filtrar inducciones
 export const filtrosInduccionSchema = z.object({
+  search: z.string().max(255).optional(),
   sede: SedeEnum.optional(),
   fecha_desde: z.string().datetime().optional(),
   fecha_hasta: z.string().datetime().optional(),
