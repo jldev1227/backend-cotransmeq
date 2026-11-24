@@ -444,7 +444,17 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
         orderBy: { consecutivo: 'desc' },
       }),
       prisma.recargos.findMany({
-      where: { vehiculo_id: id, deleted_at: null, ...(conductoresOcultos.length ? { conductor_id: { notIn: conductoresOcultos } } : {}), mes: { in: etiquetasMes(periodo) } },
+        where: {
+          vehiculo_id: id,
+          deleted_at: null,
+          ...(conductoresOcultos.length ? {
+            OR: [
+              { recargos_planillas: { is: null } },
+              { recargos_planillas: { is: { conductor_id: { notIn: conductoresOcultos } } } },
+            ],
+          } : {}),
+          mes: { in: etiquetasMes(periodo) },
+        },
         select: { valor: true },
       }),
       prisma.documento.findMany({
