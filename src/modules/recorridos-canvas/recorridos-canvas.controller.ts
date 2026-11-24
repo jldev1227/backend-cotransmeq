@@ -96,7 +96,7 @@ export class RecorridosCanvasController {
    */
   static async placas(_request: FastifyRequest, reply: FastifyReply) {
     const vehiculos = await prisma.vehiculos.findMany({
-      where: { deleted_at: null },
+      where: { deleted_at: null, oculto: false },
       select: { id: true, placa: true },
       orderBy: { placa: 'asc' },
     })

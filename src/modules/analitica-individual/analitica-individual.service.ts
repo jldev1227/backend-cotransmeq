@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma'
+import { cargarEntidadesOcultas, idsCierresTercerosOcultos, idsDiasLaboralesOcultos, idsExtractosOcultos, idsRecargosOcultos, idsServiciosOcultos } from '../../lib/ocultos-operativos'
 
 export type TipoEntidadAnalitica = 'conductor' | 'vehiculo' | 'cliente' | 'tercero'
 
@@ -164,17 +165,25 @@ const camposUbicacionServicio = {
 
 async function conductor(id: string, periodo: PeriodoAnalitica) {
   const meses = rangoMeses(periodo)
+  const ocultas = await cargarEntidadesOcultas()
+  const vehiculosOcultos = ocultas.vehiculos.map((vehiculo) => vehiculo.id)
+  const [serviciosOcultos, recargosOcultos, diasOcultos, extractosOcultos] = await Promise.all([
+    idsServiciosOcultos(ocultas),
+    idsRecargosOcultos(ocultas),
+    idsDiasLaboralesOcultos(ocultas),
+    idsExtractosOcultos(ocultas),
+  ])
   const [ficha, jornadas, servicios, planillas, liquidaciones, formularios, extractos] = await Promise.all([
-    prisma.conductores.findFirst({ where: { id, deleted_at: null } }),
+    prisma.conductores.findFirst({ where: { id, deleted_at: null, oculto: false } }),
     prisma.registro_dia_laboral.findMany({
-      where: { conductor_id: id, fecha: { gte: periodo.desde, lte: periodo.hasta }, deleted_at: null },
+      where: { conductor_id: id, fecha: { gte: periodo.desde, lte: periodo.hasta }, deleted_at: null, id: { notIn: diasOcultos } },
       select: {
         id: true,
         fecha: true,
         tipo: true,
         mantenimiento_vehiculo_placa: true,
         segmentos: {
-          where: { deleted_at: null },
+          where: { deleted_at: null, ...(vehiculosOcultos.length ? { vehiculo_id: { notIn: vehiculosOcultos } } : {}) },
           select: { vehiculo_placa: true, km_inicial: true, km_final: true, horas_conducidas: true },
         },
         bonos: { where: { deleted_at: null }, select: { valor: true } },
@@ -184,6 +193,7 @@ async function conductor(id: string, periodo: PeriodoAnalitica) {
       where: {
         conductor_id: id,
         deleted_at: null,
+        id: { notIn: serviciosOcultos },
         OR: [
           { fecha_realizacion: { gte: periodo.desde, lte: periodo.hasta } },
           { fecha_realizacion: null, fecha_solicitud: { gte: periodo.desde, lte: periodo.hasta } },
@@ -192,7 +202,7 @@ async function conductor(id: string, periodo: PeriodoAnalitica) {
       select: { id: true, ...camposUbicacionServicio },
     }),
     prisma.recargos_planillas.findMany({
-      where: { conductor_id: id, deleted_at: null, OR: meses },
+      where: { conductor_id: id, deleted_at: null, id: { notIn: recargosOcultos }, OR: meses },
       select: { id: true, servicio_id: true, total_dias_laborados: true },
     }),
     prisma.liquidaciones.findMany({
@@ -212,13 +222,14 @@ async function conductor(id: string, periodo: PeriodoAnalitica) {
         business_date: { gte: periodo.desde, lte: periodo.hasta },
         status: 'SUBMITTED',
         deleted_at: null,
+        ...(vehiculosOcultos.length ? { vehicle_id: { notIn: vehiculosOcultos } } : {}),
       },
       select: { id: true, vehicle_id: true, business_date: true, assignment: { select: { name: true, pesv_proposito: true } } },
     }),
     prisma.fuec_extract_driver.findMany({
       where: {
         conductor_id: id,
-        fuec: { deleted_at: null, estado: { in: ['VIGENTE', 'VENCIDO'] } },
+        fuec: { id: { notIn: extractosOcultos }, deleted_at: null, estado: { in: ['VIGENTE', 'VENCIDO'] } },
       },
       select: {
         fuec: {
@@ -350,14 +361,27 @@ async function conductor(id: string, periodo: PeriodoAnalitica) {
 
 async function vehiculo(id: string, periodo: PeriodoAnalitica) {
   const meses = rangoMeses(periodo)
+  const ocultas = await cargarEntidadesOcultas()
+  const conductoresOcultos = ocultas.conductores.map((conductor) => conductor.id)
+  const [serviciosOcultos, recargosOcultos, diasOcultos, extractosOcultos] = await Promise.all([
+    idsServiciosOcultos(ocultas),
+    idsRecargosOcultos(ocultas),
+    idsDiasLaboralesOcultos(ocultas),
+    idsExtractosOcultos(ocultas),
+  ])
   const [ficha, segmentos, jornadasMantenimiento, servicios, planillas, formularios, ordenes, recargos, documentos] =
     await Promise.all([
-      prisma.vehiculos.findFirst({ where: { id, deleted_at: null } }),
+      prisma.vehiculos.findFirst({ where: { id, deleted_at: null, oculto: false } }),
       prisma.registro_dia_laboral_segmento.findMany({
         where: {
           vehiculo_id: id,
           deleted_at: null,
-          registro_dia: { fecha: { gte: periodo.desde, lte: periodo.hasta }, deleted_at: null },
+          registro_dia: {
+            fecha: { gte: periodo.desde, lte: periodo.hasta },
+            deleted_at: null,
+            id: { notIn: diasOcultos },
+            ...(conductoresOcultos.length ? { conductor_id: { notIn: conductoresOcultos } } : {}),
+          },
         },
         select: {
           km_inicial: true,
@@ -370,6 +394,8 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
           mantenimiento_vehiculo_id: id,
           fecha: { gte: periodo.desde, lte: periodo.hasta },
           deleted_at: null,
+          id: { notIn: diasOcultos },
+          ...(conductoresOcultos.length ? { conductor_id: { notIn: conductoresOcultos } } : {}),
         },
         select: { id: true, fecha: true, conductor: { select: { id: true, nombre: true, apellido: true } } },
       }),
@@ -377,6 +403,8 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
         where: {
           vehiculo_id: id,
           deleted_at: null,
+          id: { notIn: serviciosOcultos },
+          ...(conductoresOcultos.length ? { conductor_id: { notIn: conductoresOcultos } } : {}),
           OR: [
             { fecha_realizacion: { gte: periodo.desde, lte: periodo.hasta } },
             { fecha_realizacion: null, fecha_solicitud: { gte: periodo.desde, lte: periodo.hasta } },
@@ -390,7 +418,7 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
         },
       }),
       prisma.recargos_planillas.findMany({
-        where: { vehiculo_id: id, deleted_at: null, OR: meses },
+        where: { vehiculo_id: id, deleted_at: null, id: { notIn: recargosOcultos }, OR: meses },
         select: { id: true, servicio_id: true, conductor_id: true, conductores: { select: { nombre: true, apellido: true } } },
       }),
       prisma.form_submission.findMany({
@@ -399,6 +427,7 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
           business_date: { gte: periodo.desde, lte: periodo.hasta },
           status: 'SUBMITTED',
           deleted_at: null,
+          ...(conductoresOcultos.length ? { conductor_id: { notIn: conductoresOcultos } } : {}),
         },
         select: { id: true, business_date: true, assignment: { select: { name: true, pesv_proposito: true } } },
       }),
@@ -415,7 +444,7 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
         orderBy: { consecutivo: 'desc' },
       }),
       prisma.recargos.findMany({
-        where: { vehiculo_id: id, deleted_at: null, mes: { in: etiquetasMes(periodo) } },
+      where: { vehiculo_id: id, deleted_at: null, ...(conductoresOcultos.length ? { conductor_id: { notIn: conductoresOcultos } } : {}), mes: { in: etiquetasMes(periodo) } },
         select: { valor: true },
       }),
       prisma.documento.findMany({
@@ -436,14 +465,14 @@ async function vehiculo(id: string, periodo: PeriodoAnalitica) {
   if (!ficha) throw new Error('Vehículo no encontrado')
   const fuecsVigentes = await prisma.fuec_extract.findMany({
     where: {
-      vehiculo_id: id, deleted_at: null, estado: 'VIGENTE',
+      vehiculo_id: id, id: { notIn: extractosOcultos }, deleted_at: null, estado: 'VIGENTE',
       vigencia_desde: { lte: hoyBogota() }, vigencia_hasta: { gte: hoyBogota() },
     },
     select: camposFuec,
     orderBy: { vigencia_hasta: 'asc' },
   })
   const fuecsRecientes = await prisma.fuec_extract.findMany({
-    where: { vehiculo_id: id, deleted_at: null, estado: { in: ['VIGENTE', 'VENCIDO'] } },
+    where: { vehiculo_id: id, id: { notIn: extractosOcultos }, deleted_at: null, estado: { in: ['VIGENTE', 'VENCIDO'] } },
     select: camposFuec,
     orderBy: { vigencia_hasta: 'desc' },
     take: 5,
@@ -666,10 +695,12 @@ async function cliente(id: string, periodo: PeriodoAnalitica) {
 }
 
 async function tercero(id: string, periodo: PeriodoAnalitica) {
+  const ocultas = await cargarEntidadesOcultas()
+  const cierresOcultos = await idsCierresTercerosOcultos(ocultas)
   const [ficha, vehiculos, cierres] = await Promise.all([
     prisma.terceros.findFirst({ where: { id, deleted_at: null } }),
     prisma.vehiculos.findMany({
-      where: { tercero_propietario_id: id, deleted_at: null },
+      where: { tercero_propietario_id: id, deleted_at: null, oculto: false },
       select: { id: true, placa: true, marca: true, linea: true, modelo: true, estado: true },
       orderBy: { placa: 'asc' },
     }),
@@ -677,6 +708,7 @@ async function tercero(id: string, periodo: PeriodoAnalitica) {
       where: {
         tercero_id: id,
         deleted_at: null,
+        id: { notIn: cierresOcultos },
         OR: rangoMeses(periodo).map(({ a_o, mes }) => ({ anio: a_o, mes })),
       },
       select: { id: true, consecutivo: true, estado: true, total_pagar: true, anio: true, mes: true, created_at: true },

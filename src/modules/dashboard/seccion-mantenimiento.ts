@@ -54,10 +54,13 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
   const { periodo } = ctx
   const puedeFormularios = Boolean(ctx.modulos['formularios'])
   const ficha = (id: string, tab?: string) => `/dashboard/flota?vehiculo=${id}${tab ? `&tab=${tab}` : ''}`
-  const enviosPeriodo = Prisma.sql`s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.business_date >= ${periodo.desde}::date AND s.business_date <= ${periodo.hasta}::date`
+  const enviosPeriodo = Prisma.sql`s.deleted_at IS NULL AND s.status = 'SUBMITTED'
+    AND s.business_date >= ${periodo.desde}::date AND s.business_date <= ${periodo.hasta}::date
+    AND (s.conductor_id IS NULL OR EXISTS (SELECT 1 FROM conductores c0 WHERE c0.id = s.conductor_id AND c0.oculto = false))
+    AND (s.vehicle_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v0 WHERE v0.id = s.vehicle_id AND v0.oculto = false))`
 
   const [vehiculosEstado, itemsMalos, malosPorPlaca, novedades, mantenimientos, mantPorDia, kilometraje, vencimientos, preopPeriodo] = await Promise.all([
-    prisma.vehiculos.groupBy({ by: ['estado'], where: { deleted_at: null }, _count: { _all: true } }),
+    prisma.vehiculos.groupBy({ by: ['estado'], where: { deleted_at: null, oculto: false }, _count: { _all: true } }),
     // Ítems que más salen en Malo en el periodo
     prisma.$queryRaw<Array<{ key: string; label: string; n: number; placas: number }>>(Prisma.sql`
       SELECT f.key, min(f.label) AS label, count(*)::int AS n, count(DISTINCT s.vehicle_id)::int AS placas
@@ -75,7 +78,7 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
       JOIN form_answer_options ao ON ao.answer_id = a.id
       JOIN form_field_options o ON o.id = ao.option_id AND o.value = 'M'
       JOIN form_submissions s ON s.id = a.submission_id ${preopJoin}
-      JOIN vehiculos ve ON ve.id = s.vehicle_id
+      JOIN vehiculos ve ON ve.id = s.vehicle_id AND ve.oculto = false
       WHERE ${enviosPeriodo}
       GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10`),
     // Estado actual: último preoperacional de cada placa y sus ítems en Malo (con observación)
@@ -84,6 +87,8 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
         SELECT DISTINCT ON (s.vehicle_id) s.vehicle_id, s.id, s.business_date, s.conductor_id, s.version_id
         FROM form_submissions s ${preopJoin}
         WHERE s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.vehicle_id IS NOT NULL
+          AND (s.conductor_id IS NULL OR EXISTS (SELECT 1 FROM conductores c0 WHERE c0.id = s.conductor_id AND c0.oculto = false))
+          AND EXISTS (SELECT 1 FROM vehiculos v0 WHERE v0.id = s.vehicle_id AND v0.oculto = false)
         ORDER BY s.vehicle_id, s.business_date DESC, s.submitted_at DESC
       )
       SELECT u.vehicle_id AS vehiculo_id, ve.placa, u.id AS submission_id, u.business_date,
@@ -91,8 +96,8 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
              (SELECT a2.value_text FROM form_answers a2 JOIN form_fields f2 ON f2.id = a2.field_id
                WHERE a2.submission_id = u.id AND f2.key = f.key || '_obs' LIMIT 1) AS observacion
       FROM ultimo u
-      JOIN vehiculos ve ON ve.id = u.vehicle_id AND ve.deleted_at IS NULL
-      LEFT JOIN conductores c ON c.id = u.conductor_id
+      JOIN vehiculos ve ON ve.id = u.vehicle_id AND ve.deleted_at IS NULL AND ve.oculto = false
+      LEFT JOIN conductores c ON c.id = u.conductor_id AND c.oculto = false
       JOIN form_answers a ON a.submission_id = u.id
       JOIN form_answer_options ao ON ao.answer_id = a.id
       JOIN form_field_options o ON o.id = ao.option_id AND o.value = 'M'
@@ -104,13 +109,23 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
              trim(c.nombre || ' ' || c.apellido) AS conductor, r.observaciones
       FROM registro_dia_laboral r
       JOIN conductores c ON c.id = r.conductor_id
-      LEFT JOIN vehiculos ve ON ve.id = r.mantenimiento_vehiculo_id
-      WHERE r.deleted_at IS NULL AND r.tipo = 'MANTENIMIENTO' AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date
+      LEFT JOIN vehiculos ve ON ve.id = r.mantenimiento_vehiculo_id AND ve.oculto = false
+      WHERE r.deleted_at IS NULL AND c.oculto = false AND r.tipo = 'MANTENIMIENTO' AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date
+        AND (r.mantenimiento_vehiculo_id IS NULL OR ve.id IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM vehiculos vh WHERE vh.oculto = true
+          AND UPPER(REGEXP_REPLACE(COALESCE(vh.placa, ''), '[^A-Za-z0-9]', '', 'g')) =
+              UPPER(REGEXP_REPLACE(COALESCE(r.mantenimiento_vehiculo_placa, ''), '[^A-Za-z0-9]', '', 'g')))
       ORDER BY r.fecha DESC`),
     prisma.$queryRaw<Array<{ dia: string; n: number }>>(Prisma.sql`
       SELECT to_char(r.fecha, 'YYYY-MM-DD') AS dia, count(*)::int AS n
       FROM registro_dia_laboral r
+      JOIN conductores c ON c.id = r.conductor_id AND c.oculto = false
+      LEFT JOIN vehiculos ve ON ve.id = r.mantenimiento_vehiculo_id
       WHERE r.deleted_at IS NULL AND r.tipo = 'MANTENIMIENTO' AND r.fecha >= ${periodo.desde}::date AND r.fecha <= ${periodo.hasta}::date
+        AND (r.mantenimiento_vehiculo_id IS NULL OR ve.oculto = false)
+        AND NOT EXISTS (SELECT 1 FROM vehiculos vh WHERE vh.oculto = true
+          AND UPPER(REGEXP_REPLACE(COALESCE(vh.placa, ''), '[^A-Za-z0-9]', '', 'g')) =
+              UPPER(REGEXP_REPLACE(COALESCE(r.mantenimiento_vehiculo_placa, ''), '[^A-Za-z0-9]', '', 'g')))
       GROUP BY 1`),
     // Kilometraje: último km_final reportado en un preoperacional por placa; si no, el de la ficha
     prisma.$queryRaw<Array<{ vehiculo_id: string; placa: string; km: number; fecha: Date | null; fuente: string }>>(Prisma.sql`
@@ -125,7 +140,7 @@ export async function seccionMantenimiento(ctx: ContextoSeccion): Promise<Record
       SELECT ve.id AS vehiculo_id, ve.placa, coalesce(p.km, ve.kilometraje)::float AS km, p.business_date AS fecha,
              CASE WHEN p.km IS NOT NULL THEN 'preoperacional' ELSE 'ficha' END AS fuente
       FROM vehiculos ve LEFT JOIN preop p ON p.vehicle_id = ve.id
-      WHERE ve.deleted_at IS NULL AND coalesce(p.km, ve.kilometraje) IS NOT NULL AND coalesce(p.km, ve.kilometraje) > 0
+      WHERE ve.deleted_at IS NULL AND ve.oculto = false AND coalesce(p.km, ve.kilometraje) IS NOT NULL AND coalesce(p.km, ve.kilometraje) > 0
       ORDER BY 3 DESC LIMIT 12`),
     // Vencimientos de documentos del vehículo
     // Un documento por placa y categoría: el de vencimiento más lejano. Las

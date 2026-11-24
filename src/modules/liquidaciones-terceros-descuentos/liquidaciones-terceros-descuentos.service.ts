@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma";
+import { idsCierresTercerosOcultos, idsLiquidacionesServicioOcultas } from "../../lib/ocultos-operativos";
 import { sembrarGastosDelCierre } from './sembrar-gastos.service';
 import { randomUUID } from "crypto";
 import { LiquidacionesSnapshotsService } from "../liquidaciones-terceros-snapshots/liquidaciones-terceros-snapshots.service";
@@ -418,7 +419,7 @@ export const LiquidacionesTercerosDescuentosService = {
 
     // 1. Buscar vehículo por placa
     const vehiculo = await prisma.vehiculos.findFirst({
-      where: { placa: { contains: placa, mode: 'insensitive' } },
+      where: { placa: { contains: placa, mode: 'insensitive' }, deleted_at: null, oculto: false },
       select: { id: true, placa: true, propietario_nombre: true },
     });
 
@@ -1178,6 +1179,12 @@ export const LiquidacionesTercerosDescuentosService = {
 
     if (liqIds.length === 0) {
       throw new Error('Se requiere al menos un liquidacion_servicio_id');
+    }
+
+    const liquidacionesOcultas = new Set(await idsLiquidacionesServicioOcultas());
+    liqIds = liqIds.filter((id) => !liquidacionesOcultas.has(id));
+    if (liqIds.length === 0) {
+      throw new Error('Las liquidaciones seleccionadas están ocultas por incluir placas o conductores ocultos');
     }
 
     const placasFiltro = new Set((placas ?? []).map(normalizarPlacaBorrador).filter(Boolean));
@@ -3062,7 +3069,11 @@ export const LiquidacionesTercerosDescuentosService = {
     const limit = Number(filtros.limit) || 50;
     const skip = (page - 1) * limit;
 
-    const where: any = { deleted_at: null };
+    const cierresOcultos = await idsCierresTercerosOcultos();
+    const where: any = {
+      deleted_at: null,
+      ...(cierresOcultos.length ? { id: { notIn: cierresOcultos } } : {}),
+    };
 
     if (filtros.placa) where.placa = { contains: filtros.placa, mode: 'insensitive' };
     if (filtros.mes) where.mes = Number(filtros.mes);
@@ -3304,8 +3315,13 @@ export const LiquidacionesTercerosDescuentosService = {
 
   async obtenerPorId(liquidacionTerceroFinalId: string, opts: { includeDeleted?: boolean } = {}) {
     const includeDeleted = opts.includeDeleted === true;
+    const cierresOcultos = await idsCierresTercerosOcultos();
     const item = await prisma.liquidacion_tercero_final.findFirst({
-      where: { id: liquidacionTerceroFinalId, deleted_at: null },
+      where: {
+        id: liquidacionTerceroFinalId,
+        deleted_at: null,
+        ...(cierresOcultos.length ? { AND: [{ id: { notIn: cierresOcultos } }] } : {}),
+      },
       include: {
         tercero: {
           select: { id: true, nombre_completo: true, identificacion: true, tipo_persona: true },
@@ -3948,11 +3964,13 @@ export const LiquidacionesTercerosDescuentosService = {
         numero_factura: { contains: q, mode: 'insensitive' as const },
       },
     };
+    const cierresOcultos = await idsCierresTercerosOcultos();
     const pivotes = await prisma.liquidacion_tercero_final_item.findMany({
       where: {
         deleted_at: null,
         liquidacion_tercero_final: {
           deleted_at: null,
+          ...(cierresOcultos.length ? { id: { notIn: cierresOcultos } } : {}),
           ...(filtrosPeriodo.length ? { AND: filtrosPeriodo } : {}),
         },
         liquidacion_tercero: {
@@ -4044,8 +4062,9 @@ export const LiquidacionesTercerosDescuentosService = {
 
   // Items de la placa del cierre que todavía no están vinculados a un cierre.
   async itemsDisponibles(liquidacionTerceroFinalId: string) {
+    const cierresOcultos = await idsCierresTercerosOcultos();
     const cierre = await prisma.liquidacion_tercero_final.findFirst({
-      where: { id: liquidacionTerceroFinalId, deleted_at: null },
+      where: { id: liquidacionTerceroFinalId, deleted_at: null, ...(cierresOcultos.length ? { AND: [{ id: { notIn: cierresOcultos } }] } : {}) },
       select: {
         id: true, placa: true, mes: true, anio: true,
         tercero_id: true, estado: true, consecutivo: true,

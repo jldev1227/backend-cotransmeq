@@ -27,9 +27,9 @@ export const ConductoresService = {
   // Ordenado A-Z por nombre, apellido.
   async listarParaSelect() {
     return prisma.conductores.findMany({
-      // Los ocultos SÍ se listan: ocultar es para las tablas, no para elegir.
       where: {
         deleted_at: null,
+        oculto: false,
         estado: {
           notIn: ['inactivo', 'retirado', 'suspendido']
         }
@@ -55,7 +55,7 @@ export const ConductoresService = {
     limit?: number;
     /** Orden alfabético por nombre y apellido (A–Z por defecto). */
     orden?: "asc" | "desc";
-    /** Selectores: los ocultos también se pueden elegir. */
+    /** Deprecated: los ocultos solo se consultan en `/ocultos`. */
     incluirOcultos?: boolean;
   }) {
     const orden = filters?.orden === "desc" ? "desc" : "asc";
@@ -67,8 +67,6 @@ export const ConductoresService = {
       oculto: false, // ← FILTRAR OCULTOS POR DEFECTO
       deleted_at: null, // ← FILTRAR ELIMINADOS
     };
-    if (filters?.incluirOcultos) delete where.oculto;
-
     // Filtro por estado
     //
     // Normalizado igual que la escritura: el listado manda el filtro con el
@@ -186,8 +184,8 @@ export const ConductoresService = {
 
   // Obtener conductor por ID
   async obtenerPorId(id: string) {
-    const conductor = await prisma.conductores.findUnique({
-      where: { id },
+    const conductor = await prisma.conductores.findFirst({
+      where: { id, deleted_at: null, oculto: false },
       include: {
         vehiculos: {
           select: {

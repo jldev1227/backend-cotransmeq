@@ -7,6 +7,7 @@ import {
 } from "../../utils/snapshot-version";
 import { randomUUID } from "crypto";
 import { ESTADOS_BLOQUEADOS } from "../liquidaciones-terceros-descuentos/cierre-estado.service";
+import { idsCierresTercerosOcultos } from "../../lib/ocultos-operativos";
 
 /**
  * Error de `revertir` con su código HTTP. El controlador respondía 400 a todo,
@@ -16,6 +17,10 @@ export class ErrorRevertirSnapshot extends Error {
   constructor(message: string, readonly statusCode: 404 | 409) {
     super(message);
   }
+}
+
+async function asegurarCierreVisible(id: string) {
+  if ((await idsCierresTercerosOcultos()).includes(id)) throw new Error('Cierre no encontrado');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -321,6 +326,7 @@ export const LiquidacionesSnapshotsService = {
    * Lista snapshots de un cierre.
    */
   async listar(liquidacionId: string, opts?: { rama?: string }) {
+    await asegurarCierreVisible(liquidacionId);
     const where: any = { liquidacion_tercero_final_id: liquidacionId };
     if (opts?.rama) where.rama = opts.rama;
 
@@ -351,6 +357,7 @@ export const LiquidacionesSnapshotsService = {
    * Obtiene un snapshot específico con payload completo.
    */
   async obtener(liquidacionId: string, snapshotId: string) {
+    await asegurarCierreVisible(liquidacionId);
     const snapshot = await prisma.liquidacion_tercero_final_snapshot.findFirst({
       where: { id: snapshotId, liquidacion_tercero_final_id: liquidacionId },
       include: {
@@ -373,6 +380,10 @@ export const LiquidacionesSnapshotsService = {
     ]);
     if (!a) throw new Error('Snapshot A no encontrado');
     if (!b) throw new Error('Snapshot B no encontrado');
+    const cierresOcultos = new Set(await idsCierresTercerosOcultos());
+    if (cierresOcultos.has(a.liquidacion_tercero_final_id) || cierresOcultos.has(b.liquidacion_tercero_final_id)) {
+      throw new Error('Cierre no encontrado');
+    }
     if (a.liquidacion_tercero_final_id !== b.liquidacion_tercero_final_id) {
       throw new Error('Los snapshots pertenecen a cierres distintos');
     }
@@ -397,6 +408,7 @@ export const LiquidacionesSnapshotsService = {
    * REEMPLAZADA se colaban.
    */
   async revertir(liquidacionId: string, snapshotId: string, usuarioId: string) {
+    await asegurarCierreVisible(liquidacionId);
     const snapshot = await prisma.liquidacion_tercero_final_snapshot.findFirst({
       where: { id: snapshotId, liquidacion_tercero_final_id: liquidacionId },
     });

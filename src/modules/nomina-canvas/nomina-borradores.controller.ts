@@ -193,7 +193,7 @@ export class NominaBorradoresController {
        */
       const yaListados = new Set(conDatos.map((c) => c.conductor_id));
       const resto = await prisma.conductores.findMany({
-        where: { deleted_at: null, id: { notIn: [...yaListados] } },
+        where: { deleted_at: null, oculto: false, id: { notIn: [...yaListados] } },
         select: {
           id: true,
           nombre: true,

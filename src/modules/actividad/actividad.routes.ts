@@ -11,6 +11,7 @@ import { prisma } from '../../config/prisma'
 import { authMiddleware } from '../../middlewares/auth.middleware'
 import { requirePermission } from '../../middlewares/permissions.middleware'
 import { getAccessibleModules, normalizarRutasOverride } from '../../config/permissions'
+import { idsActividadOculta } from '../../lib/ocultos-operativos'
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/
 
@@ -53,6 +54,26 @@ export function visibilidadActividad(
   return { AND: condiciones }
 }
 
+async function restriccionesOcultosActividad(): Promise<Prisma.registro_actividadWhereInput[]> {
+  const { porModulo, referencias } = await idsActividadOculta()
+  const condiciones: Prisma.registro_actividadWhereInput[] = []
+  for (const [modulo, ids] of Object.entries(porModulo)) {
+    if (!ids.length) continue
+    condiciones.push({ NOT: { AND: [{ modulo }, { recurso_id: { in: ids } }] } })
+  }
+  if (referencias.length) {
+    condiciones.push({
+      NOT: {
+        OR: referencias.flatMap((referencia) => [
+          { recurso_ref: { contains: referencia, mode: 'insensitive' as const } },
+          { descripcion: { contains: referencia, mode: 'insensitive' as const } },
+        ]),
+      },
+    })
+  }
+  return condiciones
+}
+
 export async function actividadRoutes(app: FastifyInstance) {
   const protegida = {
     onRequest: authMiddleware,
@@ -67,7 +88,12 @@ export async function actividadRoutes(app: FastifyInstance) {
     const q = parsed.data
     const user = (request as any).user
 
-    const where: Prisma.registro_actividadWhereInput = { AND: [visibilidadActividad(user, (request as any).permisosRutas)] }
+    const where: Prisma.registro_actividadWhereInput = {
+      AND: [
+        visibilidadActividad(user, (request as any).permisosRutas),
+        ...(await restriccionesOcultosActividad()),
+      ],
+    }
     const and = where.AND as Prisma.registro_actividadWhereInput[]
     if (q.area) and.push({ usuario_areas: { has: q.area } })
     if (q.usuario_id) and.push({ usuario_id: q.usuario_id })
@@ -121,7 +147,11 @@ export async function actividadRoutes(app: FastifyInstance) {
     const user = (request as any).user
     const desde = new Date(Date.now() - 90 * 86400000)
     const where: Prisma.registro_actividadWhereInput = {
-      AND: [visibilidadActividad(user, (request as any).permisosRutas), { created_at: { gte: desde } }],
+      AND: [
+        visibilidadActividad(user, (request as any).permisosRutas),
+        ...(await restriccionesOcultosActividad()),
+        { created_at: { gte: desde } },
+      ],
     }
     const [usuarios, modulos] = await Promise.all([
       prisma.registro_actividad.groupBy({ by: ['usuario_id', 'usuario_nombre'], where, _count: { _all: true }, orderBy: { usuario_nombre: 'asc' } }),

@@ -24,6 +24,19 @@ const CONDUCTOR_DE_SERVICIO = {
   foto_url: true,
 } as const
 
+/** Un servicio solo es visible si no está relacionado con fichas ocultas. */
+function filtrosServicioVisible() {
+  return [
+    { OR: [{ conductor_id: null }, { conductores: { is: { oculto: false } } }] },
+    { OR: [{ vehiculo_id: null }, { vehiculos: { is: { oculto: false } } }] },
+  ]
+}
+
+function aplicarFiltroServicioVisible(where: any) {
+  where.AND = [...(Array.isArray(where.AND) ? where.AND : []), ...filtrosServicioVisible()]
+  return where
+}
+
 /**
  * Obtener fotos de conductores en batch (1 sola query para todos).
  * Retorna un Map<conductor_id, ruta_archivo>
@@ -415,7 +428,7 @@ export const ServiciosService = {
     const skip = (page - 1) * limit
     
     // Construir filtros dinámicos
-    const where: any = { deleted_at: null }
+    const where: any = aplicarFiltroServicioVisible({ deleted_at: null })
     
     if (filters?.estado) {
       where.estado = filters.estado
@@ -698,12 +711,13 @@ export const ServiciosService = {
 
   async getStats() {
     // Obtener conteo total
-    const total = await prisma.servicio.count({ where: { deleted_at: null } })
+    const where = aplicarFiltroServicioVisible({ deleted_at: null })
+    const total = await prisma.servicio.count({ where })
     
     // Obtener conteos por estado usando groupBy
     const estadosCounts = await prisma.servicio.groupBy({
       by: ['estado'],
-      where: { deleted_at: null },
+      where,
       _count: {
         id: true
       }
@@ -739,7 +753,7 @@ export const ServiciosService = {
   async findById(id: string) {
     /// Un servicio retirado se comporta como inexistente.
     const servicio = await prisma.servicio.findFirst({
-      where: { id, deleted_at: null },
+      where: aplicarFiltroServicioVisible({ id, deleted_at: null }),
       include: {
         conductores: {
           select: {
@@ -1264,7 +1278,7 @@ export const ServiciosService = {
     const { page = 1, limit = 20, ...searchFilters } = filters
     const skip = (page - 1) * limit
 
-    const where: any = { deleted_at: null }
+    const where: any = aplicarFiltroServicioVisible({ deleted_at: null })
 
     if (searchFilters.estado) {
       where.estado = searchFilters.estado
@@ -1364,10 +1378,11 @@ export const ServiciosService = {
   },
 
   // Métodos para obtener listas para filtros
-  // Selectores: los ocultos SÍ se pueden elegir (solo se excluyen eliminados).
+  // Selectores operativos: las fichas ocultas no se ofrecen.
   async obtenerConductores(search?: string) {
     const where: any = {
-      deleted_at: null
+      deleted_at: null,
+      oculto: false,
     }
 
     if (search && search.trim()) {
@@ -1401,7 +1416,8 @@ export const ServiciosService = {
 
   async obtenerVehiculos(search?: string) {
     const where: any = {
-      deleted_at: null
+      deleted_at: null,
+      oculto: false,
     }
 
     if (search && search.trim()) {
@@ -1504,12 +1520,13 @@ export const ServiciosService = {
     const fechaInicio = new Date(Date.UTC(anio, mes - 1, 1, 0, 0, 0, 0))
     const fechaFin = new Date(Date.UTC(anio, mes, 1, 0, 0, 0, 0))
 
-    const where: any = {
+    const where: any = aplicarFiltroServicioVisible({
+      deleted_at: null,
       [campo_fecha]: {
         gte: fechaInicio,
         lt: fechaFin
       }
-    }
+    })
 
     if (estado) where.estado = estado
     if (conductor_id) where.conductor_id = conductor_id
@@ -1584,7 +1601,7 @@ export const ServiciosService = {
   async obtenerPorShareToken(token: string) {
     /// El enlace público de un servicio retirado deja de resolver.
     const servicio = await prisma.servicio.findFirst({ 
-      where: { share_token: token, deleted_at: null }, 
+      where: aplicarFiltroServicioVisible({ share_token: token, deleted_at: null }),
       include: { 
         conductores: { 
           select: { 

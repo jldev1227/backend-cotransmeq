@@ -26,6 +26,7 @@ import type { ContextoSeccion } from './dashboard.routes'
 import type { Periodo } from './periodo'
 import { enMeses } from './seccion-operaciones'
 import { resumenFinanciero } from './seccion-finanzas'
+import { idsCierresTercerosOcultos, idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas } from '../../lib/ocultos-operativos'
 
 const MESES_HISTORICO = 6
 
@@ -46,28 +47,30 @@ function mesesAtras(periodo: Periodo, n: number): Array<{ anio: number; mes: num
 
 /** Lo de liquidaciones de terceros que ven facturación y contabilidad. */
 async function bloqueTerceros(periodo: Periodo) {
+  const cierresOcultos = await idsCierresTercerosOcultos()
+  const filtroCierres = cierresOcultos.length ? Prisma.sql`AND f.id NOT IN (${Prisma.join(cierresOcultos)})` : Prisma.sql``
   const historico = mesesAtras(periodo, MESES_HISTORICO)
   const enHistorico = Prisma.sql`(f.anio, f.mes) IN (${Prisma.join(historico.map((m) => Prisma.sql`(${m.anio}, ${m.mes})`))})`
   const [porMes, porTercero, porPlaca, aprobadas] = await Promise.all([
     prisma.$queryRaw<Array<{ anio: number; mes: number; estado: string; n: number; valor: number }>>(Prisma.sql`
       SELECT f.anio, f.mes, f.estado, count(*)::int AS n, coalesce(sum(f.total_pagar), 0)::float AS valor
       FROM liquidacion_tercero_final f
-      WHERE f.deleted_at IS NULL AND ${enHistorico}
+      WHERE f.deleted_at IS NULL ${filtroCierres} AND ${enHistorico}
       GROUP BY 1, 2, 3 ORDER BY 1, 2`),
     prisma.$queryRaw<Array<{ tercero_id: string | null; tercero: string; identificacion: string | null; n: number; valor: number }>>(Prisma.sql`
       SELECT t.id AS tercero_id, coalesce(t.nombre_completo, 'Sin tercero') AS tercero, t.identificacion, count(*)::int AS n, coalesce(sum(f.total_pagar), 0)::float AS valor
       FROM liquidacion_tercero_final f LEFT JOIN terceros t ON t.id = f.tercero_id
-      WHERE f.deleted_at IS NULL AND f.estado <> 'ANULADA' AND ${enMeses(Prisma.sql`(f.anio, f.mes)`, periodo)}
+      WHERE f.deleted_at IS NULL ${filtroCierres} AND f.estado <> 'ANULADA' AND ${enMeses(Prisma.sql`(f.anio, f.mes)`, periodo)}
       GROUP BY 1, 2, 3 ORDER BY 5 DESC`),
     prisma.$queryRaw<Array<{ placa: string; vehiculo_id: string | null; tercero: string | null; n: number; valor: number }>>(Prisma.sql`
       SELECT f.placa, max(f.vehiculo_id::text) AS vehiculo_id, max(t.nombre_completo) AS tercero, count(*)::int AS n, coalesce(sum(f.total_pagar), 0)::float AS valor
       FROM liquidacion_tercero_final f LEFT JOIN terceros t ON t.id = f.tercero_id
-      WHERE f.deleted_at IS NULL AND f.estado <> 'ANULADA' AND ${enMeses(Prisma.sql`(f.anio, f.mes)`, periodo)}
+      WHERE f.deleted_at IS NULL ${filtroCierres} AND f.estado <> 'ANULADA' AND ${enMeses(Prisma.sql`(f.anio, f.mes)`, periodo)}
       GROUP BY 1 ORDER BY 5 DESC`),
     prisma.$queryRaw<Array<{ anio: number; mes: number; n: number; valor: number }>>(Prisma.sql`
       SELECT f.anio, f.mes, count(*)::int AS n, coalesce(sum(f.total_pagar), 0)::float AS valor
       FROM liquidacion_tercero_final f
-      WHERE f.deleted_at IS NULL AND f.estado = 'APROBADA'
+      WHERE f.deleted_at IS NULL ${filtroCierres} AND f.estado = 'APROBADA'
       GROUP BY 1, 2 ORDER BY 1 DESC, 2 DESC LIMIT 12`),
   ])
 
@@ -106,26 +109,30 @@ export async function seccionFacturacion(ctx: ContextoSeccion): Promise<Record<s
   const historico = mesesAtras(periodo, MESES_HISTORICO)
   const primerMes = historico[0]
   const inicioHistorico = new Date(`${primerMes.anio}-${String(primerMes.mes).padStart(2, '0')}-01T00:00:00-05:00`)
+  const liquidacionesOcultas = await idsLiquidacionesServicioOcultas()
+  const facturasOcultas = await idsFacturasConEntidadesOcultas(liquidacionesOcultas)
+  const filtroLiq = liquidacionesOcultas.length ? Prisma.sql`AND l.id NOT IN (${Prisma.join(liquidacionesOcultas)})` : Prisma.sql``
+  const filtroFactura = facturasOcultas.length ? Prisma.sql`AND fa.id NOT IN (${Prisma.join(facturasOcultas)})` : Prisma.sql``
 
   const [porEstado, aprobadas, facturado, facturadoMes, porCliente] = await Promise.all([
     prisma.$queryRaw<Array<{ estado: string; n: number; valor: number }>>(Prisma.sql`
       SELECT l.estado::text AS estado, count(*)::int AS n, coalesce(sum(l.total), 0)::float AS valor
-      FROM liquidacion_servicio l WHERE l.deleted_at IS NULL AND l.estado::text IN ('LIQUIDADA', 'APROBADA') GROUP BY 1`),
+      FROM liquidacion_servicio l WHERE l.deleted_at IS NULL ${filtroLiq} AND l.estado::text IN ('LIQUIDADA', 'APROBADA') GROUP BY 1`),
     prisma.$queryRaw<Array<{ id: string; consecutivo: string; cliente: string | null; mes: number; anio: number; total: number; fecha_aprobacion: Date | null }>>(Prisma.sql`
       SELECT l.id, l.consecutivo, e.nombre AS cliente, l.mes, l.anio, l.total::float AS total, l.fecha_aprobacion
       FROM liquidacion_servicio l JOIN empresas e ON e.id = l.cliente_id
-      WHERE l.deleted_at IS NULL AND l.estado = 'APROBADA'
+      WHERE l.deleted_at IS NULL ${filtroLiq} AND l.estado = 'APROBADA'
       ORDER BY l.fecha_aprobacion ASC NULLS LAST, l.anio, l.mes LIMIT 30`),
     prisma.$queryRaw<Array<{ n: number; valor: number; anuladas: number }>>(Prisma.sql`
       SELECT count(*) FILTER (WHERE fa.fecha_anulacion IS NULL)::int AS n, coalesce(sum(fa.valor_total) FILTER (WHERE fa.fecha_anulacion IS NULL), 0)::float AS valor,
              count(*) FILTER (WHERE fa.fecha_anulacion IS NOT NULL)::int AS anuladas
       FROM factura_liquidacion_servicio fa
-      WHERE fa.deleted_at IS NULL AND fa.fecha_facturacion >= ${inicio} AND fa.fecha_facturacion < ${fin}`),
+      WHERE fa.deleted_at IS NULL ${filtroFactura} AND fa.fecha_facturacion >= ${inicio} AND fa.fecha_facturacion < ${fin}`),
     prisma.$queryRaw<Array<{ anio: number; mes: number; n: number; valor: number }>>(Prisma.sql`
       SELECT extract(year FROM fa.fecha_facturacion AT TIME ZONE 'America/Bogota')::int AS anio, extract(month FROM fa.fecha_facturacion AT TIME ZONE 'America/Bogota')::int AS mes,
              count(*)::int AS n, coalesce(sum(fa.valor_total), 0)::float AS valor
       FROM factura_liquidacion_servicio fa
-      WHERE fa.deleted_at IS NULL AND fa.fecha_anulacion IS NULL AND fa.fecha_facturacion >= ${inicioHistorico} AND fa.fecha_facturacion < ${fin}
+      WHERE fa.deleted_at IS NULL ${filtroFactura} AND fa.fecha_anulacion IS NULL AND fa.fecha_facturacion >= ${inicioHistorico} AND fa.fecha_facturacion < ${fin}
       GROUP BY 1, 2 ORDER BY 1, 2`),
     prisma.$queryRaw<Array<{ cliente_id: string; cliente: string | null; nit: string | null; facturas: number; valor: number }>>(Prisma.sql`
       SELECT e.id AS cliente_id, e.nombre AS cliente, e.nit, count(DISTINCT fa.id)::int AS facturas, coalesce(sum(i.valor_liquidacion), 0)::float AS valor
@@ -133,7 +140,8 @@ export async function seccionFacturacion(ctx: ContextoSeccion): Promise<Record<s
       JOIN factura_liquidacion_item i ON i.factura_id = fa.id AND i.deleted_at IS NULL
       JOIN liquidacion_servicio l ON l.id = i.liquidacion_id
       JOIN empresas e ON e.id = l.cliente_id
-      WHERE fa.deleted_at IS NULL AND fa.fecha_anulacion IS NULL AND fa.fecha_facturacion >= ${inicio} AND fa.fecha_facturacion < ${fin}
+      WHERE fa.deleted_at IS NULL ${filtroFactura} AND l.deleted_at IS NULL ${filtroLiq}
+        AND fa.fecha_anulacion IS NULL AND fa.fecha_facturacion >= ${inicio} AND fa.fecha_facturacion < ${fin}
       GROUP BY 1, 2, 3 ORDER BY 5 DESC`),
   ])
 

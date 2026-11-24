@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { enMeses } from './seccion-operaciones'
+import { idsCierresTercerosOcultos, idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas, idsNominasOcultas } from '../../lib/ocultos-operativos'
 
 type FuenteCosto = {
   id: string
@@ -23,18 +24,28 @@ type FuenteCosto = {
 export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number, terceros: boolean) {
   const { periodo, modulos } = ctx
   const fuentesRequeridas = ['liquidaciones-terceros', 'nomina', 'viaticos', 'combustible', 'mantenimiento']
+  const [liquidacionesOcultas, cierresOcultos, nominasOcultas] = await Promise.all([
+    idsLiquidacionesServicioOcultas(),
+    idsCierresTercerosOcultos(),
+    idsNominasOcultas(),
+  ])
+  const facturasOcultas = await idsFacturasConEntidadesOcultas(liquidacionesOcultas)
+  const filtroLiq = liquidacionesOcultas.length ? Prisma.sql`AND l.id NOT IN (${Prisma.join(liquidacionesOcultas)})` : Prisma.sql``
+  const filtroCierres = cierresOcultos.length ? Prisma.sql`AND f.id NOT IN (${Prisma.join(cierresOcultos)})` : Prisma.sql``
+  const filtroNomina = nominasOcultas.length ? Prisma.sql`AND l.id NOT IN (${Prisma.join(nominasOcultas)})` : Prisma.sql``
+  const filtroFactura = facturasOcultas.length ? Prisma.sql`AND f.id NOT IN (${Prisma.join(facturasOcultas)})` : Prisma.sql``
   const [ingresosRows, tercerosRows, nominaRows, viaticosRows, combustibleRows, mantenimientoRows, carteraRows] = await Promise.all([
     prisma.$queryRaw<Array<{ cantidad: number; valor: number }>>(Prisma.sql`
       SELECT count(*)::int AS cantidad, coalesce(sum(l.total), 0)::float AS valor
       FROM liquidacion_servicio l
       WHERE l.deleted_at IS NULL AND l.estado::text NOT IN ('BORRADOR', 'ANULADA')
-        AND ${enMeses(Prisma.sql`(l.anio, l.mes)`, periodo)}`),
+        ${filtroLiq} AND ${enMeses(Prisma.sql`(l.anio, l.mes)`, periodo)}`),
     terceros
       ? prisma.$queryRaw<Array<{ cantidad: number; valor: number }>>(Prisma.sql`
           SELECT count(*)::int AS cantidad, coalesce(sum(f.total_pagar), 0)::float AS valor
           FROM liquidacion_tercero_final f
           WHERE f.deleted_at IS NULL AND f.estado IN ('APROBADA', 'PAGADA', 'FACTURADA')
-            AND ${enMeses(Prisma.sql`(f.anio, f.mes)`, periodo)}`)
+            ${filtroCierres} AND ${enMeses(Prisma.sql`(f.anio, f.mes)`, periodo)}`)
       : Promise.resolve([]),
     modulos['nomina']
       ? prisma.$queryRaw<Array<{ cantidad: number; neto: number; salud: number; pension: number }>>(Prisma.sql`
@@ -42,6 +53,7 @@ export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number,
                  coalesce(sum(l.salud), 0)::float AS salud, coalesce(sum(l.pension), 0)::float AS pension
           FROM liquidaciones l
           WHERE l.deleted_at IS NULL AND l.estado = 'Liquidado'
+            ${filtroNomina}
             AND l.periodo_start <= ${periodo.hasta} AND l.periodo_end >= ${periodo.desde}`)
       : Promise.resolve([]),
     modulos['viaticos']
@@ -49,11 +61,15 @@ export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number,
           SELECT 'legalizados' AS tipo, count(*)::int AS cantidad, coalesce(sum(g.valor), 0)::float AS valor
           FROM viatico_gasto g JOIN viatico_anticipo a ON a.id = g.anticipo_id
           WHERE g.anulado_at IS NULL AND a.deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM conductores c WHERE c.id = a.conductor_id AND c.oculto = false)
+            AND EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = a.vehiculo_id AND v.oculto = false)
             AND g.fecha >= ${periodo.desde}::date AND g.fecha <= ${periodo.hasta}::date
           UNION ALL
           SELECT 'empresa:' || g.categoria AS tipo, count(*)::int AS cantidad, coalesce(sum(g.valor), 0)::float AS valor
           FROM viatico_gasto_empresa g
           WHERE g.deleted_at IS NULL AND g.asume = 'EMPRESA'
+            AND (g.conductor_id IS NULL OR EXISTS (SELECT 1 FROM conductores c WHERE c.id = g.conductor_id AND c.oculto = false))
+            AND (g.vehiculo_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = g.vehiculo_id AND v.oculto = false))
             AND g.fecha >= ${periodo.desde}::date AND g.fecha <= ${periodo.hasta}::date
           GROUP BY g.categoria`)
       : Promise.resolve([]),
@@ -61,13 +77,15 @@ export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number,
       ? prisma.$queryRaw<Array<{ cantidad: number; valor: number }>>(Prisma.sql`
           SELECT count(*)::int AS cantidad, coalesce(sum(t.valor_total), 0)::float AS valor
           FROM combustible_tanqueos t
-          WHERE t.deleted_at IS NULL AND t.fecha_hora >= ${periodo.inicio} AND t.fecha_hora < ${periodo.fin}`)
+          WHERE t.deleted_at IS NULL AND t.fecha_hora >= ${periodo.inicio} AND t.fecha_hora < ${periodo.fin}
+            AND (t.vehiculo_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = t.vehiculo_id AND v.oculto = false))`)
       : Promise.resolve([]),
     modulos['mantenimiento']
       ? prisma.$queryRaw<Array<{ cantidad: number; valor: number }>>(Prisma.sql`
           SELECT count(*)::int AS cantidad, coalesce(sum(e.costo), 0)::float AS valor
           FROM vehicle_maintenance_event e
           WHERE e.deleted_at IS NULL AND e.estado = 'EJECUTADO'
+            AND (e.vehicle_id IS NULL OR EXISTS (SELECT 1 FROM vehiculos v WHERE v.id = e.vehicle_id AND v.oculto = false))
             AND e.fecha_ejecucion >= ${periodo.desde}::date AND e.fecha_ejecucion <= ${periodo.hasta}::date`)
       : Promise.resolve([]),
     modulos['cartera']
@@ -77,7 +95,7 @@ export async function resumenFinanciero(ctx: ContextoSeccion, facturado: number,
               greatest(f.valor_total - coalesce(sum(a.valor + a.retefuente + a.reteica + a.reteiva + a.otros_descuentos), 0), 0)::float AS saldo
             FROM factura_liquidacion_servicio f
             LEFT JOIN factura_liquidacion_abono a ON a.factura_id = f.id AND a.deleted_at IS NULL
-            WHERE f.deleted_at IS NULL AND f.fecha_anulacion IS NULL
+            WHERE f.deleted_at IS NULL AND f.fecha_anulacion IS NULL ${filtroFactura}
               AND f.fecha_facturacion >= ${periodo.inicio} AND f.fecha_facturacion < ${periodo.fin}
             GROUP BY f.id
           )

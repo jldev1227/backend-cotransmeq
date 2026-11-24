@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { aFechaDb, hoyColombia, isoDia } from "../../lib/pagos/medios";
 import { situacionFactura } from "../cartera/cartera.calculo";
+import { idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas } from "../../lib/ocultos-operativos";
 import {
   ErrorCartera,
   PLAZO_POR_DEFECTO,
@@ -78,8 +79,9 @@ export const FacturacionLiquidacionesService = {
     }
 
     // Verificar que todas las liquidaciones existan y estén en estado LIQUIDADA o APROBADA
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
     const liquidaciones = await prisma.liquidacion_servicio.findMany({
-      where: { id: { in: liquidacion_ids } },
+      where: { id: { in: liquidacion_ids, ...(liquidacionesOcultas.length ? { notIn: liquidacionesOcultas } : {}) } },
       select: { id: true, consecutivo: true, estado: true, total: true, cliente_id: true },
     });
 
@@ -242,7 +244,11 @@ export const FacturacionLiquidacionesService = {
     const limit = Number(filtros.limit) || 15;
     const skip = (page - 1) * limit;
 
-    const where: any = { deleted_at: null };
+    const facturasOcultas = await idsFacturasOcultas();
+    const where: any = {
+      deleted_at: null,
+      ...(facturasOcultas.length ? { id: { notIn: facturasOcultas } } : {}),
+    };
     if (filtros.estado) {
       where.estado = filtros.estado;
     }
@@ -307,8 +313,9 @@ export const FacturacionLiquidacionesService = {
    * Obtener una factura por ID
    */
   async obtenerPorId(id: string) {
-    const factura = await prisma.factura_liquidacion_servicio.findUnique({
-      where: { id },
+    const facturasOcultas = await idsFacturasOcultas();
+    const factura = await prisma.factura_liquidacion_servicio.findFirst({
+      where: { id, ...(facturasOcultas.length ? { AND: [{ id: { notIn: facturasOcultas } }] } : {}) },
       include: {
         facturado_por: { select: { id: true, nombre: true, correo: true } },
         anulado_por: { select: { id: true, nombre: true, correo: true } },
@@ -618,8 +625,9 @@ export const FacturacionLiquidacionesService = {
    * Listar facturas eliminadas
    */
   async listarEliminadas() {
+    const facturasOcultas = await idsFacturasOcultas();
     return prisma.factura_liquidacion_servicio.findMany({
-      where: { deleted_at: { not: null } },
+      where: { deleted_at: { not: null }, ...(facturasOcultas.length ? { id: { notIn: facturasOcultas } } : {}) },
       orderBy: { deleted_at: "desc" },
       include: {
         facturado_por: { select: { nombre: true } },
@@ -1189,8 +1197,9 @@ export const FacturacionLiquidacionesService = {
    * `facturacion-updated` cuando cartera cambia su saldo o sus condiciones.
    */
   async obtenerCompleta(id: string) {
+    const facturasOcultas = await idsFacturasOcultas();
     const f = await prisma.factura_liquidacion_servicio.findFirst({
-      where: { id, deleted_at: null },
+      where: { id, deleted_at: null, ...(facturasOcultas.length ? { AND: [{ id: { notIn: facturasOcultas } }] } : {}) },
       include: facturaIncludeCompleto(),
     });
     return f ? mapFactura(f) : null;
@@ -1200,6 +1209,8 @@ export const FacturacionLiquidacionesService = {
    * Obtener la factura activa asociada a una liquidación (si existe)
    */
   async obtenerFacturaDeLiquidacion(liquidacionId: string) {
+    const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
+    if (liquidacionesOcultas.includes(liquidacionId)) return null;
     const item = await prisma.factura_liquidacion_item.findFirst({
       where: {
         deleted_at: null,
@@ -1230,10 +1241,13 @@ export const FacturacionLiquidacionesService = {
    * Obtener info de factura para múltiples liquidaciones en batch (para el listado)
    */
   async obtenerFacturasDeLiquidaciones(liquidacionIds: string[]) {
+    const liquidacionesOcultas = new Set(await idsLiquidacionesServicioOcultas());
+    const idsVisibles = liquidacionIds.filter((id) => !liquidacionesOcultas.has(id));
+    if (!idsVisibles.length) return {};
     const items = await prisma.factura_liquidacion_item.findMany({
       where: {
         deleted_at: null,
-        liquidacion_id: { in: liquidacionIds },
+        liquidacion_id: { in: idsVisibles },
         factura: { estado: "ACTIVA" },
       },
       select: {
@@ -1255,6 +1269,12 @@ export const FacturacionLiquidacionesService = {
     return map;
   },
 };
+
+/** IDs de facturas cuyo contenido incluye al menos una liquidación oculta. */
+async function idsFacturasOcultas(): Promise<string[]> {
+  const liquidacionesOcultas = await idsLiquidacionesServicioOcultas();
+  return idsFacturasConEntidadesOcultas(liquidacionesOcultas);
+}
 
 
 /**

@@ -39,8 +39,7 @@ export const VehiculosController = {
   },
 
   async list(request: FastifyRequest, reply: FastifyReply) {
-    const { incluir_ocultos } = (request.query ?? {}) as { incluir_ocultos?: string }
-    const vehiculos = await VehiculosService.list(incluir_ocultos === 'true')
+    const vehiculos = await VehiculosService.list()
     reply.send({
       success: true,
       data: vehiculos,

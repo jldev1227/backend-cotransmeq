@@ -99,6 +99,7 @@ cierre entero.
 | GET | `/api/liquidaciones-terceros-descuentos` | `liquidaciones-terceros:limited` | Historial paginado de cierres |
 | GET | `/api/liquidaciones-terceros-descuentos/:id` | `liquidaciones-terceros:limited` | Detalle completo de un cierre |
 | GET | `/api/liquidaciones-terceros/periodo` | `liquidaciones-terceros:limited` | Índice de hojas del periodo, o el detalle de un lote de cierres |
+| GET | `/api/liquidaciones-terceros/buscar-factura-fisica` | `liquidaciones-terceros:limited` | Busca facturas por número y rango de meses del cierre, devuelve filas por ítem y el estado físico de la factura |
 | POST | `/api/liquidaciones-terceros/generar-borrador` | `liquidaciones-terceros:limited` | Previsualiza cierres desde liquidaciones de servicio, sin guardar |
 | POST | `/api/liquidaciones-terceros/generar-borrador-async` | `liquidaciones-terceros:limited` | Lo mismo en cola; opcionalmente persiste cada cierre |
 | GET | `/api/liquidaciones-terceros/borrador-status/:jobId` | `liquidaciones-terceros:limited` | Estado de un job de borradores |

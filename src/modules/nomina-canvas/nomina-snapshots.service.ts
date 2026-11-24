@@ -20,6 +20,7 @@ import { NominaCanvasService } from './nomina-canvas.service';
 import { ESTADOS_BLOQUEADOS } from './nomina-estado.service';
 import type { NominaPeriodoDTO } from './nomina-canvas.types';
 import { CORTE_DEFECTO } from '../../lib/nomina/periodo';
+import { cargarEntidadesOcultas } from '../../lib/ocultos-operativos';
 
 export type OrigenSnapshot = 'manual' | 'auto' | 'revert';
 
@@ -51,6 +52,11 @@ type CambioSnapshot = {
   antes: unknown;
   despues: unknown;
 };
+
+function filtrarHojasOcultas(payload: any, conductorIdsOcultos: Set<string>) {
+  const hojas: any[] = Array.isArray(payload?.hojas) ? payload.hojas : [];
+  return { ...(payload ?? {}), hojas: hojas.filter((hoja) => !conductorIdsOcultos.has(hoja?.conductorId)) };
+}
 
 /**
  * Diferencias entre dos payloads, por conductor: solo totales y estado. El
@@ -253,11 +259,13 @@ export const NominaSnapshotsService = {
       include: { usuario: { select: { id: true, nombre: true } } },
     });
     const filas = conAnterior.slice(0, 100);
+    const ocultos = new Set((await cargarEntidadesOcultas()).conductores.map((c) => c.id));
 
     return filas.map((f, i) => {
       const anterior = conAnterior[i + 1];
-      const p = (f.payload ?? {}) as any;
-      const hojas: any[] = Array.isArray(p.hojas) ? p.hojas : [];
+      const payload = filtrarHojasOcultas(f.payload, ocultos);
+      const payloadAnterior = filtrarHojasOcultas(anterior?.payload, ocultos);
+      const hojas: any[] = payload.hojas;
       return {
         id: f.id,
         version: f.version,
@@ -268,16 +276,19 @@ export const NominaSnapshotsService = {
         revertido_de_id: f.revertido_de_id,
         hojas: hojas.length,
         conductores_con_planilla: hojas.filter((h) => (h?.dias?.length ?? 0) > 0).length,
-        cambios: compararPayloads(anterior?.payload ?? null, f.payload).length,
+        cambios: compararPayloads(payloadAnterior, payload).length,
       };
     });
   },
 
   async obtener(id: string) {
-    return prisma.nomina_periodo_snapshot.findUnique({
+    const snapshot = await prisma.nomina_periodo_snapshot.findUnique({
       where: { id },
       include: { usuario: { select: { id: true, nombre: true } } },
     });
+    if (!snapshot) return null;
+    const ocultos = new Set((await cargarEntidadesOcultas()).conductores.map((c) => c.id));
+    return { ...snapshot, payload: filtrarHojasOcultas(snapshot.payload, ocultos), diff: null };
   },
 
   /**
@@ -296,7 +307,11 @@ export const NominaSnapshotsService = {
           orderBy: { version: 'desc' },
         });
 
-    const cambios = compararPayloads(previo?.payload ?? null, actual.payload);
+    const ocultos = new Set((await cargarEntidadesOcultas()).conductores.map((c) => c.id));
+    const cambios = compararPayloads(
+      previo ? filtrarHojasOcultas(previo.payload, ocultos) : null,
+      filtrarHojasOcultas(actual.payload, ocultos),
+    );
 
     return {
       actual: { id: actual.id, version: actual.version, created_at: actual.created_at },
@@ -332,10 +347,15 @@ export const NominaSnapshotsService = {
     if (!snap) throw new Error('Snapshot no encontrado');
 
     const payload = (snap.payload ?? {}) as any;
+    const ocultos = new Set((await cargarEntidadesOcultas()).conductores.map((c) => c.id));
     const todasLasHojas: any[] = Array.isArray(payload.hojas) ? payload.hojas : [];
+    const hojasVisibles = todasLasHojas.filter((hoja) => !ocultos.has(hoja?.conductorId));
+    if (params.conductorId && ocultos.has(params.conductorId)) {
+      throw new Error('No se puede restaurar una hoja de un conductor oculto');
+    }
     const hojas: any[] = params.conductorId
-      ? todasLasHojas.filter((h) => h.conductorId === params.conductorId)
-      : todasLasHojas;
+      ? hojasVisibles.filter((h) => h.conductorId === params.conductorId)
+      : hojasVisibles;
     if (params.conductorId && hojas.length === 0) {
       throw new Error('El snapshot no contiene la hoja de ese conductor');
     }
