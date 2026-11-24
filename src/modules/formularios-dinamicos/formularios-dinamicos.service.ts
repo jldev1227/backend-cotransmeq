@@ -88,7 +88,9 @@ export async function listarFormularios(query: ListarFormulariosQuery) {
     prisma.form_definition.count({ where }),
     prisma.form_definition.findMany({
       where,
-      orderBy: { updated_at: 'desc' },
+      /// El catálogo se recorre por nombre; la página no debe mezclar el orden
+      /// al cambiar de página por una fecha de edición reciente.
+      orderBy: [{ name: 'asc' }, { code: 'asc' }, { id: 'asc' }],
       skip: (query.page - 1) * query.limit,
       take: query.limit,
       include: { versions: { select: versionSummarySelect, orderBy: { version_number: 'desc' } } },

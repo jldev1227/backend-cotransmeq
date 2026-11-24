@@ -23,14 +23,14 @@ import { ESTADOS_BLOQUEADOS } from './nomina-estado.service';
 /**
  * Campos editables y cómo se validan.
  *
- * `dias` son enteros de 0 a 31; `dias1` admite una cifra decimal; `moneda` son
+ * `dias` son enteros de 0 a 31; `dias2` admite dos cifras decimales; `moneda` son
  * importes no negativos; `flag` son booleanos. Los importes se guardan como
  * número, nunca como texto — una celda de texto no suma ni ordena, y acaba
  * llegando como NaN a la base.
  */
 const CAMPOS_EDITABLES: Record<
   string,
-  'dias' | 'dias1' | 'moneda' | 'flag' | 'entero' | 'decimal1' | 'fecha'
+  'dias' | 'dias2' | 'moneda' | 'flag' | 'entero' | 'decimal1' | 'fecha'
 > = {
   /// Las dos fechas de vacaciones y el salario con el que se liquidan. Los
   /// DÍAS no están aquí a propósito: salen de restar las fechas y guardarlos
@@ -46,7 +46,7 @@ const CAMPOS_EDITABLES: Record<
   periodo_end_licencia: 'fecha',
   salario_licencia: 'moneda',
   dias_laborados: 'dias',
-  dias_laborados_villanueva: 'dias1',
+  dias_laborados_villanueva: 'dias2',
   dias_laborados_anual: 'entero',
   dias_ajuste_deducciones: 'decimal1',
   total_vacaciones: 'moneda',
@@ -275,9 +275,9 @@ function normalizar(campo: string, valor: unknown): number | boolean | string | 
     if (n < 0 || n > 31) throw new PatchNominaError('Los días van de 0 a 31.', 'VALOR_INVALIDO');
     return Math.round(n);
   }
-  if (tipo === 'dias1') {
+  if (tipo === 'dias2') {
     if (n < 0 || n > 31) throw new PatchNominaError('Los días van de 0 a 31.', 'VALOR_INVALIDO');
-    return Number(n.toFixed(1));
+    return Number(n.toFixed(2));
   }
   if (tipo === 'decimal1') {
     if (n < 0 || n > 30) {
