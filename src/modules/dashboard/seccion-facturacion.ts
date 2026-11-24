@@ -26,7 +26,7 @@ import type { ContextoSeccion } from './dashboard.routes'
 import type { Periodo } from './periodo'
 import { enMeses } from './seccion-operaciones'
 import { resumenFinanciero } from './seccion-finanzas'
-import { idsCierresTercerosOcultos, idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas } from '../../lib/ocultos-operativos'
+import { idsCierresTercerosOcultos, idsFacturasConEntidadesOcultas, idsLiquidacionesServicioOcultas, uuidNotIn } from '../../lib/ocultos-operativos'
 
 const MESES_HISTORICO = 6
 
@@ -48,7 +48,7 @@ function mesesAtras(periodo: Periodo, n: number): Array<{ anio: number; mes: num
 /** Lo de liquidaciones de terceros que ven facturación y contabilidad. */
 async function bloqueTerceros(periodo: Periodo) {
   const cierresOcultos = await idsCierresTercerosOcultos()
-  const filtroCierres = cierresOcultos.length ? Prisma.sql`AND f.id NOT IN (${Prisma.join(cierresOcultos)})` : Prisma.sql``
+  const filtroCierres = Prisma.sql`AND ${uuidNotIn(Prisma.sql`f.id`, cierresOcultos)}`
   const historico = mesesAtras(periodo, MESES_HISTORICO)
   const enHistorico = Prisma.sql`(f.anio, f.mes) IN (${Prisma.join(historico.map((m) => Prisma.sql`(${m.anio}, ${m.mes})`))})`
   const [porMes, porTercero, porPlaca, aprobadas] = await Promise.all([
@@ -111,8 +111,8 @@ export async function seccionFacturacion(ctx: ContextoSeccion): Promise<Record<s
   const inicioHistorico = new Date(`${primerMes.anio}-${String(primerMes.mes).padStart(2, '0')}-01T00:00:00-05:00`)
   const liquidacionesOcultas = await idsLiquidacionesServicioOcultas()
   const facturasOcultas = await idsFacturasConEntidadesOcultas(liquidacionesOcultas)
-  const filtroLiq = liquidacionesOcultas.length ? Prisma.sql`AND l.id NOT IN (${Prisma.join(liquidacionesOcultas)})` : Prisma.sql``
-  const filtroFactura = facturasOcultas.length ? Prisma.sql`AND fa.id NOT IN (${Prisma.join(facturasOcultas)})` : Prisma.sql``
+  const filtroLiq = Prisma.sql`AND ${uuidNotIn(Prisma.sql`l.id`, liquidacionesOcultas)}`
+  const filtroFactura = Prisma.sql`AND ${uuidNotIn(Prisma.sql`fa.id`, facturasOcultas)}`
 
   const [porEstado, aprobadas, facturado, facturadoMes, porCliente] = await Promise.all([
     prisma.$queryRaw<Array<{ estado: string; n: number; valor: number }>>(Prisma.sql`

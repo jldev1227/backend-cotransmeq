@@ -19,7 +19,7 @@ import { prisma } from '../../config/prisma'
 import type { ContextoSeccion } from './dashboard.routes'
 import { diasDelPeriodo, hoyBogota, type Periodo } from './periodo'
 import { coberturaHoraria, enMeses, horaPromedio, jornadasDelPeriodo, picoDe } from './seccion-operaciones'
-import { idsDiasLaboralesOcultos } from '../../lib/ocultos-operativos'
+import { idsDiasLaboralesOcultos, uuidNotIn } from '../../lib/ocultos-operativos'
 
 export const CODIGOS_PREOPERACIONAL = ['HSEQ-FR-08', 'HSEQ-FR-09']
 /** Ciclo 21-9: a partir de aquí el conductor debería estar descansando. */
@@ -91,9 +91,7 @@ export function controlDescansos(registros: FilaRegistro[], nombres: Map<string,
 /** Ranking de días laborados por conductor en el periodo (formato de recorridos). */
 export async function rankingDiasLaborados(periodo: Periodo) {
   const diasOcultos = await idsDiasLaboralesOcultos()
-  const filtroOcultos = diasOcultos.length
-    ? Prisma.sql`AND r.id NOT IN (${Prisma.join(diasOcultos)})`
-    : Prisma.sql``
+  const filtroOcultos = Prisma.sql`AND ${uuidNotIn(Prisma.sql`r.id`, diasOcultos)}`
   return prisma.$queryRaw<Array<{ conductor_id: string; conductor: string; laborados: number; disponibles: number; descansos: number }>>(Prisma.sql`
     SELECT c.id AS conductor_id, trim(c.nombre || ' ' || c.apellido) AS conductor,
            count(*) FILTER (WHERE r.tipo = 'LABORADO')::int AS laborados,
@@ -108,9 +106,7 @@ export async function rankingDiasLaborados(periodo: Periodo) {
 export async function descansosRecientes(): Promise<ControlDescanso[]> {
   const ventanaDesde = new Date(Date.now() - VENTANA_DIAS * 86400000)
   const diasOcultos = await idsDiasLaboralesOcultos()
-  const filtroOcultos = diasOcultos.length
-    ? Prisma.sql`AND r.id NOT IN (${Prisma.join(diasOcultos)})`
-    : Prisma.sql``
+  const filtroOcultos = Prisma.sql`AND ${uuidNotIn(Prisma.sql`r.id`, diasOcultos)}`
   const registros = await prisma.$queryRaw<Array<{ conductor_id: string; conductor: string; fecha: Date; tipo: string }>>(Prisma.sql`
     SELECT r.conductor_id, trim(c.nombre || ' ' || c.apellido) AS conductor, r.fecha, r.tipo
     FROM registro_dia_laboral r JOIN conductores c ON c.id = r.conductor_id
@@ -129,9 +125,7 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
   const hoy = hoyBogota()
   const ventanaDesde = new Date(Date.now() - VENTANA_DIAS * 86400000)
   const diasOcultos = await idsDiasLaboralesOcultos()
-  const filtroDiasVisibles = diasOcultos.length
-    ? Prisma.sql`AND r.id NOT IN (${Prisma.join(diasOcultos)})`
-    : Prisma.sql``
+  const filtroDiasVisibles = Prisma.sql`AND ${uuidNotIn(Prisma.sql`r.id`, diasOcultos)}`
   const preop = Prisma.sql`
     JOIN form_versions v ON v.id = s.version_id
     JOIN form_definitions d ON d.id = v.form_id AND d.code IN (${Prisma.join(CODIGOS_PREOPERACIONAL)})`
@@ -174,7 +168,7 @@ export async function seccionHseq(ctx: ContextoSeccion): Promise<Record<string, 
       SELECT count(*)::int AS n FROM conductores c
       WHERE c.deleted_at IS NULL AND c.oculto = false AND c.estado = 'servicio' AND NOT EXISTS (
         SELECT 1 FROM form_submissions s ${preop}
-        WHERE s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.conductor_id = c.id AND s.business_date = ${hoy}::date ${envioVisible}`),
+        WHERE s.deleted_at IS NULL AND s.status = 'SUBMITTED' AND s.conductor_id = c.id AND s.business_date = ${hoy}::date ${envioVisible})`),
     prisma.$queryRaw<Array<{ dia: string; n: number; conductores: number }>>(Prisma.sql`
       SELECT to_char(s.business_date, 'YYYY-MM-DD') AS dia, count(*)::int AS n, count(DISTINCT s.conductor_id)::int AS conductores
       FROM form_submissions s ${preop} WHERE ${enviosPeriodo} GROUP BY 1`),

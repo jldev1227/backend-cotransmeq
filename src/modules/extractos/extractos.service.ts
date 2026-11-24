@@ -13,7 +13,7 @@
  */
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
-import { idsExtractosOcultos } from '../../lib/ocultos-operativos'
+import { idsExtractosOcultos, uuidNotIn } from '../../lib/ocultos-operativos'
 import { hoyBogota } from '../dashboard/periodo'
 import { FUEC } from './fuec.config'
 import { firmaValida, firmarSnapshot, huella, nuevoCodigoVerificacion, type SnapshotFuec } from './fuec-firma'
@@ -241,7 +241,7 @@ export async function aniosDisponibles(): Promise<number[]> {
   const idsOcultos = await idsExtractosOcultos()
   const filas = await prisma.$queryRaw<Array<{ anio: number }>>(Prisma.sql`
     SELECT DISTINCT EXTRACT(YEAR FROM vigencia_desde)::int AS anio FROM fuec_extract
-    WHERE deleted_at IS NULL AND (${idsOcultos.length ? Prisma.sql`id NOT IN (${Prisma.join(idsOcultos)})` : Prisma.sql`TRUE`})
+    WHERE deleted_at IS NULL AND ${uuidNotIn(Prisma.sql`id`, idsOcultos)}
     ORDER BY anio DESC
   `)
   return filas.map((f) => f.anio)

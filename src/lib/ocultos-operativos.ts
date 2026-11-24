@@ -22,6 +22,20 @@ export async function cargarEntidadesOcultas(): Promise<EntidadesOcultas> {
   return { conductores, vehiculos }
 }
 
+function inUuidValues(columna: Prisma.Sql, valores: string[]): Prisma.Sql {
+  // Prisma tipa los parámetros de string como `text`; tipamos los valores
+  // como UUID para que PostgreSQL compare uuid = uuid y pueda usar índices.
+  return valores.length
+    ? Prisma.sql`${columna} IN (${Prisma.join(valores.map((valor) => Prisma.sql`${valor}::uuid`))})`
+    : Prisma.sql`FALSE`
+}
+
+export function uuidNotIn(columna: Prisma.Sql, valores: string[]): Prisma.Sql {
+  return valores.length
+    ? Prisma.sql`${columna} NOT IN (${Prisma.join(valores.map((valor) => Prisma.sql`${valor}::uuid`))})`
+    : Prisma.sql`TRUE`
+}
+
 function inValues(columna: Prisma.Sql, valores: string[]): Prisma.Sql {
   return valores.length ? Prisma.sql`${columna} IN (${Prisma.join(valores)})` : Prisma.sql`FALSE`
 }
@@ -38,12 +52,8 @@ export async function idsLiquidacionesServicioOcultas(entidades?: EntidadesOcult
   const placas = [...new Set(ocultas.vehiculos.map((v) => normalizarPlaca(v.placa)).filter(Boolean))]
   if (!conductores.length && !vehiculos.length && !placas.length) return []
 
-  const porConductor = conductores.length
-    ? Prisma.sql`(s.conductor_id IN (${Prisma.join(conductores)}) OR rp.conductor_id IN (${Prisma.join(conductores)}))`
-    : Prisma.sql`FALSE`
-  const porVehiculo = vehiculos.length
-    ? Prisma.sql`(s.vehiculo_id IN (${Prisma.join(vehiculos)}) OR rp.vehiculo_id IN (${Prisma.join(vehiculos)}))`
-    : Prisma.sql`FALSE`
+  const porConductor = Prisma.sql`(${inUuidValues(Prisma.sql`s.conductor_id`, conductores)} OR ${inUuidValues(Prisma.sql`rp.conductor_id`, conductores)})`
+  const porVehiculo = Prisma.sql`(${inUuidValues(Prisma.sql`s.vehiculo_id`, vehiculos)} OR ${inUuidValues(Prisma.sql`rp.vehiculo_id`, vehiculos)})`
   const porPlaca = inValues(placaNormalizada(Prisma.sql`i.placa`), placas)
 
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -67,7 +77,7 @@ export async function idsCierresTercerosOcultos(entidades?: EntidadesOcultas): P
   /// cierre final completo queda oculto si su origen incluye alguna placa oculta.
   const liquidacionesServicioOcultas = await idsLiquidacionesServicioOcultas(ocultas)
 
-  const byVehicleId = (column: Prisma.Sql) => inValues(column, vehiculos)
+  const byVehicleId = (column: Prisma.Sql) => inUuidValues(column, vehiculos)
   const byPlate = (column: Prisma.Sql) => inValues(placaNormalizada(column), placas)
   const byItemRelations = Prisma.sql`EXISTS (
     SELECT 1
@@ -80,7 +90,7 @@ export async function idsCierresTercerosOcultos(entidades?: EntidadesOcultas): P
       AND fi.deleted_at IS NULL
       AND (
         ${byPlate(Prisma.sql`lt.placa`)}
-        OR ${conductores.length ? Prisma.sql`(s.conductor_id IN (${Prisma.join(conductores)}) OR rp.conductor_id IN (${Prisma.join(conductores)}) OR EXISTS (SELECT 1 FROM liquidacion_tercero_concepto tc WHERE tc.liquidacion_tercero_id = lt.id AND tc.conductor_id IN (${Prisma.join(conductores)})))` : Prisma.sql`FALSE`}
+        OR (${inUuidValues(Prisma.sql`s.conductor_id`, conductores)} OR ${inUuidValues(Prisma.sql`rp.conductor_id`, conductores)} OR EXISTS (SELECT 1 FROM liquidacion_tercero_concepto tc WHERE tc.liquidacion_tercero_id = lt.id AND ${inUuidValues(Prisma.sql`tc.conductor_id`, conductores)}))
         OR ${byVehicleId(Prisma.sql`s.vehiculo_id`)}
         OR ${byVehicleId(Prisma.sql`rp.vehiculo_id`)}
       )
@@ -88,7 +98,7 @@ export async function idsCierresTercerosOcultos(entidades?: EntidadesOcultas): P
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT DISTINCT f.id::text AS id
     FROM liquidacion_tercero_final f
-    WHERE ${inValues(Prisma.sql`f.liquidacion_servicio_id`, liquidacionesServicioOcultas)}
+    WHERE ${inUuidValues(Prisma.sql`f.liquidacion_servicio_id`, liquidacionesServicioOcultas)}
       OR ${byVehicleId(Prisma.sql`f.vehiculo_id`)}
       OR ${byPlate(Prisma.sql`f.placa`)}
       OR EXISTS (
@@ -100,7 +110,7 @@ export async function idsCierresTercerosOcultos(entidades?: EntidadesOcultas): P
       OR EXISTS (
         SELECT 1 FROM liquidacion_tercero_final_concepto fc
         WHERE fc.liquidacion_tercero_final_id = f.id AND fc.deleted_at IS NULL
-          AND ${conductores.length ? Prisma.sql`fc.conductor_id IN (${Prisma.join(conductores)})` : Prisma.sql`FALSE`}
+          AND ${inUuidValues(Prisma.sql`fc.conductor_id`, conductores)}
       )
   `)
   return rows.map((row) => row.id)
@@ -110,8 +120,8 @@ export async function idsServiciosOcultos(entidades?: EntidadesOcultas): Promise
   const ocultas = entidades ?? await cargarEntidadesOcultas()
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT s.id::text AS id FROM servicios s
-    WHERE ${inValues(Prisma.sql`s.conductor_id`, ocultas.conductores.map((c) => c.id))}
-       OR ${inValues(Prisma.sql`s.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
+    WHERE ${inUuidValues(Prisma.sql`s.conductor_id`, ocultas.conductores.map((c) => c.id))}
+       OR ${inUuidValues(Prisma.sql`s.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
   `)
   return rows.map((row) => row.id)
 }
@@ -120,9 +130,9 @@ export async function idsRecargosOcultos(entidades?: EntidadesOcultas, servicios
   const ocultas = entidades ?? await cargarEntidadesOcultas()
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT p.id::text AS id FROM recargos_planillas p
-    WHERE ${inValues(Prisma.sql`p.conductor_id`, ocultas.conductores.map((c) => c.id))}
-       OR ${inValues(Prisma.sql`p.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
-       OR ${inValues(Prisma.sql`p.servicio_id`, servicios)}
+    WHERE ${inUuidValues(Prisma.sql`p.conductor_id`, ocultas.conductores.map((c) => c.id))}
+       OR ${inUuidValues(Prisma.sql`p.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
+       OR ${inUuidValues(Prisma.sql`p.servicio_id`, servicios)}
   `)
   return rows.map((row) => row.id)
 }
@@ -134,9 +144,9 @@ export async function idsDiasLaboralesOcultos(entidades?: EntidadesOcultas): Pro
     SELECT DISTINCT r.id::text AS id
     FROM registro_dia_laboral r
     LEFT JOIN registro_dia_laboral_segmento s ON s.registro_dia_id = r.id AND s.deleted_at IS NULL
-    WHERE ${inValues(Prisma.sql`r.conductor_id`, ocultas.conductores.map((c) => c.id))}
-       OR ${inValues(Prisma.sql`r.mantenimiento_vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
-       OR ${inValues(Prisma.sql`s.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
+    WHERE ${inUuidValues(Prisma.sql`r.conductor_id`, ocultas.conductores.map((c) => c.id))}
+       OR ${inUuidValues(Prisma.sql`r.mantenimiento_vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
+       OR ${inUuidValues(Prisma.sql`s.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
        OR ${inValues(placaNormalizada(Prisma.sql`r.mantenimiento_vehiculo_placa`), placas)}
        OR ${inValues(placaNormalizada(Prisma.sql`s.vehiculo_placa`), placas)}
   `)
@@ -152,7 +162,7 @@ export async function idsDiasNominaOcultos(entidades?: EntidadesOcultas): Promis
     FROM liquidaciones_dias d
     WHERE d.deleted_at IS NULL
       AND (
-        ${inValues(Prisma.sql`d.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
+        ${inUuidValues(Prisma.sql`d.vehiculo_id`, ocultas.vehiculos.map((v) => v.id))}
         OR ${inValues(placaNormalizada(Prisma.sql`d.placa`), placas)}
       )
   `)
@@ -163,7 +173,7 @@ export async function idsNominasOcultas(entidades?: EntidadesOcultas): Promise<s
   const ocultas = entidades ?? await cargarEntidadesOcultas()
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT l.id::text AS id FROM liquidaciones l
-    WHERE ${inValues(Prisma.sql`l.conductor_id`, ocultas.conductores.map((c) => c.id))}
+    WHERE ${inUuidValues(Prisma.sql`l.conductor_id`, ocultas.conductores.map((c) => c.id))}
   `)
   return rows.map((row) => row.id)
 }
@@ -173,7 +183,7 @@ export async function idsFacturasConEntidadesOcultas(liquidacionesServicio: stri
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT DISTINCT fi.factura_id::text AS id
     FROM factura_liquidacion_item fi
-    WHERE fi.deleted_at IS NULL AND fi.liquidacion_id IN (${Prisma.join(liquidacionesServicio)})
+    WHERE fi.deleted_at IS NULL AND ${inUuidValues(Prisma.sql`fi.liquidacion_id`, liquidacionesServicio)}
   `)
   return rows.map((row) => row.id)
 }
@@ -190,12 +200,12 @@ export async function idsExtractosOcultos(entidades?: EntidadesOcultas): Promise
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT DISTINCT e.id::text AS id
     FROM fuec_extract e
-    WHERE ${inValues(Prisma.sql`e.vehiculo_id`, vehiculos)}
+    WHERE ${inUuidValues(Prisma.sql`e.vehiculo_id`, vehiculos)}
       OR ${inValues(placaNormalizada(Prisma.sql`e.vehiculo_placa`), placas)}
       OR EXISTS (
         SELECT 1 FROM fuec_extract_driver d
         WHERE d.fuec_id = e.id AND (
-          ${inValues(Prisma.sql`d.conductor_id`, conductores)}
+          ${inUuidValues(Prisma.sql`d.conductor_id`, conductores)}
           OR ${inValues(Prisma.sql`REGEXP_REPLACE(COALESCE(d.identificacion, ''), '[^0-9]', '', 'g')`, documentos)}
         )
       )
