@@ -995,7 +995,8 @@ model liquidaciones {
   dias_laborados                                Int                                   @default(0)
   dias_laborados_anual                          Int                                   @default(0)
   /// El bono de nivelación admite fracciones de día con una cifra decimal.
-  dias_laborados_villanueva                     Decimal                               @default(0) @db.Decimal(12, 1)
+  /// El bono de nivelación admite fracciones de día hasta centésimas.
+  dias_laborados_villanueva                     Decimal                               @default(0) @db.Decimal(12, 2)
   fecha_liquidacion                             DateTime?                             @db.Timestamptz(6)
   interes_cesantias                             Decimal                               @default(0) @db.Decimal(10, 2)
   old_id                                        Int?

@@ -270,8 +270,9 @@ DTOs en `formularios-dinamicos.mapper.ts`: `FormDefinitionDto` (`id`, `code`,
 | `ownerArea`      | string ≤ 80           | —           | Igualdad exacta                                                                                 |
 | `includeDeleted` | boolean (coaccionado) | ausente     | Incluye los borrados lógicos (ver Observaciones)                                                |
 
-**Respuesta 200** — `data: FormDefinitionDto[]` ordenado por `updated_at`
-descendente, cada uno con `versions` y `counts: { assignments, submissions }`
+**Respuesta 200** — `data: FormDefinitionDto[]` ordenado alfabéticamente por
+`name`, con `code` e `id` como desempate, cada uno con `versions` y
+`counts: { assignments, submissions }`
 (asignaciones no borradas de cualquier estado; envíos `SUBMITTED` vivos).
 `meta: { total, page, limit, totalPages }`.
 

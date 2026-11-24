@@ -216,7 +216,7 @@ igual se imprima por donde se imprima.
 | `periodo_inicio`, `periodo_fin` | string | sí | 400 si falta alguno. Se guardan tal cual |
 | `estado` | string | no | `'Liquidado'`; cualquier otro valor guarda `Pendiente`. `estado_flujo` queda en su valor por defecto, `BORRADOR` |
 | `dias_laborados`, `dias_laborados_anual` | number entero | no | `0` por defecto |
-| `dias_laborados_villanueva` | number con una cifra decimal | no | `0` por defecto; admite de 0 a 31 días |
+| `dias_laborados_villanueva` | number con dos cifras decimales | no | `0` por defecto; admite de 0 a 31 días (p. ej., `12.25`) |
 | `salario_base` | number | no | Se guarda en `salario_devengado` |
 | `sueldo_total`, `salud`, `pension`, `cesantias`, `interes_cesantias`, `auxilio_transporte`, `total_bonificaciones`, `total_pernotes`, `total_recargos`, `total_anticipos`, `total_vacaciones`, `valor_incapacidad`, `disponibilidad` | number | no | Totales ya calculados por el cliente; `0` por defecto |
 | `no_descontar_salud`, `no_descontar_pension`, `descontar_transporte` | boolean | no | Fuerzan a `0` `salud`, `pension` y `auxilio_transporte` |
