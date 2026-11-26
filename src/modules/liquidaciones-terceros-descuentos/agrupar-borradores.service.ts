@@ -7,6 +7,7 @@ import { ConfigValoresTerceroService } from './config-valores-tercero.service';
 import { recalcularGastosAutomaticos, normalizarOverridesPropietario } from './reglas-conceptos';
 import { sembrarGastosDelCierre } from './sembrar-gastos.service';
 import { calcularTotalesCierre, recalcularTotalesCierre } from './totales-cierre';
+import { planConsolidacionNomina } from './consolidar-nomina-agrupada';
 
 const CONCEPTOS_GASTO_COMPARTIDO = [
   'DOTACION',
@@ -297,8 +298,26 @@ export async function agruparBorradores(cierreIdsInput: string[], userId?: strin
       });
     }
 
-    /// Los impuestos calculados por separado no se trasladan: se regeneran
-    /// contra el valor combinado. Nómina, gastos y anticipos sí se acumulan.
+    /// Los impuestos calculados por separado se regeneran contra el valor
+    /// combinado. La nómina salarial del mismo conductor no se cobra por placa;
+    /// solo bonos y recargos se suman porque tienen atribución por vehículo.
+    const nominaFuentes = await tx.liquidacion_tercero_final_concepto.findMany({
+      where: { liquidacion_tercero_final_id: { in: cierreIds }, tipo: 'COSTO_LABORAL', deleted_at: null },
+      orderBy: [{ orden: 'asc' }, { created_at: 'asc' }],
+    });
+    const nominaConsolidada = planConsolidacionNomina(nominaFuentes as any[], principal.id);
+    if (nominaConsolidada.archivar.length) {
+      await tx.liquidacion_tercero_final_concepto.updateMany({
+        where: { id: { in: nominaConsolidada.archivar } },
+        data: { deleted_at: new Date(), version: { increment: 1 }, updated_at: new Date() },
+      });
+    }
+    for (const [id, data] of nominaConsolidada.actualizaciones) {
+      await tx.liquidacion_tercero_final_concepto.update({
+        where: { id },
+        data: { ...data, version: { increment: 1 }, updated_at: new Date() },
+      });
+    }
     const conceptosFuente = await tx.liquidacion_tercero_final_concepto.findMany({
       where: { liquidacion_tercero_final_id: { in: cierreIds.slice(1) }, deleted_at: null },
       select: { id: true, tipo: true, calculado: true },

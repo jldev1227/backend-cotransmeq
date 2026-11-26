@@ -401,7 +401,11 @@ con copropietarios. Responde **200** `{ ok: true, id, cierre }`, donde el cierre
 canónico lleva `placa: "VARIAS PLACAS"`, `placas: string[]` e ítems con su
 placa de origen. La tabla `liquidacion_tercero_final_vehiculo` conserva los
 cierres fuente y sus placas, mientras sus cabeceras se archivan lógicamente.
-Los items repetidos se incluyen una sola vez, nómina y anticipos se acumulan y
+Los items repetidos se incluyen una sola vez. La nómina queda en una fila por
+conductor y concepto: salario y auxilio no se multiplican por placa, bonos y
+recargos atribuidos a cada placa se suman, y las prestaciones y seguridad social
+automáticas se recalculan sobre la base consolidada. Se respetan los importes
+manuales del cierre principal. Los anticipos se acumulan y
 DOTACION, EXAMEN_MEDICO, COMBUSTIBLE, PAPELERIA y GASTOS_DIVERSOS quedan en una
 fila general por concepto; los automáticos se recalculan sobre el grupo completo.
 Los impuestos se regeneran una sola vez sobre la base agregada. Responde **400**
