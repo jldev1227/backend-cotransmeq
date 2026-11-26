@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { prisma } from '../../config/prisma'
+import { vehiculosBonosSinTramo } from './bonos-vehiculo-dia'
 import { BonoInput, ListarBonosInput, SincronizarBonosInput } from './bonos.schema'
 
 /**
@@ -28,6 +29,7 @@ export const BonosService = {
 
 		const where: any = {
 			registro_dia: {
+				deleted_at: null,
 				fecha: { gte: desdeDate, lte: hastaDate }
 			}
 		}
@@ -56,24 +58,32 @@ export const BonosService = {
 					select: {
 						id: true,
 						fecha: true,
-						conductor_id: true
+						conductor_id: true,
+						tipo: true,
+						vehiculo_placa: true,
+						mantenimiento_vehiculo_id: true,
+						mantenimiento_vehiculo_placa: true
 					}
 				},
 				segmento: {
 					select: {
 						id: true,
 						vehiculo_id: true,
-						vehiculo_placa: true
+						vehiculo_placa: true,
+						deleted_at: true
 					}
 				}
 			},
 			orderBy: { created_at: 'asc' }
 		})
+		const vehiculosDeDia = await vehiculosBonosSinTramo(
+			bonos.filter((b) => !b.segmento_id && b.registro_dia).map((b) => b.registro_dia!),
+		)
 
 		// Normalizamos `valor` (Decimal) a Number para que el frontend
 		// no tenga que parsearlo. Aplanamos los joins a campos top-level
 		// para que el frontend los consuma más fácil.
-		return bonos.map((b) => ({
+		return bonos.filter((b) => !b.segmento?.deleted_at).map((b) => ({
 			id: b.id,
 			registro_dia_id: b.registro_dia_id,
 			segmento_id: b.segmento_id,
@@ -88,8 +98,12 @@ export const BonosService = {
 				: null,
 			fecha: b.registro_dia?.fecha ?? null,
 			conductor_id: b.registro_dia?.conductor_id ?? null,
-			vehiculo_id: b.segmento?.vehiculo_id ?? null,
-			vehiculo_placa: b.segmento?.vehiculo_placa ?? null
+			vehiculo_id: b.registro_dia?.tipo === 'DESCANSO' ? null : b.segmento_id
+				? b.segmento?.vehiculo_id ?? null
+				: vehiculosDeDia.get(b.registro_dia_id)?.id ?? null,
+			vehiculo_placa: b.registro_dia?.tipo === 'DESCANSO' ? null : b.segmento_id
+				? b.segmento?.vehiculo_placa ?? null
+				: vehiculosDeDia.get(b.registro_dia_id)?.placa ?? null
 		}))
 	},
 

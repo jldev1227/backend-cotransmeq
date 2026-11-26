@@ -28,6 +28,7 @@
 
 import { randomUUID } from 'crypto'
 import { prisma } from '../config/prisma'
+import { vehiculosBonosSinTramo } from '../modules/dias-laborados/bonos-vehiculo-dia'
 import { permiteReemplazar } from '../modules/nomina-canvas/nomina-estado.service'
 import { NominaCanvasService } from '../modules/nomina-canvas/nomina-canvas.service'
 import { sheetRoomKey } from '../sockets/sheet-rooms'
@@ -631,11 +632,19 @@ export async function bonosMarcadosEnRecorridos(
       },
     },
     select: {
-      registro_dia: { select: { fecha: true } },
+      segmento_id: true,
+      registro_dia: { select: {
+        id: true, conductor_id: true, fecha: true, tipo: true,
+        vehiculo_placa: true, mantenimiento_vehiculo_id: true,
+        mantenimiento_vehiculo_placa: true,
+      } },
       segmento: { select: { vehiculo_id: true, deleted_at: true } },
       config_liquidacion: { select: { nombre: true, valor: true } },
     },
   })
+  const vehiculosDeDia = await vehiculosBonosSinTramo(
+    marcas.filter((m) => !m.segmento_id).map((m) => m.registro_dia),
+  )
 
   /** `nombre|vehiculo → { valor, porMes }`. */
   const agrupado = new Map<string, BonoMarcado>()
@@ -643,7 +652,10 @@ export async function bonosMarcadosEnRecorridos(
   for (const m of marcas) {
     // Un tramo retirado deja sus bonos vivos: el soft-delete no cascadea.
     if (m.segmento?.deleted_at) continue
-    const vehiculoId = m.segmento?.vehiculo_id
+    if (m.registro_dia.tipo === 'DESCANSO') continue
+    const vehiculoId = m.segmento_id
+      ? m.segmento?.vehiculo_id
+      : vehiculosDeDia.get(m.registro_dia.id)?.id
     // Sin vehículo no hay a qué columna colgarlo: `bonificaciones` es por
     // vehículo y una fila sin él no se puede editar después desde el canvas.
     if (!vehiculoId) continue

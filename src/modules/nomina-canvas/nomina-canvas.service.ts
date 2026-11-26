@@ -13,6 +13,7 @@
  * meses de planilla y hay que unirlos — ver `lib/nomina/periodo.ts`.
  */
 import { prisma } from '../../config/prisma';
+import { vehiculosBonosSinTramo } from '../dias-laborados/bonos-vehiculo-dia';
 import { idsDiasLaboralesOcultos, idsDiasNominaOcultos } from '../../lib/ocultos-operativos';
 import {
   diasDelPeriodo,
@@ -77,6 +78,7 @@ import { claveMarcaDia, leerMarcasDias } from './marcas-dias';
  */
 interface BonoRecorrido {
   vehiculoId: string | null;
+  placa: string | null;
   nombre: string;
   valor: number;
   /** `YYYY-MM` del día en que se marcó: es la subcolumna donde cae. */
@@ -540,8 +542,13 @@ export class NominaCanvasService {
           },
           select: {
             valor: true,
-            registro_dia: { select: { conductor_id: true, fecha: true } },
-            segmento: { select: { vehiculo_id: true, deleted_at: true } },
+            segmento_id: true,
+            registro_dia: { select: {
+              id: true, conductor_id: true, fecha: true, tipo: true,
+              vehiculo_placa: true, mantenimiento_vehiculo_id: true,
+              mantenimiento_vehiculo_placa: true,
+            } },
+            segmento: { select: { vehiculo_id: true, vehiculo_placa: true, deleted_at: true } },
             config_liquidacion: { select: { nombre: true, valor: true } },
           },
         }),
@@ -598,8 +605,12 @@ export class NominaCanvasService {
     // cae al de la config vigente. El precio unitario que se enseña sigue
     // siendo el de la liquidación cuando el bono existe en las dos fuentes:
     // aquí solo hace falta para las filas que únicamente están en recorridos.
+    const vehiculosDeDia = await vehiculosBonosSinTramo(
+      bonosRecorrido.filter((b) => !b.segmento_id && b.registro_dia).map((b) => b.registro_dia!),
+    );
     const bonosRecorridoPorConductor = new Map<string, BonoRecorrido[]>();
     let bonosDeTramoRetirado = 0;
+    let bonosDeDescanso = 0;
     for (const b of bonosRecorrido) {
       if (b.segmento?.deleted_at) {
         bonosDeTramoRetirado++;
@@ -607,13 +618,22 @@ export class NominaCanvasService {
       }
       const conductorId = b.registro_dia?.conductor_id;
       if (!conductorId) continue;
+      if (b.registro_dia.tipo === 'DESCANSO') {
+        bonosDeDescanso++;
+        continue;
+      }
       const lista = bonosRecorridoPorConductor.get(conductorId) ?? [];
       /// `fecha` es `@db.Date`, así que el ISO ya viene en UTC a medianoche y
       /// los diez primeros caracteres son el día tal cual se guardó. Construir
       /// el mes con `getMonth()` lo correría un día en zonas al oeste de UTC.
       const iso = b.registro_dia.fecha.toISOString().slice(0, 7);
       lista.push({
-        vehiculoId: b.segmento?.vehiculo_id ?? null,
+        vehiculoId: b.segmento_id
+          ? b.segmento?.vehiculo_id ?? null
+          : vehiculosDeDia.get(b.registro_dia.id)?.id ?? null,
+        placa: b.segmento_id
+          ? b.segmento?.vehiculo_placa ?? null
+          : vehiculosDeDia.get(b.registro_dia.id)?.placa ?? null,
         nombre: String(b.config_liquidacion?.nombre ?? 'BONO'),
         valor: dec(b.valor ?? b.config_liquidacion?.valor),
         mes: iso,
@@ -624,6 +644,9 @@ export class NominaCanvasService {
       avisos.push(
         `${bonosDeTramoRetirado} bono(s) de recorridos cuelgan de un tramo retirado y no se contaron.`,
       );
+    }
+    if (bonosDeDescanso > 0) {
+      avisos.push(`${bonosDeDescanso} bono(s) de días de descanso no se contaron.`);
     }
 
     // ── Tramos de vigencia del corte ───────────────────────────────────
@@ -1273,6 +1296,12 @@ export class NominaCanvasService {
         vehiculoIdPorPlaca.set(placa, p.vehiculo_id);
       }
     }
+    /// Mantenimiento puede generar bono sin tener una planilla de recargos.
+    for (const b of bonosRecorrido) {
+      if (!b.vehiculoId || !b.placa) continue;
+      placas.add(b.placa);
+      if (!vehiculoIdPorPlaca.has(b.placa)) vehiculoIdPorPlaca.set(b.placa, b.vehiculoId);
+    }
     const placasUsadas: PlacaBono[] = [...placas].map((placa) => ({
       placa,
       color: colorDePlaca(placa),
@@ -1283,6 +1312,9 @@ export class NominaCanvasService {
     const placaPorVehiculoId = new Map<string, string>();
     for (const p of planillas) {
       if (p.vehiculo_id && p.vehiculos?.placa) placaPorVehiculoId.set(p.vehiculo_id, p.vehiculos.placa);
+    }
+    for (const b of bonosRecorrido) {
+      if (b.vehiculoId && b.placa) placaPorVehiculoId.set(b.vehiculoId, b.placa);
     }
 
     // ── Tarifas y acumulado por tipo ───────────────────────────────────

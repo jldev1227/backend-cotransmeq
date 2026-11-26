@@ -364,6 +364,9 @@ solo en los meses del corte: un bono que la liquidación tiene y recorridos no
 marca queda en 0 (no se borra), el precio unitario de una fila existente no
 cambia y una fila nueva toma el valor de la configuración. Respuesta
 `{ "creadas": 1, "celdas": 4 }`. **Errores:** 400; 404; 409.
+Para bonos marcados en el día sin tramo, DISPONIBLE se asocia a la única placa
+con disponibilidad en planilla de esa fecha; MANTENIMIENTO usa su vehículo.
+DESCANSO no suma bonos. Si hay dos placas posibles, queda sin atribuir.
 
 ### `POST /api/nomina/borradores/:id/reparar-recargos`
 

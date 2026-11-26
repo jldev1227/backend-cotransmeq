@@ -295,8 +295,11 @@ fecha del día) y `conductor_id` (uuid, opcional).
 `id`, `registro_dia_id`, `segmento_id`, `config_liquidacion_id`, `valor` (el
 copiado al crearlo), `creado_por_id`, `observaciones`, `created_at`,
 `updated_at`, `config_liquidacion` (`{ id, nombre, valor, anio, activo }`, con el
-valor vigente), `fecha`, `conductor_id`, `vehiculo_id` y `vehiculo_placa` (del
-tramo, si es de tramo). Solo bonos vivos.
+valor vigente), `fecha`, `conductor_id`, `vehiculo_id` y `vehiculo_placa`.
+Los bonos de tramo usan su vehículo; los bonos de día DISPONIBLE usan la placa
+de una única planilla con disponibilidad en esa fecha, y los de MANTENIMIENTO
+usan el vehículo del día. Un día de DESCANSO no recibe placa para nómina.
+Solo bonos y días vivos; se excluyen los tramos retirados.
 
 ### `POST /api/dias-laborados/bonos`
 
