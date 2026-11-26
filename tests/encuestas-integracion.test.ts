@@ -58,13 +58,18 @@ describe('encuestas · formulario público a tablero en tiempo real', () => {
     const publica = await banco.app.inject({ method: 'GET', url: `/api/public/encuestas/${token}` })
     expect(publica.statusCode).toBe(200)
     expect(publica.json().encuesta.abierta).toBe(true)
+    const inicio = await banco.app.inject({ method: 'POST', url: `/api/public/encuestas/${token}/intentos`, payload: {} })
+    expect(inicio.statusCode).toBe(200)
+    const intento = inicio.json().intento
+    const reanudado = await banco.app.inject({ method: 'POST', url: `/api/public/encuestas/${token}/intentos`, payload: { intento } })
+    expect(reanudado.json().intento).toBe(intento)
 
     const evento = esperarEvento<{ encuestaId: string; respuestaId: string; occurredAt: string }>(
       socket, 'encuestas:respuesta', (data) => data.encuestaId === encuestaId, 8_000
     )
     const envio = await banco.app.inject({
       method: 'POST', url: `/api/public/encuestas/${token}/respuestas`,
-      payload: { respuestas: { [preguntas[0].id]: 4, [preguntas[1].id]: 'Mejorar la puntualidad' } }
+      payload: { intento, respuestas: { [preguntas[0].id]: 4, [preguntas[1].id]: 'Mejorar la puntualidad' } }
     })
     expect(envio.statusCode).toBe(201)
     expect(envio.json().mensaje).toBe('Gracias')

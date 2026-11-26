@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma'
 import { env } from '../../config/env'
 import { getIo } from '../../sockets'
 import { emitirActualizacionEncuesta, EVENTOS_ENCUESTAS } from './encuestas.events'
+import { crearIntento, leerIntento } from './encuestas.intento'
 import {
   encuestaSchema, type EncuestaInput, type Pregunta, type RespuestaInput
 } from './encuestas.schema'
@@ -285,10 +286,25 @@ export const EncuestasService = {
     }
   },
 
+  async intento(token: string, anterior?: string) {
+    const encuesta = await prisma.encuesta.findFirst({ where: { token, ...activa } })
+    if (!encuesta) throw new EncuestaError('ENCUESTA_NO_ENCONTRADA', 'Enlace no encontrado', 404)
+    asegurarAbierta(encuesta)
+    if (anterior) {
+      const estado = leerIntento(encuesta.id, anterior)
+      if (!estado) throw new EncuestaError('INTENTO_INVALIDO', 'Inicia nuevamente la encuesta', 409)
+      return { intento: anterior, ...estado }
+    }
+    return { ...crearIntento(encuesta.id), vencido: false }
+  },
+
   async responder(token: string, entrada: RespuestaInput, ip: string) {
     const encuesta = await prisma.encuesta.findFirst({ where: { token, ...activa } })
     if (!encuesta) throw new EncuestaError('ENCUESTA_NO_ENCONTRADA', 'Enlace no encontrado', 404)
     asegurarAbierta(encuesta)
+    const intento = leerIntento(encuesta.id, entrada.intento)
+    if (!intento) throw new EncuestaError('INTENTO_INVALIDO', 'Inicia nuevamente la encuesta', 409)
+    if (intento.vencido) throw new EncuestaError('TIEMPO_TERMINADO', 'Se terminaron los 30 minutos. Inicia nuevamente la encuesta', 409)
     const nombre = entrada.nombre?.trim() || null
     const correo = entrada.correo?.trim().toLowerCase() || null
     if (encuesta.nombre_modo === 'OBLIGATORIO' && !nombre) throw new EncuestaError('NOMBRE_REQUERIDO', 'Escribe tu nombre')
