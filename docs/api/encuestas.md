@@ -22,6 +22,7 @@ Módulo en `src/modules/encuestas/`. Cada empresa tiene sus propias tablas
 | GET | `/api/encuestas/:id/exportar.xlsx` | `encuestas:read` | Respuestas con valores legibles y resumen |
 | GET | `/api/encuestas/:id/exportar.pdf` | `encuestas:read` | Reporte resumido con distribuciones |
 | GET | `/api/public/encuestas/:token` | pública | Preguntas y estado, sin respuestas |
+| POST | `/api/public/encuestas/:token/intentos` | pública, límite por IP y token | Inicia o reanuda un intento de 30 minutos |
 | GET | `/api/public/encuestas/:token/eventos` | pública | SSE con cambios de estado o contenido; no incluye respuestas |
 | POST | `/api/public/encuestas/:token/respuestas` | pública, límite por IP y token | Valida y guarda una respuesta |
 
@@ -53,7 +54,16 @@ despliegue de Azure OpenAI del asistente y limita cada usuario a 12 propuestas
 por cada 15 minutos. Solo propone contenido: el panel lo presenta para revisión
 y quien crea la encuesta decide si lo incorpora, guarda o publica.
 
-El `POST` público recibe `{ nombre?, correo?, dispositivo?, respuestas }`;
+Al abrir la página pública se solicita un intento. `POST /intentos` sin cuerpo crea
+uno con `intento`, `vence_at` y `servidor_at`; con `{ intento }` reanuda el mismo
+plazo, incluso si el teléfono estuvo apagado. El navegador conserva el intento
+en `localStorage`. La hora de apertura va firmada por el servidor y no depende
+del reloj del teléfono. El borrador local se conserva asociado al intento para
+retomarlo dentro del plazo. Al vencer, la página muestra «Tiempo terminado» y
+permite empezar desde cero. El servidor rechaza envíos vencidos con
+`TIEMPO_TERMINADO` (409). Un intento inválido responde `INTENTO_INVALIDO` (409).
+
+El `POST` público recibe `{ intento, nombre?, correo?, dispositivo?, respuestas }`;
 `respuestas` es un objeto indexado por UUID de pregunta. El servidor valida
 obligatoriedad, tipo, escala y pertenencia de las opciones. No se confía en las
 opciones enviadas por el navegador. Una encuesta cerrada o pasada de

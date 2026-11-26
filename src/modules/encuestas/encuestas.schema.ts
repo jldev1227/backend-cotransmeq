@@ -56,6 +56,7 @@ export const encuestaSchema = z.object({
 })
 
 export const respuestaSchema = z.object({
+  intento: z.string().max(160),
   nombre: z.string().trim().max(160).nullable().optional(),
   correo: z.string().trim().max(254).nullable().optional(),
   dispositivo: z.string().trim().max(255).nullable().optional(),

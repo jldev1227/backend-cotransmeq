@@ -15,6 +15,7 @@ const uuid = z.string().uuid()
 const limiteEnvios = crearLimitador({ max: 120, ventanaMs: 15 * MINUTO })
 const limiteGeneracion = crearLimitador({ max: 12, ventanaMs: 15 * MINUTO })
 const instruccionesIA = z.object({ instrucciones: z.string().trim().min(5).max(12_000) })
+const intentoEntrada = z.object({ intento: z.string().max(160).optional() })
 
 function error(reply: FastifyReply, err: unknown) {
   if (err instanceof ZodError) {
@@ -34,6 +35,16 @@ export async function encuestasPublicRoutes(app: FastifyInstance) {
   app.get('/public/encuestas/:token', async (request, reply) => {
     try {
       return reply.send({ success: true, encuesta: await EncuestasService.publica((request.params as { token: string }).token) })
+    } catch (err) { return error(reply, err) }
+  })
+
+  app.post('/public/encuestas/:token/intentos', async (request, reply) => {
+    const token = (request.params as { token: string }).token
+    const espera = limiteEnvios.consumir(`${token}:${ipCliente(request)}`)
+    if (espera) return responderLimite(reply, espera)
+    try {
+      const { intento } = intentoEntrada.parse(request.body ?? {})
+      return reply.send({ success: true, ...await EncuestasService.intento(token, intento), servidor_at: new Date().toISOString() })
     } catch (err) { return error(reply, err) }
   })
 
