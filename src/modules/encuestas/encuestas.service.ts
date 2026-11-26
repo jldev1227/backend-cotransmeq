@@ -304,7 +304,9 @@ export const EncuestasService = {
     asegurarAbierta(encuesta)
     const intento = leerIntento(encuesta.id, entrada.intento)
     if (!intento) throw new EncuestaError('INTENTO_INVALIDO', 'Inicia nuevamente la encuesta', 409)
-    if (intento.vencido) throw new EncuestaError('TIEMPO_TERMINADO', 'Se terminaron los 30 minutos. Inicia nuevamente la encuesta', 409)
+    /// El límite es una referencia de evaluación; se guarda el tiempo real y
+    /// se aceptan respuestas completas aunque se haya superado.
+    const tiempoRespuestaSegundos = Math.max(0, Math.floor((Date.now() - Date.parse(intento.iniciado_at)) / 1000))
     const nombre = entrada.nombre?.trim() || null
     const correo = entrada.correo?.trim().toLowerCase() || null
     if (encuesta.nombre_modo === 'OBLIGATORIO' && !nombre) throw new EncuestaError('NOMBRE_REQUERIDO', 'Escribe tu nombre')
@@ -338,6 +340,7 @@ export const EncuestasService = {
           nombre: encuesta.nombre_modo === 'NO' ? null : nombre,
           correo: encuesta.correo_modo === 'NO' ? null : correo,
           respuestas: respuestas as Prisma.InputJsonValue,
+          tiempo_respuesta_segundos: tiempoRespuestaSegundos,
           ip_hash: ipHash,
           dispositivo_hash: dispositivoHash,
           coincide_ip: !!mismaIp,
@@ -357,7 +360,7 @@ export const EncuestasService = {
       orderBy: { created_at: 'desc' },
       select: {
         id: true, nombre: true, correo: true, respuestas: true, coincide_ip: true,
-        coincide_dispositivo: true, created_at: true
+        coincide_dispositivo: true, tiempo_respuesta_segundos: true, created_at: true
       }
     })
     const porDia = new Map<string, number>()

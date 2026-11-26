@@ -4,9 +4,9 @@ import { crearIntento, leerIntento, DURACION_INTENTO_MS } from '../src/modules/e
 describe('plazo de encuesta pública', () => {
   it('continúa con el mismo vencimiento y vence exactamente a los 30 minutos', () => {
     const apertura = Date.now()
-    const { intento, vence_at } = crearIntento('encuesta-1', apertura)
-    expect(leerIntento('encuesta-1', intento, apertura + 10_000)).toEqual({ vence_at, vencido: false })
-    expect(leerIntento('encuesta-1', intento, apertura + DURACION_INTENTO_MS)).toEqual({ vence_at, vencido: true })
+    const { intento, iniciado_at, vence_at } = crearIntento('encuesta-1', apertura)
+    expect(leerIntento('encuesta-1', intento, apertura + 10_000)).toEqual({ iniciado_at, vence_at, vencido: false })
+    expect(leerIntento('encuesta-1', intento, apertura + DURACION_INTENTO_MS)).toEqual({ iniciado_at, vence_at, vencido: true })
   })
 
   it('rechaza una firma alterada o usada en otra encuesta', () => {
