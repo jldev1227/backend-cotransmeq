@@ -28,6 +28,8 @@ export async function exportarExcel(id: string): Promise<Buffer> {
     { header: 'Fecha', key: 'fecha', width: 24 },
     { header: 'Nombre', key: 'nombre', width: 24 },
     { header: 'Correo', key: 'correo', width: 30 },
+    { header: 'Tiempo empleado (segundos)', key: 'tiempo', width: 27 },
+    { header: 'Superó 30 min', key: 'supero_referencia', width: 18 },
     { header: 'Coincide IP', key: 'ip', width: 15 },
     { header: 'Coincide dispositivo', key: 'dispositivo', width: 23 },
     ...preguntas.map((p, i) => ({ header: `${i + 1}. ${p.titulo}`, key: p.id, width: 38 }))
@@ -37,10 +39,12 @@ export async function exportarExcel(id: string): Promise<Buffer> {
   hoja.autoFilter = { from: 'A1', to: { row: 1, column: hoja.columns.length } }
   for (const r of respuestas) {
     const valores = r.respuestas as Record<string, unknown>
-    const fila: Record<string, string> = {
+    const fila: Record<string, string | number> = {
       fecha: r.created_at.toISOString(),
       nombre: r.nombre || '',
       correo: r.correo || '',
+      tiempo: r.tiempo_respuesta_segundos ?? '',
+      supero_referencia: r.tiempo_respuesta_segundos == null ? '' : r.tiempo_respuesta_segundos >= 1800 ? 'Sí' : 'No',
       ip: r.coincide_ip ? 'Sí' : 'No',
       dispositivo: r.coincide_dispositivo ? 'Sí' : 'No'
     }

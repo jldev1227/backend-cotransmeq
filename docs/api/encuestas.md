@@ -55,13 +55,15 @@ por cada 15 minutos. Solo propone contenido: el panel lo presenta para revisión
 y quien crea la encuesta decide si lo incorpora, guarda o publica.
 
 Al abrir la página pública se solicita un intento. `POST /intentos` sin cuerpo crea
-uno con `intento`, `vence_at` y `servidor_at`; con `{ intento }` reanuda el mismo
-plazo, incluso si el teléfono estuvo apagado. El navegador conserva el intento
+uno con `intento`, `iniciado_at`, `vence_at` y `servidor_at`; con `{ intento }` reanuda el mismo
+cronómetro, incluso si el teléfono estuvo apagado. El navegador conserva el intento
 en `localStorage`. La hora de apertura va firmada por el servidor y no depende
 del reloj del teléfono. El borrador local se conserva asociado al intento para
-retomarlo dentro del plazo. Al vencer, la página muestra «Tiempo terminado» y
-permite empezar desde cero. El servidor rechaza envíos vencidos con
-`TIEMPO_TERMINADO` (409). Un intento inválido responde `INTENTO_INVALIDO` (409).
+retomarlo después. Los 30 minutos son solo una referencia: el cronómetro muestra
+el exceso y el servidor sigue aceptando respuestas completas. La duración real,
+calculada con la apertura firmada, se guarda en `tiempo_respuesta_segundos` y se
+muestra por participante en resultados y Excel. Las respuestas anteriores a esta
+función tienen duración nula. Un intento inválido responde `INTENTO_INVALIDO` (409).
 
 El `POST` público recibe `{ intento, nombre?, correo?, dispositivo?, respuestas }`;
 `respuestas` es un objeto indexado por UUID de pregunta. El servidor valida
@@ -103,3 +105,6 @@ y una muestra de texto; las respuestas completas están en Excel.
 
 Migración: `prisma/migrations/20261027175200_encuestas/migration.sql`, en ambos
 backends. Debe aplicarse por el procedimiento manual descrito en `AGENTS.md`.
+La duración requiere además
+`prisma/migrations/20261126110000_encuesta_tiempo_respuesta/migration.sql` en
+cada base; la columna es nullable para conservar respuestas históricas.

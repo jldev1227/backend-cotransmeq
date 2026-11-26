@@ -6625,6 +6625,7 @@ model encuesta_respuesta {
   nombre            String?   @db.VarChar(160)
   correo            String?   @db.VarChar(254)
   respuestas        Json
+  tiempo_respuesta_segundos Int?
   /// Huellas HMAC por encuesta: permiten comparar sin guardar IP ni huella crudas.
   ip_hash           String?   @db.VarChar(64)
   dispositivo_hash  String?   @db.VarChar(64)

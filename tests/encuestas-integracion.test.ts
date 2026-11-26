@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import { abrirBanco, esperarEvento, type Banco } from './helpers/canvas-servicios'
 import { cerrarPrisma, limpiarUsuariosSembrados, sembrarUsuario, type UsuarioSembrado } from './helpers/usuarios-prueba'
+import { crearIntento, DURACION_INTENTO_MS } from '../src/modules/encuestas/encuestas.intento'
 
 vi.mock('pdfmake/build/pdfmake', () => ({ default: {}, createPdf: () => ({}) }))
 vi.mock('pdfmake/build/vfs_fonts', () => ({ default: { vfs: {} }, vfs: {} }))
@@ -86,5 +87,16 @@ describe('encuestas · formulario público a tablero en tiempo real', () => {
     expect(resultados.body.analisis[0].opciones.find((o: any) => o.id === '4')).toMatchObject({ total: 1, porcentaje: 100 })
     expect(resultados.body.analisis[1].textos).toContain('Mejorar la puntualidad')
     expect(resultados.body.respuestas[0].respuestas[preguntas[0].id]).toBe(4)
+    expect(resultados.body.respuestas[0].tiempo_respuesta_segundos).toBeGreaterThanOrEqual(0)
+
+    const vencido = crearIntento(encuestaId!, Date.now() - DURACION_INTENTO_MS - 60_000)
+    const envioTardio = await banco.app.inject({
+      method: 'POST', url: `/api/public/encuestas/${token}/respuestas`,
+      payload: { intento: vencido.intento, respuestas: { [preguntas[0].id]: 3 } }
+    })
+    expect(envioTardio.statusCode).toBe(201)
+    const actualizados = await banco.pedir(usuario as any, 'GET', `/api/encuestas/${encuestaId}/resultados`)
+    expect(actualizados.body.total).toBe(2)
+    expect(actualizados.body.respuestas[0].tiempo_respuesta_segundos).toBeGreaterThanOrEqual(1860)
   }, 30_000)
 })
