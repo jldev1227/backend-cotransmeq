@@ -510,47 +510,20 @@ export class LiquidacionesTercerosDescuentosController {
     }
   }
 
-  static async guardarNovedadesConductores(request: FastifyRequest, reply: FastifyReply) {
-    try {
-      const { id } = request.params as any;
-      const { novedades_conductores } = (request.body as any) || {};
-      if (!novedades_conductores || typeof novedades_conductores !== 'object' || Array.isArray(novedades_conductores)) {
-        return reply.status(400).send({ error: 'novedades_conductores debe ser un mapa por conductor' });
-      }
-
-      const result = await LiquidacionesTercerosDescuentosService.guardarNovedadesConductores(
-        id,
-        novedades_conductores,
-      );
-      emitSheetInvalidate({
-        scope: 'cierres-finales',
-        anio: result.anio,
-        mes: result.mes,
-        cierreId: id,
-        accion: 'novedades-conductores',
-      });
-      return reply.send(result);
-    } catch (error: any) {
-      const msg = String(error?.message || 'Error al guardar novedades');
-      const status = /no encontrado/i.test(msg) ? 404
-		: /estado|cambió/i.test(msg) ? 409
-			: /inválid|requiere|fecha|días|dias|pertenece|indica/i.test(msg) ? 400
-				: 500;
-      return reply.status(status).send({ error: msg });
-    }
-  }
-
   // ── FILAS DE GASTOS Y ANTICIPOS ──
 
   static async agregarConcepto(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as any;
-      const { tipo, concepto, dias, valor_unitario, observaciones } = request.body as any;
+      const { tipo, concepto, dias, valor_unitario, conductor_id, observaciones } = request.body as any;
 
-      if (tipo !== 'GASTO_OPERATIVO' && tipo !== 'ANTICIPO') {
+      if (tipo !== 'COSTO_LABORAL' && tipo !== 'GASTO_OPERATIVO' && tipo !== 'ANTICIPO') {
         return reply.status(400).send({
-          error: 'tipo debe ser GASTO_OPERATIVO o ANTICIPO. Los impuestos salen de la configuración.'
+          error: 'tipo debe ser COSTO_LABORAL, GASTO_OPERATIVO o ANTICIPO. Los impuestos salen de la configuración.'
         });
+      }
+      if (tipo === 'COSTO_LABORAL' && typeof conductor_id !== 'string') {
+        return reply.status(400).send({ error: 'conductor_id es obligatorio para conceptos de conductor' });
       }
       if (!concepto || typeof concepto !== 'string' || !concepto.trim()) {
         return reply.status(400).send({ error: 'concepto es obligatorio' });
@@ -565,6 +538,7 @@ export class LiquidacionesTercerosDescuentosController {
         concepto,
         dias: Number(dias),
         valor_unitario: Number(valor_unitario),
+        conductor_id,
         observaciones: observaciones ?? null,
         user_id: (request as any).user?.id
       });
@@ -581,7 +555,11 @@ export class LiquidacionesTercerosDescuentosController {
       return reply.send(result);
     } catch (error: any) {
       const msg = String(error?.message || '');
-      const status = /estado|no encontrado|ya está|vacío/i.test(msg) ? 409 : 500;
+      const status = /estado|no encontrado|ya está/i.test(msg)
+        ? 409
+        : /vacío|reservado|pertenece|selecciona|entre 1 y 100|mayores o iguales/i.test(msg)
+          ? 400
+          : 500;
       return reply.status(status).send({ error: msg });
     }
   }

@@ -29,6 +29,7 @@ import {
   importeGastosDiversos,
   importePapeleria,
   gastosPorDefectoDelPeriodo,
+  esConceptoConductorDinamico,
   type ConceptoLike,
   type ConfigGastosPeriodo,
 } from './reglas-conceptos';
@@ -126,6 +127,7 @@ function escenario(): ConceptoLike[] {
     { id: 'a1', tipo: 'COSTO_LABORAL', concepto: 'SALARIO', conductor_id: 'A', dias: 30, valor_unitario: 50000, valor_total: 1500000 },
     { id: 'a2', tipo: 'COSTO_LABORAL', concepto: 'AUXILIO_TRANSPORTE', conductor_id: 'A', dias: 30, valor_unitario: 5000, valor_total: 150000 },
     { id: 'a3', tipo: 'COSTO_LABORAL', concepto: 'RECARGOS', conductor_id: 'A', dias: 1, valor_unitario: 90000, valor_total: 90000 },
+    { id: 'a7', tipo: 'COSTO_LABORAL', concepto: 'BONIFICACION_ESPECIAL', conductor_id: 'A', dias: 1, valor_unitario: 50000, valor_total: 50000 },
     { id: 'a4', tipo: 'COSTO_LABORAL', concepto: 'CESANTIAS', conductor_id: 'A', porcentaje: 8.33, valor_total: 0, base_calculo: 0 },
     { id: 'a5', tipo: 'COSTO_LABORAL', concepto: 'VACACIONES', conductor_id: 'A', porcentaje: 4.17, valor_total: 0, base_calculo: 0 },
     { id: 'a6', tipo: 'COSTO_LABORAL', concepto: 'SALUD', conductor_id: 'A', porcentaje: 8.5, valor_total: 0, base_calculo: 0 },
@@ -145,6 +147,12 @@ const FACTURADO = 47_500_000;
 const ADICIONALES_BRUTO = 2_500_000;
 
 describe('reglas-conceptos: paridad con el frontend', () => {
+  it('identifica conceptos libres sin confundirlos con filas estándar', () => {
+    expect(esConceptoConductorDinamico({ tipo: 'COSTO_LABORAL', concepto: 'BONIFICACION_ESPECIAL', conductor_id: 'A' })).toBe(true);
+    expect(esConceptoConductorDinamico({ tipo: 'COSTO_LABORAL', concepto: 'SALARIO', conductor_id: 'A' })).toBe(false);
+    expect(esConceptoConductorDinamico({ tipo: 'COSTO_LABORAL', concepto: 'BONIFICACION_ESPECIAL' })).toBe(false);
+  });
+
   it('las constantes coinciden', () => {
     expect(VALOR_DOTACION).toBe(O_VALOR_DOTACION);
     expect(VALOR_EXAMEN_MEDICO).toBe(O_VALOR_EXAMEN_MEDICO);
@@ -183,6 +191,13 @@ describe('reglas-conceptos: paridad con el frontend', () => {
     const vacaciones = r.find((c) => c.id === 'a5')!;
     expect(cesantias.base_calculo).toBe(1500000 + 150000 + 90000);
     expect(vacaciones.base_calculo).toBe(1500000 + 90000);
+  });
+
+  it('conserva el valor libre del conductor fuera de las bases de prestaciones y seguridad social', () => {
+    const r = recalcularBasesPrestacionesSS(escenario());
+    expect(r.find((c) => c.id === 'a7')?.valor_total).toBe(50000);
+    expect(r.find((c) => c.id === 'a4')?.base_calculo).toBe(1500000 + 150000 + 90000);
+    expect(r.find((c) => c.id === 'a6')?.base_calculo).toBe(1500000 + 90000);
   });
 
   it('los gastos automáticos coinciden fila a fila', () => {

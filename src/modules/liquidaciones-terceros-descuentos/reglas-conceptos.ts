@@ -39,6 +39,22 @@ export const CONCEPTOS_CALCULADOS_AUTO = new Set([
   'PAPELERIA',
 ]);
 
+/** Filas laborales que ya tienen cálculo estándar en el bloque del conductor. */
+export const CONCEPTOS_CONDUCTOR_FIJOS = new Set([
+  'SALARIO', 'AUXILIO_TRANSPORTE', 'BONIFICACION', 'BONIFICACION_TURNO_DOBLE',
+  'OTROS_AUXILIOS', 'RECARGOS', 'CESANTIAS', 'INTERESES_CESANTIAS', 'PRIMA',
+  'VACACIONES', 'SALUD', 'PENSION', 'ARP', 'PARAFISCALES',
+]);
+
+/** Una fila libre del conductor, guardada únicamente en este cierre. */
+export function esConceptoConductorDinamico(c: {
+  tipo: string;
+  concepto: string;
+  conductor_id?: string | null;
+}): boolean {
+  return c.tipo === 'COSTO_LABORAL' && Boolean(c.conductor_id) && !CONCEPTOS_CONDUCTOR_FIJOS.has(c.concepto);
+}
+
 /**
  * Base del `orden` de los gastos. Espejo de `conceptos.service.ts` en el
  * frontend: el builder del canvas ordena la sección por `orden`, así que si

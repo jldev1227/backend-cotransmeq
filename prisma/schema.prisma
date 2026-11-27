@@ -3947,6 +3947,7 @@ model liquidacion_tercero_final {
   /// placa. El `@@index([anio, mes])` existente no cubre el orden ni filtra
   /// los soft-deleted, que son la mayoría en periodos antiguos.
   @@index([anio, mes, placa], map: "idx_lt_final_periodo_placa")
+  /// Campo legado sin uso funcional; se conserva para preservar novedades históricas.
   novedades_conductores    Json                                         @default("{}") @db.JsonB
 }
 

@@ -113,23 +113,6 @@ export interface GenerarBorradorInput {
 const nominaCache = new Map<string, { data: any; ts: number }>();
 const NOMINA_CACHE_TTL = 30_000;
 
-const TIPOS_NOVEDAD_CONDUCTOR = new Set([
-  'VACACIONES',
-  'INCAPACIDAD',
-  'LICENCIA_MATERNIDAD',
-  'LICENCIA_PATERNIDAD',
-]);
-
-function fechaIsoValida(valor: unknown): valor is string {
-  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false;
-  const fecha = new Date(`${valor}T00:00:00.000Z`);
-  return Number.isFinite(fecha.getTime()) && fecha.toISOString().slice(0, 10) === valor;
-}
-
-function diasEntreFechas(inicio: string, fin: string): number {
-  return Math.floor((Date.parse(`${fin}T00:00:00.000Z`) - Date.parse(`${inicio}T00:00:00.000Z`)) / 86_400_000) + 1;
-}
-
 async function getNominaCached(input: { placa: string; mes: number; anio: number }) {
   const key = `${input.placa}|${input.mes}|${input.anio}`;
   const cached = nominaCache.get(key);
@@ -230,8 +213,11 @@ function efectivoDePropietario(p: any, filas: any[]): number {
 
 function serializeLiquidacionTerceroFinal(item: any) {
   if (!item) return null;
+  // El campo histórico se conserva en PostgreSQL, pero ya no forma parte del detalle funcional.
+  const datos = { ...item };
+  delete datos.novedades_conductores;
   return {
-    ...item,
+    ...datos,
     valor_unitario: toNumber(item.valor_unitario),
     cantidad: toNumber(item.cantidad),
     total_facturado: toNumber(item.total_facturado),
@@ -3213,104 +3199,6 @@ export const LiquidacionesTercerosDescuentosService = {
     }
     if (activas.length > 0) return { numeros: activas, anulada: false };
     return { numeros: anuladas, anulada: anuladas.length > 0 };
-  },
-
-  /** Guarda los periodos de novedad del personal que aparece en este cierre. */
-  async guardarNovedadesConductores(
-    liquidacionTerceroFinalId: string,
-    novedadesPorConductor: Record<string, Array<Record<string, any>>>,
-  ) {
-    if (!novedadesPorConductor || typeof novedadesPorConductor !== 'object' || Array.isArray(novedadesPorConductor)) {
-      throw new Error('novedades_conductores debe ser un mapa por conductor');
-    }
-
-    const normalizadas: Record<string, any[]> = {};
-    for (const [conductorId, novedades] of Object.entries(novedadesPorConductor)) {
-      if (!Array.isArray(novedades) || novedades.length > 30) {
-        throw new Error(`Lista de novedades inválida para ${conductorId}`);
-      }
-      normalizadas[conductorId] = novedades.map((novedad) => {
-        const tipo = String(novedad?.tipo ?? '');
-        if (!TIPOS_NOVEDAD_CONDUCTOR.has(tipo)) throw new Error(`Tipo de novedad inválido: ${tipo}`);
-
-        const inicio = novedad.fecha_inicio || null;
-        const fin = novedad.fecha_fin || null;
-        if ((inicio && !fin) || (!inicio && fin)) {
-          throw new Error('El periodo de la novedad requiere fecha inicial y final');
-        }
-        if (inicio && (!fechaIsoValida(inicio) || !fechaIsoValida(fin))) {
-          throw new Error('Las fechas de la novedad deben usar formato AAAA-MM-DD');
-        }
-        if (inicio && fin < inicio) throw new Error('La fecha final no puede ser anterior a la inicial');
-
-        const diasIngresados = novedad.dias == null || novedad.dias === '' ? null : Number(novedad.dias);
-        const dias = inicio && fin ? diasEntreFechas(inicio, fin) : diasIngresados;
-        if (dias == null || !Number.isInteger(dias) || dias <= 0) {
-          throw new Error('Indica un periodo o una cantidad de días mayor que cero');
-        }
-
-        return {
-          id: typeof novedad.id === 'string' && novedad.id ? novedad.id : randomUUID(),
-          tipo,
-          fecha_inicio: inicio,
-          fecha_fin: fin,
-          dias,
-          observaciones: typeof novedad.observaciones === 'string'
-            ? novedad.observaciones.trim().slice(0, 500) || null
-            : null,
-        };
-      });
-    }
-
-    return prisma.$transaction(async (tx) => {
-      const cierre = await tx.liquidacion_tercero_final.findFirst({
-        where: { id: liquidacionTerceroFinalId, deleted_at: null },
-        select: {
-          id: true,
-          estado: true,
-          version: true,
-          mes: true,
-          anio: true,
-          conceptos: {
-            where: { tipo: 'COSTO_LABORAL', deleted_at: null, conductor_id: { not: null } },
-            select: { conductor_id: true },
-          },
-        },
-      });
-      if (!cierre) throw new Error('Cierre no encontrado');
-      if (['LIQUIDADA', 'APROBADA', 'PAGADA', 'FACTURADA', 'ANULADA', 'REEMPLAZADA'].includes(cierre.estado)) {
-        throw new Error(`No se pueden editar novedades en estado ${cierre.estado}`);
-      }
-
-      const conductoresActivos = new Set(cierre.conceptos.map((c) => c.conductor_id).filter(Boolean));
-      for (const conductorId of Object.keys(normalizadas)) {
-        if (!conductoresActivos.has(conductorId)) {
-          throw new Error(`El conductor ${conductorId} no pertenece a este cierre`);
-        }
-      }
-
-      const actualizado = await tx.liquidacion_tercero_final.updateMany({
-        where: {
-          id: cierre.id,
-          version: cierre.version,
-          estado: cierre.estado,
-          deleted_at: null,
-        },
-        data: {
-          novedades_conductores: normalizadas as any,
-          version: { increment: 1 },
-          updated_at: new Date(),
-        },
-      });
-      if (!actualizado.count) throw new Error('El cierre cambió mientras se guardaban las novedades; recarga e inténtalo de nuevo');
-
-      return {
-        cierreId: cierre.id,
-        anio: cierre.anio,
-        mes: cierre.mes,
-        novedades_conductores: normalizadas,
-      };
-    });
   },
 
   async obtenerPorId(liquidacionTerceroFinalId: string, opts: { includeDeleted?: boolean } = {}) {
