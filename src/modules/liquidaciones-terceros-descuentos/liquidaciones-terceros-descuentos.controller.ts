@@ -121,7 +121,7 @@ export class LiquidacionesTercerosDescuentosController {
 
   static async autocompletarNomina(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const { placa, mes, anio } = request.query as any;
+      const { placa, mes, anio, cierre_id } = request.query as any;
       if (!placa || !mes || !anio) {
         return reply.status(400).send({ error: 'Se requiere placa, mes y anio' });
       }
@@ -129,6 +129,7 @@ export class LiquidacionesTercerosDescuentosController {
         placa,
         mes: Number(mes),
         anio: Number(anio),
+        cierre_id: cierre_id || undefined,
       });
       return reply.send(result);
     } catch (error: any) {

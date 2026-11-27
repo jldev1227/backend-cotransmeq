@@ -526,7 +526,7 @@ export const CierreFinalCeldasService = {
       if (repetido) throw new Error(`${value.replace(/_/g, " ")} ya está en esta sección`);
     } else if (params.field === "dias" || params.field === "valor_unitario") {
       value = Number(value);
-      if (!Number.isFinite(value) || value < 0) {
+      if (!Number.isFinite(value) || (value < 0 && !(esFilaConductor && params.field === "valor_unitario"))) {
         throw new Error(`${params.field} debe ser un número mayor o igual a cero`);
       }
     } else if (params.field === "observaciones") {
@@ -1451,7 +1451,7 @@ export const CierreFinalCeldasService = {
     const info = await prisma.$transaction(async (tx) => {
       const fila = await tx.liquidacion_tercero_final_concepto.findFirst({
         where: { id: conceptoId, deleted_at: null },
-        select: { id: true, tipo: true, concepto: true, conductor_id: true, liquidacion_tercero_final_id: true },
+        select: { id: true, tipo: true, concepto: true, conductor_id: true, liquidacion_tercero_final_id: true, observaciones: true },
       });
       if (!fila) throw new Error("Concepto no encontrado");
       const esFilaConductor = esConceptoConductorDinamico(fila);
@@ -1472,7 +1472,12 @@ export const CierreFinalCeldasService = {
 
       await tx.liquidacion_tercero_final_concepto.update({
         where: { id: conceptoId },
-        data: { deleted_at: new Date() },
+        data: {
+          deleted_at: new Date(),
+          ...(fila.observaciones === 'NOMINA_ADICIONAL'
+            ? { observaciones: 'NOMINA_ADICIONAL_DESCARTADO' }
+            : {}),
+        },
       });
 
       return {

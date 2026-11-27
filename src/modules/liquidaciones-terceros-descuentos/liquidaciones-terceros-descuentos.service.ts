@@ -12,6 +12,7 @@ import { CierreEstadoService } from "./cierre-estado.service";
 import { BLOQUE_CONDUCTOR_MANUAL } from "./reglas-conceptos";
 import { ConfigValoresTerceroService } from "./config-valores-tercero.service";
 import { calcularPorcentajesEfectivos, repartirValor } from "./reparto-propietarios";
+import { adicionalesDelMes, adicionalesNoDescartados } from './adicionales-nomina';
 
 const MESES = [
   'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
@@ -80,6 +81,7 @@ export interface AutocompletarNominaInput {
   placa: string;
   mes: number;
   anio: number;
+  cierre_id?: string;
 }
 
 export interface GenerarBorradorInput {
@@ -399,7 +401,7 @@ export const LiquidacionesTercerosDescuentosService = {
   // ── AUTOCOMPLETAR DESDE NÓMINA ──
 
   async autocompletarNomina(input: AutocompletarNominaInput) {
-    const { placa, mes, anio } = input;
+    const { placa, mes, anio, cierre_id } = input;
 
     console.log(`[autocompletarNomina] placa=${placa}, mes=${mes}, anio=${anio}`);
 
@@ -418,6 +420,29 @@ export const LiquidacionesTercerosDescuentosService = {
     const periodoStart = `${anio}-${String(mes).padStart(2, '0')}-01`;
     const periodoEnd = `${anio}-${String(mes).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     const mesKey = `${anio}-${String(mes).padStart(2, '0')}`;
+
+    /// Los bonos y recargos se asignan al mes de servicio; estos adicionales
+    /// pertenecen exclusivamente a la nómina cuyo periodo termina en el mes.
+    const nominasConAdicionales = await prisma.liquidaciones.findMany({
+      where: {
+        deleted_at: null,
+        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
+        periodo_end: { gte: periodoStart, lte: periodoEnd },
+      },
+      select: { conductor_id: true, periodo_end: true, conceptos_adicionales: true },
+    });
+    let adicionalesNomina = adicionalesDelMes(nominasConAdicionales, anio, mes);
+    if (cierre_id) {
+      const bajas = await prisma.liquidacion_tercero_final_concepto.findMany({
+        where: {
+          liquidacion_tercero_final_id: cierre_id,
+          deleted_at: { not: null },
+          observaciones: 'NOMINA_ADICIONAL_DESCARTADO',
+        },
+        select: { conductor_id: true, concepto: true },
+      });
+      adicionalesNomina = adicionalesNoDescartados(adicionalesNomina, bajas);
+    }
 
     const nominaInclude = {
       conductores: {
@@ -947,6 +972,28 @@ export const LiquidacionesTercerosDescuentosService = {
       return rest;
     });
 
+    /// Una hoja con solo conceptos adicionales sigue necesitando su bloque
+    /// de conductor para que la fila importada pueda verse y editarse.
+    for (const adicional of adicionalesNomina) {
+      if (conductoresData.some((cd) => cd.conductor_id === adicional.conductor_id)) continue;
+      const conductor = await prisma.conductores.findUnique({
+        where: { id: adicional.conductor_id },
+        select: { nombre: true, apellido: true, numero_identificacion: true },
+      });
+      if (!conductor) continue;
+      conductoresData.push({
+        conductor_id: adicional.conductor_id,
+        nombre: `${conductor.nombre} ${conductor.apellido}`.trim(),
+        identificacion: conductor.numero_identificacion || '',
+        dias_laborados: 0,
+        salario_devengado: 0,
+        auxilio_transporte: 0,
+        dias_auxilio_transporte: 0,
+        total_recargos: 0,
+        total_bonificaciones: 0,
+      });
+    }
+
     const configDescuentos = await this.obtenerConfiguracion();
     const valoresUnitarios = await ConfigValoresTerceroService.obtener();
     const conceptosGenerados: ConceptoInput[] = [];
@@ -954,8 +1001,11 @@ export const LiquidacionesTercerosDescuentosService = {
     const ssConfig = configDescuentos.filter((c: any) => c.categoria === 'SEGURIDAD_SOCIAL' && c.activo);
 
     const VALOR_DIA_CONDUCTOR = valoresUnitarios.valor_dia_conductor_nomina;
+    const adicionalesEmitidos = new Set<string>();
 
     for (const cd of conductoresData) {
+      const esPrimeraFilaDelConductor = !adicionalesEmitidos.has(cd.conductor_id);
+      adicionalesEmitidos.add(cd.conductor_id);
       const conductorInfo = {
         id: cd.conductor_id,
         nombre: cd.nombre,
@@ -1083,6 +1133,23 @@ export const LiquidacionesTercerosDescuentosService = {
         valor_total: cd.total_recargos,
         calculado: true,
       });
+
+      if (esPrimeraFilaDelConductor) {
+        for (const adicional of adicionalesNomina) {
+          if (adicional.conductor_id !== cd.conductor_id) continue;
+          conceptosGenerados.push({
+            tipo: 'COSTO_LABORAL',
+            concepto: adicional.concepto,
+            conductor_id: cd.conductor_id,
+            conductor: conductorInfo,
+            dias: 1,
+            valor_unitario: adicional.valor,
+            valor_total: adicional.valor,
+            calculado: false,
+            observaciones: 'NOMINA_ADICIONAL',
+          });
+        }
+      }
 
       const salarioCalculado = cd.dias_laborados * VALOR_DIA_CONDUCTOR;
       const basePrestaciones = salarioCalculado + cd.auxilio_transporte + cd.total_recargos;

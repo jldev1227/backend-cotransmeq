@@ -435,6 +435,17 @@ Las tres rutas reciben **Query** `placa`, `mes`, `anio` (400
 
 ### `GET /api/liquidaciones-terceros/autocompletar-nomina`
 
+Los conceptos adicionales del desprendible se importan como filas laborales
+individuales del conductor y la placa. Para estos conceptos se usa únicamente
+el mes y año de `liquidaciones.periodo_end`; el rango de días del ciclo no
+los reparte entre dos meses. Si hay varias liquidaciones del mismo conductor
+que terminan en el mes, se suman los importes del mismo concepto. Los valores
+negativos se conservan como deducciones. `cierre_id` es opcional y permite
+excluir las filas que se descartaron expresamente en ese cierre. Al sincronizar
+un cierre existente se conservan sus filas dinámicas, con las cantidades y
+tarifas que se hayan editado en la hoja. El borrador nuevo recibe las filas
+importadas sin afectar otros cierres.
+
 Arma los costos laborales del cierre desde las liquidaciones de nómina del
 vehículo. El ciclo de nómina va del 21 al 20, así que un mes natural lo parten
 dos ciclos: del ciclo que **cierra** en el mes se copian días, salario y auxilio
