@@ -30,6 +30,7 @@ import {
   ORDEN_GASTOS_CANONICO,
   aplicarCampo,
   claveConductor,
+  esConceptoConductorDinamico,
   normalizarOverridesPropietario,
   recalcularBasesPrestacionesSS,
   recalcularGastosAutomaticos,
@@ -478,7 +479,7 @@ export const CierreFinalCeldasService = {
   },
 
   /**
-   * Edita una fila de gastos de vehículo o anticipos desde el modal.
+   * Edita una fila de gastos, anticipos o un concepto libre de conductor desde el modal.
    * El tipo de la fila es inmutable y cada sección solo expone sus columnas.
    */
   async actualizarFilaGastoAnticipo(params: {
@@ -490,11 +491,12 @@ export const CierreFinalCeldasService = {
   }): Promise<ResultadoPatch> {
     const fila = await prisma.liquidacion_tercero_final_concepto.findFirst({
       where: { id: params.id, deleted_at: null },
-      select: { tipo: true, liquidacion_tercero_final_id: true },
+      select: { tipo: true, concepto: true, conductor_id: true, liquidacion_tercero_final_id: true },
     });
     if (!fila) throw new Error("Concepto no encontrado");
 
-    const campos = fila.tipo === "GASTO_OPERATIVO"
+    const esFilaConductor = esConceptoConductorDinamico(fila);
+    const campos = fila.tipo === "GASTO_OPERATIVO" || esFilaConductor
       ? new Set(["concepto", "dias", "valor_unitario"])
       : fila.tipo === "ANTICIPO"
         ? new Set(["concepto", "observaciones", "valor_unitario"])
@@ -507,11 +509,15 @@ export const CierreFinalCeldasService = {
     if (params.field === "concepto") {
       value = String(value ?? "").trim().toUpperCase().replace(/\s+/g, "_");
       if (!value) throw new Error("El concepto no puede ir vacío");
+      if (fila.tipo === "COSTO_LABORAL" && !esConceptoConductorDinamico({ ...fila, concepto: value })) {
+        throw new Error("Ese nombre está reservado para un concepto estándar del conductor");
+      }
       const repetido = await prisma.liquidacion_tercero_final_concepto.findFirst({
         where: {
           liquidacion_tercero_final_id: fila.liquidacion_tercero_final_id,
           tipo: fila.tipo,
           concepto: value,
+          ...(esFilaConductor ? { conductor_id: fila.conductor_id } : {}),
           deleted_at: null,
           id: { not: params.id },
         },
@@ -520,7 +526,7 @@ export const CierreFinalCeldasService = {
       if (repetido) throw new Error(`${value.replace(/_/g, " ")} ya está en esta sección`);
     } else if (params.field === "dias" || params.field === "valor_unitario") {
       value = Number(value);
-      if (!Number.isFinite(value) || value < 0) {
+      if (!Number.isFinite(value) || (value < 0 && !(esFilaConductor && params.field === "valor_unitario"))) {
         throw new Error(`${params.field} debe ser un número mayor o igual a cero`);
       }
     } else if (params.field === "observaciones") {
@@ -1285,7 +1291,7 @@ export const CierreFinalCeldasService = {
   },
 
   /**
-   * Añade UNA fila a GASTOS DE VEHÍCULO o a ANTICIPOS.
+   * Añade una fila a gastos, anticipos o al bloque de un conductor de este cierre.
    *
    * POR QUÉ NO SE HACE INSERTANDO UNA FILA EN LA HOJA. Univer sabe insertar
    * filas, pero la fila que inserta está vacía en todos los sentidos que
@@ -1309,10 +1315,11 @@ export const CierreFinalCeldasService = {
    */
   async agregarConcepto(params: {
     cierreId: string;
-    tipo: "GASTO_OPERATIVO" | "ANTICIPO";
+    tipo: "COSTO_LABORAL" | "GASTO_OPERATIVO" | "ANTICIPO";
     concepto: string;
     dias: number;
     valor_unitario: number;
+    conductor_id?: string;
     /** En ANTICIPOS es la FECHA: no hay columna propia, va en observaciones. */
     observaciones?: string | null;
     user_id?: string;
@@ -1325,10 +1332,21 @@ export const CierreFinalCeldasService = {
       .trim()
       .toUpperCase()
       .replace(/\s+/g, "_");
-    if (!concepto) throw new Error("El concepto no puede ir vacío");
+    if (!concepto || concepto.length > 100) throw new Error("El concepto debe tener entre 1 y 100 caracteres");
+
+    const conductorId = tipo === "COSTO_LABORAL" ? String(params.conductor_id || "") : null;
+    if (tipo === "COSTO_LABORAL" && !conductorId) {
+      throw new Error("Selecciona el conductor al que pertenece el concepto");
+    }
+    if (tipo === "COSTO_LABORAL" && !esConceptoConductorDinamico({ tipo, concepto, conductor_id: conductorId })) {
+      throw new Error("Ese nombre está reservado para un concepto estándar del conductor");
+    }
 
     const dias = num(params.dias);
     const valorUnitario = num(params.valor_unitario);
+    if (tipo === "COSTO_LABORAL" && (dias < 0 || valorUnitario < 0)) {
+      throw new Error("Días y valor unitario deben ser mayores o iguales a cero");
+    }
 
     const creado = await prisma.$transaction(async (tx) => {
       const cierre = await tx.liquidacion_tercero_final.findFirst({
@@ -1340,8 +1358,27 @@ export const CierreFinalCeldasService = {
         throw new Error(`No se puede editar un cierre en estado ${cierre.estado}`);
       }
 
+      if (conductorId) {
+        const salario = await tx.liquidacion_tercero_final_concepto.findFirst({
+          where: {
+            liquidacion_tercero_final_id: cierreId,
+            tipo: "COSTO_LABORAL",
+            concepto: "SALARIO",
+            conductor_id: conductorId,
+            deleted_at: null,
+          },
+          select: { id: true },
+        });
+        if (!salario) throw new Error("El conductor no pertenece a este cierre");
+      }
+
       const hermanos = await tx.liquidacion_tercero_final_concepto.findMany({
-        where: { liquidacion_tercero_final_id: cierreId, tipo, deleted_at: null },
+        where: {
+          liquidacion_tercero_final_id: cierreId,
+          tipo,
+          ...(conductorId ? { conductor_id: conductorId } : {}),
+          deleted_at: null,
+        },
         select: { concepto: true, orden: true },
       });
       if (hermanos.some((h) => h.concepto === concepto)) {
@@ -1351,7 +1388,9 @@ export const CierreFinalCeldasService = {
       // El builder ordena cada sección por `orden`, así que la fila nueva tiene
       // que caer detrás de las suyas y no mezclarse con las de otra sección.
       let orden: number;
-      if (tipo === "GASTO_OPERATIVO") {
+      if (tipo === "COSTO_LABORAL") {
+        orden = Math.max(0, ...hermanos.map((h) => h.orden ?? 0)) + 1;
+      } else if (tipo === "GASTO_OPERATIVO") {
         const canon = ORDEN_GASTOS_CANONICO[concepto];
         orden = canon
           ? ORDEN_BASE_GASTO + canon - 1
@@ -1369,7 +1408,7 @@ export const CierreFinalCeldasService = {
           liquidacion_tercero_final_id: cierreId,
           tipo,
           concepto,
-          conductor_id: null,
+          conductor_id: conductorId,
           dias: String(dias),
           valor_unitario: String(valorUnitario),
           valor_total: String(dias * valorUnitario),
@@ -1395,14 +1434,13 @@ export const CierreFinalCeldasService = {
   },
 
   /**
-   * Quita UNA fila de GASTOS o ANTICIPOS.
+   * Quita una fila manual de gastos, anticipos o un concepto personalizado de conductor.
    *
    * Soft-delete, como las bajas de conductor: la fila deja de pintarse pero
    * queda para auditar el cierre.
    *
-   * No se admite sobre COSTO_LABORAL —esas se gestionan por conductor, y
-   * borrar una suelta dejaría un recuadro cojo— ni sobre IMPUESTO, que se
-   * regenera solo.
+   * Las filas estándar de nómina no se admiten aquí para evitar dejar cojo
+   * el bloque de prestaciones; los impuestos se regeneran automáticamente.
    */
   async eliminarConcepto(params: {
     conceptoId: string;
@@ -1413,10 +1451,11 @@ export const CierreFinalCeldasService = {
     const info = await prisma.$transaction(async (tx) => {
       const fila = await tx.liquidacion_tercero_final_concepto.findFirst({
         where: { id: conceptoId, deleted_at: null },
-        select: { id: true, tipo: true, liquidacion_tercero_final_id: true },
+        select: { id: true, tipo: true, concepto: true, conductor_id: true, liquidacion_tercero_final_id: true, observaciones: true },
       });
       if (!fila) throw new Error("Concepto no encontrado");
-      if (fila.tipo !== "GASTO_OPERATIVO" && fila.tipo !== "ANTICIPO") {
+      const esFilaConductor = esConceptoConductorDinamico(fila);
+      if (fila.tipo !== "GASTO_OPERATIVO" && fila.tipo !== "ANTICIPO" && !esFilaConductor) {
         throw new Error(
           `No se puede eliminar una fila de tipo ${fila.tipo} desde aquí`,
         );
@@ -1433,7 +1472,12 @@ export const CierreFinalCeldasService = {
 
       await tx.liquidacion_tercero_final_concepto.update({
         where: { id: conceptoId },
-        data: { deleted_at: new Date() },
+        data: {
+          deleted_at: new Date(),
+          ...(fila.observaciones === 'NOMINA_ADICIONAL'
+            ? { observaciones: 'NOMINA_ADICIONAL_DESCARTADO' }
+            : {}),
+        },
       });
 
       return {

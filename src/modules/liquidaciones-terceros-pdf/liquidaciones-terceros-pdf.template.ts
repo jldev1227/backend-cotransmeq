@@ -871,7 +871,10 @@ function renderConductoresGrid(item: any): string {
       : 'General / Consolidado';
     const id = c0.conductor?.numero_identificacion || '';
     const total = grupo.reduce((s, c) => s + (c.valor_total || 0), 0);
-    const salarios = grupo.filter((c) => TIPOS_CONCEPTO_LABORAL.has(c.concepto));
+    const salarios = grupo.filter((c) =>
+      TIPOS_CONCEPTO_LABORAL.has(c.concepto) ||
+      (!TIPOS_PRESTACIONES.has(c.concepto) && !TIPOS_SEGURIDAD.has(c.concepto)),
+    );
     const prestaciones = grupo.filter((c) => TIPOS_PRESTACIONES.has(c.concepto));
     const seguridad = grupo.filter((c) => TIPOS_SEGURIDAD.has(c.concepto));
 

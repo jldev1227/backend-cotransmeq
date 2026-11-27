@@ -115,10 +115,9 @@ cierre entero.
 | GET | `/api/liquidaciones-terceros/:id/conceptos` | `liquidaciones-terceros:limited` | Conceptos vivos del cierre |
 | PUT | `/api/liquidaciones-terceros/:id/conceptos` | `liquidaciones-terceros:limited` | Reemplaza todos los conceptos del cierre |
 | PUT | `/api/liquidaciones-terceros/:id/conductores` | `liquidaciones-terceros:limited` | Altas, bajas y días de los conductores del cierre |
-| PUT | `/api/liquidaciones-terceros/:id/novedades-conductores` | `liquidaciones-terceros:limited` | Reemplaza novedades laborales por conductor |
-| POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `liquidaciones-terceros:limited` | Añade una fila de GASTOS DE VEHÍCULO o ANTICIPOS |
-| PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Edita un campo de una fila de gastos o anticipos con compare-and-swap |
-| DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Quita (marca) una fila de gastos o anticipos |
+| POST | `/api/liquidaciones-terceros/:id/conceptos-fila` | `liquidaciones-terceros:limited` | Añade concepto de conductor, gasto de vehículo o anticipo |
+| PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Edita un campo de una fila dinámica con compare-and-swap |
+| DELETE | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId` | `liquidaciones-terceros:limited` | Quita (marca) gasto, anticipo o concepto dinámico de conductor |
 | PATCH | `/api/liquidaciones-terceros/conceptos-fila/:conceptoId/reparto-igual` | `liquidaciones-terceros:limited` | Decide si un anticipo se descuenta por igual después de impuestos |
 | GET | `/api/liquidaciones-terceros/:id/propietarios` | `liquidaciones-terceros:limited` | Copropietarios del cierre |
 | PUT | `/api/liquidaciones-terceros/:id/propietarios` | `liquidaciones-terceros:limited` | Reemplaza la lista de copropietarios |
@@ -436,6 +435,17 @@ Las tres rutas reciben **Query** `placa`, `mes`, `anio` (400
 
 ### `GET /api/liquidaciones-terceros/autocompletar-nomina`
 
+Los conceptos adicionales del desprendible se importan como filas laborales
+individuales del conductor y la placa. Para estos conceptos se usa únicamente
+el mes y año de `liquidaciones.periodo_end`; el rango de días del ciclo no
+los reparte entre dos meses. Si hay varias liquidaciones del mismo conductor
+que terminan en el mes, se suman los importes del mismo concepto. Los valores
+negativos se conservan como deducciones. `cierre_id` es opcional y permite
+excluir las filas que se descartaron expresamente en ese cierre. Al sincronizar
+un cierre existente se conservan sus filas dinámicas, con las cantidades y
+tarifas que se hayan editado en la hoja. El borrador nuevo recibe las filas
+importadas sin afectar otros cierres.
+
 Arma los costos laborales del cierre desde las liquidaciones de nómina del
 vehículo. El ciclo de nómina va del 21 al 20, así que un mes natural lo parten
 dos ciclos: del ciclo que **cierra** en el mes se copian días, salario y auxilio
@@ -513,35 +523,26 @@ los gastos de vehículo que falten y recalcula la cascada.
 | 400 | `conductores` no es arreglo, falta `conductor_id` o `dias` negativo o no numérico |
 | 409 | Cierre inexistente o en estado bloqueado (el mensaje contiene «estado» o «no encontrado») |
 
-### `PUT /api/liquidaciones-terceros/:id/novedades-conductores`
-
-**Body** `{ "novedades_conductores": { "<conductorId>": [{ "id": "uuid", "tipo": "VACACIONES", "fecha_inicio": "2026-08-01", "fecha_fin": "2026-08-05", "dias": 5, "observaciones": null }] } }`.
-
-Reemplaza el mapa completo de novedades de la hoja. Se admiten `VACACIONES`,
-`INCAPACIDAD`, `LICENCIA_MATERNIDAD` y `LICENCIA_PATERNIDAD`. Cada novedad lleva
-un periodo completo (los días calendario se calculan incluyendo ambas fechas)
-o solo `dias` como entero positivo. Los conductores deben estar en los costos
-laborales vivos del cierre; no se permite editar una hoja liquidada o cerrada.
-El detalle del cierre devuelve el mismo mapa en `novedades_conductores`.
-
-**Respuesta 200** — `{ cierreId, anio, mes, novedades_conductores }`.
-
 ### `POST /api/liquidaciones-terceros/:id/conceptos-fila` y `DELETE /api/liquidaciones-terceros/conceptos-fila/:conceptoId`
 
-`POST` **Body** `{ tipo: "GASTO_OPERATIVO" | "ANTICIPO", concepto, dias, valor_unitario, observaciones? }`.
+`POST` **Body** `{ tipo: "COSTO_LABORAL" | "GASTO_OPERATIVO" | "ANTICIPO", concepto, dias, valor_unitario, conductor_id?, observaciones? }`.
 La fila nace en el servidor para que llegue con id y binding; el concepto se
 normaliza a mayúsculas con guiones bajos y en ANTICIPOS `observaciones` lleva
-la fecha. Los impuestos no se añaden así: salen de la configuración.
+la fecha. `COSTO_LABORAL` requiere un conductor presente en ese cierre y crea
+un concepto libre únicamente para ese conductor y esa hoja; no puede usar los
+nombres reservados para conceptos estándar. Su valor se calcula como `dias ×
+valor_unitario`, se suma al total laboral y no altera las bases de prestaciones
+ni seguridad social. Los impuestos no se añaden así: salen de la configuración.
 Responde `{ id, mes, anio, totales }`.
 
-`DELETE` marca la fila (solo GASTO_OPERATIVO o ANTICIPO) y responde
+`DELETE` marca la fila (solo GASTO_OPERATIVO, ANTICIPO o concepto libre de conductor) y responde
 `{ cierreId, mes, anio, totales }`.
 
 ### `PATCH /api/liquidaciones-terceros/conceptos-fila/:conceptoId`
 
 **Body** `{ field, value, base_version }`. El PATCH edita una celda por vez y
-usa la versión de la fila para detectar conflictos. En `GASTO_OPERATIVO` se
-admiten `concepto`, `dias` y `valor_unitario`; en `ANTICIPO`, `concepto`,
+usa la versión de la fila para detectar conflictos. En `GASTO_OPERATIVO` y en
+conceptos libres de conductor se admiten `concepto`, `dias` y `valor_unitario`; en `ANTICIPO`, `concepto`,
 `observaciones` (la fecha) y `valor_unitario`. Cambiar concepto lo normaliza a
 mayúsculas con guiones bajos y no permite duplicados en la sección. Los totales
 y gastos derivados se recalculan en servidor; una edición manual de gasto

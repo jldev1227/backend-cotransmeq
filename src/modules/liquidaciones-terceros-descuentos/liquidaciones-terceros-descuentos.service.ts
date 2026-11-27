@@ -12,6 +12,7 @@ import { CierreEstadoService } from "./cierre-estado.service";
 import { BLOQUE_CONDUCTOR_MANUAL } from "./reglas-conceptos";
 import { ConfigValoresTerceroService } from "./config-valores-tercero.service";
 import { calcularPorcentajesEfectivos, repartirValor } from "./reparto-propietarios";
+import { adicionalesDelMes, adicionalesNoDescartados } from './adicionales-nomina';
 
 const MESES = [
   'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
@@ -80,6 +81,7 @@ export interface AutocompletarNominaInput {
   placa: string;
   mes: number;
   anio: number;
+  cierre_id?: string;
 }
 
 export interface GenerarBorradorInput {
@@ -112,23 +114,6 @@ export interface GenerarBorradorInput {
 
 const nominaCache = new Map<string, { data: any; ts: number }>();
 const NOMINA_CACHE_TTL = 30_000;
-
-const TIPOS_NOVEDAD_CONDUCTOR = new Set([
-  'VACACIONES',
-  'INCAPACIDAD',
-  'LICENCIA_MATERNIDAD',
-  'LICENCIA_PATERNIDAD',
-]);
-
-function fechaIsoValida(valor: unknown): valor is string {
-  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false;
-  const fecha = new Date(`${valor}T00:00:00.000Z`);
-  return Number.isFinite(fecha.getTime()) && fecha.toISOString().slice(0, 10) === valor;
-}
-
-function diasEntreFechas(inicio: string, fin: string): number {
-  return Math.floor((Date.parse(`${fin}T00:00:00.000Z`) - Date.parse(`${inicio}T00:00:00.000Z`)) / 86_400_000) + 1;
-}
 
 async function getNominaCached(input: { placa: string; mes: number; anio: number }) {
   const key = `${input.placa}|${input.mes}|${input.anio}`;
@@ -230,8 +215,11 @@ function efectivoDePropietario(p: any, filas: any[]): number {
 
 function serializeLiquidacionTerceroFinal(item: any) {
   if (!item) return null;
+  // El campo histórico se conserva en PostgreSQL, pero ya no forma parte del detalle funcional.
+  const datos = { ...item };
+  delete datos.novedades_conductores;
   return {
-    ...item,
+    ...datos,
     valor_unitario: toNumber(item.valor_unitario),
     cantidad: toNumber(item.cantidad),
     total_facturado: toNumber(item.total_facturado),
@@ -413,7 +401,7 @@ export const LiquidacionesTercerosDescuentosService = {
   // ── AUTOCOMPLETAR DESDE NÓMINA ──
 
   async autocompletarNomina(input: AutocompletarNominaInput) {
-    const { placa, mes, anio } = input;
+    const { placa, mes, anio, cierre_id } = input;
 
     console.log(`[autocompletarNomina] placa=${placa}, mes=${mes}, anio=${anio}`);
 
@@ -432,6 +420,29 @@ export const LiquidacionesTercerosDescuentosService = {
     const periodoStart = `${anio}-${String(mes).padStart(2, '0')}-01`;
     const periodoEnd = `${anio}-${String(mes).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     const mesKey = `${anio}-${String(mes).padStart(2, '0')}`;
+
+    /// Los bonos y recargos se asignan al mes de servicio; estos adicionales
+    /// pertenecen exclusivamente a la nómina cuyo periodo termina en el mes.
+    const nominasConAdicionales = await prisma.liquidaciones.findMany({
+      where: {
+        deleted_at: null,
+        liquidacion_vehiculo: { some: { vehiculo_id: vehiculo.id, deleted_at: null } },
+        periodo_end: { gte: periodoStart, lte: periodoEnd },
+      },
+      select: { conductor_id: true, periodo_end: true, conceptos_adicionales: true },
+    });
+    let adicionalesNomina = adicionalesDelMes(nominasConAdicionales, anio, mes);
+    if (cierre_id) {
+      const bajas = await prisma.liquidacion_tercero_final_concepto.findMany({
+        where: {
+          liquidacion_tercero_final_id: cierre_id,
+          deleted_at: { not: null },
+          observaciones: 'NOMINA_ADICIONAL_DESCARTADO',
+        },
+        select: { conductor_id: true, concepto: true },
+      });
+      adicionalesNomina = adicionalesNoDescartados(adicionalesNomina, bajas);
+    }
 
     const nominaInclude = {
       conductores: {
@@ -961,6 +972,28 @@ export const LiquidacionesTercerosDescuentosService = {
       return rest;
     });
 
+    /// Una hoja con solo conceptos adicionales sigue necesitando su bloque
+    /// de conductor para que la fila importada pueda verse y editarse.
+    for (const adicional of adicionalesNomina) {
+      if (conductoresData.some((cd) => cd.conductor_id === adicional.conductor_id)) continue;
+      const conductor = await prisma.conductores.findUnique({
+        where: { id: adicional.conductor_id },
+        select: { nombre: true, apellido: true, numero_identificacion: true },
+      });
+      if (!conductor) continue;
+      conductoresData.push({
+        conductor_id: adicional.conductor_id,
+        nombre: `${conductor.nombre} ${conductor.apellido}`.trim(),
+        identificacion: conductor.numero_identificacion || '',
+        dias_laborados: 0,
+        salario_devengado: 0,
+        auxilio_transporte: 0,
+        dias_auxilio_transporte: 0,
+        total_recargos: 0,
+        total_bonificaciones: 0,
+      });
+    }
+
     const configDescuentos = await this.obtenerConfiguracion();
     const valoresUnitarios = await ConfigValoresTerceroService.obtener();
     const conceptosGenerados: ConceptoInput[] = [];
@@ -968,8 +1001,11 @@ export const LiquidacionesTercerosDescuentosService = {
     const ssConfig = configDescuentos.filter((c: any) => c.categoria === 'SEGURIDAD_SOCIAL' && c.activo);
 
     const VALOR_DIA_CONDUCTOR = valoresUnitarios.valor_dia_conductor_nomina;
+    const adicionalesEmitidos = new Set<string>();
 
     for (const cd of conductoresData) {
+      const esPrimeraFilaDelConductor = !adicionalesEmitidos.has(cd.conductor_id);
+      adicionalesEmitidos.add(cd.conductor_id);
       const conductorInfo = {
         id: cd.conductor_id,
         nombre: cd.nombre,
@@ -1097,6 +1133,23 @@ export const LiquidacionesTercerosDescuentosService = {
         valor_total: cd.total_recargos,
         calculado: true,
       });
+
+      if (esPrimeraFilaDelConductor) {
+        for (const adicional of adicionalesNomina) {
+          if (adicional.conductor_id !== cd.conductor_id) continue;
+          conceptosGenerados.push({
+            tipo: 'COSTO_LABORAL',
+            concepto: adicional.concepto,
+            conductor_id: cd.conductor_id,
+            conductor: conductorInfo,
+            dias: 1,
+            valor_unitario: adicional.valor,
+            valor_total: adicional.valor,
+            calculado: false,
+            observaciones: 'NOMINA_ADICIONAL',
+          });
+        }
+      }
 
       const salarioCalculado = cd.dias_laborados * VALOR_DIA_CONDUCTOR;
       const basePrestaciones = salarioCalculado + cd.auxilio_transporte + cd.total_recargos;
@@ -3213,104 +3266,6 @@ export const LiquidacionesTercerosDescuentosService = {
     }
     if (activas.length > 0) return { numeros: activas, anulada: false };
     return { numeros: anuladas, anulada: anuladas.length > 0 };
-  },
-
-  /** Guarda los periodos de novedad del personal que aparece en este cierre. */
-  async guardarNovedadesConductores(
-    liquidacionTerceroFinalId: string,
-    novedadesPorConductor: Record<string, Array<Record<string, any>>>,
-  ) {
-    if (!novedadesPorConductor || typeof novedadesPorConductor !== 'object' || Array.isArray(novedadesPorConductor)) {
-      throw new Error('novedades_conductores debe ser un mapa por conductor');
-    }
-
-    const normalizadas: Record<string, any[]> = {};
-    for (const [conductorId, novedades] of Object.entries(novedadesPorConductor)) {
-      if (!Array.isArray(novedades) || novedades.length > 30) {
-        throw new Error(`Lista de novedades inválida para ${conductorId}`);
-      }
-      normalizadas[conductorId] = novedades.map((novedad) => {
-        const tipo = String(novedad?.tipo ?? '');
-        if (!TIPOS_NOVEDAD_CONDUCTOR.has(tipo)) throw new Error(`Tipo de novedad inválido: ${tipo}`);
-
-        const inicio = novedad.fecha_inicio || null;
-        const fin = novedad.fecha_fin || null;
-        if ((inicio && !fin) || (!inicio && fin)) {
-          throw new Error('El periodo de la novedad requiere fecha inicial y final');
-        }
-        if (inicio && (!fechaIsoValida(inicio) || !fechaIsoValida(fin))) {
-          throw new Error('Las fechas de la novedad deben usar formato AAAA-MM-DD');
-        }
-        if (inicio && fin < inicio) throw new Error('La fecha final no puede ser anterior a la inicial');
-
-        const diasIngresados = novedad.dias == null || novedad.dias === '' ? null : Number(novedad.dias);
-        const dias = inicio && fin ? diasEntreFechas(inicio, fin) : diasIngresados;
-        if (dias == null || !Number.isInteger(dias) || dias <= 0) {
-          throw new Error('Indica un periodo o una cantidad de días mayor que cero');
-        }
-
-        return {
-          id: typeof novedad.id === 'string' && novedad.id ? novedad.id : randomUUID(),
-          tipo,
-          fecha_inicio: inicio,
-          fecha_fin: fin,
-          dias,
-          observaciones: typeof novedad.observaciones === 'string'
-            ? novedad.observaciones.trim().slice(0, 500) || null
-            : null,
-        };
-      });
-    }
-
-    return prisma.$transaction(async (tx) => {
-      const cierre = await tx.liquidacion_tercero_final.findFirst({
-        where: { id: liquidacionTerceroFinalId, deleted_at: null },
-        select: {
-          id: true,
-          estado: true,
-          version: true,
-          mes: true,
-          anio: true,
-          conceptos: {
-            where: { tipo: 'COSTO_LABORAL', deleted_at: null, conductor_id: { not: null } },
-            select: { conductor_id: true },
-          },
-        },
-      });
-      if (!cierre) throw new Error('Cierre no encontrado');
-      if (['LIQUIDADA', 'APROBADA', 'PAGADA', 'FACTURADA', 'ANULADA', 'REEMPLAZADA'].includes(cierre.estado)) {
-        throw new Error(`No se pueden editar novedades en estado ${cierre.estado}`);
-      }
-
-      const conductoresActivos = new Set(cierre.conceptos.map((c) => c.conductor_id).filter(Boolean));
-      for (const conductorId of Object.keys(normalizadas)) {
-        if (!conductoresActivos.has(conductorId)) {
-          throw new Error(`El conductor ${conductorId} no pertenece a este cierre`);
-        }
-      }
-
-      const actualizado = await tx.liquidacion_tercero_final.updateMany({
-        where: {
-          id: cierre.id,
-          version: cierre.version,
-          estado: cierre.estado,
-          deleted_at: null,
-        },
-        data: {
-          novedades_conductores: normalizadas as any,
-          version: { increment: 1 },
-          updated_at: new Date(),
-        },
-      });
-      if (!actualizado.count) throw new Error('El cierre cambió mientras se guardaban las novedades; recarga e inténtalo de nuevo');
-
-      return {
-        cierreId: cierre.id,
-        anio: cierre.anio,
-        mes: cierre.mes,
-        novedades_conductores: normalizadas,
-      };
-    });
   },
 
   async obtenerPorId(liquidacionTerceroFinalId: string, opts: { includeDeleted?: boolean } = {}) {
